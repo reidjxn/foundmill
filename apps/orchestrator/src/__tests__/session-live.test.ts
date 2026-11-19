@@ -12,23 +12,24 @@
  * they are used up (SEC2 S2).
  */
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { costCoveredMinor } from "@foundmill/config";
 import os from "node:os";
 import path from "node:path";
 import { BYOK_CREDENTIAL_KIND, modelBudgetState, openApprovalItem, periodOf, repos, resumeBusinessAgents, workspaceSnapshots } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
-import { meter, type ModelId } from "@foundmill/models";
+import { meter, MODEL_ENDPOINTS, MODELS, type ModelId } from "@foundmill/models";
 import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxProvider, type SandboxSpecInput } from "@foundmill/sandbox";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { grant, initialVersionFromTemplate, listTemplates, PLATFORM_BASE_TOOLS, WEB_TOOLS } from "@foundmill/agents";
+import { attachedSkills, getLibrarySkill, grant, initialVersionFromTemplate, listTemplates, LOADED_SKILLS_HEADER, NO_TOOL_LOOP_PRELOAD_BODIES, PLATFORM_BASE_TOOLS, SESSION_PRELOAD_BODIES, SKILLS_HEADER, SKILLS_LOADED_ONLY_SENTENCE, SKILLS_READ_SENTENCE, WEB_TOOLS } from "@foundmill/agents";
 import { isUntrusted } from "@foundmill/connectors";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { MIN_SESSION_CAP_MINOR } from "../cycle-contract";
 import { UNDER_FLOOR_SUMMARY } from "../activities/session-budget";
 import { openAgentSession } from "../activities/dispatch";
-import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES } from "../activities/session";
+import { ACCEPTANCE_BRIEF, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_UNMET_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, FREE_PLAN_SWITCH_NOTE, freeSessionModel, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES, sessionSystemPrompt } from "../activities/session";
 import { SessionDrain } from "../drain";
 import { emitEvent } from "../events";
 import type { SessionResult } from "../activities/types";
@@ -155,6 +156,8 @@ const previousEnv = { ...process.env };
 
 beforeAll(async () => {
   t = await setupOrchestratorHarness({ prefix: "live" });
+  // These tests cover a paid plan's sessions; a free business runs every session on the free plan's model (WP-13 T4).
+  await repos.businesses.update(t.db, t.businessId, { planTier: "pro" });
   workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "fm-live-ws-"));
   provider = fakeSandboxProvider();
   Object.assign(process.env, SECRET_HOST_ENV);
@@ -657,26 +660,63 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
   });
 
-  it("the agent's skills from the library or files reach its system prompt in their own section after the house rules and instructions", async () => {
+  it("the agent's skills from the library or files reach its system prompt as an index after the house rules and instructions; with read_skill granted, a body the task does not match is read on demand (WP-06 T4)", async () => {
     const worker = await repos.agents.get(t.db, t.businessId, t.workerId);
     await repos.skills.upsertAddedDefinition(t.db, t.businessId, { agentType: worker.agentType, skillKey: "library_meeting_notes", name: "Meeting notes", description: "Notes and action items.", group: "execution", source: "library", instructionsMd: "# Meeting notes\n\nDecisions first, then action items with owners." });
     await repos.skills.upsertForAgent(t.db, t.businessId, t.workerId, [{ skillKey: "library_meeting_notes", group: "execution", tested: null, displayed: 8, potential: 8 }]);
     try {
       const { sessionId, input, launch } = await start();
+      expect(launch.allowedTools).toContain("platform:read_skill");
       script = success(sessionId);
       expect((await acts.runAgentSession(input, launch)).outcome).toBe("done");
       const system = String(calls.at(-1)!.options.systemPrompt);
       expect(system.startsWith("## House rules")).toBe(true);
-      const section = system.indexOf("## Skills");
+      const section = system.indexOf(SKILLS_HEADER);
       expect(section).toBeGreaterThan(system.indexOf("## Your instructions"));
-      expect(system.indexOf("Decisions first, then action items with owners.")).toBeGreaterThan(section);
-      expect(system).toContain('<skill name="Meeting notes" source="library">');
+      // The index line carries the key read_skill takes and the catalog's whenToUse (the library follows the catalog).
+      expect(system).toContain(`- Meeting notes [library_meeting_notes]: ${getLibrarySkill("meeting_notes")!.whenToUse}`);
+      expect(system).toContain(SKILLS_READ_SENTENCE);
+      // "Shortlist three suppliers" matches no word of the skill: its body is not loaded, and the stored text never is.
+      expect(system).not.toContain(LOADED_SKILLS_HEADER);
+      expect(system).not.toContain("Decisions first, then action items with owners.");
       // A skill changes nothing else: the tools the session may call are the same with or without it.
       expect((calls.at(-1)!.options.allowedTools as string[]).every((x) => x.startsWith("mcp__"))).toBe(true);
     } finally {
       await repos.skills.removeFromAgent(t.db, t.businessId, t.workerId, "library_meeting_notes");
       await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
     }
+  });
+
+  it("sessionSystemPrompt: index mode when the read_skill grant is present, the loaded-bodies form when it is not (WP-06 T4)", () => {
+    const template = listTemplates()[0]!;
+    const skills = attachedSkills([], [
+      { skillKey: "library_meeting_notes", name: "Meeting notes", source: "library", description: "Notes and action items.", instructionsMd: "stored" },
+      { skillKey: "upload_call_recap_aaaaaaaa", name: "Call recap", source: "upload", description: "Use after a call with a customer to write the recap.", instructionsMd: "# Call recap\n\nOpen with what the customer asked for." },
+      { skillKey: "upload_pricing_page_bbbbbbbb", name: "Pricing page", source: "upload", description: "Use when writing a pricing page.", instructionsMd: "# Pricing page\n\nThree tiers at most." },
+    ]);
+    const task = { kind: "research" as const, title: "Notes from the customer call", goalMd: "Write the meeting notes and the call recap." };
+    const prompt = (toolRefs: string[]) => sessionSystemPrompt({ business: { name: "Acme", glossary: {} }, instructions: template.instructions, description: template.description, briefText: "Brief.", skills, task, toolRefs });
+    const reader = prompt(["platform:read_product", "platform:read_skill"]);
+    const noReader = prompt(["platform:read_product"]);
+    for (const p of [reader, noReader]) {
+      for (const s of skills) expect(p).toContain(`- ${s.name} [${s.key}]: `);
+      // The body chosen for the task goes after the brief, outside the cached prefix.
+      expect(p.indexOf(LOADED_SKILLS_HEADER)).toBeGreaterThan(p.indexOf("## Business brief"));
+      expect(p).not.toContain("Three tiers at most.");
+    }
+    // With read_skill: the index says to read a skill, and one body (SESSION_PRELOAD_BODIES) is loaded up front.
+    expect(reader).toContain(SKILLS_READ_SENTENCE);
+    expect(reader.slice(reader.indexOf(LOADED_SKILLS_HEADER)).match(/<skill /g)).toHaveLength(SESSION_PRELOAD_BODIES);
+    // Without it: only what is loaded is there, and two bodies (NO_TOOL_LOOP_PRELOAD_BODIES) are.
+    expect(noReader).toContain(SKILLS_LOADED_ONLY_SENTENCE);
+    expect(noReader).not.toContain(SKILLS_READ_SENTENCE);
+    expect(noReader.slice(noReader.indexOf(LOADED_SKILLS_HEADER)).match(/<skill /g)).toHaveLength(NO_TOOL_LOOP_PRELOAD_BODIES);
+    expect(noReader).toContain("Open with what the customer asked for.");
+    // The platform wildcard holds read_skill too, and the prefix through the Skills index is the same in both forms but
+    // for the one sentence.
+    expect(prompt(["platform:*"])).toContain(SKILLS_READ_SENTENCE);
+    const prefix = (p: string) => p.slice(0, p.indexOf("## Glossary") > 0 ? p.indexOf("## Glossary") : p.indexOf("## Business brief"));
+    expect(prefix(reader).replace(SKILLS_READ_SENTENCE, "")).toBe(prefix(noReader).replace(SKILLS_LOADED_ONLY_SENTENCE, ""));
   });
 
   it("a session started without the cycle's brief (Start, a plan, a playbook) still knows what the project is and can read the product notes (WP-05 T4)", async () => {
@@ -918,7 +958,8 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     };
     try {
       const result = await acts.runAgentSession(input, launch);
-      expect(calls.at(-1)!.options.maxBudgetUsd).toBe(0.5);
+      // 50 cents of credits pay for 38 cents at cost: credits are charged at cost plus the markup (Nov 17, 2026).
+      expect(calls.at(-1)!.options.maxBudgetUsd).toBe(costCoveredMinor(50) / 100);
       // The nudge's turn never ran: the session ended before it, with the turn that spent the credits booked.
       expect(nudgeSent).toBe(false);
       expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: CREDITS_USED_UP_SUMMARY, tokensIn: 100, tokensOut: 50, costMinor: 60 });
@@ -2309,6 +2350,130 @@ describe("honest outcomes: a task that is not code is done only when its agent r
     await acts.finishSession(input, launch, result);
     expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ simulated: true });
   });
+
+  describe("acceptance lines are checked against what the session did (founder, Nov 16, 2026)", () => {
+    const LINES = ["Two suppliers compared on price", "A sample request sent to one supplier"];
+    const linedTask = async (title: string, deps = liveDeps) => {
+      const task = await repos.tasks.create(t.db, t.businessId, { kind: "research", title, goalMd: "Find suppliers.", acceptance: LINES as never, assigneeAgentId: t.workerId, status: "ready" });
+      await repos.tasks.setStatus(t.db, t.businessId, task.id, "running", { force: true });
+      const sessionId = await openSessionRow(t, t.workerId, task.id);
+      const input = { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId };
+      const a = createSessionActivities(deps);
+      return { task, sessionId, input, acts: a, launch: await a.prepareSession(input) };
+    };
+    const staging = () => ({ ...liveDeps, env: { ...liveDeps.env, APP_ENV: "staging" as const } });
+    const BODY = "## Price\n\nGreenCup is $0.11 a cup; Leafware is $0.16.";
+    const REAL_PAGE = JSON.stringify({ ok: true, data: { url: "https://greencup.example", text: "GreenCup: $0.11" } });
+    const REAL_SEND = JSON.stringify({ ok: true, data: { messageId: "m-1" } });
+    const SIMULATED_SEND = JSON.stringify({ ok: true, data: { messageId: "m-1" }, simulated: true, notice: "Simulated: nothing was sent." });
+    /** A session: save_report (unless `noReport`), a page read, a send with `sendResult`, then complete_task with `acceptance`. */
+    const session = (taskId: string, sessionId: string, acceptance: unknown, opts: { noReport?: boolean; sendResult?: string } = {}) =>
+      async function* () {
+        yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+        if (!opts.noReport) {
+          yield toolUse("tu-report", "mcp__platform__save_report", { taskId, title: "Suppliers compared", bodyMd: BODY });
+          yield toolResult("tu-report", JSON.stringify({ reportId: "r", taskId, title: "Suppliers compared" }));
+        }
+        yield toolUse("tu-page", "mcp__web__fetch_page", { url: "https://greencup.example" });
+        yield toolResult("tu-page", REAL_PAGE);
+        yield toolUse("tu-send", "mcp__platform_mail__send_mail", { to: "sales@greencup.example", subject: "Samples", text: "Could you send samples?" });
+        yield toolResult("tu-send", opts.sendResult ?? REAL_SEND);
+        yield toolUse("tu-done", "mcp__platform__complete_task", { taskId, summary: "Compared and asked for samples.", ...(acceptance === undefined ? {} : { acceptance }) });
+        yield toolResult("tu-done", JSON.stringify({ id: taskId, status: "done" }));
+        yield resultOf(modelUsage(10, 5, 0.01));
+      };
+    const allMet = [{ line: 1, met: true, reportSection: "Price" }, { line: 2, met: true, tool: "send_mail" }];
+
+    it("every line met, with a saved report, ends done; the brief numbers the lines and says how to report them", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers and ask for samples", staging());
+      let first = "";
+      const run = session(task.id, sessionId, allMet);
+      script = async function* (call) {
+        first = (await promptsOf(call).next()).value?.message.content ?? "";
+        yield* run();
+      };
+      const result = await a.runAgentSession(input, launch);
+      expect(first).toContain("## Acceptance criteria\n1. Two suppliers compared on price\n2. A sample request sent to one supplier");
+      expect(first).toContain(ACCEPTANCE_BRIEF);
+      expect(result.outcome).toBe("done");
+      expect((await a.finishSession(input, launch, result)).taskStatus).toBe("done");
+      expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ outcome: "success" });
+    });
+
+    it("a line the agent marks not met ends blocked no_result, and the summary names that line once", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (one line short)");
+      script = session(task.id, sessionId, [allMet[0], { line: 2, met: false }]);
+      const result = await a.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "no_result", reason: `${ACCEPTANCE_UNMET_REASON}: line 2` });
+      expect(result.summary).toBe(`Blocked: Test Engineer ended "${task.title}" with 1 of its 2 lines not met: “A sample request sent to one supplier”.`);
+      expect(result.summary.split("A sample request").length - 1).toBe(1);
+      expect((await a.finishSession(input, launch, result)).taskStatus).toBe("blocked");
+      expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("blocked");
+      expect((await blockedOf(sessionId))[0]?.payload).toMatchObject({ reason: "no_result" });
+      expect(await completedOf(sessionId)).toEqual([]);
+    });
+
+    it("complete_task without acceptance results leaves every line unmet", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (no results)");
+      script = session(task.id, sessionId, undefined);
+      const result = await a.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "no_result" });
+      expect(result.summary).toBe(`Blocked: Test Engineer ended "${task.title}" with all 2 of its lines not met: “Two suppliers compared on price”; “A sample request sent to one supplier”.`);
+    });
+
+    it("on a real project, a line met only on a simulated call is not met (T2's rule, per line), though other calls were real", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (simulated send)", staging());
+      script = session(task.id, sessionId, allMet, { sendResult: SIMULATED_SEND });
+      const result = await a.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "no_result", reason: `${ACCEPTANCE_UNMET_REASON}: line 2` });
+      expect(result.summary).toContain("“A sample request sent to one supplier”");
+      expect(result.summary).not.toContain("Two suppliers compared");
+    });
+
+    it("on a sample project a simulated call still counts, as WP-05 T2 allows there", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (sample, simulated send)");
+      script = session(task.id, sessionId, allMet, { sendResult: SIMULATED_SEND });
+      expect((await a.runAgentSession(input, launch)).outcome).toBe("done");
+    });
+
+    it("a line met on a tool this session never ran is not met", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (tool never ran)");
+      script = session(task.id, sessionId, [allMet[0], { line: 2, met: true, tool: "mcp__sendgrid__send_mail_batch" }]);
+      const result = await a.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "blocked", reason: `${ACCEPTANCE_UNMET_REASON}: line 2` });
+    });
+
+    it("a platform tool never stands behind a line, and a cited connector must be the one that ran", async () => {
+      const platform = await linedTask("Compare suppliers (platform tool cited)");
+      script = session(platform.task.id, platform.sessionId, [allMet[0], { line: 2, met: true, tool: "save_report" }]);
+      expect(await platform.acts.runAgentSession(platform.input, platform.launch)).toMatchObject({ outcome: "blocked", reason: `${ACCEPTANCE_UNMET_REASON}: line 2` });
+      const wrong = await linedTask("Compare suppliers (wrong connector)");
+      script = session(wrong.task.id, wrong.sessionId, [allMet[0], { line: 2, met: true, tool: "gmail:send_mail" }]);
+      expect(await wrong.acts.runAgentSession(wrong.input, wrong.launch)).toMatchObject({ outcome: "blocked", reason: `${ACCEPTANCE_UNMET_REASON}: line 2` });
+      const right = await linedTask("Compare suppliers (right connector)");
+      script = session(right.task.id, right.sessionId, [allMet[0], { line: 2, met: true, tool: "mcp__platform_mail__send_mail" }]);
+      expect((await right.acts.runAgentSession(right.input, right.launch)).outcome).toBe("done");
+    });
+
+    it("on a real project, a line shown only in a simulated report is not met", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (simulated report)", staging());
+      const run = session(task.id, sessionId, allMet);
+      script = async function* () {
+        // The gateway marked this session's report simulated (it read through a mock connector).
+        await repos.taskReports.save(t.db, t.businessId, { taskId: task.id, sessionId, agentId: t.workerId, title: "Suppliers compared", bodyMd: BODY, simulated: true });
+        yield* run();
+      };
+      expect(await a.runAgentSession(input, launch)).toMatchObject({ outcome: "blocked", reason: `${ACCEPTANCE_UNMET_REASON}: line 1` });
+    });
+
+    it("every line marked met but no report saved with save_report ends blocked, said once", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (no report)");
+      script = session(task.id, sessionId, [{ line: 1, met: true, tool: "fetch_page" }, { line: 2, met: true, tool: "send_mail" }], { noReport: true });
+      const result = await a.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "no_result", reason: `${ACCEPTANCE_UNMET_REASON}: no report saved; every line marked met` });
+      expect(result.summary).toBe(`Blocked: Test Engineer ended "${task.title}" without saving a report, so its result is not counted as done.`);
+    });
+  });
 });
 
 describe("not connected: the agent is told, and a hopeless session does not start (WP-05 T12)", () => {
@@ -2392,5 +2557,93 @@ describe("not connected: the agent is told, and a hopeless session does not star
     } finally {
       await t.h.pg.query("update businesses set is_demo = false where id = $1", [t.businessId]);
     }
+  });
+});
+
+describe("runAgentSession (live runner): a free business's session (WP-13 T4)", () => {
+  const ZAI_KEY = "zai-test-key-" + "z".repeat(32);
+  let glmActs: ReturnType<typeof createSessionActivities>;
+  beforeAll(() => {
+    glmActs = createSessionActivities({ ...liveDeps, env: { ...liveDeps.env, ZAI_API_KEY: ZAI_KEY, FREE_SESSION_MODEL: "glm" } });
+  });
+  beforeEach(async () => {
+    await resumeBusinessAgents(t.db, t.businessId);
+    await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+    await repos.businesses.update(t.db, t.businessId, { planTier: "free", modelBilling: "credits" });
+  });
+  afterEach(async () => {
+    await repos.businesses.update(t.db, t.businessId, { planTier: "pro" });
+  });
+  const start = async (activities: ReturnType<typeof createSessionActivities>, budgetMinor?: number) => {
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "research", title: `Free ${budgetMinor ?? "session"}`, goalMd: "Find suppliers.", assigneeAgentId: t.workerId, status: "ready", ...(budgetMinor ? { budgetMinor, currency: "USD" } : {}) });
+    const sessionId = await openSessionRow(t, t.workerId, task.id);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId };
+    return { sessionId, input, launch: await activities.prepareSession(input) };
+  };
+  const glmUsage = (inputTokens: number, outputTokens: number) => ({ [MODELS.glm]: { inputTokens, outputTokens, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 9.99 } });
+
+  it("runs on Z.ai's endpoint, every model slot on GLM, the key as a bearer token, no SDK budget, priced at GLM's own price", async () => {
+    const { sessionId, input, launch } = await start(glmActs);
+    expect(launch).toMatchObject({ modelKey: "glm", modelId: MODELS.glm, freePlan: true });
+    calls.length = 0;
+    script = async function* (call) {
+      await promptsOf(call).next();
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield { type: "assistant", message: { id: "g1", model: MODELS.glm, content: [{ type: "text", text: "Done." }], usage: { input_tokens: 2_000, output_tokens: 400 } } };
+      yield* reported();
+      yield { type: "result", subtype: "success", modelUsage: glmUsage(2_000, 400) };
+    };
+    const result = await glmActs.runAgentSession(input, launch);
+    const options = calls[0]!.options as { model: string; maxBudgetUsd?: number; env: Record<string, string> };
+    expect(options.model).toBe(MODELS.glm);
+    expect(options.maxBudgetUsd).toBeUndefined();
+    expect(options.env).toMatchObject({ ANTHROPIC_BASE_URL: MODEL_ENDPOINTS.zai.baseURL, ANTHROPIC_AUTH_TOKEN: ZAI_KEY, ANTHROPIC_DEFAULT_OPUS_MODEL: MODELS.glm, ANTHROPIC_DEFAULT_SONNET_MODEL: MODELS.glm, ANTHROPIC_DEFAULT_HAIKU_MODEL: MODELS.glm, ANTHROPIC_SMALL_FAST_MODEL: MODELS.glm, CLAUDE_CODE_SUBAGENT_MODEL: MODELS.glm });
+    expect(options.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(JSON.stringify(options.env)).not.toContain(MODEL_KEY);
+    // The SDK's own costUSD (9.99) is not used: 2,000 in and 400 out at GLM's list price.
+    expect(result.costMicroMinor).toBe(meter({ inputTokens: 2_000, outputTokens: 400, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, MODELS.glm).costMicroMinor);
+  });
+
+  it("stops at its budget from its own metered cost, blocked on the budget", async () => {
+    const { sessionId, input, launch } = await start(glmActs, 2);
+    calls.length = 0;
+    script = async function* (call) {
+      await promptsOf(call).next();
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      // 200,000 in and 10,000 out at GLM's price is 3.5 cents, over the task's 2-cent budget.
+      yield { type: "assistant", message: { id: "g2", model: MODELS.glm, content: [{ type: "text", text: "Reading everything." }], usage: { input_tokens: 200_000, output_tokens: 10_000 } } };
+      yield { type: "result", subtype: "success", modelUsage: glmUsage(200_000, 10_000) };
+    };
+    const result = await glmActs.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget" });
+    expect(interrupts.length).toBeGreaterThan(0);
+  });
+
+  it("does not start while the month's free-plan cap is held, and says why and what keeps the founder going (WP-13 T6)", async () => {
+    const held = createSessionActivities({ ...liveDeps, env: { ...liveDeps.env, FREE_PLAN_MONTHLY_CAP_CENTS: 0 } });
+    const { input, launch } = await start(held);
+    calls.length = 0;
+    const result = await held.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: expect.stringMatching(/^Foundmill's included AI is used up for this month! It is back on [A-Z][a-z]{2} 1\. To keep going now, connect your own Anthropic key\.$/) });
+    expect(calls).toHaveLength(0);
+    // A paid plan is never held.
+    await repos.businesses.update(t.db, t.businessId, { planTier: "pro" });
+    const paid = await start(held);
+    expect(paid.launch.freePlan).toBeUndefined();
+  });
+
+  it("runs on the agent's own model on the platform key by default (WP-13 T8), Haiku 5.5 or GLM only when chosen, and refuses a switch to Opus", async () => {
+    const { launch } = await start(acts);
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    expect(launch).toMatchObject({ modelKey: agent.modelKey, freePlan: true });
+    expect(launch.modelKey).not.toBe("haiku");
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "routed" }).modelKey).toBe("opus");
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "haiku" }).modelKey).toBe("haiku");
+    // GLM without Foundmill's Z.ai key falls back to the agent's own model, never to Haiku 5.5.
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm" }).modelKey).toBe("opus");
+    expect(freeSessionModel("worker", "glm", { FREE_SESSION_MODEL: "routed", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
+    expect(freeSessionModel("worker", "haiku", { FREE_SESSION_MODEL: "routed" }).modelKey).toBe("haiku");
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
+    expect(FREE_PLAN_SWITCH_NOTE).toMatch(/paid plan/);
   });
 });

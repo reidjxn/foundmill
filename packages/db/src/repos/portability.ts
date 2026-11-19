@@ -59,6 +59,12 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   agent_sessions: t(s.agentSessions, "development"),
   // 0110: what each finished task reported (findings, sources, the recommendation).
   task_reports: t(s.taskReports, "development"),
+  // 0124: the project's site and its releases (the manifests; the bytes are workspace_blobs, left out). The preview
+  // token is a link credential, not data.
+  sites: t(s.sites, "development"),
+  site_releases: t(s.siteReleases, "development", { omit: ["previewToken"] }),
+  // 0131: the project's payment links (the founder's own; their URLs are what visitors are sent to).
+  pay_links: t(s.payLinks, "development"),
   // team
   departments: t(s.departments, "team"),
   department_members: t(s.departmentMembers, "team"),
@@ -99,6 +105,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   mentions: t(s.mentions, "crm"),
   field_provenance: t(s.fieldProvenance, "crm"),
   contact_consents: t(s.contactConsents, "crm"),
+  project_updates: t(s.projectUpdates, "distribution"),
   merge_log: t(s.mergeLog, "crm"),
   // finance
   accounts: t(s.accounts, "finance", { omit: ["externalId"] }),
@@ -164,6 +171,7 @@ export const EXPORT_EXCLUDED_TABLES: Readonly<Record<string, string>> = {
   showcase_requests: "The house's own asks to feature other projects (only the house business has rows): about other projects, not this one's data to carry elsewhere.",
   showcase_consents: "Each founder's own answer to a showcase ask: one person's own answer, readable only by them; nothing was posted from it.",
   founder_departures: "When a founder's standing ended and who ended it, kept so a founder demoted or removed by someone else can still hear about and cancel a deletion; the People in the archive are who is in the project now.",
+  project_update_deliveries: "Which follower each update reached: the send's idempotency record (contact ids and states only); the updates themselves and their counts are in the archive.",
   founder_cancel_links: "One-click links that cancel a deletion request, kept as token hashes for the emails that carry them: not the business's data to carry elsewhere.",
   composer_buffer: "Inbox notes waiting to be written (internal queue).",
   workspace_blobs: "Sandbox file snapshots; the code reaches your repository through pushes.",

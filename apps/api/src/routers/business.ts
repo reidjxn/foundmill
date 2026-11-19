@@ -23,6 +23,7 @@ import { signoffViews, startDistribution } from "../services/signoff";
 import type { Context } from "../context";
 import { adminArchivedProcedure, adminProcedure, archivedBusinessProcedure, assertLiveOpen, audit, businessProcedure, emit, Id, ownerArchivedProcedure, ownerProcedure, protectedProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
+import { assertEntryPlan } from "../services/payments";
 
 /** How the signed-in person stands to the example business (`business.example.get`). */
 export type ExampleMembership = "none" | "example" | "member";
@@ -363,6 +364,8 @@ export const businessRouter = router({
    */
   setBusinessMode: adminProcedure.input(z.object({ businessMode: z.enum(BUSINESS_MODES), reason: z.string().max(500).optional() })).mutation(async ({ ctx, input }) => {
     const from = ctx.business.businessMode;
+    // Paid entry (WP-09 T16): Automated mode runs cycles on its own, so it waits for the entry plan like Continue.
+    if (input.businessMode === "automated" && from !== "automated") await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
     const business = await ctx.rls(async (tx) => {
       const changed = await repos.businesses.setBusinessMode(tx, ctx.businessId, input.businessMode);
       if (from !== input.businessMode) {
@@ -381,6 +384,19 @@ export const businessRouter = router({
    * every spend asks the founder first, whatever the mode (the gateway lowers each agent's approval threshold to it).
    * Null removes the business cap; each agent's own threshold then applies.
    */
+  /**
+   * Payment powers (founder, Nov 16, 2026): whether agents may create invoices and payment pages without asking in
+   * automated mode and on vacation. Only `inbound` exists; agent code never moves money out.
+   */
+  setPaymentPowers: adminProcedure.input(z.object({ paymentPowers: z.array(z.enum(["inbound"])).max(1) })).mutation(({ ctx, input }) =>
+    ctx.rls(async (tx) => {
+      const from = ctx.business.paymentPowers ?? [];
+      const business = await repos.businesses.setPaymentPowers(tx, ctx.businessId, input.paymentPowers);
+      if (from.join() !== business.paymentPowers.join()) await audit(tx, ctx, { action: "business.set_payment_powers", target: { kind: "business", id: ctx.businessId }, details: { from, to: business.paymentPowers } });
+      return business;
+    }),
+  ),
+
   setSpendCap: adminProcedure.input(z.object({ spendCapMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable() })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const from = ctx.business.spendCapMinor;
@@ -432,9 +448,13 @@ export const businessRouter = router({
         /** The ceiling's currency; absent: the business's own (0025). */
         currency: CurrencyCode.optional(),
         wakeEvents: z.array(z.enum(EVENT_TYPES)).max(EVENT_TYPES.length).default(["credential.expiring", "filing.due", "runway.threshold_crossed"]),
+        /** Decided when the vacation starts (founder, Nov 16, 2026): absent keeps the business's current payment powers. */
+        paymentPowers: z.array(z.enum(["inbound"])).max(1).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Paid entry (WP-09 T16): a vacation's cycles are AI runs, so it waits for the entry plan like Continue.
+      await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
       // Signing is a hard gate: never part of the Chief of Staff's authority, whatever the dialog sent.
       const authority = input.authority.filter((d) => d !== "sign_contracts");
       const currency = (input.currency ?? ctx.business.currency).toUpperCase();
@@ -447,6 +467,11 @@ export const businessRouter = router({
       // with the vacation the first started, and nothing of its own (event, audit) is kept.
       const started = await ctx
         .rls(async (tx) => {
+          if (input.paymentPowers !== undefined) {
+            const from = ctx.business.paymentPowers ?? [];
+            const updated = await repos.businesses.setPaymentPowers(tx, ctx.businessId, input.paymentPowers);
+            if (from.join() !== updated.paymentPowers.join()) await audit(tx, ctx, { action: "business.set_payment_powers", target: { kind: "business", id: ctx.businessId }, details: { from, to: updated.paymentPowers, at: "vacation_start" } });
+          }
           const h = await repos.holidays.start(tx, ctx.businessId, {
             untilAt: input.until.kind === "date" ? input.until.date : null,
             untilCondition: input.until.kind === "condition" ? { text: input.until.condition } : input.until.kind === "return" ? { text: "you return" } : null,

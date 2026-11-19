@@ -43,10 +43,10 @@
  * With PLATFORM_MAIL_DOMAIN unset every route answers 404, as if it did not exist. Bodies are capped before they are read
  * (app.ts: PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES).
  */
-import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_INVITATIONS_OFF_PATH, PLATFORM_NOTIFY_OFF_PATH, readInvitationsOffToken, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
-import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
-import { repos, awardFirstFollowerMilestone } from "@foundmill/db";
-import { FOLLOW_CONFIRM_PAGE, INVITATIONS_OFF_PAGE, JOINING_OFF_VARIANT, joiningOffPage, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY, builtOnWords } from "@foundmill/shared";
+import { DEV_PLATFORM_MAIL_SECRET, inboundReplyText, PLATFORM_INVITATIONS_OFF_PATH, PLATFORM_NOTIFY_OFF_PATH, readInvitationsOffToken, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
+import { APP_NAME } from "@foundmill/config";
+import { repos, awardFirstFollowerMilestone, showsBuiltOnMark } from "@foundmill/db";
+import { FOLLOW_CONFIRM_PAGE, INBOUND_STORED_DAILY_CAP, INVITATIONS_OFF_PAGE, JOINING_OFF_VARIANT, joiningOffPage, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY, builtOnWords, REPLY_WORDS, PLATFORM_BILLING_LIVE_KEY } from "@foundmill/shared";
 import { ingestPlatformEvents, writeEventRow } from "./ingest";
 import { writeCreditEvent } from "./post-outcomes";
 import { nonceKey } from "./nonce-store";
@@ -75,7 +75,7 @@ export interface IngestPlatformMailConfig {
   eventPublicKey: string | null;
 }
 
-type Deps = Pick<IngestDeps, "db" | "log" | "now" | "nonces" | "nonceTtlMs" | "replayWindowSeconds" | "env" | "followups"> & { platformMail?: IngestPlatformMailConfig };
+type Deps = Pick<IngestDeps, "db" | "log" | "now" | "nonces" | "nonceTtlMs" | "replayWindowSeconds" | "env" | "followups"> & Partial<Pick<IngestDeps, "paidEntry" | "mode" | "liveConnectors">> & { platformMail?: IngestPlatformMailConfig };
 
 export type MailRouteResult = { status: 200 | 400 | 401 | 404 | 409 | 503; body: Record<string, unknown> };
 
@@ -83,7 +83,7 @@ const fail = (status: MailRouteResult["status"], error: string, message: string)
 const OFF = fail(404, "not_found", "No route for this address");
 
 /** The secret custom args and unsubscribe links verify with, or null when none may be used here. */
-function signingSecretFor(deps: Deps): string | null {
+export function signingSecretFor(deps: Deps): string | null {
   const configured = deps.platformMail?.signingSecret?.trim();
   if (configured && configured.length >= PLATFORM_MAIL_SECRET_MIN_LENGTH) return configured;
   return deps.env.APP_ENV === "development" || deps.env.APP_ENV === "test" ? DEV_PLATFORM_MAIL_SECRET : null;
@@ -144,7 +144,10 @@ export async function handlePlatformInbound(deps: Deps, req: Request): Promise<M
       return { status: 200, body: { ok: true, written: 0, projects: 0 } };
     }
     let written = 0;
+    let kept = 0;
     const eventIds: string[] = [];
+    // The reply's own words, kept for the founders to read (WP-08 T2): quoted text and the footer left out.
+    const ownText = inboundReplyText(mail, PLATFORM_MAIL_FOOTER_MARKERS);
     for (const businessId of businessIds) {
       // The footer of the message being answered (its unsubscribe link) is never read as the reply's own words.
       const events = normaliseInboundMail(mail, businessId, deps.now, { ownMarkers: PLATFORM_MAIL_FOOTER_MARKERS });
@@ -152,16 +155,48 @@ export async function handlePlatformInbound(deps: Deps, req: Request): Promise<M
       written += result.written;
       eventIds.push(...result.eventIds);
       deps.followups.dispatch(result);
+      // The row the event's `interactionId` names (a replay of the event finds it already there and writes nothing).
+      const replied = events.find((e) => e.type === "lead.replied");
+      const interactionId = (replied?.payload as { interactionId?: string } | undefined)?.interactionId;
+      if (replied && interactionId && ownText) {
+        const stored = await keepReply(deps, businessId, { interactionId, sender, subject: mail.subject, text: ownText, occurredAt: replied.occurredAt });
+        if (stored) kept += 1;
+      }
       // A reply that asks to stop: the sender is not written to again by this project.
       if (events.some((e) => e.type === "lead.replied" && (e.payload as { sentiment?: string }).sentiment === "unsubscribe")) {
         await suppress(deps, businessId, suppressionHashOfEmail(sender), "asked to be removed in a reply");
       }
     }
-    return { status: 200, body: { ok: true, written, projects: businessIds.length, eventIds } };
+    return { status: 200, body: { ok: true, written, kept, projects: businessIds.length, eventIds } };
   } catch (e) {
     await deps.nonces.release(nonce);
     throw e;
   }
+}
+
+/**
+ * Keeps a verified reply's words on the `interactions` row its `lead.replied` names (`repos.replies.storeInbound`: the
+ * sender's record found by address or created masked, at most `INBOUND_STORED_DAILY_CAP` a project a day, nothing for a
+ * record whose deletion was requested), and tells the founders in one Inbox note from the Chief of Staff that names the
+ * record and none of the text. In one transaction; true when a new row was written.
+ */
+async function keepReply(deps: Deps, businessId: string, input: { interactionId: string; sender: string; subject: string; text: string; occurredAt: Date }): Promise<boolean> {
+  const result = await repos.replies.storeInbound(deps.db, businessId, {
+    interactionId: input.interactionId,
+    email: input.sender,
+    subject: input.subject,
+    body: input.text,
+    occurredAt: input.occurredAt,
+    dailyCap: INBOUND_STORED_DAILY_CAP,
+    onStored: async (tx, stored) => {
+      const chief = await repos.agents.chiefOfStaff(tx, businessId).catch(() => null);
+      if (!chief) return;
+      const item = await repos.inbox.createItem(tx, businessId, { type: "update", from_agent_id: chief.id, subject: REPLY_WORDS.noteSubject(stored.displayName).slice(0, 200), body_md: REPLY_WORDS.noteBody, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [stored.entityId] });
+      await writeEventRow(tx, { businessId, type: "inbox.item_created", actor: { kind: "webhook", id: PLATFORM_MAIL_SOURCE }, payload: { inboxItemId: item.id, type: item.type, fromAgentId: chief.id, subject: item.subject, blocksContinue: false, sourceEventIds: [], cost: null }, occurredAt: input.occurredAt });
+    },
+  });
+  if (result.status === "over_cap") deps.log.warn({ businessId }, "platform inbound mail: the project's replies kept today reached the cap; this one's words were not kept");
+  return result.status === "stored";
 }
 
 export async function handlePlatformMailEvents(deps: Deps, req: Request): Promise<MailRouteResult> {
@@ -358,5 +393,5 @@ export async function handleFollowConfirm(deps: Deps, req: Request): Promise<Uns
   // (followups.ts). After the commit, never waited on, and never for a later follower.
   if (first) deps.followups.firstFollower(business.id);
   // The visitor has just said yes to the project: the one place on their path where the mark is a sentence (free plan only).
-  return { status: 200, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.done(name), undefined, tierShowsBuiltOnMark(business.planTier) ? builtOnWords(APP_NAME).foot(name) : null) };
+  return { status: 200, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.done(name), undefined, (await showsBuiltOnMark(deps.db, business, { paidEntry: deps.paidEntry === true, live: deps.mode === "live" || (deps.liveConnectors ?? []).includes(PLATFORM_BILLING_LIVE_KEY) })) ? builtOnWords(APP_NAME).foot(name) : null) };
 }

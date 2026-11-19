@@ -83,7 +83,7 @@ Check "Key today" and "Effort today" against `ROUTES` in `packages/models/src/ro
 
 ## Tasks
 
-### T1: The ledger says what happened, and the cost report can read it            [M] [ships alone; step 5 after WP-02 T11]
+### T1: The ledger says what happened, and the cost report can read it            [M] [ships alone; step 5 after WP-02 T11] (steps 1–3 and 5 done Nov 16; step 4 waits for session.ts, step 6 for the founder)
 Why: A7-07, AR-14, FR-04 (fix 1), A7-01 step 1 (the measuring columns only), A7-09 (which effort sessions run at is unknown).
 Files: create `packages/db/migrations/<next>_session_usage_detail.sql`. Modify `packages/db/migrations/meta/_journal.json`, `packages/db/src/schema/agents.ts`, `packages/db/src/repos/agents.ts` (`EndSessionInput`), `packages/models/src/pricing.ts`, `pricing.test.ts`, `apps/api/src/services/models.ts`, `apps/orchestrator/src/deps.ts`, `apps/gateway/src/builtins.ts`, `apps/gateway/src/reader-models.ts`, `apps/composer/src/usage.ts`, `apps/orchestrator/src/activities/session.ts`, `activities/session-credits.ts`, `activities/types.ts`, and WP-02 T11's `packages/db/src/repos/cost-report.ts` with its test `packages/db/src/__tests__/cost-report.test.ts`. Do not write a second report: if WP-02 T11 has not merged, ship steps 1 to 4 and wait.
 Interfaces, consumes: `UsageEvent.usage: TokenUsage` (`packages/models/src/types.ts`); `SessionUsage.onResult(modelUsage: Record<string, SdkModelUsage>)` and the `result` handler (`session.ts`, `recorder.usage.onResult(message.modelUsage)`); the SDK's `num_turns` on a result and `effort` on the `system`/`init` message (`sdk.d.ts` of `@anthropic-ai/claude-agent-sdk` 0.3.291); `repos.agents.endSession(db, businessId, sessionId, input: EndSessionInput)` (`packages/db/src/repos/agents.ts:811`); WP-02 T11's `repos.costReport.run(db, { from?, to? }): Promise<CostReport>` with blocks `byRoute`, `sessionsByModelAndOutcome`, `firstDayPerProject`, `projectWeeks`, `byAgentFamily`, `blockedSessions`, `trainingRuns`, `creditsThisMonth`, `notMeasured`, and its CLI `pnpm --filter @foundmill/db report:cost [-- --from --to] [--json] [--print-sql]`.
@@ -105,7 +105,7 @@ Steps:
 Tests and evals: as in the steps. No eval: nothing a model does changes.
 Done when: the baseline is in `docs/DECISIONS.md` and every later task quotes it.
 
-### T2: Calls before a business exists are booked and capped per account            [M] [ships alone]
+### [x] T2: Calls before a business exists are booked and capped per account            [M] [ships alone]
 Why: A7-02, FR-11; thesis answer 4 makes this a condition of open sign-up.
 Files: create `packages/db/migrations/<next>_account_usage.sql`, `packages/db/src/schema/account-usage.ts` (or beside `idea_drafts` in its schema file), `packages/db/src/repos/account-usage.ts`, `packages/db/src/__tests__/rls/account-usage.test.ts`, `apps/api/src/__tests__/precommit-ceiling.test.ts`. Modify `packages/models/src/types.ts` (`UsageAttribution.userId?: string`), `apps/api/src/services/models.ts`, `packages/shared/src/env.ts`, `.env.example`, `packages/db/src/repos/cost-report.ts` (WP-02 T11's), and the call sites: `apps/api/src/services/ideation.ts` (four: the single concept, the cards, the slate, the founder's own card), `services/import-concept.ts`, `services/conversation.ts` (`replyAboutConcept`), `routers/idea.ts` (`compare`), `routers/logo.ts` (`ideaLogoSet`), `services/live.ts` (`screenText` for a post made without a business).
 Interfaces, consumes: `apiUsageSink(db, log)` returns early at `if (!a?.businessId) return;`; `apiCreditsGate(db, live): ModelCallGate`; `IDEA_BOX_DAILY_CEILING_CENTS` in `env.ts` as the pattern; migration `0086_idea_drafts.sql` as the pattern for a table only the service role may touch.
@@ -359,10 +359,38 @@ Steps: write one DECISIONS entry with the recommendation below and this list of 
 Recommendation: do not add one now. `claude-fable-5-2` costs $8 / $40, twice Opus 5.5; the planning routes run at `low` or `medium` today, and raising effort on one model is the cheaper first test and keeps one cache. It also behaves differently (thinking cannot be configured, it needs 30-day data retention, single requests can run for minutes), so it is a migration, not a row in a table. Revisit when a sweep shows the cycle plan or the Planner failing at `high` effort.
 Done when: the entry is merged.
 
-### T16: A checkout for the Pro plan            [L] [deferred: needs D8 and setup S8]
-Why: A7-05 (4). No subscription checkout exists (`assertTierAvailable` refuses a paid tier), no price is set, and nobody has reached the allowance.
-Do not start until the founder has set a price and T14's entry shows projects running past the allowance. Then: a `kind: "subscription"` on `billing_checkouts`, a gateway route beside `POST /v1/billing/checkout-sessions`, the ingest webhook granting the month's included credits through the existing period row, and `billing.changeTier` opening the checkout instead of writing the tier. Plan it in its own file when it is real.
-Files, interfaces, steps and tests: not written until then. Done when: not applicable yet.
+### T16: The $5 entry plan and credit packs on Foundmill's own Stripe            [L] [after T12 to T14; behind its switch; live needs setup S8]
+Why: founder, Nov 17, 2026 ("WE need Stripe from when WE launch"); docs/log/2026-11/2026-11-17-claude-wp09-paid-entry-plan.md and its two follow-ups.
+
+What it builds:
+- **The entry plan.**
+  - A $5.00-a-month Stripe subscription (one recurring price, its id in env).
+  - The ingest webhook grants each paid period's $5.00 of credits through the existing period row.
+  - Cancellation and a failed renewal stop the next grant. Nothing already granted is taken back.
+- **Credit packs** of $20, $50, $100, $250 and $500.
+  - Each is a one-time Checkout with inline line items, as today's top-ups are.
+  - A pack's credits come from config: price per credit and markup are the founder's open question, a placeholder
+    marked Estimate until set.
+  - "Has bought a pack" is recorded on the account. It unlocks Claude models on Foundmill's key (WP-13 T7's check)
+    and lets the owner remove the "Built on Foundmill" mark (`tierShowsBuiltOnMark` takes it).
+- **The gate at the first AI run.** Continue, an approval's cycle, cycle 1 at commit and the overnight shift are
+  refused without the subscription, with the way to subscribe. The page, the plan and the foundations are drafted and
+  shown first (WP-04's screens).
+- **Paying is a pay-and-resume loop** (founder, Nov 17, 2026). When work needs something paid for, the request
+  says in plain words what is bought, why the team needs it now and what it costs. One press goes to Stripe's
+  checkout, and the payment's confirmed event resumes the paused work by itself.
+  - This covers the plan at the first run, a pack when credits run out (T13's zero-credits exit is the first
+    instance) and, later, a named one-off charge such as a domain.
+  - A canceled or failed checkout leaves the work paused and the request in place, said once.
+  - Agents never pay without asking. Virtual cards are dropped.
+- **One config value** flips invite-only-free to paid entry. Invited test users convert on the day: their projects
+  stay, and AI runs wait for the subscription.
+- Checkout is always the person's own press on Stripe's page; agent code never moves money. Nothing is offered before
+  Stripe is live, and nothing new appears in production until the switch.
+
+Files, interfaces and steps are written when the task starts, from setup S8's answers.
+Done when: in test mode, a subscription and a pack each settle once through the webhook, and the gate refuses then
+lets through. The mock path passes with the switch off and on.
 
 ## Corrections to the audits
 
@@ -413,7 +441,7 @@ Files, interfaces, steps and tests: not written until then. Done when: not appli
 ## Starting prompt
 
 ```
-You are executing work package WP-09 "Models and money" for Foundmill. Read, in this order: CLAUDE.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-09-models-and-money.md; the CLAUDE.md files of packages/models, packages/db, apps/api, apps/orchestrator and apps/gateway; then, for the task you are on, the audit sections it cites under docs/holistic-plan/audits/.
+You are executing work package WP-09 "Models and money" for Foundmill. Read, in this order: FOUNDMILL.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-09-models-and-money.md; the CLAUDE.md files of packages/models, packages/db, apps/api, apps/orchestrator and apps/gateway; then, for the task you are on, the audit sections it cites under docs/holistic-plan/audits/.
 
 Load the skills `claude-api` (the reference for every model id, price and request parameter: where it differs from the work package, it wins), `karpathy-guidelines`, `plan-change`, `test-driven-development` and `executing-plans`. Run `plan-change` before writing code: it finds overlapping branches and the next free migration number.
 

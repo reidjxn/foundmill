@@ -13,20 +13,23 @@
 import type { z } from "zod";
 import type { RouteKey } from "./routing";
 import { streamStructured } from "./structured-stream";
-import type { CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelMode, StreamStructuredRequest, StreamStructuredResult, UsageAttribution, WebSearchRequest, WebSearchResult } from "./types";
+import type { BatchItem, BatchItemResult, CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelMode, StreamStructuredRequest, StreamStructuredResult, UsageAttribution, WebSearchRequest, WebSearchResult } from "./types";
 
 /** What a check may say about a call it lets run. */
 export interface ModelCallVerdict {
   /** The business's credits are low: routine routes run on their lower-cost model. */
   lowCredits?: boolean;
+  /** The account is not on a paid plan: the call runs on the free plan's model (`enforceModelFunding`). */
+  freePlan?: boolean;
 }
 
 /** What the gate sees of a call: its route and who it is for. Throw to refuse it; return a verdict to shape it. */
 export type ModelCallGate = (call: { route: RouteKey; attribution?: UsageAttribution }) => Promise<void | ModelCallVerdict>;
 
 /** The request as the verdict shapes it (the same object when there is nothing to change). */
-function shaped<R extends { lowCredits?: boolean }>(req: R, verdict: void | ModelCallVerdict): R {
-  return verdict && verdict.lowCredits ? { ...req, lowCredits: true } : req;
+function shaped<R extends { lowCredits?: boolean; freePlan?: boolean }>(req: R, verdict: void | ModelCallVerdict): R {
+  if (!verdict || (!verdict.lowCredits && !verdict.freePlan)) return req;
+  return { ...req, ...(verdict.lowCredits ? { lowCredits: true } : {}), ...(verdict.freePlan ? { freePlan: true } : {}) };
 }
 
 /** Methods live on the prototype, as on the built-in clients, so `{ ...client, complete }` overrides behave the same. */
@@ -40,6 +43,7 @@ class GatedModelClient implements ModelClient {
     this.mode = inner.mode;
     // A client that cannot search stays one that cannot search: callers check `client.searchWeb` before offering it.
     if (!inner.searchWeb) Object.defineProperty(this, "searchWeb", { value: undefined });
+    if (!inner.submitBatch) for (const m of ["submitBatch", "batchEnded", "collectBatch"]) Object.defineProperty(this, m, { value: undefined });
   }
 
   complete<T>(req: CompleteRequest<T> & { schema: z.ZodType<T> }): Promise<CompleteResultWithJson<T>>;
@@ -47,6 +51,21 @@ class GatedModelClient implements ModelClient {
   async complete(req: CompleteRequest<unknown>): Promise<CompleteResult<unknown>> {
     const verdict = await this.gate({ route: req.route, attribution: req.attribution });
     return this.inner.complete(shaped(req, verdict) as CompleteRequest<unknown> & { schema?: undefined });
+  }
+
+  /** A batch asks the gate once per item before anything is sent (WP-09 T8); each item is shaped by its verdict. */
+  async submitBatch(items: readonly BatchItem[]): Promise<{ batchId: string; count: number }> {
+    const shapedItems: BatchItem[] = [];
+    for (const item of items) shapedItems.push({ customId: item.customId, request: shaped(item.request, await this.gate({ route: item.request.route, attribution: item.request.attribution })) });
+    return this.inner.submitBatch!(shapedItems);
+  }
+
+  batchEnded(batchId: string, businessId?: string): Promise<boolean> {
+    return this.inner.batchEnded!(batchId, businessId);
+  }
+
+  collectBatch<T>(batchId: string, items: readonly BatchItem<T>[]): Promise<BatchItemResult<T>[]> {
+    return this.inner.collectBatch!(batchId, items);
   }
 
   async streamStructured<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>> {
@@ -57,8 +76,8 @@ class GatedModelClient implements ModelClient {
   /** The web search asks the gate too (route `webSearch`), so a search is refused before its request like any call. */
   async searchWeb(req: WebSearchRequest): Promise<WebSearchResult> {
     if (!this.inner.searchWeb) throw new Error("this model client has no web search");
-    await this.gate({ route: "webSearch", attribution: req.attribution });
-    return this.inner.searchWeb(req);
+    const verdict = await this.gate({ route: "webSearch", attribution: req.attribution });
+    return this.inner.searchWeb(shaped(req, verdict));
   }
 }
 

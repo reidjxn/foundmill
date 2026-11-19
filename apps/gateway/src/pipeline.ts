@@ -15,10 +15,12 @@
  *
  * `/v1/call` and `/mcp/:connector` both run this function; nothing reaches a vendor any other way.
  */
+import type { RecipientBasisCheck } from "./follower-update";
 import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
 import type { TurnstileConfig } from "./turnstile";
-import { AppError, mockResultsAllowed, NotFoundError } from "@foundmill/shared";
+import { AppError, isMailSendTool, mockResultsAllowed, NotFoundError, type RecipientBasis } from "@foundmill/shared";
+import { mailRecipientEmails, recipientBasis, weakestBasis } from "./recipient-basis";
 import type { Vault } from "@foundmill/shared/crypto";
 import type { KeyValidation } from "@foundmill/models";
 import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Approval, type Business, type Integration } from "@foundmill/db";
@@ -88,6 +90,10 @@ export interface GatewayDeps {
    */
   reader?: UntrustedReader;
   log: GatewayLogger;
+  /** The entry plan's recurring Stripe price (`STRIPE_ENTRY_PRICE_ID`, WP-09 T16); unset, a live entry-plan checkout answers 503. */
+  entryPriceId?: string;
+  /** `PAID_ENTRY` (WP-09 T16): sign-up is paid entry, so an owner's credit pack also removes the "Built on" mark. */
+  paidEntry?: boolean;
   /** Team call's streamed speech (ElevenLabs' streaming endpoint on the platform key); unset, `/v1/speech/stream` answers 503. */
   speechStreamer?: SpeechStreamer;
   now?: () => Date;
@@ -103,8 +109,12 @@ export interface GatewayDeps {
    * `validateApiKey` in live mode. Tests pass one over a fake Anthropic.
    */
   validateModelKey?: (apiKey: string) => Promise<KeyValidation>;
+  /** Anthropic's Messages API for the own-key model route (model-proxy.ts, WP-13 T11); default `fetch`. Tests pass a fake. */
+  anthropicFetch?: typeof globalThis.fetch;
   /** A project's Foundmill sending address (platform-mail.ts); absent or with no domain, `platform_mail` refuses every send. */
   platformMail?: PlatformMailConfig;
+  /** Replaces WP-08 T10's recipient basis check in the follower update (follower-update.ts); for tests. */
+  recipientBasis?: RecipientBasisCheck;
   /** The idea box's bot check (turnstile.ts); no secret: mock on a development stack, refused elsewhere. */
   turnstile?: TurnstileConfig;
 }
@@ -229,6 +239,8 @@ export class SessionStateDenied extends Error {
 }
 
 export const SESSION_SCOPE_POLICY_ID = "session-scope";
+/** A tool its connector declares no policy hints for is refused: a missing entry must not read as "internal, never asks". */
+export const MISSING_POLICY_HINTS_POLICY_ID = "missing-policy-hints";
 export const HARD_GATE_POLICY_ID = "hard-gate";
 /** The Cedar policy that forbids a call the gateway recognised as a security-settings change (security-settings.ts). */
 export const SECURITY_SETTINGS_POLICY_ID = "hard-gate-security-settings";
@@ -239,10 +251,16 @@ export { AGENT_ARCHIVED_POLICY_ID, AGENT_PAUSED_POLICY_ID, AGENTS_STOPPED_POLICY
 export const FINANCE_CONNECTORS: ReadonlySet<string> = new Set(["tink", "plaid", "ecb_rates"]);
 /** Tools that create or amend a contract (assisted mode asks; signing itself is hard-gated by the connector). */
 export const CONTRACT_TOOLS: ReadonlySet<string> = new Set(["dropbox_sign:send_signature_request"]);
+/**
+ * Tools that create an immutable or customer-visible record that brings money in (founder, Nov 16, 2026). They ask in
+ * every mode, and in automated mode and on vacation unless the business gave agents the inbound payment power.
+ * Paying out, refunding and transferring are hard gates and never on this list.
+ */
+export const PAYMENT_RECORD_TOOLS: ReadonlySet<string> = new Set(["stripe:create_invoice", "stripe:create_checkout_session"]);
 
 /** `Tool.finance` / `Tool.contract` come from the gateway, not from `policyHints` (DECISIONS "Tool attributes beyond connector policyHints"). */
-export function toolAttributes(connector: string, tool: string): { finance: boolean; contract: boolean } {
-  return { finance: FINANCE_CONNECTORS.has(connector), contract: CONTRACT_TOOLS.has(toolRef(connector, tool)) };
+export function toolAttributes(connector: string, tool: string): { finance: boolean; contract: boolean; paymentRecord: boolean } {
+  return { finance: FINANCE_CONNECTORS.has(connector), contract: CONTRACT_TOOLS.has(toolRef(connector, tool)), paymentRecord: PAYMENT_RECORD_TOOLS.has(toolRef(connector, tool)) };
 }
 
 // The principal's autonomy and thresholds live in @foundmill/policy, shared with plan evaluation (audit api-services-03).
@@ -335,6 +353,14 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   }
   const tool = findTool(connector, req.tool);
   if (!tool) throw new GatewayError("unknown_tool", `${req.connector} has no tool "${req.tool}"`, 404, { connector: req.connector, tool: req.tool });
+  // 2b. A tool with no policy hints entry fails closed (A7-16). The contract suite demands an entry for every tool, so
+  // this guards a connector that skipped it, not one that passed.
+  if (!Object.hasOwn(connector.policyHints, tool.name)) {
+    const reasons = [`Tool ${ref} declares no policy hints`];
+    const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [MISSING_POLICY_HINTS_POLICY_ID] });
+    log.warn({ reasons }, "tool call without policy hints");
+    return { status: 403, body: { outcome: "deny", reasons, policyIds: [MISSING_POLICY_HINTS_POLICY_ID], costMinor: 0, auditId: audit.id } };
+  }
 
   // 3. Rate limit per connector per business.
   const limit = await checkRateLimit(deps.rateLimits, { businessId, connector: connector.key, limits: connector.rateLimits ?? {} }, now().getTime());
@@ -551,6 +577,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     hardGate: hints.hardGate ?? false,
     finance: attrs.finance,
     contract: attrs.contract,
+    paymentRecord: attrs.paymentRecord,
     // Decided here from the call's arguments (never reported by the agent): a DNS change that routes or authenticates email.
     securitySettings: securitySettingsChange(connector.key, tool.name, args) !== null,
   };
@@ -574,6 +601,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
   let recipient = req.context.recipient;
   let suppressed = false;
   let recipientFirstSeenInUntrusted = false;
+  let recipientBasisFound: RecipientBasis | undefined;
   if (toolCtx.contactsThirdParty) {
     const candidates = candidatesFromArgs(args, req.context.recipient);
     recipient ??= candidates[0]?.value;
@@ -585,12 +613,19 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     // whose only basis it is counts as an address first seen in untrusted content, so the same policy refuses it.
     const emails = candidates.filter((c) => c.kind === "email").map((c) => c.value);
     if (!recipientFirstSeenInUntrusted && emails.length > 0) recipientFirstSeenInUntrusted = (await repos.followers.awaitingConfirmation(deps.db, session.businessId, emails)).length > 0;
+    // No email without a basis (WP-08 T10, 15-mail-basis.cedar): for the mail-sending tools, the weakest basis among the
+    // addresses the mail goes to. A campaign to one of the founder's own lists names nobody: the founder decides it.
+    if (isMailSendTool(connector.key, tool.name)) {
+      const at = (deps.now ?? (() => new Date()))();
+      const to = mailRecipientEmails(args);
+      recipientBasisFound = to.length ? weakestBasis(await Promise.all(to.map((e) => recipientBasis(deps.db, session.businessId, e, at)))) : "recorded";
+    }
   }
 
   return {
     principal,
     tool: toolCtx,
-    business: { id: business.id, businessMode: business.businessMode, holidayActive: loaded.holidayActive },
+    business: { id: business.id, businessMode: business.businessMode, holidayActive: loaded.holidayActive, paymentPowers: business.paymentPowers ?? [] },
     context: {
       amountMinor: policyAmountMinor({ spendsMoney: toolCtx.spendsMoney ?? false, declaredMinor: connector.estimateCostMinor?.(tool.name, args) ?? null, reportedMinor: req.context.amountMinor ?? 0, thresholdMinor: principal.approvalThresholdMinor }),
       ...(recipient ? { recipient } : {}),
@@ -598,6 +633,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
       ...(req.context.recipientCountry ? { recipientCountry: req.context.recipientCountry } : {}),
       ...(req.context.localTimeAtRecipient ? { localTimeAtRecipient: req.context.localTimeAtRecipient } : {}),
       suppressed,
+      ...(recipientBasisFound ? { recipientBasis: recipientBasisFound } : {}),
       holidayActive: loaded.holidayActive,
       // The session's flag, minted by the orchestrator: a kit-mode channel is never unlocked by an argument of the call.
       kitMode: session.kitMode,
@@ -783,6 +819,9 @@ function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: Evalu
   const hints = loaded.connector.policyHints[loaded.tool.name] ?? {};
   // A merge is a merge whatever its amount: checked before the spend threshold, so a merge carrying an amount is not routed as spend.
   if (loaded.connector.key === "github" && loaded.tool.name === "merge_pr") return "merge_to_main" as const;
+  // An invoice or payment page is the founder's to approve (founder, Nov 16, 2026): never routed as spend, so an agent
+  // reporting a large amount cannot hand it to an agent the Responsibilities matrix names.
+  if (toolAttributes(loaded.connector.key, loaded.tool.name).paymentRecord) return null;
   if (decision.policyIds.some((id) => id.endsWith("above-threshold")) || (hints.spendsMoney && (req.context.amountMinor ?? 0) > 0)) return "spend_above_threshold" as const;
   if (toolAttributes(loaded.connector.key, loaded.tool.name).contract || loaded.connector.key === "dropbox_sign") return "sign_contracts" as const;
   if (hints.contactsThirdParty) return "message_customers" as const;

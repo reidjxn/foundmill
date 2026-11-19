@@ -20,10 +20,11 @@
  * A task with nothing left does not start: it is blocked (`budget`) with the amounts. All figures are US cents, an
  * Estimate. A task budget in another currency cannot be compared with US cents, so the default applies to it.
  */
-import { CREDITS_CURRENCY } from "@foundmill/config";
+import { costCoveredMinor, CREDITS_CURRENCY } from "@foundmill/config";
 import { creditsState, modelBudgetState, periodOf, repos, type Business, type Task } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { DEFAULT_TASK_RESERVE_MINOR } from "../cycle-contract";
+import { CREDITS_USED_UP_SUMMARY } from "./session-credits";
 
 /** What can bound a session: the task's budget, the month's credits, the agent's wage cap, the business's monthly model budget. */
 export type BudgetLimit = "task" | "credits" | "wage_cap" | "model_budget" | "cycle";
@@ -96,7 +97,8 @@ export async function sessionBudget(deps: OrchestratorDeps, input: { business: P
     repos.usage.agentSpend(deps.db, input.business.id, input.agentId, periodOf(now)),
     modelBudgetState(deps.db, business, now),
   ]);
-  const creditsLeftMinor = credits ? credits.balanceMinor : null;
+  // What the credits left pay for at cost (they are charged at cost plus the markup, Nov 17, 2026).
+  const creditsLeftMinor = credits ? costCoveredMinor(credits.balanceMinor) : null;
   const wageLeftMinor = wage.remainingMinor;
   const modelBudgetLeftMinor = monthly.remainingMinor;
   const bound = boundSpend({ taskBudgetMinor: budget, taskSpentMinor: spent, creditsLeftMinor, wageLeftMinor, modelBudgetLeftMinor, cycleCapMinor: input.spendCapMinor ?? null });
@@ -119,7 +121,7 @@ const usd = (minor: number) => `$${(minor / 100).toLocaleString("en-US", { minim
 
 /** What the founder reads when a session cannot start, or stops, because its budget is spent. */
 export function budgetSummary(limit: BudgetLimit, b: Pick<SessionBudget, "taskBudgetMinor" | "taskSpentMinor">): string {
-  if (limit === "credits") return "Blocked: this month's credits are used up, so the session stopped. What it spent is booked; the task runs again after a top-up in Settings › Billing or with next month's credits.";
+  if (limit === "credits") return CREDITS_USED_UP_SUMMARY;
   if (limit === "wage_cap") return "Blocked: this agent reached its wage cap for the month, so the session stopped. What it spent is booked (an Estimate). Raise the cap on the agent's profile, then run the task again, or wait for next month.";
   if (limit === "cycle") return "Paused: this round of work reached Autopilot's own spend for today (an Estimate), so the session stopped. What it spent is booked; the task carries on in the next round, or raise Autopilot's own limit in Settings › What the team can do.";
   if (limit === "model_budget") return "Blocked: the business reached its monthly model budget, so the session stopped. What it spent is booked (an Estimate). An owner or admin can raise or remove the budget, then the task runs again; otherwise it waits for next month.";

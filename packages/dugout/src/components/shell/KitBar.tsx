@@ -139,7 +139,7 @@ export function kitBarGradient(kit: Kit): string {
  * chip); a long business name or screen title wraps to two lines and steps its size down (FitText) before it would
  * ever truncate.
  */
-export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
+export const KitBar = forwardRef<HTMLDivElement, KitBarProps>(function KitBar(
   {
     kit,
     logoSrc,
@@ -205,7 +205,7 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
   const titleText = typeof screenTitle === "string" || typeof screenTitle === "number" ? String(screenTitle) : undefined;
 
   return (
-    <header
+    <div
       ref={ref}
       data-testid="kit-bar"
       // A coach-mark anchor for the whole bar (Continue carries its own, data-coachmark="continue").
@@ -283,6 +283,6 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
         )}
         <StopAllAgents {...stopAll} />
       </div>
-    </header>
+    </div>
   );
 });

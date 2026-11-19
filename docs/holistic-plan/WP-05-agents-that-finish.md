@@ -360,7 +360,7 @@ Done when: a stopped task is on record for the founder in one clause and never a
 ## Starting prompt
 
 ```
-You are executing docs/holistic-plan/WP-05-agents-that-finish.md. Read, in this order: CLAUDE.md; docs/holistic-plan/README.md; the work package file in full; apps/orchestrator/CLAUDE.md, apps/gateway/CLAUDE.md, packages/connectors/CLAUDE.md, packages/events/CLAUDE.md, packages/db/CLAUDE.md; and in docs/holistic-plan/audits/ the findings the task cites (a3a-agent-runtime.md sections 3 and 5, a4-building-product.md A4-01, A4-05, A4-06, A4-12, A4-13, a7-models-gateway-economics.md A7-01).
+You are executing docs/holistic-plan/WP-05-agents-that-finish.md. Read, in this order: FOUNDMILL.md; docs/holistic-plan/README.md; the work package file in full; apps/orchestrator/CLAUDE.md, apps/gateway/CLAUDE.md, packages/connectors/CLAUDE.md, packages/events/CLAUDE.md, packages/db/CLAUDE.md; and in docs/holistic-plan/audits/ the findings the task cites (a3a-agent-runtime.md sections 3 and 5, a4-building-product.md A4-01, A4-05, A4-06, A4-12, A4-13, a7-models-gateway-economics.md A7-01).
 
 Do task T<n> only. Run the plan-change skill first (overlap with open branches, the next free migration number). The tasks marked "session.ts chain" edit apps/orchestrator/src/activities/session.ts and are done strictly in the order T2, T3, T4, T8, T9, T10, T11, T12, T15, each on a branch cut from main after the one before it merged: if the task before yours in the chain is not merged, stop and say so. Do not start T5 or T8 before decision D3, T17 before D2, T18 before D1, or T6's nightly workflow before D4 is recorded in docs/DECISIONS.md.
 

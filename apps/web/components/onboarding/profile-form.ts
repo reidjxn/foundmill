@@ -317,8 +317,10 @@ export function formFromProfile(profile: ProfileLike | null | undefined, email?:
     skills,
     timeCommitment: profile.timeCommitment ?? "",
     budget: profile.budgetMinor === null || profile.budgetMinor === undefined ? "" : String(profile.budgetMinor / 100),
-    // A saved profile without a budget made that choice: it reads as "I have no budget yet".
-    noBudget: profile.budgetMinor === null || profile.budgetMinor === undefined,
+    // A profile saved through this form without a budget made that choice: it reads as "I have no budget yet". This form
+    // requires the experience answer, so a profile without one came from the first profile (WP-04 T1; it asks time
+    // since WP-14 T2, never experience), which never asks about money: the amount stays open there.
+    noBudget: (profile.budgetMinor === null || profile.budgetMinor === undefined) && Boolean(profile.experience),
     currency: profile.currency || FALLBACK_CURRENCY,
     citizenship: profile.citizenship ?? "",
     residence: profile.residence ?? "",

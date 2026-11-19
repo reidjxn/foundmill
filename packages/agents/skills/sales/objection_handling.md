@@ -5,6 +5,14 @@ description: Answers common objections with honest responses backed by evidence 
 category: sales
 attribute_name: Objection handling
 attribute_group: craft
+when_to_use: Use when a prospect or customer raises an objection and needs an honest answer backed by evidence the project has.
+roles: channel_lead_generation, channel_email_automation
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: reply_handling
 version: 1
 ---
 # Objection handling

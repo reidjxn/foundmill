@@ -7,8 +7,9 @@
  */
 import { closeDb, createDb, type Db } from "@foundmill/db";
 import { MemoryRedis, type StreamRedis } from "@foundmill/events";
-import { createModelClient, effectiveModelMode, type ModelClient, type UsageEvent } from "@foundmill/models";
+import { createModelClient, effectiveModelMode, usageForLedger, type ModelClient, type UsageEvent } from "@foundmill/models";
 import { MockSandboxProvider, resolveSandboxProvider, type SandboxMode, type SandboxProvider } from "@foundmill/sandbox";
+import { topUpsOnSale } from "@foundmill/shared";
 import { createLogger, type Logger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { bookUsage } from "@foundmill/db";
@@ -68,17 +69,18 @@ export interface CreateDepsOptions {
  * to whoever's key answered (`event.billedTo`, byok for a business routed onto its own key by `createBusinessModelClient`)
  * and, for credits, charged to the period's balance through `bookUsage`.
  */
-export function usageSink(db: Db, log: Logger): (event: UsageEvent) => Promise<void> {
+export function usageSink(db: Db, log: Logger, topUps = false): (event: UsageEvent) => Promise<void> {
   return async (event) => {
     const a = event.attribution;
     if (!a?.businessId) return;
+    const { quantity, tokens } = usageForLedger(event.usage);
     try {
       await bookUsage(db, a.businessId, {
         agentId: a.agentId ?? null,
         sessionId: a.sessionId ?? null,
         kind: "tokens",
         modelKey: event.modelKey,
-        quantity: event.usage.inputTokens + event.usage.outputTokens,
+        quantity,
         unit: "tokens",
         costMinor: Math.max(0, event.cost.costMinorInt),
         // The exact cost (0039): sums and credits add these, so a call under half a cent is not booked at 0.
@@ -87,8 +89,10 @@ export function usageSink(db: Db, log: Logger): (event: UsageEvent) => Promise<v
         billedTo: event.billedTo,
         occurredAt: event.occurredAt,
         // A call stopped in flight keeps `aborted`: its tokens are an Estimate as well as its price.
-        details: { route: event.route, model: event.model, mode: event.mode, kind: a.kind ?? null, taskId: a.taskId ?? null, label: event.cost.label, attempt: event.attempt, ...(event.aborted ? { aborted: true } : {}) },
-      });
+        details: { route: event.route, model: event.model, mode: event.mode, kind: a.kind ?? null, taskId: a.taskId ?? null, label: event.cost.label, attempt: event.attempt, tokens, ...(event.aborted ? { aborted: true } : {}), ...(event.batch ? { batch: event.batch } : {}), ...(event.servedModel ? { servedModel: event.servedModel } : {}) },
+        // A batch result is booked once, however often its batch is collected (WP-09 T8).
+        ...(event.batch ? { idempotencyKey: `batch:${event.batch.id}:${event.batch.customId}` } : {}),
+      }, { topUps });
     } catch (err) {
       log.warn({ err: (err as Error).message, route: event.route }, "usage ledger write failed");
     }
@@ -140,7 +144,9 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
 
   // The platform client (platform key, books to credits), wrapped so a business on its own key runs on that key.
   const modelMode = options.models?.mode ?? effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log);
-  const onUsage = usageSink(db, log);
+  // Refusals and the zero-credits note name a top-up only where credits can be bought here (WP-09 T13).
+  const topUps = topUpsOnSale(env);
+  const onUsage = usageSink(db, log, topUps);
   const platformModels =
     options.models ??
     createModelClient({
@@ -149,7 +155,7 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
       onUsage,
       logger: log,
     });
-  const models = createBusinessModelClient(platformModels, { db, vault, mode: modelMode, onUsage, logger: log });
+  const models = createBusinessModelClient(platformModels, { db, vault, mode: modelMode, onUsage, logger: log, freeCapCents: env.FREE_PLAN_MONTHLY_CAP_CENTS, topUps });
 
   const gateway =
     options.gateway ??

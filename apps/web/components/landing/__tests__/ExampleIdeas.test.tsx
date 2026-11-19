@@ -8,12 +8,12 @@ import { SOLE_REVIVAL_LOGO } from "../logos";
 const shown = () => document.querySelector("[data-idea-name]")!.textContent;
 
 describe("ExampleIdeas (the hero's examples, founder 2026-11-16)", () => {
-  it("offers Northwind Skincare first, then Sole Revival, Tutorlane and Glitchwick, and shows the first", () => {
+  it("offers Northwind Skincare first, then Tutorlane, Sole Revival and Glitchwick (founder, 2026-11-17), and shows the first", () => {
     render(<ExampleIdeas ideas={EXAMPLE_IDEAS} />);
     const group = screen.getByRole("radiogroup", { name: EXAMPLE_IDEAS_LABEL });
     const radios = screen.getAllByRole("radio");
     expect(group.contains(radios[0]!)).toBe(true);
-    expect(radios.map((r) => r.textContent)).toEqual(["Northwind Skincare", "Sole Revival", "Tutorlane", "Glitchwick"]);
+    expect(radios.map((r) => r.textContent)).toEqual(["Northwind", "Tutorlane", "Sole Revival", "Glitchwick"]);
     expect(radios.map((r) => r.getAttribute("aria-checked"))).toEqual(["true", "false", "false", "false"]);
     expect(shown()).toBe("Northwind Skincare");
   });
@@ -27,9 +27,11 @@ describe("ExampleIdeas (the hero's examples, founder 2026-11-16)", () => {
 
   it("moves with the arrow keys and Home/End, one tab stop for the group", () => {
     render(<ExampleIdeas ideas={EXAMPLE_IDEAS} />);
-    const first = screen.getByRole("radio", { name: "Northwind Skincare" });
+    const first = screen.getByRole("radio", { name: "Northwind" });
     expect(screen.getAllByRole("radio").filter((r) => r.tabIndex === 0)).toEqual([first]);
     fireEvent.keyDown(first, { key: "ArrowRight" });
+    expect(shown()).toBe("Tutorlane");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
     expect(shown()).toBe("Sole Revival");
     fireEvent.keyDown(document.activeElement!, { key: "End" });
     expect(shown()).toBe("Glitchwick");

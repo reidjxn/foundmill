@@ -3,11 +3,11 @@
  * agent.model.compare/set, agent.autonomy.set, agent.negotiation.set — all scoped actions accept `applyScope`
  * ("agent" | "type" | "all", BUILD §9.6 ApplyScopeDialog). BUILD §11.10; AC-11.10.1/2/5/6.
  */
-import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
+import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, LIBRARY_SKILL_PREFIX, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getLibrarySkill, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
 import { CREDITS_CURRENCY, INPUT_LIMITS, LIMITS } from "@foundmill/config";
 import { UpdateAgentInput, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
-import { ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
+import { ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, CHOOSABLE_MODEL_KEYS, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
 import { modelLimited } from "../services/model-limits";
 import { changeAgentModels, routeOf, startModelRetests } from "../services/agent-model";
@@ -16,6 +16,10 @@ import { shownToolGrants } from "../services/squad";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
+import { assertEntryPlan } from "../services/payments";
+
+/** A model an agent can be set to: any key but GLM, which the free plan applies when a call runs (WP-13, D3). */
+const ChoosableModel = z.enum(MODEL_KEYS).refine((k) => (CHOOSABLE_MODEL_KEYS as readonly string[]).includes(k), { message: "An agent's model is Opus, Sonnet or Haiku; GLM-5.3 Flash is the free plan's model and is not chosen per agent." });
 
 const read = sectionRead("team");
 const write = sectionWrite("team");
@@ -119,6 +123,18 @@ function withHeldOutSplit(tests: CustomSkillTestsOutput["tests"]): CustomSkillTe
 /** Agent negotiation has no runtime yet: the setting cannot be switched on (AC-11.14.3 arrives with LIVE B2B). */
 export const NEGOTIATION_UNAVAILABLE = "Negotiation is not available yet; it arrives with LIVE business-to-business deals";
 
+/**
+ * A `library_` rating row whose skill improves a rating the agent also carries and reads under that rating's name
+ * ("Acceptance criteria" on a Planner): the profile shows the rating once.
+ */
+function duplicatesRating(skillKey: string, rows: readonly { skillKey: string }[]): boolean {
+  if (!skillKey.startsWith(LIBRARY_SKILL_PREFIX)) return false;
+  const lib = getLibrarySkill(skillKey.slice(LIBRARY_SKILL_PREFIX.length));
+  if (!lib) return false;
+  const name = lib.attribute.name.trim().toLowerCase();
+  return rows.some((r) => lib.improves.includes(r.skillKey) && getSkillDefinition(r.skillKey)?.name.trim().toLowerCase() === name);
+}
+
 /** The profile's activity strip covers the last 30 days, today included. */
 const RECENT_DAYS = 30;
 const Period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "period is YYYY-MM");
@@ -179,7 +195,9 @@ export const agentRouter = router({
           agent,
           current,
           versions,
-          skills: skills.map((k) => {
+          // A library skill that sharpens a rating the agent carries under the same name is one row, the rating's
+          // (TS-12); `agent.skills.added` still lists it.
+          skills: skills.filter((k) => !duplicatesRating(k.skillKey, skills)).map((k) => {
             const d = definitions.find((x) => x.skillKey === k.skillKey);
             // The name a person reads: the business's own definition, else the platform catalogue's ("Prioritization"), so a
             // client without the catalogue (the mobile app) never shows a key or a blank.
@@ -225,7 +243,7 @@ export const agentRouter = router({
 
   training: router({
     /** Draft version from the structured editor; club-rule contradictions are flagged and have no effect (AC-11.10.4). */
-    saveDraft: write.input(z.object({ agentId: Id, instructions: AgentInstructions, tools: Tools.optional(), modelKey: z.enum(MODEL_KEYS).optional(), comment: z.string().max(2000).optional() })).mutation(({ ctx, input }) =>
+    saveDraft: write.input(z.object({ agentId: Id, instructions: AgentInstructions, tools: Tools.optional(), modelKey: ChoosableModel.optional(), comment: z.string().max(2000).optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team; its profile is kept as a record`);
@@ -247,7 +265,7 @@ export const agentRouter = router({
     ),
 
     /** Cost and duration estimate for a training run (labelled Estimate; held-out tests counted, never returned). */
-    estimate: read.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS).optional() })).query(async ({ ctx, input }) => {
+    estimate: read.input(z.object({ agentId: Id, modelKey: ChoosableModel.optional() })).query(async ({ ctx, input }) => {
       const { agent, skills } = await ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         return { agent, skills: await repos.skills.listForAgent(tx, ctx.businessId, agent.id) };
@@ -265,6 +283,8 @@ export const agentRouter = router({
      * pays for two runs.
      */
     run: write.input(z.object({ agentId: Id, versionId: Id })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
+      // Paid entry (WP-09 T16): a training run's model calls wait for the entry plan.
+      await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
       await assertAgentsRunning(ctx, "a training run");
       const run = await ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
@@ -533,7 +553,7 @@ export const agentRouter = router({
           // Predicted from the agent's metered model cost at list prices: US dollars, never the business's currency.
           basis,
           currency: CREDITS_CURRENCY,
-          options: MODEL_KEYS.map((modelKey) => {
+          options: CHOOSABLE_MODEL_KEYS.map((modelKey) => {
             const r = resolveModel(route, modelKey);
             return { modelKey, modelId: MODELS[modelKey], allowed: !r.locked || r.modelKey === modelKey, warning: r.warning ?? null, predictedWageMinor: predict(modelKey), predictedSkillDelta: null, label: "Estimate" as const };
           }),
@@ -548,7 +568,7 @@ export const agentRouter = router({
      * decided are withdrawn (`superseded`), and a change back to the model its live version runs on queues none. While
      * the team is stopped the retests stay queued (`retestsWaitForResume`) and start when the agents resume.
      */
-    set: write.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS), applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
+    set: write.input(z.object({ agentId: Id, modelKey: ChoosableModel, applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       const targets = await scopedAgents(ctx, input.agentId, input.applyScope);
       const change = await ctx.rls(async (tx) => {
         const c = await changeAgentModels(tx, ctx.businessId, targets, input.modelKey as ModelKey, ctx.userId);

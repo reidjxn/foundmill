@@ -6,16 +6,17 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_NAME } from "@foundmill/config";
-import { TooltipProvider } from "@foundmill/dugout";
+import { IDEA_NEXT_WORDS, TooltipProvider } from "@foundmill/dugout";
 import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_BOX_INTERESTS, type IdeaBoxEvent } from "@foundmill/shared";
 import { IdeaBox, IDEA_BOX_WORDS, keepHref } from "../IdeaBox";
 import { streamIdeaDraft } from "../client";
-import { PLACEHOLDER_IDEAS, TYPING } from "../typing";
+import { PLACEHOLDER_IDEA_MAX, PLACEHOLDER_IDEAS, TYPING } from "../typing";
+import { VARIANT_WORDS } from "../../words";
 
 const CLAIM = "c".repeat(43);
 const KEYS = ["market_pull", "market_size", "competition", "speed_to_first_customer", "capital_intensity", "agent_executability", "founder_fit", "defensibility", "regulatory_load", "distribution_clarity"];
 const card = { id: "ff", name: "Firstframe", pitch: "Restored film cameras for first-time buyers.", archetype: "dtc_physical", stars_current: 3, stars_potential: 4, attributes: KEYS.map((key, i) => ({ key, value: 8 + i, evidence: `Why ${key}.` })), citations: [], crest_seed: "ff" };
-const landedEvent: IdeaBoxEvent = { type: "card", card, prompt: "Restored film cameras", interest: null, sample: false, again: false, claim: CLAIM };
+const landedEvent: IdeaBoxEvent = { type: "card", card, prompt: "Restored film cameras", interest: null, sample: false, again: false, claim: CLAIM, redrawsLeft: 2 };
 
 function ndjsonResponse(events: IdeaBoxEvent[], splitAt?: number): Response {
   const text = events.map((e) => JSON.stringify(e)).join("\n") + "\n";
@@ -60,6 +61,18 @@ describe("IdeaBox", () => {
     expect(screen.queryByTestId("idea-placeholder")).toBeNull();
   });
 
+  it("every example fits the field at its narrowest: no longer than the limit, plain words, never about jobs", () => {
+    expect(PLACEHOLDER_IDEAS.length).toBeGreaterThanOrEqual(6);
+    // Every landing variant's own list too: none may end in an ellipsis (founder, 2026-11-17).
+    const all = [...PLACEHOLDER_IDEAS, ...Object.values(VARIANT_WORDS).flatMap((v) => v.ideas ?? [])];
+    for (const idea of all) {
+      expect(idea.length, idea).toBeLessThanOrEqual(PLACEHOLDER_IDEA_MAX);
+      expect(idea, idea).not.toMatch(/\b(jobs?|career|employ|hire|hiring|boss|side hustle)\b/i);
+      expect(idea, idea).not.toMatch(/[!—]/);
+    }
+    expect(new Set(PLACEHOLDER_IDEAS).size).toBe(PLACEHOLDER_IDEAS.length);
+  });
+
   it("Surprise me opens the interests", () => {
     renderBox();
     fireEvent.click(screen.getByTestId("idea-surprise"));
@@ -78,8 +91,13 @@ describe("IdeaBox", () => {
     expect(init).toMatchObject({ method: "POST", credentials: "include" });
     expect(JSON.parse(init.body)).toEqual({ prompt: "Restored film cameras", interest: null, turnstile: "mock-ok", website: "" });
     expect(screen.getByRole("heading", { level: 2, name: "Firstframe" })).toBeTruthy();
-    expect(screen.getByTestId("idea-keep-email").getAttribute("href")).toBe(keepHref(CLAIM));
+    // Both choices go through sign-in with the claim token; the Studio one also carries `then=studio`.
+    expect(screen.getByTestId("idea-build").getAttribute("href")).toBe(keepHref(CLAIM));
     expect(keepHref(CLAIM)).toBe(`/login?next=${encodeURIComponent(`/start?claim=${CLAIM}`)}`);
+    expect(screen.getByTestId("idea-open-studio").getAttribute("href")).toBe(keepHref(CLAIM, "studio"));
+    expect(keepHref(CLAIM, "studio")).toBe(`/login?next=${encodeURIComponent(`/start?claim=${CLAIM}&then=studio`)}`);
+    expect(keepHref(null, "studio")).toBe(`/login?next=${encodeURIComponent("/start?then=studio")}`);
+    expect(screen.getByRole("heading", { level: 2, name: IDEA_NEXT_WORDS.title("Firstframe") })).toBeTruthy();
     expect(onLanded).toHaveBeenLastCalledWith({ name: "Firstframe", prompt: "Restored film cameras", interest: null });
     expect(screen.getByText(IDEA_BOX_WORDS.waits)).toBeTruthy();
   });
@@ -137,7 +155,7 @@ describe("IdeaBox", () => {
     mine = { ...landedEvent, again: true };
     renderBox();
     await waitFor(() => expect(screen.getByTestId("idea-keep")).toBeTruthy());
-    expect(IDEA_BOX_WORDS.keepLead).toBe(`Sign in to keep this idea. ${APP_NAME} lets new people in a few at a time. If your place is not open yet, we hold your idea for 90 days.`);
+    expect(IDEA_BOX_WORDS.keepLead).toBe(`Either way, you sign in first so the idea stays yours. ${APP_NAME} lets new people in a few at a time. If your place is not open yet, we keep your idea for 90 days, and you can shape it in the Ideation Studio as soon as you are in.`);
     expect(IDEA_BOX_WORDS.freeLine).toMatch(/^Free to start\. Your plan includes \$\d+\.\d{2} of agent work every month\. You never enter payment details\.$/);
     expect(screen.getByText(IDEA_BOX_WORDS.keepLead)).toBeTruthy();
     expect(screen.getByText(IDEA_BOX_WORDS.freeLine)).toBeTruthy();
@@ -150,9 +168,13 @@ describe("IdeaBox", () => {
     mine = { ...landedEvent, again: true };
     renderBox({ onLanded });
     await waitFor(() => expect(screen.getByTestId("idea-keep")).toBeTruthy());
-    const button = screen.getByRole("button", { name: IDEA_BOX_WORDS.tryAnother });
+    const button = screen.getByRole("button", { name: IDEA_NEXT_WORDS.tryAnother });
     expect(button.className).toContain("btn-ghost");
     fireEvent.click(button);
+    // The warning first: nothing changes until the visitor confirms.
+    expect(screen.getByTestId("idea-redraw-confirm").textContent).toContain(IDEA_NEXT_WORDS.confirmBody("Firstframe"));
+    expect(onLanded).not.toHaveBeenLastCalledWith(null);
+    fireEvent.click(screen.getByRole("button", { name: IDEA_NEXT_WORDS.confirm }));
     const input = screen.getByTestId("idea-input") as HTMLTextAreaElement;
     expect(input.value).toBe("Restored film cameras");
     expect(onLanded).toHaveBeenLastCalledWith(null);
@@ -169,12 +191,36 @@ describe("IdeaBox", () => {
     mine = { ...landedEvent, again: true };
     renderBox();
     await waitFor(() => expect(screen.getByTestId("idea-keep")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: IDEA_BOX_WORDS.tryAnother }));
+    fireEvent.click(screen.getByRole("button", { name: IDEA_NEXT_WORDS.tryAnother }));
+    fireEvent.click(screen.getByRole("button", { name: IDEA_NEXT_WORDS.confirm }));
     draftEvents = [{ type: "error", code: "limit", message: IDEA_BOX_ERRORS.limit }];
     fireEvent.click(screen.getByTestId("idea-generate"));
     await waitFor(() => expect(screen.getByTestId("idea-error").textContent).toBe(IDEA_BOX_ERRORS.limit));
     expect(screen.getByTestId("idea-keep")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: "Firstframe" })).toBeTruthy();
+  });
+
+  it("keeping the card from the warning, or going back from the field, leaves the card as it was", async () => {
+    mine = { ...landedEvent, again: true };
+    renderBox();
+    await waitFor(() => expect(screen.getByTestId("idea-keep")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: IDEA_NEXT_WORDS.tryAnother }));
+    fireEvent.click(screen.getByRole("button", { name: IDEA_NEXT_WORDS.cancel("Firstframe") }));
+    expect(screen.getByTestId("idea-keep")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: IDEA_NEXT_WORDS.tryAnother }));
+    fireEvent.click(screen.getByRole("button", { name: IDEA_NEXT_WORDS.confirm }));
+    expect(screen.getByTestId("idea-input")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: IDEA_BOX_WORDS.backTo("Firstframe") }));
+    expect(screen.getByTestId("idea-keep")).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith("/idea-box/draft"))).toBe(false);
+  });
+
+  it("says plainly when no redraw is left today instead of offering the button", async () => {
+    mine = { ...landedEvent, again: true, redrawsLeft: 0 };
+    renderBox();
+    await waitFor(() => expect(screen.getByTestId("idea-keep")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: IDEA_NEXT_WORDS.tryAnother })).toBeNull();
+    expect(screen.getByTestId("idea-no-redraws").textContent).toBe(IDEA_NEXT_WORDS.noneLeft);
   });
 
   it("lands at once on the card this browser already holds", async () => {

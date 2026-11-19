@@ -11,6 +11,7 @@
  * A team post about a shown milestone links here with its own code (`?via=s.<code>`, item 8), so the card sends the
  * same visit beacon as the project's page (components/public/PostVisitBeacon.tsx); nothing on the card changes.
  */
+import { PublicAppPrompt } from "@/components/shell/PublicAppPrompt";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
@@ -67,6 +68,7 @@ export default async function MilestoneCardRoute({ params }: Props) {
         mark={mark}
         startHref={withVia("/", { kind: "project_page", ref: card.slug })}
       />
+      <PublicAppPrompt />
     </>
   );
 }

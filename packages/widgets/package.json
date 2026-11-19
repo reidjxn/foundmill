@@ -10,6 +10,12 @@
     "./*.css": "./src/*.css",
     "./*": "./src/*.ts"
   },
+  "sideEffects": [
+    "./src/index.ts",
+    "./src/widgets.ts",
+    "./src/widgets/*.tsx",
+    "**/*.css"
+  ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",

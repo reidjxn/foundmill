@@ -8,7 +8,7 @@
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import type { Context as HonoContext } from "hono";
 import { getConnInfo } from "@hono/node-server/conninfo";
-import { loadEnv, type Env } from "@foundmill/shared";
+import { loadEnv, topUpsOnSale, type Env } from "@foundmill/shared";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import type { Db, PoolWatchdog } from "@foundmill/db";
 import { createDb } from "@foundmill/db";
@@ -18,15 +18,16 @@ import { createDefaultRegistry, type ConnectorRegistry } from "@foundmill/connec
 import { createAuthVerifier, type AuthVerifier } from "./auth";
 import { parseSignupAllowlist } from "./services/access";
 import { createConfirmEmailGuard, type ConfirmEmailGuard } from "./services/confirm-email";
+import { createDataApiProbe, type DataApiProbe } from "./services/data-api-probe";
 import { requestIdFrom } from "./request-id";
 import { createComposerClient, type ComposerClient } from "./services/composer";
 import { createDevUserBootstrap } from "./services/dev-users";
-import { createApiModelClient } from "./services/models";
+import { createApiModelClient, freePlanSlowCheck } from "./services/models";
 import { createRateLimitStore, type RateLimitStore, type RedisLimitClient } from "./services/rate-limit";
 import { createRedis } from "./services/redis";
 import type { RelaySupervisor } from "./services/relay";
 import { createSandboxRecordingResolver, type RecordingResolver } from "./services/replay";
-import { createApiGatewayClient, type ApiGatewayClient } from "./services/gateway";
+import { createApiGatewayClient, signApiServiceToken, type ApiGatewayClient } from "./services/gateway";
 import { createIngestClient, type IngestClient } from "./services/simulate";
 import { createTemporalService, type TemporalService } from "./services/temporal";
 import { createLog, type ApiLogger } from "./services/log";
@@ -63,6 +64,8 @@ export interface ApiDeps {
    * confirmed address. Absent (tests, no list, no SUPABASE_URL): tokens alone decide.
    */
   confirmEmail?: ConfirmEmailGuard | null;
+  /** Watches that Supabase's Data API stays off (services/data-api-probe.ts; index.ts starts it). Absent without SUPABASE_URL. */
+  dataApi?: DataApiProbe | null;
   log: ApiLogger;
   /** Mock sandbox recordings for session replays without Redis (null when the sandbox package is not linked). */
   recordings: RecordingResolver | null;
@@ -88,6 +91,11 @@ export interface ApiDeps {
    * Absent for the in-process caller.
    */
   txGate?: TransactionGate | null;
+  /**
+   * Whether a request's model calls run on the free plan while the month's free-plan spend is past 80% of its cap
+   * (WP-13 T6): `modelLimited` then gives it a quarter of its usual allowances. Absent (tests, the in-process caller): never.
+   */
+  freePlanSlow?: ((scope: { userId: string; businessId?: string | null }) => Promise<boolean>) | null;
 }
 
 export interface Context extends ApiDeps {
@@ -164,7 +172,10 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     });
   const temporal = createTemporalService({ address: env.TEMPORAL_ADDRESS, namespace: env.TEMPORAL_NAMESPACE, taskQueue: env.TEMPORAL_TASK_QUEUE, log });
   // Calls made for a business are booked to its usage ledger through the client (services/models.ts).
-  const models = createApiModelClient(env, log, { db });
+  // A founder's own key reaches the api's calls through the gateway (WP-13 T11), signed as the api's other gateway calls.
+  const gatewaySecret = env.API_SERVICE_TOKEN_SECRET?.trim() || env.SESSION_TOKEN_SECRET?.trim() || null;
+  const models = createApiModelClient(env, log, { db, topUps: topUpsOnSale(env), ...(gatewaySecret && gatewaySecret.length >= 16 ? { ownKeyGateway: { url: env.GATEWAY_URL, serviceToken: (businessId: string) => signApiServiceToken(gatewaySecret, businessId) } } : {}) });
+  const freePlanSlow = freePlanSlowCheck(db, env.FREE_PLAN_MONTHLY_CAP_CENTS);
   const composer = createComposerClient({ url: env.COMPOSER_URL, db, models, log, timeoutMs: env.COMPOSER_TIMEOUT_MS, allowFallback: env.APP_ENV === "development" || env.APP_ENV === "test" });
 
   let vault: Vault | null = null;
@@ -180,7 +191,11 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   const connectors = createDefaultRegistry({ secrets: {} });
   const recordings = options.recordings === undefined ? createSandboxRecordingResolver() : options.recordings;
   const ingest = createIngestClient({ url: env.INGEST_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
-  const gateway = createApiGatewayClient({ url: env.GATEWAY_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
+  // The api signs its gateway calls with its own secret when it has one (WP-11 T12), else the shared one.
+  const apiServiceSecret = env.API_SERVICE_TOKEN_SECRET?.trim() || null;
+  if (apiServiceSecret && apiServiceSecret.length < 32) throw new Error("API_SERVICE_TOKEN_SECRET must be at least 32 characters");
+  if (apiServiceSecret && apiServiceSecret === env.SESSION_TOKEN_SECRET?.trim()) throw new Error("API_SERVICE_TOKEN_SECRET must differ from SESSION_TOKEN_SECRET");
+  const gateway = createApiGatewayClient({ url: env.GATEWAY_URL, secret: apiServiceSecret ?? env.SESSION_TOKEN_SECRET ?? null });
   const auth = createAuthVerifier({
     supabaseUrl: env.SUPABASE_URL ?? null,
     jwtSecret: env.SUPABASE_JWT_SECRET ?? null,
@@ -193,6 +208,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
 
   // The allow-list's confirmed-address rule rests on Supabase's "Confirm email": watched only while there is a list.
   const confirmEmail = env.SUPABASE_URL && parseSignupAllowlist(env.SIGNUP_ALLOWLIST) ? createConfirmEmailGuard({ supabaseUrl: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY, log }) : null;
+  const dataApi = env.SUPABASE_URL ? createDataApiProbe({ supabaseUrl: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY, log }) : null;
 
   const health = {
     db: async () => {
@@ -233,7 +249,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     },
   });
 
-  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, confirmEmail, log, recordings, ingest, gateway, health, txGate };
+  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, confirmEmail, dataApi, log, recordings, ingest, gateway, health, txGate, freePlanSlow };
 }
 
 /** Per-request context factory for `trpcServer({ createContext })`. */

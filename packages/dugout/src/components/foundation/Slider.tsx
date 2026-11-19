@@ -6,6 +6,8 @@ import { cn } from "../../lib/cn";
 export interface SliderProps extends ComponentPropsWithoutRef<typeof SliderPrimitive.Root> {
   /** Accessible name for each thumb (one per value). */
   thumbLabels?: string[];
+  /** What a screen reader hears for each thumb's value ("1:24"), on the thumb, where aria-valuetext is allowed. */
+  thumbValueText?: string[];
   /** Colour of the range and the thumb's halo; default the brand lifted for dark (kit-lift). */
   tone?: "kit" | "good" | "warn" | "bad" | "info" | "gold";
 }
@@ -24,7 +26,7 @@ const TONE: Record<NonNullable<SliderProps["tone"]>, string> = {
  * (DESIGN §8). Arrow keys step, Shift+Arrow steps ×10, Home/End jump. For 1–20 skill ratings use SkillSlider.
  */
 export const Slider = forwardRef<ElementRef<typeof SliderPrimitive.Root>, SliderProps>(function Slider(
-  { className, thumbLabels, tone = "kit", value, defaultValue, ...props },
+  { className, thumbLabels, thumbValueText, tone = "kit", value, defaultValue, ...props },
   ref,
 ) {
   const count = (value ?? defaultValue ?? [0]).length;
@@ -40,7 +42,7 @@ export const Slider = forwardRef<ElementRef<typeof SliderPrimitive.Root>, Slider
         <SliderPrimitive.Range className="slider-range" />
       </SliderPrimitive.Track>
       {Array.from({ length: count }, (_, i) => (
-        <SliderPrimitive.Thumb key={i} aria-label={thumbLabels?.[i]} className="slider-thumb cursor-grab active:cursor-grabbing disabled:pointer-events-none" />
+        <SliderPrimitive.Thumb key={i} aria-label={thumbLabels?.[i]} aria-valuetext={thumbValueText?.[i]} className="slider-thumb cursor-grab active:cursor-grabbing disabled:pointer-events-none" />
       ))}
     </SliderPrimitive.Root>
   );

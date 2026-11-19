@@ -19,7 +19,7 @@ const renderPage = (switches: Partial<LandingSwitches> = {}) => render(<LandingP
 const text = () => document.body.textContent ?? "";
 
 /** The page's sections, in order (DESIGN §9a): daylight, the blue, then the night. */
-const ORDER = ["hero", "result", "ways", "studio", "people", "first-week", "control", "questions", "start"];
+const ORDER = ["hero", "result", "ways", "studio", "people", "first-week", "control", "vacation", "questions", "start"];
 
 describe("LandingPage (signed-out /, DIRECTION §3)", () => {
   it("has one h1, the first-timer's headline", () => {
@@ -45,22 +45,37 @@ describe("LandingPage (signed-out /, DIRECTION §3)", () => {
     expect(hero.querySelectorAll(".idea-gen-filled")).toHaveLength(1);
   });
 
-  it("labels the idea field visibly and gives all three assurances at every width", () => {
+  it("labels the idea field visibly and gives every assurance at every width", () => {
     renderPage();
     const field = screen.getByLabelText("What do you want to make?");
     expect(field.tagName).toBe("TEXTAREA");
     expect(document.querySelector('label[for="' + field.id + '"]')!.className).not.toContain("sr-only");
-    for (const a of ["Shaping your first idea is free and needs no sign-up", "Your idea stays private until you choose to share it", "Nothing spends money or signs in your name without you"]) {
+    for (const a of ["Free to start · no card", "Your idea stays private until you choose to share it", "Nothing spends, signs or files without you", "Built for a big screen and your full attention"]) {
       expect(screen.getByText(a)).toBeTruthy();
     }
   });
 
-  it("shows a real rated example, labeled Example, beside the box, and says what comes back", () => {
+  it("the free line follows sign-up's stage, and the hero never names a price or promises the product stays free (WP-14 A1)", () => {
+    const { unmount } = renderPage({ signupOpen: false });
+    expect(screen.getByText(W.hero.assure.freeInvite)).toBeTruthy();
+    expect(screen.queryByText(W.hero.assure.freeOpen)).toBeNull();
+    unmount();
+    renderPage({ signupOpen: true });
+    expect(screen.queryByText(W.hero.assure.freeInvite)).toBeNull();
+    expect(screen.getByText(W.hero.assure.freeOpen)).toBeTruthy();
+    expect(document.getElementById("hero")!.textContent).not.toMatch(/\$\d/);
+    expect(text()).not.toMatch(/does not expire|free forever|always free|stays free/i);
+  });
+
+  it("shows a real rated example, labeled with the founder's words, beside the box, and says what comes back", () => {
     renderPage();
     const hero = document.getElementById("hero")!;
-    // Four examples to switch between, Northwind Skincare first (founder, 2026-11-16).
-    const example = within(hero).getByRole("figure", { name: "Example" });
-    expect(within(example).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Northwind Skincare", "Sole Revival", "Tutorlane", "Glitchwick"]);
+    // Four examples to switch between, Northwind Skincare first (founder, 2026-11-16), then Tutorlane (2026-11-17).
+    const example = within(hero).getByRole("figure", { name: "Example companies you can create" });
+    expect(W.hero.exampleLabel).toBe("Example companies you can create");
+    expect(within(example).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Northwind", "Tutorlane", "Sole Revival", "Glitchwick"]);
+    // "companies" is the landing page's one exception to the project/business rule: this label only.
+    expect(document.body.textContent!.match(/\bcompanies\b/gi)?.length ?? 0).toBe(1);
     expect(example.querySelector("[data-idea-name]")!.textContent).toBe("Northwind Skincare");
     const result = document.getElementById("result")!;
     expect(within(result).getByRole("heading", { level: 2 }).textContent).toBe(W.result.title);
@@ -79,7 +94,8 @@ describe("LandingPage (signed-out /, DIRECTION §3)", () => {
 
   it("never calls the rated idea a card: the word reads as a payment card (founder, 2026-11-16)", () => {
     renderPage();
-    expect(text()).not.toMatch(/\bcards?\b/i);
+    // The one use of the word is a payment card, in the founder's own line (WP-14 A1).
+    expect(text().replace(W.hero.assure.freeInvite, "")).not.toMatch(/\bcards?\b/i);
   });
 
   it("names the three ways to start: one sentence, the Ideation Studio, and bringing what already exists", () => {
@@ -126,6 +142,14 @@ describe("LandingPage (signed-out /, DIRECTION §3)", () => {
     expect(document.getElementById("cost")!.textContent).toContain(W.cost.allowance);
     expect(W.cost.allowance).toContain("$5.00");
     expect(document.querySelectorAll("#questions details").length).toBeGreaterThanOrEqual(W.questions.always.length);
+  });
+
+  it("offers a vacation, and says by the house rules that estimates are labeled (WP-14 T10)", () => {
+    renderPage();
+    const vacation = document.getElementById("vacation")!;
+    expect(within(vacation).getByRole("heading", { level: 2 }).textContent).toBe("Take a vacation.");
+    expect(vacation.textContent).toContain("Vacation mode: your Chief of Staff keeps things moving within the limits you set, and writes you a report for when you come back.");
+    expect(within(document.getElementById("control")!).getByTestId("control-honest").textContent).toBe(W.control.honest);
   });
 
   it("ends with a way back to the box and the paragraph an answer engine can quote", () => {
@@ -187,11 +211,9 @@ describe("LandingPage switches (DIRECTION §6)", () => {
   it("prints the lines that need a confirmation email only with platform mail on", () => {
     const { unmount } = renderPage({ platformMail: false });
     expect(text()).not.toContain(W.firstWeek.days.d3Follow);
-    expect(text()).toContain(W.questions.limitsMail);
     unmount();
     renderPage({ platformMail: true });
     expect(text()).toContain(W.firstWeek.days.d3Follow);
-    expect(text()).not.toContain(W.questions.limitsMail);
   });
 });
 

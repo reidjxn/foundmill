@@ -46,7 +46,7 @@ beforeAll(async () => {
   db = h.db as unknown as Db;
   const env = loadEnv({ APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock", SESSION_TOKEN_SECRET: TEST_SECRET, REDIS_URL: "redis://127.0.0.1:1" });
   server = await listenGateway(buildGateway({ env, db, vault: null, log: silentLog }).app, { port: 0, host: "127.0.0.1" });
-  client = createGatewayClient({ baseUrl: server.url, serviceSecret: TEST_SECRET, serviceName: "builtins" });
+  client = createGatewayClient({ baseUrl: server.url, serviceSecret: TEST_SECRET, serviceName: "orchestrator" });
   const northwind = await repos.businesses.create(db, { name: "Northwind Skincare" });
   const other = await repos.businesses.create(db, { name: "Ledgerly" });
   lead = await desk(northwind.id, "Mira", "engineering_lead");
@@ -163,8 +163,11 @@ describe("platform tools on the real database (INTEGRATIONS_MODE=mock)", () => {
     expect(business.name).toBe("Northwind Skincare");
     expect(business.team.map((a) => a.id).sort()).toEqual([lead.agentId, worker.agentId].sort());
     await repos.channels.addSuppression(db, lead.businessId, { emailHash: hashRecipient("email", "Opted.Out@customer.example"), reason: "unsubscribed" });
-    expect(data(await client.call(token, { connector: "platform", tool: "check_contact", args: { email: "opted.out@customer.example" } }))).toEqual({ email: "opted.out@customer.example", contactable: false });
-    expect(data(await client.call(token, { connector: "platform", tool: "check_contact", args: { email: "hello@customer.example" } }))).toEqual({ email: "hello@customer.example", contactable: true });
+    expect(data(await client.call(token, { connector: "platform", tool: "check_contact", args: { email: "opted.out@customer.example" } }))).toEqual({ email: "opted.out@customer.example", contactable: false, basis: "none" });
+    // An address nobody recorded has no basis (WP-08 T10); one the founder added is contactable, on that basis.
+    expect(data(await client.call(token, { connector: "platform", tool: "check_contact", args: { email: "hello@customer.example" } }))).toEqual({ email: "hello@customer.example", contactable: false, basis: "none" });
+    await repos.entities.create(db, lead.businessId, { kind: "person", displayName: "Hello Customer", identifiers: { email: "hello@customer.example" }, source: "user", lawfulBasis: "legitimate_interest" });
+    expect(data(await client.call(token, { connector: "platform", tool: "check_contact", args: { email: "hello@customer.example" } }))).toEqual({ email: "hello@customer.example", contactable: true, basis: "recorded" });
   });
 });
 
@@ -240,6 +243,72 @@ describe("web reads and the quarantined reader", () => {
     const refused = asAllow(await client.call(token, { connector: "platform", tool: "assign_skill", args: { agentIds: [worker.agentId], file: "docs/agent-pack/branch-rules.md" } }));
     expect(refused.result.ok).toBe(false);
     expect(refused.result.error?.message).toMatch(/no repository is chosen/);
+  });
+});
+
+describe("complete_task checks a task's acceptance lines (founder, Nov 16, 2026)", () => {
+  const LINES = ["Two suppliers compared on price", "A sample request drafted"];
+  /** An agent, a task with lines assigned to it, and a session on that task. */
+  const linedDesk = async (name: string, title: string): Promise<Desk & { taskId: string }> => {
+    const agent = await repos.agents.create(db, worker.businessId, { name, agentType: "researcher", modelKey: "sonnet" });
+    const taskId = (await repos.tasks.create(db, worker.businessId, { kind: "research", title, acceptance: LINES as never, status: "running", assigneeAgentId: agent.id })).id;
+    const session = await repos.agents.createSession(db, worker.businessId, { agentId: agent.id, taskId, modelKey: "sonnet" });
+    return { businessId: worker.businessId, agentId: agent.id, sessionId: session.id, taskId };
+  };
+  const report = (taskId: string) => ({ connector: "platform", tool: "save_report", args: { taskId, title: "Suppliers compared", bodyMd: "## Price\n\nA is $0.11.\n\n## Sample request\n\nDrafted below." } });
+  const complete = (taskId: string, acceptance?: unknown) => ({ connector: "platform", tool: "complete_task", args: { taskId, summary: "Compared.", ...(acceptance === undefined ? {} : { acceptance }) } });
+  const auditOf = async (taskId: string) => (await repos.audit.list(db, worker.businessId, { action: "platform.task.acceptance_reported" })).items.find((e) => e.target.id === taskId)?.details;
+  const refusedWith = async (token: string, taskId: string, acceptance: unknown, message: RegExp) => {
+    const r = asAllow(await client.call(token, complete(taskId, acceptance)));
+    expect(r.result).toMatchObject({ ok: false, error: { code: "invalid_state" } });
+    expect(r.result.error?.message).toMatch(message);
+    expect((await repos.tasks.get(db, worker.businessId, taskId)).status).toBe("running");
+  };
+
+  it("every line met against the report's headings is accepted and audited; the task stays open for its session to settle", async () => {
+    const d = await linedDesk("Zed", "Compare suppliers, draft a request");
+    const token = await tokenFor(d, ["platform:*"]);
+    data(await client.call(token, report(d.taskId)));
+    const met = [{ line: 1, met: true, reportSection: "price" }, { line: 2, met: true, reportSection: "## Sample request" }];
+    expect(data<{ status: string }>(await client.call(token, complete(d.taskId, met))).status).toBe("running");
+    expect((await repos.tasks.get(db, d.businessId, d.taskId)).status).toBe("running");
+    expect(await auditOf(d.taskId)).toMatchObject({ status: "running", unmetLines: [] });
+  });
+
+  it("a line marked not met is accepted, with the line on the audit row", async () => {
+    const d = await linedDesk("Abe", "Compare suppliers, one line short");
+    const token = await tokenFor(d, ["platform:*"]);
+    data(await client.call(token, report(d.taskId)));
+    data(await client.call(token, complete(d.taskId, [{ line: 1, met: true, reportSection: "Price" }, { line: 2, met: false }])));
+    expect(await auditOf(d.taskId)).toMatchObject({ status: "running", unmetLines: [2] });
+  });
+
+  it("refuses: no report saved, no results, a missing line, a met line that says nowhere, a section that is not a heading", async () => {
+    const d = await linedDesk("Bea", "Compare suppliers, refused shapes");
+    const token = await tokenFor(d, ["platform:*"]);
+    await refusedWith(token, d.taskId, [{ line: 1, met: true, tool: "fetch_page" }, { line: 2, met: true, tool: "fetch_page" }], /save_report first/);
+    data(await client.call(token, report(d.taskId)));
+    await refusedWith(token, d.taskId, undefined, /one result for each line, 1 to 2/);
+    await refusedWith(token, d.taskId, [{ line: 1, met: true, reportSection: "Price" }], /no result for line 2/);
+    await refusedWith(token, d.taskId, [{ line: 1, met: true }, { line: 2, met: false }], /line 1 is marked met without saying where/);
+    // A phrase of the body is not a section: only a whole heading is.
+    await refusedWith(token, d.taskId, [{ line: 1, met: true, reportSection: "is" }, { line: 2, met: false }], /not a heading of the report you saved/);
+    await refusedWith(token, d.taskId, [{ line: 1, met: false }, { line: 2, met: false }, { line: 3, met: false }], /there is no line 3/);
+  });
+
+  it("a task with lines is completed only from its own session", async () => {
+    const d = await linedDesk("Cal", "Compare suppliers, own session");
+    const other = await desk(worker.businessId, "Cal elsewhere", "researcher");
+    await repos.tasks.update(db, d.businessId, d.taskId, { assigneeAgentId: other.agentId });
+    const token = await tokenFor(other, ["platform:*"]);
+    data(await client.call(token, report(d.taskId)));
+    await refusedWith(token, d.taskId, [{ line: 1, met: true, reportSection: "Price" }, { line: 2, met: true, reportSection: "Sample request" }], /completed from its own session/);
+  });
+
+  it("a task without acceptance lines completes as before", async () => {
+    const analyst = await desk(worker.businessId, "Cyd", "researcher");
+    const taskId = (await repos.tasks.create(db, analyst.businessId, { kind: "research", title: "No lines", status: "running", assigneeAgentId: analyst.agentId })).id;
+    expect(data<{ status: string }>(await client.call(await tokenFor(analyst, ["platform:*"]), complete(taskId))).status).toBe("done");
   });
 });
 

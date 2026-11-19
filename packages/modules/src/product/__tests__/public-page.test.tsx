@@ -45,6 +45,12 @@ describe("PublicPageScreen", () => {
     expect(screen.queryByRole("button", { name: PUBLIC_PAGE_WORDS.copyLink })).toBeNull();
   });
 
+  it("the preview shows the project's own logo, the same as the published page, and the initials without one", () => {
+    const logo = "data:image/png;base64,iVBORw0KGgo=";
+    render(view({ preview: { name: "Northwood", brandPrimary: "#2f7d6b", brandSecondary: "#ffffff", founderNames: ["Maya"], logo } }));
+    expect(screen.getByTestId("public-page-preview").querySelector("img")?.getAttribute("src")).toBe(logo);
+  });
+
   it("the preview follows the typing; an empty about is an inline error and Publish waits for it", () => {
     render(view());
     fireEvent.change(screen.getByLabelText(/One-line pitch/), { target: { value: "Bike repairs at your door" } });

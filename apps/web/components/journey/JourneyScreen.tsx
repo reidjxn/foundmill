@@ -17,6 +17,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { customerFactsFor, entityKindsFor, replayOrigin, stageAgentMeta, stageJourneyFromRecord, toStageTouches } from "./mapping";
 import { readReplaySpeed, writeReplaySpeed } from "./speed";
@@ -86,7 +87,8 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
   const back = useCallback(() => router.push(origin.href), [router, origin.href]);
   const backLabel = origin.label === "Inbox" ? "Back to the Inbox" : `Back to ${origin.label}`;
 
-  if (journeyQ.error && !notFound) return <ErrorPanel title="Customer Update" message={errorMessage(journeyQ.error)} onRetry={() => void journeyQ.refetch()} />;
+  // Only a first load that failed replaces the screen; a failed background refetch keeps the replay on screen (WP-10 T12).
+  if (loadFailed(journeyQ) && !notFound) return <ErrorPanel title="Customer Update" message={errorMessage(journeyQ.error)} onRetry={() => void journeyQ.refetch()} />;
   if (notFound && !forwardTo && !lookupQ.isLoading) {
     return (
       <div className="p-gutter" data-testid="journey-not-found">
@@ -102,6 +104,7 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
 
   return (
     <div className="flex min-h-full flex-col" data-testid="journey-screen" data-journey-id={row.id} data-conversion-id={row.conversionId} data-speed={speed} data-nth={journey.nthOfKind} data-consent={journey.consent}>
+      {refreshFailed(journeyQ) ? <RefreshFailedNotice query={journeyQ} /> : null}
       <div className="rule-under flex flex-wrap items-center gap-2 px-gutter py-1.5" data-testid="journey-toolbar">
         <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={back} data-testid="journey-back" data-back-href={origin.href}>
           {origin.label}
@@ -124,8 +127,13 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
               <>No paid acquisition</>
             ) : (
               <>
-                Acquisition cost <span className="tabular text-primary">{formatMoney({ amountMinor: journey.stats.acquisitionCostMinor, currency: row.conversion.currency })}</span>
-                {row.acquisitionCostLabel ? <ProvenanceChip kind={/forecast/i.test(row.acquisitionCostLabel) ? "forecast" : "estimate"} /> : null}
+                Acquisition cost <span className="tabular text-primary">
+                  {row.acquisitionCostLabel ? (
+                    <ProvenanceChip kind={/forecast/i.test(row.acquisitionCostLabel) ? "forecast" : "estimate"}>{formatMoney({ amountMinor: journey.stats.acquisitionCostMinor, currency: row.conversion.currency })}</ProvenanceChip>
+                  ) : (
+                    formatMoney({ amountMinor: journey.stats.acquisitionCostMinor, currency: row.conversion.currency })
+                  )}
+                </span>
               </>
             )}
           </span>

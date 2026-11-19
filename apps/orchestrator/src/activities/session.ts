@@ -31,15 +31,17 @@
 import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
-import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, roleSkillsFor, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
-import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
-import { ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, unusableConnectors } from "@foundmill/connectors";
-import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
+import { AgentInstructions, attachedSkills, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, NO_TOOL_LOOP_PRELOAD_BODIES, restoredWorkspaceNote, selectSkills, SESSION_PRELOAD_BODIES, ToolGrant, type AgentTemplate, type AttachedSkill } from "@foundmill/agents";
+import { APP_NAME, CREDITS_CURRENCY, modelFundingFor, sandboxCostMicroMinor } from "@foundmill/config";
+import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
+import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, freeCapCheck, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, readSessionEvents, type SessionEvent, type SessionEventInput } from "@foundmill/events";
-import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
+import { meter, MODEL_ENDPOINTS, MODEL_PRICING, MODEL_PROVIDER, MODELS, resolveModel, type ModelId, type ModelKey as RoutedModelKey, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, capturePages, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
 import { CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, channelTeamRuns, isUuid, mockResultsAllowed, noChannelSentence, type AgentStatus, type BuildDestination, type ChannelKey, type DesignCheckResult, type DesignShotRef, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { channelAvailabilityFor } from "./channel-availability";
+import { buildSiteRelease, heldReleaseNote, isSiteProject, siteCheckout, siteTaskNote } from "./site-workspace";
+import { sitePreviewUrl, sitesDomain, siteUrl } from "@foundmill/shared/sites";
 import { currentTraceparent } from "@foundmill/shared/telemetry";
 import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
@@ -252,7 +254,35 @@ interface SdkAssistantUsage {
  * a zeroed crash result never lowers them). Assistant messages since the last result are estimated from their own
  * `usage` at list price (the last usage seen per message id counts), so a turn cut short by a stop, a loop or a crash
  * is still booked.
+ *
+ * A model that is not Anthropic's (GLM-5.3 Flash on Z.ai, WP-13) is priced from its tokens at Foundmill's list price:
+ * the SDK does not know its price and reports an Opus-class `costUSD` for it (measured Nov 16, 2026: 35 times GLM's).
  */
+/** What a free session says when someone asks it to move to a Claude model (WP-13). */
+export const FREE_PLAN_SWITCH_NOTE = "On the free plan this session stays on its model. Claude models come with a paid plan, or with your own Anthropic key.";
+
+/**
+ * The model a free business's session runs on (WP-13; founder, Nov 16, 2026): the agent's own choice when it is one of
+ * the free plan's two (Haiku 5.5 or GLM-5.3 Flash), else `FREE_SESSION_MODEL`. GLM needs Foundmill's Z.ai key; without it
+ * the session runs on the agent's own model.
+ */
+export function freeSessionModel(route: RouteKey, agentModel: RoutedModelKey, env: { FREE_SESSION_MODEL: "routed" | "haiku" | "glm"; ZAI_API_KEY?: string }) {
+  const chosen = agentModel === "glm" || agentModel === "haiku" ? agentModel : env.FREE_SESSION_MODEL;
+  if (chosen === "glm" && env.ZAI_API_KEY) return resolveModel(route, "glm");
+  if (chosen === "haiku") return resolveModel(route, "haiku");
+  // `routed` (the default since WP-13 T8, Nov 17, 2026): the agent's own model, as a paid plan runs it. Haiku 5.5 leaked
+  // half of the planted instructions in the injection suites, so a free session no longer drops to it by default.
+  return resolveModel(route, agentModel);
+}
+
+const MODEL_KEY_OF_ID = new Map<string, RoutedModelKey>((Object.entries(MODELS) as [RoutedModelKey, string][]).map(([key, id]) => [id, key]));
+
+/** Whether the SDK's own `costUSD` is right for this model: an Anthropic model, or one this platform does not price. */
+function pricedBySdk(modelId: string): boolean {
+  const key = MODEL_KEY_OF_ID.get(modelId);
+  return !key || MODEL_PROVIDER[key] === "anthropic";
+}
+
 export class SessionUsage {
   private settled: UsageTotals = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
   private readonly open = new Map<string, UsageTotals>();
@@ -266,10 +296,10 @@ export class SessionUsage {
 
   onResult(modelUsage: Record<string, SdkModelUsage> | null | undefined): void {
     const latest: UsageTotals = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
-    for (const u of Object.values(modelUsage ?? {})) {
+    for (const [modelId, u] of Object.entries(modelUsage ?? {})) {
       latest.tokensIn += u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
       latest.tokensOut += u.outputTokens;
-      latest.costMinor += u.costUSD * 100;
+      latest.costMinor += pricedBySdk(modelId) ? u.costUSD * 100 : meter({ inputTokens: u.inputTokens, outputTokens: u.outputTokens, cacheCreationInputTokens: u.cacheCreationInputTokens, cacheReadInputTokens: u.cacheReadInputTokens }, modelId as ModelId).costMinor;
     }
     this.settled = { tokensIn: Math.max(this.settled.tokensIn, latest.tokensIn), tokensOut: Math.max(this.settled.tokensOut, latest.tokensOut), costMinor: Math.max(this.settled.costMinor, latest.costMinor) };
     this.open.clear();
@@ -436,6 +466,17 @@ class SessionRecorder {
   completedOwnTask = false;
   /** `complete_task` calls in flight on this session's task. */
   private readonly completeCalls = new Set<string>();
+  /** The agent saved a report on its own task with `save_report` and the call went through. */
+  savedOwnReport = false;
+  /** The per-line acceptance results of the last `complete_task` on this session's task that went through. */
+  acceptanceClaims: AcceptanceResultT[] | null = null;
+  /** `complete_task` calls in flight → the acceptance results they carry. */
+  private readonly claimCalls = new Map<string, AcceptanceResultT[] | null>();
+  /**
+   * Every outside tool this session called (not `platform` or `quarantine`: a platform call never stands behind an
+   * acceptance line), by bare name and by "<connector>:<tool>": how many calls went through, and how many were real.
+   */
+  readonly toolsUsed = new Map<string, ToolUse>();
   /**
    * Tool results from connectors that reach outside the business (not `platform` or `quarantine`), read from the full
    * result text: how many came back simulated or not connected, and which connectors they were (WP-05 T2).
@@ -501,6 +542,7 @@ class SessionRecorder {
       this.trackBlockTask(full, opts.args);
       this.trackCompleteTask(full, opts.args);
       this.trackOutside(full, opts.result);
+      this.trackToolUse(full, opts.result);
       this.trackAgentPush(full, opts.args);
       if (full.status === "succeeded" && /merge_pr|merge_pull_request/i.test(full.tool)) {
         const m = /#?(\d{1,6})/.exec(full.resultSummary ?? "");
@@ -551,12 +593,43 @@ class SessionRecorder {
   private trackCompleteTask(call: Extract<SessionEventInput, { kind: "tool_call" }>, args: unknown): void {
     if ((call.tool !== "complete_task" && call.tool !== "save_report") || (call.connectorKey !== null && call.connectorKey !== undefined && call.connectorKey !== "platform")) return;
     if (call.status === "started") {
-      const a = (args ?? {}) as { taskId?: unknown };
-      if (a.taskId === undefined || a.taskId === this.ctx.task.id) this.completeCalls.add(call.callId);
+      const a = (args ?? {}) as { taskId?: unknown; acceptance?: unknown };
+      if (a.taskId === undefined || a.taskId === this.ctx.task.id) {
+        this.completeCalls.add(call.callId);
+        const claims = AcceptanceResult.array().safeParse(a.acceptance);
+        if (call.tool === "complete_task") this.claimCalls.set(call.callId, claims.success ? claims.data : null);
+      }
       return;
     }
     if (!this.completeCalls.delete(call.callId)) return;
-    if (call.status === "succeeded" && call.policyOutcome !== "deny" && call.policyOutcome !== "ask") this.completedOwnTask = true;
+    const claims = this.claimCalls.get(call.callId);
+    this.claimCalls.delete(call.callId);
+    if (call.status !== "succeeded" || call.policyOutcome === "deny" || call.policyOutcome === "ask") return;
+    this.completedOwnTask = true;
+    if (call.tool === "save_report") this.savedOwnReport = true;
+    else this.acceptanceClaims = claims ?? null;
+  }
+
+  /**
+   * One finished call of any tool, for the acceptance lines it may stand behind: it ran when it went through and
+   * answered, and was real when its result was also not simulated (the full result text, as `trackOutside` reads it).
+   */
+  private trackToolUse(call: Extract<SessionEventInput, { kind: "tool_call" }>, result: string | undefined): void {
+    const key = call.connectorKey;
+    if (call.status === "started" || !key || key === "platform" || key === "quarantine") return;
+    const bare = toolKeys(call.tool).bare;
+    const uses = [bare, `${key.toLowerCase()}:${bare}`].map((k) => {
+      const use = this.toolsUsed.get(k) ?? { ran: 0, real: 0 };
+      this.toolsUsed.set(k, use);
+      return use;
+    });
+    const text = result ?? call.resultSummary ?? "";
+    if (call.status !== "succeeded" || call.policyOutcome === "deny" || call.policyOutcome === "ask" || /integration_not_connected|"ok"\s*:\s*false/.test(text)) return;
+    const real = !/"simulated"\s*:\s*true/.test(text);
+    for (const use of uses) {
+      use.ran += 1;
+      if (real) use.real += 1;
+    }
   }
 
   /** One tool result of a connector outside the business: counted, and whether it was simulated or not connected. */
@@ -737,10 +810,10 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       repos.agents.getSession(db, input.businessId, input.sessionId),
     ]);
     const [version, added] = await Promise.all([agent.currentVersionId ? repos.agents.getVersion(db, input.businessId, agent.currentVersionId) : null, repos.skills.listAddedForAgent(db, input.businessId, agent.id, agent.agentType)]);
-    // Skills the founder added from the library or files: their instructions follow the house rules and instructions.
-    // Skills that come with the role go first (the code agents' Design principles, item 13), then the founder's.
+    // The skills the agent carries (WP-06 T4): the role's first (the code agents' Design principles, item 13), then the
+    // founder's from the library or files, with library text from the catalog and stored uploads screened again.
     const template = templateForAgent(agent);
-    const skills: AgentSkillPrompt[] = [...roleSkillsFor(template.skills), ...added.filter((a) => a.instructionsMd.trim()).map((a) => ({ name: a.name, source: a.source, instructionsMd: a.instructionsMd }))];
+    const skills = attachedSkills(template.skills, added);
     return { agent, task, business, session, version, template, skills };
   }
 
@@ -750,7 +823,9 @@ export function createSessionActivities(deps: OrchestratorDeps) {
    * blocked with reason `credential` instead of quietly spending the platform's credits, as the gateway refuses tool
    * calls with `key-revoked`. Everyone else runs on the platform key.
    */
-  async function resolveApiKey(businessId: string, billing: "byok" | "credits"): Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }> {
+  async function resolveApiKey(businessId: string, billing: "byok" | "credits", modelKey?: ModelKey): Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }> {
+    // A free session on GLM runs on Foundmill's Z.ai key (WP-13): `prepareSession` chose it for a business not on a paid plan.
+    if (modelKey && MODEL_PROVIDER[modelKey] === "zai") return deps.env.ZAI_API_KEY ? { apiKey: deps.env.ZAI_API_KEY, source: "platform" } : { apiKey: null, source: "none" };
     if (billing === "byok") {
       if (!deps.vault) {
         deps.log.warn({ businessId }, "business runs on its own key but this service has no vault; session blocked");
@@ -811,8 +886,10 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const { provider, mode, fellBackFrom } = await deps.sandbox();
       // The credit saver: a session on the platform key whose month's credits are low runs routine work on the route's
       // lower-cost model, unless its tools reach outside the business or spend money, or it does money or legal work.
-      const lowCredits = business.modelBilling !== "byok" && !sessionKeepsModelOnLowCredits({ module: template.module, toolRefs: grants.toolRefs }) && (await checkPlatformCredits(deps.db, input.businessId, { live: mode !== "mock", now: deps.clock.now() })).low;
-      const model = resolveModel(route, agent.modelKey, { lowCredits });
+      // Who pays decides the model (WP-13): a business not on a paid plan runs its sessions on the free plan's session model.
+      const freePlan = modelFundingFor({ planTier: business.planTier, modelBilling: business.modelBilling }) === "free_plan";
+      const lowCredits = !freePlan && business.modelBilling !== "byok" && !sessionKeepsModelOnLowCredits({ module: template.module, toolRefs: grants.toolRefs }) && (await checkPlatformCredits(deps.db, input.businessId, { live: mode !== "mock", now: deps.clock.now() })).low;
+      const model = freePlan ? freeSessionModel(route, agent.modelKey, deps.env) : resolveModel(route, agent.modelKey, { lowCredits });
       // AC-11.6.6: the sandbox environment is asserted before anything is created.
       const env = buildSandboxEnv({ businessId: input.businessId, agentId: agent.id, taskId: task.id, sessionId: input.sessionId, gatewayUrl: deps.gateway.baseUrl });
       const pool = provider instanceof MockSandboxProvider ? provider.recordings : RECORDINGS;
@@ -825,6 +902,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         modelKey: model.modelKey,
         lowCredits: model.lowCredits === true,
         modelId: model.modelId,
+        ...(freePlan ? { freePlan: true } : {}),
         recordingKey,
         allowedTools: grants.toolRefs,
         mcpConnectors: grants.servers,
@@ -997,7 +1075,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       await archiveSessionRecording({ db, redis: deps.redis, log: deps.log }, input);
 
       let taskStatus: TaskStatus;
-      let landed: "saved_only" | null = null;
+      let landed: "saved_only" | "site" | null = null;
       const cost = { amountMinor: Math.round(result.costMinor), currency: CREDITS_CURRENCY }; // model cost: US cents (DECISIONS 2026-10-12)
       // How many sessions of this task in a row ended failed or blocked, this one included (it is ended above).
       const blockedStreak = Math.max(1, failureStreak(await repos.agents.recentOutcomes(db, input.businessId, { taskIds: [task.id], limit: 12 }), ["failed", "blocked"]).failures);
@@ -1026,6 +1104,23 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           if (taskStatus === "review" && task.kind === "code" && !result.review && !(await repos.integrations.codeRepository(db, input.businessId))?.writeEnabled) {
             taskStatus = "done";
             landed = "saved_only";
+          }
+          // A site task (WP-07 T3): its changes become the site's next version. Changed the same file as a task that
+          // finished first, from the same version: handed back to start again from the newest one.
+          if (task.kind === "code" && (await isSiteProject(db, deps.env, input.businessId))) {
+            const built = await buildSiteRelease(db, deps.env, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, agentName: agent.name });
+            if (built.status === "conflict") {
+              const detail = `Another task changed ${built.paths.slice(0, 5).join(", ")}${built.paths.length > 5 ? ` and ${built.paths.length - 5} more` : ""} first. Start from the newest version of the site and make this change again.`;
+              const blockedEv = await emitEvent(db, { businessId: input.businessId, type: "task.blocked", actor: { kind: "agent", id: agent.id }, payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, reason: "needs_update", detail, occurrence: blockedStreak } }, { idempotencyKey: `task.blocked:${input.sessionId}` });
+              eventIds.push(blockedEv.id);
+              taskStatus = "blocked";
+              break;
+            }
+            if (built.status === "release") {
+              taskStatus = "done";
+              landed = "site";
+              if (built.flags.length > 0) deps.log.info({ businessId: input.businessId, releaseId: built.release.id, note: heldReleaseNote(built.flags) }, "site release held by screening");
+            }
           }
           // The report this session saved on the task (WP-05 T3): the event names it, and for a task that is not code the
           // founder's note quotes it (its title, then the start of its body) instead of the run's count of tool calls.
@@ -1188,6 +1283,13 @@ export async function offerReadyToSellAfterTask(deps: OrchestratorDeps, business
   });
   if (!offered) return null;
   const ev = await emitEvent(db, { businessId, type: "inbox.item_created", actor: { kind: "agent", id: chief.id }, payload: { inboxItemId: offered.item.id, type: "decision", fromAgentId: chief.id, subject: offered.item.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
+  // The demo (WP-07 T9): only where there is something to open, the project's site (live, else its newest preview).
+  // An agent with no browser cannot record a demo of a product nobody can open (A4-18).
+  const domain = sitesDomain(deps.env);
+  const site = domain ? await repos.sites.get(db, businessId) : null;
+  const preview = site ? await repos.sites.latestRelease(db, businessId) : null;
+  const address = !site || !domain ? null : site.status === "live" ? siteUrl(domain, site.slug) : preview ? sitePreviewUrl(domain, preview.previewToken) : null;
+  if (!address) return { inboxItemId: offered.item.id, eventId: ev.id, demoTaskId: null };
   // The demo: a research task for the Product Researcher (template key `product_researcher`), else the researcher.
   const assignee = agents.items.find((a) => a.agentType === "product_researcher" && !a.archivedAt) ?? agents.items.find((a) => a.agentType === "researcher" && !a.archivedAt) ?? null;
   const customers = (await repos.product.listBlocks(db, businessId, { section: "Customers" }))[0];
@@ -1197,7 +1299,7 @@ export async function offerReadyToSellAfterTask(deps: OrchestratorDeps, business
   const demo = await repos.tasks.create(db, businessId, {
     kind: "research",
     title: `Record a demo of ${item.title} for ${icp ?? "the first customers"}`.slice(0, 200),
-    goalMd: "Walk through what shipped as a first customer would, record the steps and what they see, and note what is missing before it is shown to anyone. Nothing is sent to anyone.",
+    goalMd: `Open ${address} and walk through it as a first customer would: record the steps and what they see, and note what is missing before it is shown to anyone. Nothing is sent to anyone.`,
     acceptance: ["The demo follows the steps a first customer takes", "What is missing before it is shown to anyone is listed", "Nothing was sent to anyone"],
     roadmapItemId: item.id,
     departmentId: product?.id ?? null,
@@ -1355,14 +1457,27 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 // Live runner (Claude Agent SDK)
 // ---------------------------------------------------------------------------------------------------------------------
 
+const READ_SKILL_REF = "platform:read_skill";
+
+/**
+ * A live session's system prompt (WP-06 T4). Every skill gets an index line; a session that holds `read_skill` (its
+ * resolved tool refs) loads one body up front and is told to read the rest, and one without it loads two and is told
+ * only those are loaded. The prefix through the Skills index does not depend on the task (`buildSystemPrompt`).
+ */
+export function sessionSystemPrompt(input: { business: { name: string; glossary: Record<string, string> }; instructions: AgentInstructions; description: string; briefText: string | null; skills: readonly AttachedSkill[]; task: Pick<Task, "kind" | "title" | "goalMd">; toolRefs: readonly string[] }): string {
+  const canRead = input.toolRefs.includes(READ_SKILL_REF) || input.toolRefs.includes("platform:*");
+  const skills = selectSkills({ skills: input.skills, task: { kind: input.task.kind, title: input.task.title, goal: input.task.goalMd ?? "" }, maxBodies: canRead ? SESSION_PRELOAD_BODIES : NO_TOOL_LOOP_PRELOAD_BODIES });
+  return buildSystemPrompt({ businessName: input.business.name, appName: APP_NAME, template: { instructions: input.instructions, description: input.description }, brief: input.briefText ?? undefined, glossary: input.business.glossary, skills, skillsCanRead: canRead });
+}
+
 interface LiveContext {
   business: { id: string; name: string; glossary: Record<string, string>; modelBilling: "byok" | "credits"; planTier: Business["planTier"]; isDemo: boolean };
   version: AgentVersion | null;
   template: AgentTemplate;
-  /** The agent's skills from the library or files (`buildSystemPrompt` renders them after the instructions). */
-  skills: AgentSkillPrompt[];
+  /** Every skill the agent carries, with its body (`sessionSystemPrompt` indexes them all and loads a few). */
+  skills: AttachedSkill[];
   briefText: string | null;
-  resolveApiKey: (businessId: string, billing: "byok" | "credits") => Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }>;
+  resolveApiKey: (businessId: string, billing: "byok" | "credits", modelKey?: ModelKey) => Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }>;
   /** The sandbox's short-lived identifiers (`buildSandboxEnv`); the SDK process receives the same and nothing from the host. */
   sandboxEnv: Record<string, string>;
   /** Creates and starts a sandbox: a live session needs one only for its acceptance run, so it is created then. */
@@ -1406,7 +1521,7 @@ class PromptQueue {
 }
 
 /** Why a live run ends before the agent is done: Stop or a cancel, a detected loop, a park, an undecided approval, used-up credits, or a hand-off to the next worker. */
-type LiveEnding = "stop" | "loop" | "park" | "approval_timeout" | "budget" | "handoff";
+type LiveEnding = "stop" | "loop" | "park" | "approval_timeout" | "budget" | "task_budget" | "handoff";
 
 const PAUSE_CUT_TURN = "The founder paused the session mid-step and has now resumed it. Continue the task from where you stopped.";
 
@@ -1486,7 +1601,8 @@ export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string 
 
 async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder, ctx: RunnerContext, live: LiveContext): Promise<RunOutcome> {
   const { input, launch, task, agent } = ctx;
-  const key = await live.resolveApiKey(input.businessId, live.business.modelBilling);
+  // A free session runs on the platform's key (Anthropic for Haiku 5.5, Z.ai for GLM) whatever the business's billing.
+  const key = await live.resolveApiKey(input.businessId, launch.freePlan ? "credits" : live.business.modelBilling, launch.modelKey);
   if (!key.apiKey) {
     const reason = live.business.modelBilling === "byok" ? "no live Anthropic key for this business: set one in Settings → Keys" : "no Anthropic key: connect one in Settings or set the platform key";
     return { outcome: "blocked", reason, blockedReason: "credential", approvalId: null, summary: "Blocked: no model credential.", providerSessionId: null };
@@ -1498,6 +1614,12 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     const opened = await SessionCredits.open(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, modelKey: launch.modelKey });
     if (!opened.ok) return { outcome: "blocked", reason: `model budget exhausted: ${opened.reason}`, blockedReason: "budget", approvalId: null, summary: CREDITS_USED_UP_SUMMARY, providerSessionId: null };
     credits = opened.credits;
+  }
+  // The month's free-plan cap (WP-13 T6): while Foundmill's platform-wide spend is held, a free session does not start; the
+  // task waits as it does when credits run out, and the founder reads why and what keeps them going now.
+  if (launch.freePlan && key.source === "platform") {
+    const cap = await freeCapCheck(deps.db, deps.env.FREE_PLAN_MONTHLY_CAP_CENTS)();
+    if (cap.state === "held") return { outcome: "blocked", reason: "the free plan's monthly cap is reached", blockedReason: "budget", approvalId: null, summary: cap.heldMessage, providerSessionId: null };
   }
 
   // A second read's revision keeps only the document tools (./second-read): its goal carries another agent's notes.
@@ -1516,11 +1638,13 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // platform key pays, and what is left of the agent's wage cap and the business's monthly model budget (either key).
   // A task with nothing left does not start.
   const budget = await sessionBudget(deps, { business: live.business, task, agentId: agent.id, sessionId: input.sessionId, spendCapMinor: input.spendCapMinor ?? null });
+  // A session on a provider other than Anthropic is held to its budget by this runner, not by the SDK (WP-13 T4).
+  const ownBudget = MODEL_PROVIDER[launch.modelKey] !== "anthropic";
   if (budget.remainingMinor <= 0) return { outcome: "blocked", reason: `model budget exhausted: ${LIMIT_WORDS[budget.limit].used}`, blockedReason: "budget", approvalId: null, summary: budgetSummary(budget.limit, budget), providerSessionId: null };
   // A share of a capped cycle under the floor pays for nothing that finishes (WP-05 T15): it does not start.
   if (typeof input.spendCapMinor === "number" && input.spendCapMinor < MIN_SESSION_CAP_MINOR) return { outcome: "blocked", reason: "model budget exhausted: what is left of Autopilot's own spend for today is too little for a session", blockedReason: "budget", approvalId: null, summary: UNDER_FLOOR_SUMMARY, providerSessionId: null };
   // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).
-  const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary, skills: live.skills });
+  const systemPrompt = sessionSystemPrompt({ business: live.business, instructions: instructionsFor(live.version, live.template), description: live.template.description, briefText: live.briefText, skills: live.skills, task, toolRefs: grants.toolRefs });
   if (!hasClubRulesPrefix(systemPrompt)) throw new Error("house rules missing from the system prompt");
   const policy = sdkToolPolicyFor(task.kind, grants.mcpTools);
   const sdk = await import("@anthropic-ai/claude-agent-sdk");
@@ -1544,9 +1668,25 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   let checkoutMissing: string | null = null;
   /** That repository (`owner/name`): this session's save is kept but never pushed over it (no checkout, no push). */
   let checkoutMissingRepo: string | null = null;
+  /** WP-07 T3: this business's code tasks build its Foundmill site, and the base the session's save is measured against. */
+  const siteProject = policy.fileTools && (await isSiteProject(deps.db, deps.env, input.businessId));
+  let siteBase: CheckoutBase | null = null;
   let token: Awaited<ReturnType<typeof deps.gateway.mintSessionToken>>;
   try {
-    if (policy.fileTools) {
+    if (policy.fileTools && siteProject) {
+      // A site task (WP-07 T3): no repository, no checkout; the session starts from the site as it stands and its own
+      // saved changes (a task handed back starts from the newest release, its earlier changes on top).
+      const started = await siteCheckout(deps.db, input.businessId, cwd, deps.clock.now());
+      siteBase = started.base;
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: started.note });
+      try {
+        restored = await restoreWorkspace(deps.db, input.businessId, task.id, cwd, undefined, undefined, { checkout: true });
+      } catch (err) {
+        restoreFailed = true;
+        restored = null;
+        deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "site workspace restore failed");
+      }
+    } else if (policy.fileTools) {
       // A branch handed back to be brought up to date (activities/merge.ts), or one the default branch has moved past
       // (checkout.ts `startsFromDefaultBranch`), starts from the default branch's newest files with the saved changes on top.
       const ids = { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id };
@@ -1616,7 +1756,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "could not read the session's earlier tool calls");
     }
   }
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, call block_task in your first turn and name it; do not explore. When the work is finished, call complete_task with what you found or made. A session that ends without complete_task or block_task is not counted as done."].filter(Boolean).join("\n\n");
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", acceptanceLines(task).length ? `## Acceptance criteria\n${acceptanceLines(task).map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n${ACCEPTANCE_BRIEF}` : Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? (siteProject ? siteTaskNote() : codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId)))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, call block_task in your first turn and name it; do not explore. When the work is finished, call complete_task with what you found or made. A session that ends without complete_task or block_task is not counted as done."].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
   /**
@@ -1662,6 +1802,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
    * priced and booked on it (audit O-27). A route locked to one model refuses the change and says so.
    */
   const switchModel = async (modelKey: ModelKey, at: string) => {
+    if (launch.freePlan) {
+      await recorder.publishRaw({ kind: "note", at, source: "system", level: "warn", text: FREE_PLAN_SWITCH_NOTE });
+      return;
+    }
     const model = resolveModel(live.template.route, modelKey);
     if (model.modelKey !== modelKey) {
       await recorder.publishRaw({ kind: "note", at, source: "system", level: "warn", text: model.warning ?? `This work stays on ${model.modelKey}.` });
@@ -1718,6 +1862,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     queue.close(true);
     abortTimer = setTimeout(() => abort.abort(), SDK_STOP_GRACE_MS);
     await interruptTurn();
+  };
+  /** A session on another provider stops at its budget here, priced at Foundmill's list price (WP-13 T4). */
+  const checkOwnBudget = async () => {
+    if (!ending && ownBudget && recorder.usage.totals().costMinor >= Math.min(budget.maxUsd, credits?.maxBudgetUsd ?? Number.POSITIVE_INFINITY) * 100) await end("task_budget");
   };
   const endForCredits = async () => {
     if (ending) return;
@@ -1799,6 +1947,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     }
     // Mid-turn too, the session books what it spent and stops once the credits are used up (SEC2 S2).
     if (!ending && !inputDone && credits?.due() && (await credits.settle(recorder.usage.totals())) === "exhausted") await endForCredits();
+    await checkOwnBudget();
   };
 
   const loop = controlLoop(deps, input.sessionId, tick, () => recorder.beatDetails({ paused }));
@@ -1831,7 +1980,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // What the workspace held before the agent started (decision 3: a code session that changed nothing is not done).
   const startPrint = policy.fileTools ? await fingerprintWorkspace(cwd) : null;
   // The design check of the UI this session writes (item 13): screenshots, a separate reviewer, one fix turn.
-  const design = liveDesignCheck(deps, recorder, { input, task, agent, businessName: live.business.name, cwd, acquireSandbox: live.acquireSandbox, checkout: () => checkout, enabled: task.kind === "code" && policy.fileTools });
+  const design = liveDesignCheck(deps, recorder, { input, task, agent, businessName: live.business.name, cwd, acquireSandbox: live.acquireSandbox, checkout: () => checkout, enabled: task.kind === "code" && policy.fileTools && !siteProject });
   /** The checkout the session started from, once the branch the agent pushed was brought down in its place. */
   let baseBefore: CheckoutBase | null = null;
   /** The agent's pushes already brought down (or tried): a branch is fetched again only for pushes after them. */
@@ -1900,7 +2049,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     const nothingToTest = !named && scopePaths.length > 0 && scope.length === 0 && (scoped.loose.length === 0 || documentationOnly(scoped.loose));
     // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace. Not
     // for a task the agent blocked or a session that wrote nothing: neither can end done, so the sandbox is not paid for.
-    const acceptanceCommand = nothingToTest ? null : acceptanceCommandFor(task, scope, appTestPackages);
+    // A site task runs no acceptance command (WP-07 T3): its release is screened when the session ends, and no sandbox
+    // is started for it.
+    const acceptanceCommand = nothingToTest || siteProject ? null : acceptanceCommandFor(task, scope, appTestPackages);
     let acceptance: AcceptanceVerdict | null = null;
     if (acceptanceCommand && (agentBlock || nothingWritten)) {
       await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests not run: ${agentBlock ? `${agent.name} blocked the task` : "the session changed no files"}.` });
@@ -1937,7 +2088,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   };
   try {
     send(taskPrompt);
-    const env = sdkEnvFor({ cwd, apiKey: key.apiKey, sessionToken: token.token, sandboxEnv: live.sandboxEnv });
+    const env = sdkEnvFor({ cwd, apiKey: key.apiKey, sessionToken: token.token, sandboxEnv: live.sandboxEnv, ...(ownBudget ? { endpoint: { baseURL: MODEL_ENDPOINTS.zai.baseURL, modelId: launch.modelId } } : {}) });
     q = sdk.query({
       prompt: queue.messages(),
       options: {
@@ -1952,7 +2103,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         // The SDK itself stops past this (its result is `error_max_budget_usd`, see classifyTurnEnd): the task's budget
         // and, on the platform key, what the credits allowed at launch (SEC2 S2), whichever is less; `budget` also holds what is
         // left of the agent's wage cap and the monthly model budget (audit #15).
-        maxBudgetUsd: Math.min(budget.maxUsd, credits?.maxBudgetUsd ?? Number.POSITIVE_INFINITY),
+        // A session on another provider is held to the same line by this runner instead (`ownBudget`): the SDK prices a
+        // model it does not know at Opus-class rates and would stop it far too early.
+        ...(ownBudget ? {} : { maxBudgetUsd: Math.min(budget.maxUsd, credits?.maxBudgetUsd ?? Number.POSITIVE_INFINITY) }),
         env,
         // No host settings, CLAUDE.md, hooks or permission rules from the orchestrator's file system, and no MCP server
         // but the gateway's (a `.mcp.json` in the workspace is ignored).
@@ -1987,6 +2140,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         if (message.type === "system" && message.subtype === "init") sdkSessionId = message.session_id;
         if (message.type === "assistant") {
           recorder.usage.onAssistant(message.message);
+          await checkOwnBudget();
           if (message.error) {
             // A refused API call the CLI reports as an assistant message ("Credit balance is too low"): the provider's
             // words, never the agent's. The turn's result says how the session ends.
@@ -2083,6 +2237,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       holdBack = "the session stopped on a loop";
       return { outcome: "failed", reason: "loop detected: the same tool call repeated three times in a row", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usageNow() };
     }
+    if (how === "task_budget") {
+      holdBack = "the session's budget ran out";
+      return { outcome: "blocked", reason: `model budget exhausted: the session spent ${LIMIT_WORDS[budget.limit].spent}`, blockedReason: "budget", approvalId: null, summary: budgetSummary(budget.limit, budget), providerSessionId: sdkSessionId, ...usageNow() };
+    }
     if (how === "budget") {
       holdBack = "this month's credits ran out";
       return { outcome: "blocked", reason: "model budget exhausted: this month's credits are used up", blockedReason: "budget", approvalId: null, summary: CREDITS_USED_UP_SUMMARY, providerSessionId: sdkSessionId, ...usageNow() };
@@ -2154,6 +2312,17 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         return { outcome: "blocked", reason: `not connected: ${keys.join(", ")}`, blockedReason: "not_connected", approvalId: null, summary: `Blocked: ${namesList(keys.map(connectorName))} not connected for this project, so nothing real was read or sent.`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
       }
       if (!recorder.completedOwnTask) return { outcome: "blocked", reason: NO_RESULT_REASON, blockedReason: "no_result", approvalId: null, summary: `Blocked: ${agent.name} ended the session without reporting a result on "${task.title}".`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+      // Its acceptance lines (founder, Nov 16, 2026): done only with a report saved and every line met on real results.
+      const lines = acceptanceLines(task);
+      if (lines.length > 0) {
+        const own = await repos.taskReports.latestForTask(deps.db, input.businessId, task.id);
+        const reportSimulated = own?.sessionId === input.sessionId && own.simulated;
+        const which = unmetAcceptanceLines(lines, recorder.acceptanceClaims, recorder.toolsUsed, { realOnly: !mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo), reportSimulated });
+        if (which.length > 0 || !recorder.savedOwnReport) {
+          const unmet = which.map((n) => lines[n - 1]!);
+          return { outcome: "blocked", reason: `${ACCEPTANCE_UNMET_REASON}: ${recorder.savedOwnReport ? "" : "no report saved; "}${which.length ? `line${which.length === 1 ? "" : "s"} ${which.join(", ")}` : "every line marked met"}`, blockedReason: "no_result", approvalId: null, summary: acceptanceUnmetSummary(agent.name, task.title, lines.length, unmet, recorder.savedOwnReport), providerSessionId: sdkSessionId, ...usageNow() };
+        }
+      }
       recorder.progress = { ...recorder.progress, progress: 1 };
     }
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usageNow() };
@@ -2167,7 +2336,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     // Keep the code whatever the outcome (done, stopped, failed, parked): the workspace itself is deleted next. Only a
     // session that finished (or waits on an approval) is pushed to GitHub.
     await design.close();
-    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack, checkout: checkout ? { commitSha: checkout.base.commitSha, at: checkout.base.checkedOutAt } : null, agentPushed: recorder.agentPushed }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : { withoutCheckoutOf: checkoutMissingRepo }) });
+    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack, checkout: checkout ? { commitSha: checkout.base.commitSha, at: checkout.base.checkedOutAt } : null, agentPushed: recorder.agentPushed }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : siteBase ? { base: siteBase } : { withoutCheckoutOf: checkoutMissingRepo }) });
     await disposeCheckout(checkout);
     try {
       await removeSessionWorkspace(cwd);
@@ -2687,6 +2856,17 @@ async function adoptPushedBranch(deps: OrchestratorDeps, recorder: SessionRecord
 export const REPORT_TURN = "You ended without reporting. Call complete_task with what you found or made, or block_task with what stopped you.";
 /** Why a task that is not code is blocked when its agent never reported a result. */
 export const NO_RESULT_REASON = "no result: the session ended without complete_task or block_task";
+/** What a task that is not code with acceptance lines tells its agent, under the numbered lines. */
+export const ACCEPTANCE_BRIEF = "Save your result with save_report, then call complete_task with one acceptance result per line, by its number: met or not, and for a met line where it shows (reportSection: a heading of your report, or tool: the outside tool call that did it). The task is done only when every line is met on a real result; a line that rests only on simulated or not-connected calls is not met, so say so.";
+/** Why a task that is not code is blocked when its report is missing or one of its acceptance lines is not met. */
+export const ACCEPTANCE_UNMET_REASON = "acceptance not met";
+/** The founder's one sentence on what was not met, each line named once; never a to-do. */
+export function acceptanceUnmetSummary(agentName: string, title: string, total: number, unmet: readonly string[], reportSaved: boolean): string {
+  const quoted = unmet.map((l) => `“${l.length > 160 ? `${l.slice(0, 159)}…` : l}”`).join("; ");
+  if (unmet.length === 0) return `Blocked: ${agentName} ended "${title}" without saving a report, so its result is not counted as done.`.slice(0, 1800);
+  const count = unmet.length === total ? (total === 1 ? "its one line" : `all ${total} of its lines`) : `${unmet.length} of its ${total} lines`;
+  return `Blocked: ${agentName} ended "${title}" with ${count} not met${reportSaved ? "" : " and no report saved"}: ${quoted}.`.slice(0, 1800);
+}
 /** How much of a report's body `task.completed.summary` carries after its title (the schema allows 2,000 in all). */
 export const REPORT_SUMMARY_BODY_CHARS = 1_700;
 

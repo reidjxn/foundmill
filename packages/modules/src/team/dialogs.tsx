@@ -129,7 +129,7 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
                   label: <Term id="wage_cap">Wage cap (USD)</Term>,
                   value: (
                     <span className="inline-flex items-center gap-1.5 tabular-nums">
-                      {formatMoney({ amountMinor: template.wageCapMinor, currency })}/mo <ProvenanceChip kind="estimate" />
+                      <ProvenanceChip kind="estimate">{formatMoney({ amountMinor: template.wageCapMinor, currency })}/mo</ProvenanceChip>
                     </span>
                   ),
                 },
@@ -142,7 +142,7 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
           <Field htmlFor={`${id}-name`} label="Name" hint="Leave empty to keep the template's name.">
             <Input id={`${id}-name`} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={template?.name} />
           </Field>
-          <SkillsStep value={skills} onChange={setSkills} disabled={action.pending !== null} />
+          <SkillsStep value={skills} onChange={setSkills} disabled={action.pending !== null} templateKey={template?.key} />
           {/* What hiring does, what it can cost and that it can be undone, always shown; the reassurance only while guided. */}
           <ConsequenceLine consequence={HIRE_CONSEQUENCE} cost={template ? `Up to ${formatMoney({ amountMinor: template.wageCapMinor, currency })}/mo (Estimate)` : undefined} reversible data-testid="hire-consequence" />
           <ReassuranceLine>Train it from its profile to tune its skills; lend it or let it go later from Team › Agents.</ReassuranceLine>

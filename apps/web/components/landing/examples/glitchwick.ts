@@ -129,21 +129,8 @@ const ACTIVITY: readonly ActivityLine[] = [
 // The cycle in the hero deck: what each press of Continue brings back
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** In order: the first press brings Development's decision, the second a customer, then they alternate. */
+/** In order: the first press brings a customer (it ends in a win, WP-14 T10), then Development's decision and the others. */
 const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
-  {
-    kind: "decision",
-    id: "routing",
-    from: { name: "Bolt", seed: "bolt", dept: "dept-2", role: "Lead developer" },
-    department: "Development",
-    subject: "Ship model routing to every studio?",
-    body: "After Mint's margin flag, menus and cleared levels run on a smaller model and the savings pay for save-and-reload probes. On the 120-bug eval, recall rose from 58% to 81% and cost per run fell from $0.18 to $0.11.",
-    stake: "Pull request #318 · all checks passing",
-    options: [
-      { id: "merge", label: "Merge", recommended: true, done: "Model routing merged", outcome: "Every run uses it from tonight; Mint rechecks the margin." },
-      { id: "shadow", label: "Shadow-run a week", done: "Routing on a shadow run", outcome: "Bolt runs both versions on 50 studios' builds and reports back." },
-    ],
-  },
   // The same studio as the Customer Update the gold card opens.
   {
     kind: "win",
@@ -156,6 +143,19 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
       { name: "Rune", seed: "rune", dept: "dept-2" },
       { name: "Pip", seed: "pip", dept: "dept-3" },
       { name: "Moss", seed: "moss", dept: "dept-3" },
+    ],
+  },
+  {
+    kind: "decision",
+    id: "routing",
+    from: { name: "Bolt", seed: "bolt", dept: "dept-2", role: "Lead developer" },
+    department: "Development",
+    subject: "Ship model routing to every studio?",
+    body: "After Mint's margin flag, menus and cleared levels run on a smaller model and the savings pay for save-and-reload probes. On the 120-bug eval, recall rose from 58% to 81% and cost per run fell from $0.18 to $0.11.",
+    stake: "Pull request #318 · all checks passing",
+    options: [
+      { id: "merge", label: "Merge", recommended: true, done: "Model routing merged", outcome: "Every run uses it from tonight; Mint rechecks the margin." },
+      { id: "shadow", label: "Shadow-run a week", done: "Routing on a shadow run", outcome: "Bolt runs both versions on 50 studios' builds and reports back." },
     ],
   },
   {

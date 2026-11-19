@@ -23,13 +23,21 @@ export interface DateFormatPickerProps {
   className?: string;
 }
 
+/**
+ * One example line as shown: it may wrap inside the card (comfortable text and a two-digit hour need more than a third of
+ * the row), but never between the time and its AM or PM ("12:59 PM" stays whole).
+ */
+export function exampleLine(text: string): string {
+  return text.replace(/ (AM|PM)\b/g, "\u00a0$1");
+}
+
 /** The examples of one choice, one per line (a separator would lead the second line once the card wraps). */
 function Example({ parts }: { parts: string[] }) {
   return (
     <span className="flex flex-col font-mono tabular-nums">
       {parts.map((p, i) => (
-        <span key={i} className="whitespace-nowrap">
-          {p}
+        <span key={i} className="break-words" data-example-line="">
+          {exampleLine(p)}
         </span>
       ))}
     </span>
@@ -70,7 +78,7 @@ export function DateFormatPicker({ value, onChange, now, disabled, className }: 
           onValueChange={(v) => onChange({ ...value, time: v as TimeFormatPreference })}
           aria-labelledby={timeLegend}
           disabled={disabled}
-          className="grid-cols-3"
+          className="grid-cols-2"
         >
           {TIME_FORMAT_PREFERENCES.map((t) => (
             <RadioCard key={t} value={t} label={TIME_FORMAT_LABELS[t]} description={<Example parts={timeExample(t)} />} data-testid={`time-format-${t}`} />

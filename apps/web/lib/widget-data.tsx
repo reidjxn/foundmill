@@ -40,11 +40,11 @@ export function withBusiness(businessId: string, input: Record<string, unknown> 
 
 /**
  * Routers whose reads belong to the person, not to a business (the API's `protectedProcedure`s: the founder's profile
- * and preferences, ideas, imports, the network), apart from `BUSINESS_READS_IN_ACCOUNT_ROUTERS`: a business procedure,
+ * and preferences, ideas, imports, the network, reports and the operators' queue), apart from `BUSINESS_READS_IN_ACCOUNT_ROUTERS`: a business procedure,
  * or a read scoped by an optional `businessId` (saved table views are kept per business).
  */
-const ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder", "idea", "import", "live", "ideaBox", "waitlist"]);
-const ACCOUNT_READS: ReadonlySet<string> = new Set(["health", "business.listArchived", "business.example.get", "publicPage.bySlug", "publicPage.indexNowKeyFile", "publicPerson.byHandle", "publicPage.storyBySlug", "publicPage.cardById", "teamCall.sharing.get", "email.action.get", "invitation.byToken", "publicQuiz.bySlug"]);
+const ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder", "idea", "import", "live", "ideaBox", "waitlist", "report", "operator"]);
+const ACCOUNT_READS: ReadonlySet<string> = new Set(["health", "business.listArchived", "business.example.get", "publicPage.bySlug", "publicPage.indexNowKeyFile", "publicPerson.byHandle", "publicPage.storyBySlug", "publicPage.cardById", "publicPage.siteConsent", "teamCall.sharing.get", "email.action.get", "invitation.byToken", "publicQuiz.bySlug"]);
 const BUSINESS_READS_IN_ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder.tableViews.get", "founder.presence.get", "founder.email.recent"]);
 
 /**

@@ -11,6 +11,8 @@ export * from "./public/PersonPage";
 export * from "./public/LegalPage";
 // The landing page's idea box card (docs/IDEA_BOX.md).
 export * from "./public/IdeaCard";
+// What the visitor can do with it: shape it in the Ideation Studio, start building it, or try another idea.
+export * from "./public/IdeaNextSteps";
 // An invitation to a project at /i/<token> (docs/NETWORK.md F5), and "You're on the list." (the api's `on_waitlist`).
 export * from "./public/InvitationCard";
 export * from "./public/OnWaitlistCard";

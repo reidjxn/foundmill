@@ -1,8 +1,9 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppShell, KIT_VARIABLES, PROCESSING_LINE_MIN_PX, processingLineText, sidebarItemForTarget, withSidebarKeys, type AppShellProps } from "./AppShell";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
+import { Explainer } from "../guidance/Explainer";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { kitBarGradient, kitStyle } from "./KitBar";
 import { kitRamp } from "../../lib/colour";
@@ -33,8 +34,21 @@ function shellProps(over: Partial<AppShellProps> = {}): AppShellProps {
 }
 
 describe("AppShell", () => {
-  it("renders NeedsLargerWindow only, below 1280 px", () => {
-    render(<AppShell {...shellProps({ viewportWidth: 1279 })} />);
+  it("carries the one estimate legend, under the content and outside it, hidden until the page holds an estimate (WP-14 T7)", () => {
+    render(<AppShell {...shellProps()} />);
+    const legends = document.querySelectorAll("[data-estimate-legend]");
+    expect(legends).toHaveLength(1);
+    const legend = legends[0] as HTMLElement;
+    expect(legend.textContent).toBe("Numbers in this style are your team's estimates. Everything else is measured.");
+    // In a footer landmark that CSS shows only while the page holds an estimate.
+    expect(legend.parentElement?.tagName).toBe("FOOTER");
+    expect(legend.parentElement?.className).toContain("est-legend-auto");
+    // Not inside the scrolling content, so it never changes a screen's own layout.
+    expect(screen.getByTestId("shell-content").contains(legend)).toBe(false);
+  });
+
+  it("renders NeedsLargerWindow only, below 640 px", () => {
+    render(<AppShell {...shellProps({ viewportWidth: 639 })} />);
     expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
     // The note's own words (WP-03 T3: no pixel line by default; NeedsLargerWindow.test.tsx).
     expect(screen.getByText(NEEDS_LARGER_WINDOW_WORDS.title)).toBeTruthy();
@@ -46,12 +60,26 @@ describe("AppShell", () => {
     expect(screen.queryByText("Content")).toBeNull();
   });
 
+  it("between 640 and 1279 px renders the console at its 1280 px floor in a sideways-scrolling shell, with a note dismissed once (decision 3)", () => {
+    window.sessionStorage.clear();
+    const { unmount } = render(<AppShell {...shellProps({ viewportWidth: 1152 })} />);
+    expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+    expect(screen.getByTestId("scroll-shell").className).toContain("overflow-x-auto");
+    expect(screen.getByTestId("app-shell").className).toContain("min-w-(--min-viewport)");
+    fireEvent.click(screen.getByRole("button", { name: "Hide this note" }));
+    expect(screen.queryByTestId("narrow-window-note")).toBeNull();
+    unmount();
+    render(<AppShell {...shellProps({ viewportWidth: 1152 })} />);
+    expect(screen.queryByTestId("narrow-window-note")).toBeNull();
+  });
+
   describe("phone mode (package 2.1)", () => {
     it("with `phone` under 1280 px draws the phone layout: no larger-window ask, no sidebar, no floor, one @container", () => {
       render(<AppShell {...shellProps({ viewportWidth: 390, phone: true, tabs: { tabs: [{ id: "today", label: "Today", href: "#t" }, { id: "details", label: "Details", href: "#d" }], activeId: "today" } })} />);
       expect(screen.queryByTestId("needs-larger-window")).toBeNull();
       const root = screen.getByTestId("app-shell");
       expect(root.hasAttribute("data-phone")).toBe(true);
+      expect(root.className, "outer type on a phone (WP-10 T5)").toContain("type-outer");
       expect(root.className).toContain("@container");
       expect(root.className).not.toContain("min-w-(--min-viewport)");
       expect(screen.getByTestId("phone-bar")).toBeTruthy();
@@ -63,6 +91,24 @@ describe("AppShell", () => {
       // Continue and Stop all agents stay reachable, each a finger's size.
       expect(screen.getByRole("button", { name: /Continue/ }).className).toContain("min-h-tap");
       expect(screen.getByTestId("stop-all-trigger").className).toContain("min-h-tap");
+    });
+
+    it("draws Explain this page in the phone title row only with `phoneExplain` (WP-04 T7, Today)", () => {
+      const page = <Explainer screenId="today" purpose="Today is the front door." action="Answer Needs you." watchFor="Continue runs the team." />;
+      const { unmount } = render(
+        <GuidanceProvider value={{ guidance: "on", loaded: true }}>
+          <AppShell {...shellProps({ viewportWidth: 390, phone: true, phoneExplain: true, children: page })} />
+        </GuidanceProvider>,
+      );
+      const row = screen.getByTestId("phone-title-row");
+      expect(within(row).getByRole("button", { name: /Explain this page/ })).toBeTruthy();
+      unmount();
+      render(
+        <GuidanceProvider value={{ guidance: "on", loaded: true }}>
+          <AppShell {...shellProps({ viewportWidth: 390, phone: true, children: page })} />
+        </GuidanceProvider>,
+      );
+      expect(within(screen.getByTestId("phone-title-row")).queryByRole("button", { name: /Explain this page/ })).toBeNull();
     });
 
     it("leaves out the right rail on a phone", () => {
@@ -341,7 +387,7 @@ describe("AppShell", () => {
     expect(sidebarItemForTarget(keyed, { kind: "inbox" })?.id).toBe("inbox");
     expect(sidebarItemForTarget(keyed, { kind: "area", area: "money" })?.id).toBe("area-money");
     expect(sidebarItemForTarget(keyed, { kind: "department", id: "d-studio" })?.id).toBe("d-studio");
-    render(<AppShell {...shellProps({ onNavigate })} />);
+    render(<AppShell {...shellProps({ onNavigate, keyboard: { singleKeys: true } })} />);
     expect(screen.getByRole("link", { name: "Money" }).getAttribute("aria-keyshortcuts")).toBe("G M");
     document.body.focus();
     await user.keyboard("gm");
@@ -361,7 +407,7 @@ describe("AppShell", () => {
     const sidebar = NORTHWIND_SIDEBAR.map((i) => (i.id === "d-studio" ? { ...i, shortcut: "Q" } : i));
     expect(withSidebarKeys(sidebar).find((i) => i.id === "d-studio")?.keys).toEqual(["G", "Q"]);
     expect(withSidebarKeys(NORTHWIND_SIDEBAR.map((i) => (i.id === "d-studio" ? { ...i, shortcut: "M" } : i))).find((i) => i.id === "d-studio")?.keys).toEqual(["G", "S"]);
-    render(<AppShell {...shellProps({ onNavigate, sidebar: { items: sidebar, collapsed: false, onCollapsedChange: () => {} } })} />);
+    render(<AppShell {...shellProps({ onNavigate, keyboard: { singleKeys: true }, sidebar: { items: sidebar, collapsed: false, onCollapsedChange: () => {} } })} />);
     expect(screen.getByRole("link", { name: "Studio, 1 item" }).getAttribute("aria-keyshortcuts")).toBe("G Q");
     document.body.focus();
     await user.keyboard("gq");
@@ -373,15 +419,24 @@ describe("AppShell", () => {
     expect(help.textContent).not.toContain("Contacts");
   });
 
-  it("Space continues, / opens the palette, ? opens help, Esc closes them in order", async () => {
+  it("Space on the page never continues; / opens the palette, ? opens help, Esc closes them in order (WP-04 T13)", async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
     const onSelect = vi.fn();
     const onEscape = vi.fn();
-    render(<AppShell {...shellProps({ continueButton: { state: { kind: "idle" }, onContinue }, search: { items: PALETTE_ITEMS, onSelect }, keyboard: { onEscape } })} />);
+    const onNavigate = vi.fn();
+    render(<AppShell {...shellProps({ onNavigate, continueButton: { state: { kind: "idle" }, onContinue }, search: { items: PALETTE_ITEMS, onSelect }, keyboard: { onEscape } })} />);
     document.body.focus();
     await user.keyboard(" ");
+    expect(onContinue).not.toHaveBeenCalled();
+    // Single keys are off by default: a G chord goes nowhere.
+    await user.keyboard("gm");
+    expect(onNavigate).not.toHaveBeenCalled();
+    // Continue still takes Space when it has focus, as any button does.
+    screen.getByRole("button", { name: /^Continue/ }).focus();
+    await user.keyboard(" ");
     expect(onContinue).toHaveBeenCalledTimes(1);
+    document.body.focus();
     await user.keyboard("/");
     expect(await screen.findByTestId("command-palette")).toBeTruthy();
     await user.keyboard("{Escape}");

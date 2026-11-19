@@ -1,15 +1,18 @@
 "use client";
 /**
- * Training › Skills from the library or files (founder request 2026-10-16), next to Custom skills: the skills the
- * founder added from the curated library or as a skill file, each with where it came from and whether a training run
- * has scored it yet, removable; "Add from library" and "Upload a skill file" open the same dialogs as the hire flow.
- * Adding calls no model; the skill shows on the attributes at once, untested. Its instructions reach the agent's
- * prompt after the house rules and never change its tools, autonomy or spend caps.
+ * Overview › "Skills <name> has learned" (founder request 2026-10-16; moved from Training under the Skills panel in
+ * WP-10 T8): the skills the founder added from the curated library or as a skill file, each with where it came from and
+ * whether a training run has scored it yet, removable. "Add a skill" opens the library; the panel's menu holds
+ * "Upload a skill file" and "Write your own" (Custom skills, which stay on Training). Adding calls no model; the skill
+ * shows on the attributes at once, not tested yet. Its instructions reach the agent's prompt after the house rules and
+ * never change its tools, autonomy or spend caps.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Upload } from "lucide-react";
+import { BookOpen, MoreHorizontal, PenLine, Upload } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Button, ChosenSkillList, Panel, useToast } from "@foundmill/dugout";
+import { Button, ChosenSkillList, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Icon, IconButton, Panel, useToast } from "@foundmill/dugout";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { MAX_ADDED_SKILLS, SkillLibraryDialog, UploadSkillDialog, type SkillChoiceInput } from "@foundmill/modules/team/skills";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -39,7 +42,7 @@ export function AddedSkillsPanel({ businessId, profile, onChanged }: AddedSkills
   const add = useMutation(
     trpc.agent.skills.add.mutationOptions({
       onSuccess: (rows) => {
-        toast({ title: rows.length === 1 ? `“${rows[0]!.name}” added` : `${rows.length} skills added`, description: "On the attributes now, marked Untested. Library and file skills carry no tests, so a training run reports them as No tests yet; to have one scored, add it as a custom skill.", tone: "good" });
+        toast({ title: rows.length === 1 ? `“${rows[0]!.name}” added` : `${rows.length} skills added`, description: rows.length === 1 ? `${agent.name} will use it from the next task. Not tested yet.` : `${agent.name} will use them from the next task. Not tested yet.`, tone: "good" });
         refresh();
       },
     }),
@@ -63,27 +66,39 @@ export function AddedSkillsPanel({ businessId, profile, onChanged }: AddedSkills
   return (
     <>
       <Panel
-        title="Skills from the library or files"
+        title={`Skills ${agent.name} has learned`}
         span={12}
         loading={addedQ.isLoading}
         error={addedQ.error ? errorMessage(addedQ.error) : undefined}
         onRetry={() => void addedQ.refetch()}
         actions={
-          <span className="flex gap-2">
+          <span className="flex items-center gap-1">
             <Button size="sm" icon={BookOpen} onClick={() => setDialog("library")} disabled={released || remaining <= 0} data-testid="add-library-skill">
-              Add from library
+              Add a skill
             </Button>
-            <Button size="sm" icon={Upload} onClick={() => setDialog("upload")} disabled={released || remaining <= 0} data-testid="upload-skill">
-              Upload a skill file
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <IconButton icon={MoreHorizontal} size="sm" variant="ghost" label="More ways to add a skill" disabled={released} data-testid="skills-more" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem disabled={remaining <= 0} onSelect={() => setDialog("upload")} data-testid="upload-skill">
+                  <Icon icon={Upload} size="inline" /> Upload a skill file
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href={routes.agent(businessId, agent.id, "training")} data-testid="write-skill">
+                    <Icon icon={PenLine} size="inline" /> Write your own
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </span>
         }
-        empty={!addedQ.isLoading && added.length === 0 ? { icon: BookOpen, children: `Give ${agent.name} how-to skills from the library or a skill file (SKILL.md, .md or .txt). No tests to draft: they show on its attributes at once, marked Untested, and a training run reports them as No tests yet. To have a skill scored, add it as a custom skill and review the tests it drafts.` } : undefined}
+        empty={!addedQ.isLoading && added.length === 0 ? { icon: BookOpen, children: `Teach ${agent.name} a kind of work: release notes, a pricing page, a first email. Add a skill to see what it says.` } : undefined}
         footer="A skill adds instructions after the house rules. It never changes the agent's tools, autonomy, spend caps or approvals."
         data-testid="added-skills"
       >
         <ChosenSkillList
-          items={added.map((s) => ({ id: s.skillKey, name: s.name, source: s.source, detail: s.source === "upload" && s.fileName ? `${s.fileName} · ${s.description}` : s.description, untested: s.untested }))}
+          items={added.map((s) => ({ id: s.skillKey, name: s.name, source: s.source, detail: s.source === "upload" && s.fileName ? `${s.fileName} · ${s.description}` : s.description, untested: s.untested, cameWithRole: s.addedBy === "template" }))}
           onRemove={released ? undefined : (skillKey) => remove.mutate({ businessId, agentId: agent.id, skillKey })}
           busy={remove.isPending}
         />
@@ -100,6 +115,7 @@ export function AddedSkillsPanel({ businessId, profile, onChanged }: AddedSkills
           add.reset();
         }}
         agentName={agent.name}
+        pickerFor={{ agentId: agent.id }}
         unavailable={unavailable}
         remaining={remaining}
         pending={add.isPending}

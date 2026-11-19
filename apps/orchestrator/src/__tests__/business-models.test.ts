@@ -6,9 +6,10 @@
  * credits are used up is refused before it is made (SEC2 S2), and a top-up lifts that at once.
  */
 import { BYOK_CREDENTIAL_KIND, periodOf, repos } from "@foundmill/db";
-import { createModelClient, ModelRequestError, type ModelClient, type UsageEvent } from "@foundmill/models";
+import { batchEnded, collectBatch, createModelClient, ModelRequestError, submitBatch, type ModelClient, type UsageEvent } from "@foundmill/models";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { usageSink } from "../deps";
 import { createBusinessModelClient } from "../models";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -127,3 +128,27 @@ describe("createBusinessModelClient", () => {
     }
   });
 });
+
+describe("batches (WP-09 T8)", () => {
+  it("run on the business's key end to end in mock mode, and a sink books a batch result once however often it is collected", async () => {
+    const platform = createModelClient({ mode: "mock" });
+    const client = createBusinessModelClient(platform, { db: t.db, vault: null, mode: "mock" });
+    const items = [{ customId: "one", request: ask(t.businessId) }, { customId: "two", request: ask(t.businessId) }];
+    const { batchId, count } = await submitBatch(client, items);
+    expect(count).toBe(2);
+    expect(await batchEnded(client, batchId, t.businessId)).toBe(true);
+    const results = await collectBatch(client, batchId, items);
+    expect(results.every((r) => r.ok)).toBe(true);
+
+    const log = { debug() {}, info() {}, warn() {}, error() {} };
+    const sink = usageSink(t.db, log as never);
+    const before = (await repos.usage.list(t.db, t.businessId, { limit: 500 })).items.length;
+    const event = { route: "classifier", model: "m", modelKey: "haiku", mode: "live", usage: { inputTokens: 10, outputTokens: 2, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, cost: { costMinorInt: 0, costMicroMinor: 5, currency: "USD", label: "Estimate" }, attribution: { businessId: t.businessId, kind: "test" }, billedTo: "credits", occurredAt: new Date().toISOString(), attempt: 0, durationMs: 0, batch: { id: batchId, customId: "one" } } as unknown as UsageEvent;
+    await sink(event);
+    await sink(event);
+    const after = (await repos.usage.list(t.db, t.businessId, { limit: 500 })).items;
+    expect(after.length).toBe(before + 1);
+    expect(after.find((u) => (u.details as { batch?: { customId?: string } }).batch?.customId === "one")).toBeTruthy();
+  });
+});
+

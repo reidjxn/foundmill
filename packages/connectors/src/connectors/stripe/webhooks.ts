@@ -3,7 +3,7 @@
  * the signed payload is `${t}.${rawBody}` and the expected signature HMAC-SHA256(endpoint secret) in hex. The
  * timestamp must be within the tolerance (5 min, Stripe's library default) and the event id feeds the replay
  * guard. Normalisation (BUILD §11.4): `invoice.paid` and one-off `checkout.session.completed` →
- * `payment.received`; `customer.subscription.created` in trial → `signup.created`; the other
+ * `payment.received` (`simulated` when the event is test mode: `livemode: false`); `customer.subscription.created` in trial → `signup.created`; the other
  * `customer.subscription.*` events verify and parse but map to no catalogue event yet.
  */
 import type { ConnectorWebhook, PlatformEvent } from "../../contract";
@@ -75,6 +75,11 @@ export function createStripeWebhook(deps: StripeWebhookDeps): ConnectorWebhook {
     async accountOf(req) {
       return parseJsonBody<StEvent>(await rawBody(req))?.account ?? null;
     },
+    // The founder removed Foundmill's access in their Stripe dashboard (a Connect sign-in only).
+    async revokedAccount(req) {
+      const event = parseJsonBody<StEvent>(await rawBody(req));
+      return event?.type === "account.application.deauthorized" ? (event.account ?? null) : null;
+    },
     async normalise(req) {
       const event = parseJsonBody<StEvent>(await rawBody(req));
       if (!event) return [];
@@ -90,6 +95,9 @@ export const stripeCustomerEntityId = (customerId: string | null, email: string 
 /** Who paid or signed up, as Stripe reports them; ingest links it to (or adds it to) the business's CRM. */
 const stripeCustomer = (customerId: string | null, email: string | null | undefined, name: string | null | undefined) =>
   customerId || email || name ? { externalId: customerId, email: email?.trim() || null, name: name?.trim() || null } : null;
+
+/** Stripe says so on every event: `livemode: false` is test mode, where no money moves. Nothing else says "test". */
+const isTestMode = (event: StEvent): boolean => event.livemode === false;
 
 export function normaliseStripeEvent(event: StEvent, businessId: string): PlatformEvent[] {
   const occurredAt = new Date(event.created * 1000);
@@ -121,6 +129,7 @@ export function normaliseStripeEvent(event: StEvent, businessId: string): Platfo
             fee: null,
             customer: stripeCustomer(customerId, inv.customer_email, inv.customer_name),
             source: null,
+            simulated: isTestMode(event),
           },
         }),
       ];
@@ -151,6 +160,7 @@ export function normaliseStripeEvent(event: StEvent, businessId: string): Platfo
             productRef: s.metadata?.productRef ?? null,
             fee: null,
             customer: stripeCustomer(customerId, email, s.customer_details?.name),
+            simulated: isTestMode(event),
             source: s.metadata?.utm_source || s.metadata?.utm_medium || s.metadata?.promo_code ? { utmSource: s.metadata.utm_source ?? null, utmMedium: s.metadata.utm_medium ?? null, utmCampaign: s.metadata.utm_campaign ?? null, referrer: null, code: s.metadata.promo_code ?? null } : null,
           },
         }),

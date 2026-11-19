@@ -14,17 +14,35 @@
 import { useEffect, useId, useMemo, useRef, useState, type DragEvent } from "react";
 import { BookOpen, Upload } from "lucide-react";
 import { LIMITS } from "@foundmill/config";
-import { Button, ChosenSkillList, cn, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, SkillFilePreview, SkillLibraryList, type ChosenSkill, type LibrarySkillOption } from "@foundmill/dugout";
+import { Button, ChosenSkillList, cn, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, SkillFilePreview, SkillLibraryList, SkillReader, type ChosenSkill, type LibrarySkillOption } from "@foundmill/dugout";
 import type { SkillGroup } from "@foundmill/shared/constants";
 import { useWidgetQuery } from "@foundmill/widgets/data";
 import { InlineError, useAction } from "./shared";
 
-/** A library skill as team.skills.library returns it. */
+/** A library skill as team.skills.library returns it (no body: team.skills.get gives one skill's text). */
 export interface LibrarySkillRow extends LibrarySkillOption {
   skillKey: string;
   category: string;
+  whenToUse: string;
+  version: number;
+  suggested: boolean;
+  suggestedBecause: string | null;
+  requires: { connectorKey: string; name: string; connected: boolean }[];
+  notYetOnFoundmill: string[];
+  attribution: string | null;
+}
+
+/** What team.skills.get returns: one library skill's whole text. */
+export interface LibrarySkillText {
+  key: string;
+  name: string;
+  version: number;
+  attribution: string | null;
   instructionsMd: string;
 }
+
+/** Who the picker is for: the agent on its profile, or the template being hired (its suggestions come first). */
+export type SkillPickerFor = { agentId: string } | { templateKey: string };
 
 /** What team.skills.preview returns for a file. */
 export interface SkillFilePreviewData {
@@ -52,7 +70,7 @@ export function toSkillChoices(drafts: readonly SkillDraft[]): SkillChoiceInput[
 }
 
 /** Library and file skills one agent may carry (the api refuses more). */
-export const MAX_ADDED_SKILLS = 8;
+export const MAX_ADDED_SKILLS = LIMITS.skillsPerAgentMax;
 export const SKILL_FILE_ACCEPT = ".md,.markdown,.txt,text/markdown,text/plain";
 const SKILL_FILE_EXTENSIONS = [".md", ".markdown", ".txt"];
 
@@ -81,20 +99,29 @@ export interface SkillLibraryDialogProps {
   remaining?: number;
   /** Who the skills are for, in the title ("Add skills to Quill"). */
   agentName?: string;
+  /** The agent or template the picker is for: the skills that fit its role are suggested first. */
+  pickerFor?: SkillPickerFor;
   /** Called with the chosen skills; return false to keep the dialog open (the add failed). */
   onAdd: (skills: LibrarySkillRow[]) => boolean | void | Promise<boolean | void>;
   pending?: boolean;
   error?: Error | string | null;
 }
 
-export function SkillLibraryDialog({ open, onOpenChange, unavailable, remaining = MAX_ADDED_SKILLS, agentName, onAdd, pending, error }: SkillLibraryDialogProps) {
+export function SkillLibraryDialog({ open, onOpenChange, unavailable, remaining = MAX_ADDED_SKILLS, agentName, pickerFor, onAdd, pending, error }: SkillLibraryDialogProps) {
   const id = useId();
-  const library = useWidgetQuery<LibrarySkillRow[]>("team.skills.library", {}, { enabled: open });
+  const library = useWidgetQuery<LibrarySkillRow[]>("team.skills.library", pickerFor ?? {}, { enabled: open });
   const [selected, setSelected] = useState<string[]>([]);
+  // The skill whose text is open (WP-06 T7: a person reads a skill in the product); its body loads on request.
+  const [reading, setReading] = useState<string | null>(null);
+  const text = useWidgetQuery<LibrarySkillText>("team.skills.get", { key: reading ?? "" }, { enabled: open && reading !== null });
   useEffect(() => {
-    if (open) setSelected([]);
+    if (open) {
+      setSelected([]);
+      setReading(null);
+    }
   }, [open]);
   const rows = library.data ?? [];
+  const readingRow = reading ? rows.find((r) => r.key === reading) : undefined;
   const add = async () => {
     const chosen = rows.filter((r) => selected.includes(r.key));
     if (chosen.length === 0) return;
@@ -105,13 +132,40 @@ export function SkillLibraryDialog({ open, onOpenChange, unavailable, remaining 
       <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="skill-library-dialog">
         <DialogHeader>
           <DialogTitle>{agentName ? `Add skills to ${agentName}` : "Add skills from the library"}</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>Each skill gives the agent how-to instructions for a kind of work and shows on its attributes, untested until a training run scores it. Skills never change its tools, how much it may do without asking you, or its spend caps.</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>A skill is a short how-to your agent follows for one kind of work. Pick one to read it before you add it. Skills never change an agent&apos;s tools, spend limits or approvals.</DialogDescription>
         </DialogHeader>
-        <DialogBody className="flex max-h-[60vh] flex-col overflow-y-auto">
+        <DialogBody className="flex h-[60vh] min-h-0 flex-col">
           {library.isLoading && !library.data ? <p className="text-small text-secondary">Loading the library…</p> : null}
           <InlineError error={library.error} />
-          {rows.length ? <SkillLibraryList skills={rows} selected={selected} onToggle={(k) => setSelected((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]))} unavailable={unavailable} max={Math.max(0, remaining)} /> : null}
-          {remaining <= 0 ? <p className="mt-2 text-small text-status-warn">This agent already has {MAX_ADDED_SKILLS} skills from the library or files. Remove one to add another.</p> : null}
+          {rows.length ? (
+            <SkillLibraryList
+              className="flex-1"
+              skills={rows}
+              selected={selected}
+              onToggle={(k) => setSelected((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]))}
+              unavailable={unavailable}
+              max={Math.max(0, remaining)}
+              previewKey={reading}
+              onPreview={(k) => setReading((r) => (r === k ? null : k))}
+              preview={() =>
+                readingRow ? (
+                  <SkillReader
+                    name={readingRow.name}
+                    instructionsMd={text.data?.key === readingRow.key ? text.data.instructionsMd : null}
+                    version={readingRow.version}
+                    attribution={readingRow.attribution}
+                    requires={readingRow.requires}
+                    notYetOnFoundmill={readingRow.notYetOnFoundmill}
+                    attribute={readingRow.attribute}
+                    agentName={agentName}
+                    loading={text.isLoading}
+                    error={text.error ? "The skill's text did not load. Pick it again to retry." : null}
+                  />
+                ) : null
+              }
+            />
+          ) : null}
+          {remaining <= 0 ? <p className="mt-2 text-small text-status-warn">{`${agentName ?? "This agent"} has ${MAX_ADDED_SKILLS} skills. Remove one to add another.`}</p> : null}
           <InlineError error={error} className="mt-2" />
         </DialogBody>
         <DialogFooter>
@@ -227,10 +281,12 @@ export interface SkillsStepProps {
   value: readonly SkillDraft[];
   onChange: (next: SkillDraft[]) => void;
   disabled?: boolean;
+  /** The template being hired: the library suggests the skills that fit its role first. */
+  templateKey?: string;
 }
 
 /** Optional: skills from the library or files for the agent being hired, listed and removable before Hire. */
-export function SkillsStep({ value, onChange, disabled }: SkillsStepProps) {
+export function SkillsStep({ value, onChange, disabled, templateKey }: SkillsStepProps) {
   const [library, setLibrary] = useState(false);
   const [upload, setUpload] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -241,7 +297,7 @@ export function SkillsStep({ value, onChange, disabled }: SkillsStepProps) {
   return (
     <fieldset className="flex flex-col gap-2" data-testid="hire-skills-step">
       <legend className="t-label mb-1">Skills (optional)</legend>
-      <p className="text-small text-secondary">Add how-to skills from the library or a skill file. They show on the agent's attributes, untested until a training run scores them, and never change its tools, how much it may do without asking you, or its spend caps.</p>
+      <p className="text-small text-secondary">Add how-to skills from the library or a skill file. The agent reads a skill when a task calls for it. Skills never change its tools, how much it may do without asking you, or its spend caps.</p>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" icon={BookOpen} disabled={disabled || remaining <= 0} onClick={() => setLibrary(true)} data-testid="hire-add-library-skill">
           Add from library
@@ -259,6 +315,7 @@ export function SkillsStep({ value, onChange, disabled }: SkillsStepProps) {
       <SkillLibraryDialog
         open={library}
         onOpenChange={setLibrary}
+        pickerFor={templateKey ? { templateKey } : undefined}
         unavailable={unavailable}
         remaining={remaining}
         onAdd={(rows) => {

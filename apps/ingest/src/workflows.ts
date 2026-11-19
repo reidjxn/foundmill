@@ -11,7 +11,7 @@
  */
 import type { IngestLogger } from "./types";
 
-export const INGEST_WORKFLOWS = { journeyBuild: "journeyBuild", playbook: "playbook", channelEngine: "channelEngine", trainingRun: "trainingRun", postDraft: "postDraft" } as const;
+export const INGEST_WORKFLOWS = { journeyBuild: "journeyBuild", playbook: "playbook", channelEngine: "channelEngine", trainingRun: "trainingRun", postDraft: "postDraft", businessCycle: "businessCycle" } as const;
 
 export const ingestWorkflowIds = {
   journey: (conversionId: string) => `journey:${conversionId}`,
@@ -21,6 +21,8 @@ export const ingestWorkflowIds = {
   training: (runId: string) => `training:${runId}`,
   /** Same id as apps/api `workflowIds.postDraft`: one draft of a post per business and trigger. */
   postDraft: (businessId: string, trigger: string) => `post-draft:${businessId}:${trigger}`,
+  /** Same id as apps/api `workflowIds.cycle`: the round a paid checkout unblocks (followups.ts `continueAfterPayment`). */
+  cycle: (businessId: string, cycleNumber: number) => `cycle:${businessId}:${cycleNumber}`,
 } as const;
 
 export interface WorkflowStartResult {

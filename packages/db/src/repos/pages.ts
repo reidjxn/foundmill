@@ -18,7 +18,7 @@
  */
 import { ConflictError, isIndexNowKey, OWNER_ROLES, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
 import { toLogoDataUrl } from "@foundmill/shared/logo";
-import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, integrations, memberships, projectPages, publicProjectMilestones, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
 import { auditRepo } from "./audit";
@@ -50,6 +50,8 @@ export interface TeamDraftInput {
   model?: Record<string, unknown>;
   note: { subject: string; bodyMd: string; options: TeamDraftNoteOption[] } | null;
   onInboxItem?: (tx: Executor, item: InboxItem) => Promise<unknown>;
+  /** The page catch-up wrote this draft for a project older than the feature: its note is held back from email (`ComposerDecision.catch_up`). */
+  catchUp?: boolean;
 }
 
 const SLUG_CONSTRAINT = "project_pages_slug_key";
@@ -245,6 +247,30 @@ export const pagesRepo = {
   },
 
   /**
+   * The projects the page catch-up covers (WP-12 T1), oldest first, at most `limit`: committed before `committedBefore`,
+   * not archived, not a sample, the team not stopped, and no page row at all (a founder's saved draft counts as one).
+   * Service connection.
+   */
+  async listMissingTeamDraft(db: Executor, opts: { committedBefore: Date; limit: number }): Promise<string[]> {
+    const rows = await db
+      .select({ id: businesses.id })
+      .from(businesses)
+      .where(
+        and(
+          isNotNull(businesses.committedAt),
+          sql`${businesses.committedAt} < ${opts.committedBefore.toISOString()}::timestamptz`,
+          isNull(businesses.archivedAt),
+          eq(businesses.isDemo, false),
+          isNull(businesses.agentsStoppedAt),
+          sql`not exists (select 1 from ${projectPages} where ${projectPages.businessId} = ${businesses.id})`,
+        ),
+      )
+      .orderBy(asc(businesses.committedAt), asc(businesses.id))
+      .limit(Math.max(0, opts.limit));
+    return rows.map((r) => r.id);
+  },
+
+  /**
    * The team's first draft (package 1.2), in one transaction: the row at `slug` with the draft (only when the business
    * has none: a founder's save is never written over, and a retried step writes nothing twice), never published;
    * `updated_by` stays null (it names people) and the audit row names the agent; then the Product lead's note, a
@@ -274,7 +300,7 @@ export const pagesRepo = {
           body_md: input.note.bodyMd,
           status_strip: [],
           exhibit: { kind: "none", spec_ref: null },
-          decision: { options: input.note.options.map((o) => ({ ...o })), free_text: false, expires_at: null, key: PAGE_READY_NOTE.key },
+          decision: { options: input.note.options.map((o) => ({ ...o })), free_text: false, expires_at: null, key: PAGE_READY_NOTE.key, ...(input.catchUp ? { catch_up: true as const } : {}) },
           blocks_continue: false,
           source_event_ids: [],
           entity_ids: [],
@@ -382,16 +408,21 @@ export const pagesRepo = {
      * themselves, whether the page carries the "Built on" mark (`tierShowsBuiltOnMark`); the plan's name goes no further.
      */
     async planTierBySlug(db: Executor, slug: string): Promise<(typeof businesses.$inferSelect)["planTier"] | null> {
+      return (await pagesRepo.public.planBySlug(db, slug))?.planTier ?? null;
+    },
+
+    /** `planTierBySlug` with the business id, for the mark's paid-entry rule (`showsBuiltOnMark`); never sent to a visitor. */
+    async planBySlug(db: Executor, slug: string): Promise<{ id: string; planTier: (typeof businesses.$inferSelect)["planTier"] } | null> {
       const row = maybeOne(
         await db
-          .select({ planTier: businesses.planTier })
+          .select({ id: businesses.id, planTier: businesses.planTier })
           .from(publicProjectPages)
           .innerJoin(projectPages, eq(projectPages.slug, publicProjectPages.slug))
           .innerJoin(businesses, eq(businesses.id, projectPages.businessId))
           .where(eq(publicProjectPages.slug, slug))
           .limit(1),
       );
-      return row?.planTier ?? null;
+      return row ?? null;
     },
 
     /**

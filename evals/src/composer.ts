@@ -14,7 +14,7 @@
 import { clubRulesPrompt, prompts } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { ComposerOutput, SkillGradeOutput, type ChatMessage, type ModelClient, type RouteKey } from "@foundmill/models";
-import { PLAIN_LANGUAGE_TIERS } from "@foundmill/shared";
+import { PLAIN_LANGUAGE_TIERS, UNKNOWN_FOUNDER_CONTEXT, founderContextJson } from "@foundmill/shared";
 import { EVAL_BUSINESS_NAME, weightedScore } from "./harness";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -89,7 +89,7 @@ export const COMPOSER_PASS_THRESHOLD = 0.75;
 
 export interface ComposerEvalCase {
   id: string;
-  /** Who the note is written to (the Composer prompt's `founder_experience`). */
+  /** Who the note is written to (`founder.experience` in the Composer's inputs). */
   founderExperience: prompts.FounderExperience;
   /** The persona of the note. */
   voice: { id: string; name: string; role: string };
@@ -237,7 +237,7 @@ export function composerCase(i: number): ComposerEvalCase {
     id: `composer.${String(i).padStart(3, "0")}.${kind}.${founderExperience}`,
     founderExperience,
     voice,
-    input: { ...input, from_agent: { id: voice.id, name: voice.name, role: voice.role } },
+    input: { ...input, from_agent: { id: voice.id, name: voice.name, role: voice.role }, founder: founderContextJson({ ...UNKNOWN_FOUNDER_CONTEXT, experience: founderExperience }) },
     manifestIds: COMPOSER_CORPUS_MANIFEST.map((m) => m.id),
     kind,
   };
@@ -258,7 +258,7 @@ export const COMPOSER_CORPUS: readonly ComposerEvalCase[] = Object.freeze(compos
 export function composerSystemPrompt(c: Pick<ComposerEvalCase, "voice" | "founderExperience">): string[] {
   return [
     clubRulesPrompt.render({ business_name: EVAL_BUSINESS_NAME, APP_NAME }),
-    prompts.inboxComposerPrompt.render({ business_name: EVAL_BUSINESS_NAME, from_agent_name: c.voice.name, from_agent_role: c.voice.role, founder_experience: c.founderExperience }),
+    prompts.inboxComposerPrompt.render({ business_name: EVAL_BUSINESS_NAME, from_agent_name: c.voice.name, from_agent_role: c.voice.role }),
   ];
 }
 

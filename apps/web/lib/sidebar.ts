@@ -141,7 +141,7 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   // is about the business on the network, so it appears once it is LIVE.
   items.push({ id: SIDEBAR_IDS.network, label: "Network", icon: Globe, href: "/network", group: "live", badge: input.network?.total || undefined });
   if (input.live) items.push({ id: SIDEBAR_IDS.communities, label: "Communities", icon: Users2, href: "/communities", group: "live", badge: input.network?.moderation || undefined });
-  items.push({ id: SIDEBAR_IDS.settings, label: "Settings", icon: Settings, href: routes.settings(bid, "business"), group: "foot" });
+  items.push({ id: SIDEBAR_IDS.settings, label: "Settings", icon: Settings, href: routes.settings(bid, input.builder ? "business" : "basics"), group: "foot" });
   // A button, not a link: the shell signs out with a POST (lib/auth/sign-out.ts), so nothing can prefetch it.
   items.push({ id: SIDEBAR_IDS.signOut, label: "Sign out", icon: LogOut, group: "foot" });
   return items;

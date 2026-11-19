@@ -50,8 +50,11 @@ export interface MilestoneCardProps extends Omit<HTMLAttributes<HTMLElement>, "c
 
 export function MilestoneCard({ name, label, milestoneKey, achievedAt, brandPrimary, brandSecondary, logo, pageHref, storyHref, mark = "visitor", startHref = "/", variant = "page", className, style, ...rest }: MilestoneCardProps) {
   const rootStyle: CSSProperties = { ...kitStyle({ primary: brandPrimary, secondary: brandSecondary }), ...style };
+  // A full page is the document's one main landmark; a preview sits inside the console's own <main>, as an article.
+  const Root = variant === "page" ? "div" : "article";
+  const Body = variant === "page" ? "main" : "div";
   return (
-    <article
+    <Root
       data-milestone-card={milestoneKey ?? ""}
       data-variant={variant}
       className={cn("@container relative flex flex-col bg-canvas text-primary", variant === "page" ? "min-h-dvh" : "min-h-full", className)}
@@ -60,7 +63,7 @@ export function MilestoneCard({ name, label, milestoneKey, achievedAt, brandPrim
     >
       {/* The brand line, as on the project's page: the business's color, never a fill behind text. */}
       <div aria-hidden className="h-1 w-full shrink-0 bg-kit-primary" data-brand-line="" />
-      <div className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
+      <Body className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
         <div className="flex min-w-0 items-center gap-3">
           <BusinessLogo src={logo} name={name} primary={brandPrimary} size={48} title="" />
           <p className="t-display-sm min-w-0 break-words text-primary" data-project-name="">
@@ -93,8 +96,8 @@ export function MilestoneCard({ name, label, milestoneKey, achievedAt, brandPrim
             </a>
           ) : null}
         </div>
-      </div>
+      </Body>
       <BuiltOnFoot name={name} mark={mark} startHref={startHref} />
-    </article>
+    </Root>
   );
 }

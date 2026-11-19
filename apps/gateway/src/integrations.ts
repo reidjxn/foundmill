@@ -96,6 +96,28 @@ function keptSettings(row: { settings: unknown } | null, externalAccountId: stri
   return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId"));
 }
 
+/**
+ * Connect fields that carry a webhook signing secret, sealed as a second credential of `kind` on the same integration
+ * (WP-11 T20, N2): ingest reads that kind to verify the project's own deliveries (apps/ingest secrets.ts).
+ */
+export const WEBHOOK_SECRET_FIELDS: Readonly<Record<string, { field: string; kind: "stripe_webhook_secret"; prefix: string }>> = {
+  stripe: { field: "webhookSecret", kind: "stripe_webhook_secret", prefix: "whsec_" },
+};
+
+function takeWebhookSecret(connectorKey: string, connectInput: unknown): { input: unknown; secret: { kind: "stripe_webhook_secret"; value: string } | null } {
+  const spec = Object.hasOwn(WEBHOOK_SECRET_FIELDS, connectorKey) ? WEBHOOK_SECRET_FIELDS[connectorKey]! : null;
+  if (!spec || !connectInput || typeof connectInput !== "object") return { input: connectInput, secret: null };
+  const { [spec.field]: raw, ...rest } = connectInput as Record<string, unknown>;
+  const refuse = (message: string) => new GatewayError("invalid_webhook_secret", message, 400, { connector: connectorKey, field: spec.field });
+  if (raw !== undefined && raw !== null && typeof raw !== "string") throw refuse(`A signing secret starts with ${spec.prefix}: copy it from the endpoint in your Stripe dashboard`);
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (value === "") return { input: rest, secret: null };
+  if (!new RegExp(`^${spec.prefix}[A-Za-z0-9]{8,200}$`).test(value)) throw refuse(`A signing secret starts with ${spec.prefix}: copy it from the endpoint in your Stripe dashboard`);
+  // Stored only beside the founder's own key: a connect by account id alone verifies with the platform's secret.
+  if (typeof (rest as { apiKey?: unknown }).apiKey !== "string" || !(rest as { apiKey: string }).apiKey.trim()) throw refuse("Add the signing secret together with your own restricted key");
+  return { input: rest, secret: { kind: spec.kind, value } };
+}
+
 export async function connectIntegration(deps: GatewayDeps, input: ConnectInput, service: string): Promise<ConnectIntegrationResponse> {
   const connector = connectableConnector(deps, input.connector);
   await requireBusiness(deps, input.businessId);
@@ -123,8 +145,13 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
       connectInput = { key: given.key, hostedSlug: page.slug };
     }
   }
+  // A webhook signing secret given beside the key (WP-11 T20) is checked here, taken out before the connector sees the
+  // input, and sealed below as its own credential row: never echoed, audited by kind only.
+  const webhook = takeWebhookSecret(connector.key, connectInput);
+  connectInput = webhook.input;
   const record = await connector.connect(input.businessId, connectInput).catch((e: unknown) => vendorFailure(e, connector.key));
   const safe = stripSecret(record);
+  if (mode === "live" && record.status === "connected") await replacePreviousConnection(deps, input.businessId, connector, record);
 
   if (connector.auth.kind === "app") {
     const { verifiedBy, verifiedAt } = record.config as { verifiedBy?: unknown; verifiedAt?: unknown };
@@ -150,6 +177,7 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
   // The row id is part of the AAD and exists only after the insert: seal under the provisional AAD first (outside the
   // transaction, so the vault's lazy initialization never runs inside it), store, then re-seal under the row-bound AAD.
   const provisional = await encryptJson(vault, credential, buildAad(input.businessId, "credentials", PROVISIONAL_AAD_ROW));
+  const webhookProvisional = webhook.secret ? await encryptJson(vault, { secret: webhook.secret.value }, buildAad(input.businessId, "credentials", PROVISIONAL_AAD_ROW)) : null;
   const stored = await deps.db.transaction(async (tx: Executor) => {
     // The account the credential belongs to is written with it, so the row never pairs a new credential with the
     // previous account's settings, even if the api's own write after this one fails. The api writes the same settings
@@ -160,10 +188,71 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
     const meta = await repos.credentials.store(tx, input.businessId, { integrationId: row.id, kind: INTEGRATION_CREDENTIAL_KIND, record: provisional, expiresAt });
     const bound = await encryptJson(vault, credential, buildAad(input.businessId, "credentials", meta.id));
     await repos.credentials.rotate(tx, input.businessId, meta.id, bound);
+    // A reconnect to another account without a new signing secret retires the old one: it would verify the previous
+    // account's deliveries for this project (security review of WP-11 T20).
+    const previousAccount = (existing?.settings as { externalAccountId?: unknown } | null | undefined)?.externalAccountId ?? null;
+    const hookSpec = Object.hasOwn(WEBHOOK_SECRET_FIELDS, connector.key) ? WEBHOOK_SECRET_FIELDS[connector.key]! : null;
+    if (hookSpec && !webhook.secret && previousAccount !== record.externalAccountId) {
+      const stale = await repos.credentials.latest(tx, input.businessId, row.id, hookSpec.kind);
+      if (stale) await repos.credentials.revoke(tx, input.businessId, stale.meta.id);
+    }
+    if (webhook.secret && webhookProvisional) {
+      const hook = await repos.credentials.store(tx, input.businessId, { integrationId: row.id, kind: webhook.secret.kind, record: webhookProvisional, expiresAt: null });
+      await repos.credentials.rotate(tx, input.businessId, hook.id, await encryptJson(vault, { secret: webhook.secret.value }, buildAad(input.businessId, "credentials", hook.id)));
+    }
     return { integrationId: row.id, credentialId: meta.id };
   });
-  await auditIntegration(deps, input.businessId, "gateway.integration.connect", connector.key, { service, mode, status: record.status, secretStored: true, integrationId: stored.integrationId, credentialId: stored.credentialId });
+  await auditIntegration(deps, input.businessId, "gateway.integration.connect", connector.key, { service, mode, status: record.status, secretStored: true, integrationId: stored.integrationId, credentialId: stored.credentialId, ...(webhook.secret ? { webhookSecretStored: webhook.secret.kind } : {}) });
   return { mode, record: safe, integrationId: stored.integrationId, credential: { stored: true, credentialId: stored.credentialId, hint: redactSecret(credential.secret) } };
+}
+
+/** What a project is told when the Stripe account it signed in with is another project's (0137). */
+export const STRIPE_ACCOUNT_IN_USE = "This Stripe account is already connected to another project.";
+
+const isSignIn = (config: unknown): boolean => (config as { kind?: unknown } | null | undefined)?.kind === "connect";
+
+/**
+ * Before a new live connection replaces the project's previous one: an account signed in with ("Sign in with Stripe")
+ * may belong to one project only, so another project's account is refused before anything changes (0137 also refuses
+ * it in the database). Withdrawing the previous sign-in waits until the api has saved the new connection
+ * (`releaseAccount`), so a failed save never leaves the project without either (security review, Nov 17, 2026).
+ */
+async function replacePreviousConnection(deps: GatewayDeps, businessId: string, connector: Connector, record: IntegrationRecord): Promise<void> {
+  if (connector.key !== "stripe" || !record.externalAccountId || !isSignIn(record.config)) return;
+  const owner = await repos.integrations.businessForStripeAccount(deps.db, record.externalAccountId);
+  if (owner !== null && owner !== businessId) throw new GatewayError("account_in_use", STRIPE_ACCOUNT_IN_USE, 409, { connector: connector.key });
+}
+
+/**
+ * After the api saved a new connection over a sign-in: withdraws Foundmill's access to the previous account at Stripe.
+ * Only for an account no project is signed in with any more, so it can never cut another project's connection (nor this
+ * project's current one). Best effort and audited either way.
+ */
+export async function releaseAccount(deps: GatewayDeps, input: { businessId: string; connector: string; externalAccountId: string }, service: string): Promise<{ released: boolean }> {
+  const connector = connectableConnector(deps, input.connector);
+  await limitIntegrations(deps, input.businessId);
+  if (connector.key !== "stripe" || !connector.disconnect || modeFor(deps, connector.key) !== "live") return { released: false };
+  if ((await repos.integrations.businessForStripeAccount(deps.db, input.externalAccountId)) !== null) throw new GatewayError("account_in_use", "That Stripe account is still connected to a project, so its access is kept", 409, { connector: connector.key });
+  const now = (deps.now ?? (() => new Date()))().toISOString();
+  const previous: IntegrationRecord = { id: "released", businessId: input.businessId, connectorKey: connector.key, status: "connected", scopes: [], accountLabel: null, externalAccountId: input.externalAccountId, config: { kind: "connect" }, credentialRef: null, expiresAt: null, lastHealthAt: null, createdAt: now };
+  const released = await connector.disconnect(previous).catch((e: unknown) => (deps.log.warn({ connector: connector.key, businessId: input.businessId, err: (e as Error).message }, "previous Stripe sign-in could not be withdrawn"), false));
+  await auditIntegration(deps, input.businessId, "gateway.integration.access_released", connector.key, { service, released, from: input.externalAccountId, reason: "replaced" });
+  return { released };
+}
+
+/**
+ * Disconnecting: withdraws the platform's access at the vendor where the connector does that (a Stripe sign-in), before
+ * the api forgets the connection and revokes its credentials. Best effort: the founder may already have removed it.
+ */
+export async function releaseIntegration(deps: GatewayDeps, input: HealthInput, service: string): Promise<{ released: boolean }> {
+  const connector = connectableConnector(deps, input.connector);
+  await limitIntegrations(deps, input.businessId);
+  const row = await repos.integrations.getByKey(deps.db, input.businessId, connector.key);
+  if (!row || row.archivedAt !== null || row.status === "disconnected" || modeFor(deps, connector.key) !== "live" || !connector.disconnect) return { released: false };
+  const record = toIntegrationRecord(row, null);
+  const released = await connector.disconnect(record).catch((e: unknown) => (deps.log.warn({ connector: connector.key, businessId: input.businessId, err: (e as Error).message }, "vendor access could not be withdrawn"), false));
+  await auditIntegration(deps, input.businessId, "gateway.integration.access_released", connector.key, { service, released, from: record.externalAccountId, reason: "disconnected" });
+  return { released };
 }
 
 export async function integrationHealth(deps: GatewayDeps, input: HealthInput, service: string): Promise<{ health: HealthResult }> {

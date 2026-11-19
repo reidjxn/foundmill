@@ -1,5 +1,5 @@
 /** team.agents.* / team.humans.* / team.responsibilities.* (BUILD §11.9; AC-11.9.2 responsibilities route approvals). */
-import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
+import { TEMPLATE_KEYS, defaultSkillKeysFor, getLibrarySkill, getTemplate, hasTemplate, librarySkillKey, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY, INPUT_LIMITS } from "@foundmill/config";
 import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } from "@foundmill/db";
 import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, eventAsSeenBy, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
@@ -11,12 +11,19 @@ import { afterPeopleChange } from "../services/showcase";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
-import { SkillChoice, SkillFileUpload, attachSkills, libraryView, resolveSkillChoice, uploadPreview } from "../services/skills";
+import { LibraryFor, SkillChoice, SkillFileUpload, attachSkills, librarySkillText, libraryView, resolveSkillChoice, uploadPreview } from "../services/skills";
 import { hireFromTemplate, shownToolGrants } from "../services/squad";
 import { SIGNALS, workflowIds } from "../services/temporal";
 import { Id, audit, businessProcedure, emit, router, sectionAdmin, sectionRead, sectionWrite, writeProcedure } from "../trpc";
 
 const read = sectionRead("team");
+
+/** The library skills a template comes with (WP-06 T6), for the catalogue's "Comes with" (WP-10 renders it). */
+const defaultSkillsView = (templateKey: string) =>
+  defaultSkillKeysFor(templateKey).map((key) => {
+    const s = getLibrarySkill(key)!;
+    return { key, name: s.attribute.name, whenToUse: s.whenToUse };
+  });
 const write = sectionWrite("team");
 /** Staff and their permissions: owners and admins who may write to the Team section (a wall on Team holds for admins too). */
 const staffAdmin = sectionAdmin("team");
@@ -77,8 +84,14 @@ export const teamRouter = router({
    * profile's Skills from the library or files panel. Adding happens in team.agents.hire and agent.skills.add.
    */
   skills: router({
-    /** The curated, read-only catalog: every skill with its category, the attribute it shows as and its instructions. */
-    library: read.query(() => libraryView()),
+    /**
+     * The curated, read-only catalog (WP-06 T7): every skill with its category, the attribute it shows as, what makes it
+     * better and whether that is connected, and, for the agent or template the picker was opened for, the suggested
+     * skills first. No bodies: `get` gives one skill's whole text.
+     */
+    library: read.input(LibraryFor).query(({ ctx, input }) => libraryView(ctx, input)),
+    /** One library skill's whole text, for a person to read before adding it (founder, Nov 16, 2026: D6). */
+    get: read.input(z.object({ key: z.string().min(1).max(80) })).query(({ input }) => librarySkillText(input.key)),
     /** Parses and screens a skill file without storing it: the preview, or a 400 that says what to change. */
     preview: write.input(SkillFileUpload).mutation(({ input }) => uploadPreview(input)),
   }),
@@ -167,7 +180,7 @@ export const teamRouter = router({
     catalogue: read.input(z.object({ family: z.enum(["assistant", "lead", "worker", "channel", "specialist", "utility"]).optional() })).query(({ input }) =>
       listTemplates(input ?? {})
         .filter((t) => t.family !== "assistant" && (t.family !== "utility" || input?.family === "utility"))
-        .map((t) => ({ key: t.key, name: t.name, role: t.role, family: t.family, layer: t.layer, module: t.module, channelKey: t.channelKey ?? null, modelKey: t.modelKey, description: t.description, skills: t.skills, wageCapMinor: t.wageCapMinor, wageLabel: "Estimate" as const, traits: t.traits })),
+        .map((t) => ({ key: t.key, name: t.name, role: t.role, family: t.family, layer: t.layer, module: t.module, channelKey: t.channelKey ?? null, modelKey: t.modelKey, description: t.description, skills: t.skills, wageCapMinor: t.wageCapMinor, wageLabel: "Estimate" as const, traits: t.traits, defaultSkills: defaultSkillsView(t.key) })),
     ),
 
     /**
@@ -189,7 +202,9 @@ export const teamRouter = router({
           const h = await hireFromTemplate(tx, ctx.businessId, input.templateKey, { departmentIds: [department.id], lineManagerId: lead && !lead.archivedAt ? lead.id : null, name: input.name, createdBy: ctx.userId });
           await repos.departments.addMember(tx, ctx.businessId, department.id, { memberKind: "agent", memberId: h.agent.id });
           await audit(tx, ctx, { action: "team.agents.hire", target: { kind: "agent", id: h.agent.id }, details: { templateKey: input.templateKey, departmentId: department.id, skills: skills.map((s) => s.skillKey) } });
-          await attachSkills(tx, ctx, h.agent, skills);
+          // A skill picked in the dialog that the role already comes with is there already, not a duplicate (WP-06 T6).
+          const comesWith = new Set(defaultSkillKeysFor(input.templateKey).map(librarySkillKey));
+          await attachSkills(tx, ctx, h.agent, skills.filter((s) => !comesWith.has(s.skillKey)));
           return h;
         });
         return hired.agent;

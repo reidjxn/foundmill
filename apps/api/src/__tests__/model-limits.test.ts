@@ -97,7 +97,7 @@ describe("each model-backed procedure is limited", () => {
 
   it("the Studio, Compare and Ask spend the shared ceiling; Compare also spends a draft", async () => {
     const userId = await hz.h.createUser("studio-limits@test.local");
-    await as(userId).founder.profile.update({ confirmAdult: true, displayName: "Ana", experience: "operator", skills: { sales: 12 }, targetMarkets: ["EU"], riskAppetite: "low" });
+    await as(userId).founder.profile.update({ confirmAdult: true, displayName: "Ana", timeCommitment: "full_time", residence: "United States", experience: "operator", skills: { sales: 12 }, targetMarkets: ["EU"], riskAppetite: "low" });
     const ideas = (await as(userId).idea.generate({ prompt: "a newsletter" })).ideas;
     // Compare takes a draft from the drafting allowance (no business to book the Opus call to).
     hz.limits.reset();
@@ -175,6 +175,13 @@ describe("refunds and conditions", () => {
     await fill("plan", { userId: hz.A.ownerId }, "user");
     expect(await refusal(as(hz.A.ownerId).inbox.decide({ businessId: hz.A.businessId, itemId: (await item()).id, chosenOption: "outbound" }))).toBeNull();
     expect(await refusal(as(hz.A.ownerId).inbox.decide({ businessId: hz.A.businessId, itemId: (await item()).id, freeText: "Do outbound but cap it at $200" }))).toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^Planning limit reached/) });
+  });
+
+  it("past 80% of the month's free-plan cap a free request gets a quarter of its allowance (WP-13 T6)", async () => {
+    const slowly = createCaller({ ...hz.deps, models, freePlanSlow: async () => true }, { userId: hz.A.ownerId, email: null });
+    const quarter = Math.round(MODEL_LIMITS.planner.user[0]!.limit / 4);
+    for (let i = 0; i < quarter; i++) expect(await refusal(slowly.dev.tasks.plan({ businessId: hz.A.businessId, goal: "Ship the pricing page" }))).toBeNull();
+    expect(await refusal(slowly.dev.tasks.plan({ businessId: hz.A.businessId, goal: "Ship the pricing page" }))).toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^Task planning limit reached/) });
   });
 
   it("plan.preview needs Inbox write: a viewer cannot loop it on the platform key", async () => {

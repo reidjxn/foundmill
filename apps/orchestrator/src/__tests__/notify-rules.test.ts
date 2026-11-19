@@ -73,3 +73,47 @@ describe("the morning brief", () => {
     expect(keys(facts(), founder({ lastSeenAt: ago(1), prefs: { ...founder().prefs, briefHour: 10 } }))).toEqual(["daily_brief:2026-11-11"]);
   });
 });
+
+describe("the lifecycle emails (WP-04 T11)", () => {
+  const LNOW = new Date("2026-11-25T15:00:00Z"); // a Wednesday
+  const lago = (min: number) => new Date(LNOW.getTime() - min * 60_000);
+  const lifecycle = (over: Partial<NonNullable<BusinessNotifyFacts["lifecycle"]>> = {}): NonNullable<BusinessNotifyFacts["lifecycle"]> => ({
+    committedAt: lago(120),
+    page: { draftedAt: lago(110), live: false, publishedAt: null, slug: "tutorlane", pitch: null },
+    outcomesAt: [],
+    onVacation: false,
+    projectLastSeenAt: null,
+    ...over,
+  });
+  const lf = (over: Partial<BusinessNotifyFacts> = {}) => facts({ now: LNOW, ...over });
+
+  it("asks for the page check after the project's own news, under the lifecycle key", () => {
+    const f = lf({ lifecycle: lifecycle(), recentItems: [{ ...item("w1", "customer_won", 0), createdAt: lago(20) }] });
+    expect(planNotifications(f, founder({ lastSeenAt: lago(40) }))).toEqual([
+      { kind: "win", data: { inboxItemId: "w1" }, dedupeKey: "win:w1" },
+      { kind: "getting_started", data: { stage: "page_ready" }, dedupeKey: "getting_started:page_ready:b1" },
+    ]);
+  });
+
+  it("asks nothing at all for a project on vacation, its news included", () => {
+    const f = lf({ lifecycle: lifecycle({ onVacation: true }), recentItems: [{ ...item("w1", "customer_won", 0), createdAt: lago(20) }] });
+    expect(planNotifications(f, founder({ lastSeenAt: lago(40), prefs: { ...founder().prefs, briefHour: 10 } }))).toEqual([]);
+  });
+
+  it("plans no check-in for a project quiet since before these emails began (T16's win-back was dropped)", () => {
+    const old = lifecycle({ committedAt: new Date("2026-10-10T10:00:00Z") });
+    expect(keys(lf({ lifecycle: old }), founder({ lastSeenAt: new Date("2026-10-11T10:00:00Z") }))).toEqual([]);
+  });
+
+  it("asks nothing for a kind turned off", () => {
+    const off = founder({ lastSeenAt: lago(40) });
+    off.prefs.email.getting_started = false;
+    expect(keys(lf({ lifecycle: lifecycle() }), off)).toEqual([]);
+  });
+
+  it("makes the project's seventh day its first week's review, whatever the weekday", () => {
+    const committed = new Date("2026-11-18T15:00:00Z"); // a Wednesday in New York; seven days later is a Wednesday too
+    expect(dueBrief({ now: LNOW, timeZone: "America/New_York", lifecycle: lifecycle({ committedAt: committed }) }, founder({ prefs: { ...founder().prefs, briefHour: 10 } }))).toEqual({ kind: "weekly_review", day: "2026-11-25" });
+    expect(dueBrief({ now: LNOW, timeZone: "America/New_York", lifecycle: lifecycle({ committedAt: new Date("2026-11-19T15:00:00Z") }) }, founder({ prefs: { ...founder().prefs, briefHour: 10 } }))).toEqual({ kind: "daily_brief", day: "2026-11-25" });
+  });
+});

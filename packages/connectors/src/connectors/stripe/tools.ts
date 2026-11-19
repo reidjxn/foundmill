@@ -5,17 +5,28 @@
  * onboarding) is a hard gate (BUILD §2.2): the tool exists only as a human-action descriptor.
  */
 import { z } from "zod";
-import type { ConnectField } from "../../contract";
+import type { ConnectField, ConnectorAuth } from "../../contract";
 import { defineTool } from "../../define";
 
 export const STRIPE_KEY = "stripe";
 
 /**
- * What the founder enters in Settings › Integrations to connect their own Stripe account live (a Connect account comes
- * from the `start_connect_onboarding` hard gate instead).
+ * Two ways in (founder, Nov 17, 2026): "Sign in with Stripe" (Connect OAuth: the platform's Connect key acts for the
+ * account the founder signed in to, hence `platformKey`), or a restricted key pasted into `STRIPE_CONNECT_FIELDS`.
+ */
+export const STRIPE_AUTH: ConnectorAuth = { kind: "oauth", scopes: ["read_write"], platformKey: true, authorizationCode: true };
+/** Stripe Connect's sign-in page for Standard accounts (docs.stripe.com/connect/oauth-reference). */
+export const STRIPE_CONNECT_AUTHORIZE_URL = "https://connect.stripe.com/oauth/authorize";
+
+/**
+ * The second way in: what the founder enters in Settings › Integrations to connect their own Stripe account with a
+ * restricted key instead of signing in.
  */
 export const STRIPE_CONNECT_FIELDS: ConnectField[] = [
   { name: "apiKey", label: "Restricted key", secret: true, required: true, placeholder: "rk_live_…", hint: "A restricted key from your Stripe dashboard with read access plus write access to customers, invoices and Checkout. Stripe fees stay on your account." },
+  // WP-11 T20 (N2): the signing secret of the webhook endpoint the founder adds in their own Stripe account, so its
+  // deliveries verify at ingest and a payment reaches the project. Sealed by the gateway as its own credential; optional.
+  { name: "webhookSecret", label: "Payment signing secret", secret: true, required: false, placeholder: "whsec_…", hint: "In your Stripe dashboard, under Developers, add your project's payment address as an endpoint and paste the signing secret Stripe shows, so payments reach your project." },
 ];
 export const STRIPE_API_VERSION = "2025-09-30.clover";
 export const STRIPE_DASHBOARD_URL = "https://dashboard.stripe.com";
@@ -66,22 +77,31 @@ export const stripeTools = [
   defineTool({ name: "get_balance", description: "Available and pending balance per currency.", input: z.object({}), output: z.object({ available: z.array(z.object({ amountMinor: z.number().int(), currency: z.string() })), pending: z.array(z.object({ amountMinor: z.number().int(), currency: z.string() })) }), hints: {}, annotations: { readOnlyHint: true } }),
   defineTool({ name: "list_customers", description: "Customers, newest first; filter by exact email.", input: z.object({ email: z.email().optional(), limit: z.number().int().min(1).max(100).default(20), startingAfter: z.string().optional() }), output: z.object({ items: z.array(Customer), hasMore: z.boolean() }), hints: {}, untrusted: "api", untrustedRef: (a) => `customers:${a.email ?? "all"}`, annotations: { readOnlyHint: true } }),
   defineTool({ name: "get_customer", description: "One customer by id.", input: z.object({ customerId: StripeId("cus") }), output: Customer, hints: {}, untrusted: "api", untrustedRef: (a) => a.customerId, annotations: { readOnlyHint: true } }),
-  defineTool({ name: "create_customer", description: "Create a customer record (no email is sent).", input: z.object({ email: z.email(), name: z.string().min(1).max(200).optional(), metadata: z.record(z.string().max(40), z.string().max(500)).default({}) }), output: Customer, hints: {}, annotations: { idempotentHint: true } }),
+  defineTool({ name: "create_customer", description: "Create a customer record (no email is sent).", input: z.object({ email: z.email(), name: z.string().min(1).max(200).optional(), metadata: z.record(z.string().max(40), z.string().max(500)).default({}) }), output: Customer, hints: {}, annotations: { readOnlyHint: false, idempotentHint: true } }),
   defineTool({ name: "list_invoices", description: "Invoices, newest first; filter by customer and status.", input: z.object({ customerId: StripeId("cus").optional(), status: z.enum(["draft", "open", "paid", "uncollectible", "void"]).optional(), limit: z.number().int().min(1).max(100).default(20) }), output: z.object({ items: z.array(Invoice), hasMore: z.boolean() }), hints: {}, untrusted: "api", untrustedRef: (a) => `invoices:${a.customerId ?? "all"}:${a.status ?? "any"}`, annotations: { readOnlyHint: true } }),
   defineTool({ name: "get_invoice", description: "One invoice with its lines.", input: z.object({ invoiceId: StripeId("in") }), output: Invoice, hints: {}, untrusted: "api", untrustedRef: (a) => a.invoiceId, annotations: { readOnlyHint: true } }),
   defineTool({
-    name: "create_invoice",
+    name: "create_invoice", annotations: { readOnlyHint: false },
     description: "Create and finalize an invoice for a customer (collection by email, due in N days). Nothing is sent until send_invoice.",
     input: z.object({ customerId: StripeId("cus"), currency: Currency, lines: z.array(LineItem).min(1).max(50), daysUntilDue: z.number().int().min(1).max(90).default(14), memo: z.string().max(2000).optional() }),
     output: Invoice,
-    hints: {},
+    // Finalized on Stripe and kept there for good (a void is all that undoes it): asks first (founder, Nov 16, 2026).
+    hints: { irreversible: true },
   }),
   defineTool({ name: "send_invoice", description: "Email a finalized invoice to the customer (external message on behalf of the business; BUILD §2.3).", input: z.object({ invoiceId: StripeId("in") }), output: Invoice, hints: { contactsThirdParty: true, irreversible: true } }),
   defineTool({
-    name: "create_checkout_session",
+    name: "create_checkout_session", annotations: { readOnlyHint: false },
     description: "Hosted checkout link for a one-off payment or a subscription. The customer pays; the business spends nothing.",
     input: z.object({ mode: z.enum(["payment", "subscription"]), priceId: StripeId("price").optional(), lines: z.array(LineItem.extend({ currency: Currency })).max(20).default([]), successUrl: z.url(), cancelUrl: z.url(), customerEmail: z.email().optional(), customerId: StripeId("cus").optional(), metadata: z.record(z.string().max(40), z.string().max(500)).default({}) }).refine((a) => a.priceId || a.lines.length > 0, { message: "priceId or lines required" }),
     output: CheckoutSession,
+    // A payment page a customer can see and pay: asks first (founder, Nov 16, 2026).
+    hints: { irreversible: true },
+  }),
+  defineTool({
+    name: "create_billing_portal_session", annotations: { readOnlyHint: false },
+    description: "The platform's own billing only: a link to Stripe's own page where a subscriber to the entry plan manages it.",
+    input: z.object({ customerId: StripeId("cus"), returnUrl: z.url() }),
+    output: z.object({ id: z.string(), url: z.string() }),
     hints: {},
   }),
   defineTool({ name: "list_charges", description: "Payments taken, newest first, with how much of each was refunded; filter by customer.", input: z.object({ customerId: StripeId("cus").optional(), limit: z.number().int().min(1).max(100).default(25) }), output: z.object({ items: z.array(Charge), hasMore: z.boolean() }), hints: {}, untrusted: "api", untrustedRef: (a) => `charges:${a.customerId ?? "all"}`, annotations: { readOnlyHint: true } }),
@@ -112,7 +132,7 @@ export const stripeTools = [
     description: "HARD GATE (BUILD §2.2): Stripe Connect onboarding accepts Stripe's terms and verifies the founder's identity; only the founder can complete it.",
     input: z.object({ country: z.string().length(2).default("SE"), reason: z.string().max(1000).optional() }),
     hints: { hardGate: true, irreversible: true },
-    humanAction: (a) => ({ title: "Complete Stripe onboarding yourself", instructions: `Create or connect the Stripe account for ${a.country} in the Stripe dashboard, accept the Connected Account Agreement and complete identity verification. Then connect it in Settings → Integrations → Stripe with a restricted API key from that account (Developers → API keys): an account id alone is not accepted, because it does not prove the account is yours.`, url: `${STRIPE_DASHBOARD_URL}/register` }),
+    humanAction: (a) => ({ title: "Complete Stripe onboarding yourself", instructions: `Create or connect the Stripe account for ${a.country} in the Stripe dashboard, accept the Connected Account Agreement and complete identity verification. Then connect it in Settings › Integrations › Stripe with "Sign in with Stripe", or with a restricted key from that account (Developers › API keys).`, url: `${STRIPE_DASHBOARD_URL}/register` }),
   }),
 ] as const;
 
@@ -129,8 +149,6 @@ export interface StInvoice {
 export interface StCheckoutSession { id: string; url?: string | null; mode: "payment" | "subscription" | "setup"; status?: string | null; payment_status: string; amount_total?: number | null; currency?: string | null; customer?: string | { id: string } | null; customer_email?: string | null; customer_details?: { email?: string | null; name?: string | null } | null; expires_at?: number | null; subscription?: string | null; payment_intent?: string | null; metadata?: Record<string, string> | null }
 export interface StSubscription { id: string; customer: string | { id: string }; status: string; created: number; trial_end?: number | null; currency?: string; items?: { data: { price?: { id?: string; nickname?: string | null; product?: string | { name?: string } | null } }[] }; metadata?: Record<string, string> }
 export interface StPayout { id: string; amount: number; currency: string; status: string; arrival_date: number; automatic: boolean; description?: string | null }
-/** Metadata the platform puts on a Connect account it creates for a business: the proof an account id belongs to that business (`provenAccountFor`). */
-export const STRIPE_BUSINESS_METADATA_KEY = "foundmill_business_id";
 
 export interface StCharge { id: string; customer: string | null; amount: number; amount_refunded: number; currency: string; status: string; paid: boolean; refunded: boolean; invoice?: string | null; created: number; description?: string | null }
 export interface StAccount { id: string; metadata?: Record<string, string> | null; business_profile?: { name?: string | null } | null; country?: string; default_currency?: string; charges_enabled?: boolean; payouts_enabled?: boolean; type?: string | null; settings?: { dashboard?: { display_name?: string | null } } }

@@ -3,8 +3,8 @@
  * Settings › Integrations (BUILD §11.15, §13): the connector catalogue with connect / disconnect / health, scopes
  * and status pills, plus the dev-only Simulate panel (BUILD §13.3). The panel calls `dev.simulate` on apps/api
  * (owner/admin only), which mints the service token and proxies to apps/ingest over the private network
- * (docs/SECURITY_REVIEW.md SEC-2); the browser never talks to ingest. The procedure exists in development and
- * staging only.
+ * (docs/SECURITY_REVIEW.md SEC-2); the browser never talks to ingest. The procedure exists in development only
+ * (never staging: production runs APP_ENV=staging).
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, MapPin, Plug, RefreshCw, Unplug } from "lucide-react";
@@ -36,10 +36,10 @@ import { simulatePanelAvailable } from "@/lib/env";
 import { formatDateTime, plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { moduleTabLabel } from "@foundmill/widgets/shared/departments";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
+import { GitHubRepositoryPanel } from "./GitHubRepositoryPanel";
 import { OAuthFinish } from "./OAuthFinish";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
@@ -62,12 +62,12 @@ export const AUTH_WORD: Record<string, string> = {
 
 /** The six panel actions BUILD §13.3 names; the ingest catalogue may add more. */
 export const SIMULATIONS: { name: string; label: string; description: string }[] = [
-  { name: "signup.created", label: "Signup", description: "A new signup from the mock Stripe customer" },
+  { name: "signup.created", label: "Signup", description: "A made-up signup, as if from Stripe" },
   { name: "payment.received", label: "Payment", description: "A paid invoice: records a new paying customer, a journey and a Customer Update" },
-  { name: "lead.replied", label: "Lead reply", description: "An inbound reply through the mock SendGrid parse" },
-  { name: "bank.balance_updated", label: "Bank sync", description: "A mock open-banking balance update" },
+  { name: "lead.replied", label: "Lead reply", description: "A made-up reply from a lead, as if by email" },
+  { name: "bank.balance_updated", label: "Bank sync", description: "A made-up bank balance update" },
   { name: "channel.threshold_breached", label: "Customer cost spike", description: "A channel's cost to win a customer jumps past its threshold" },
-  { name: "credential.expiring", label: "Credential expiry", description: "A connector credential about to expire" },
+  { name: "credential.expiring", label: "Credential expiry", description: "A connection whose sign-in is about to expire" },
 ];
 
 /** What `dev.simulate` answers: ingest's status and body, shown verbatim (ingest labels it "Simulated"). */
@@ -100,11 +100,30 @@ export function showsModeChip(mode: string, rows: readonly { live?: boolean; ava
   return mode !== "mock" || !rows.some((r) => !r.live && r.available === false);
 }
 
+/** The connector that has its own box on Settings › Integrations, "Accept payments with Stripe". */
+export const STRIPE_CONNECTOR_KEY = "stripe";
+
 /** The connectors' mode: "Live", "Mock mode", or "Mock mode · GitHub live" when named connectors run live anyway. */
 export function modeLabel(mode: string, rows: readonly { displayName: string; live?: boolean }[]): string {
   if (mode !== "mock") return "Live";
   const live = rows.filter((r) => r.live).map((r) => r.displayName);
   return live.length ? `Test mode · ${live.join(", ")} live` : "Test mode";
+}
+
+/** The toast after a connection is made: the vendor and the project it now works for (founder, Nov 18, 2026). */
+export function connectedTitle(vendor: string, project: string | null | undefined): string {
+  return project ? `Connected ${vendor} to ${project}` : `Connected ${vendor}`;
+}
+
+/** The vendor account under that title, unless it only repeats the project's name ("foundmill" under "… to Foundmill"). */
+export function connectedAccountLine(account: string | null | undefined, project: string | null | undefined): string | undefined {
+  if (!account) return undefined;
+  return project && account.trim().toLowerCase() === project.trim().toLowerCase() ? undefined : account;
+}
+
+/** The toast line for a healthy check: a test connection says nothing was asked of the vendor, never the connector's own words. */
+export function healthLine(health: { status?: string; message?: string | null }): string | undefined {
+  return health.status === "mock" ? "Test data: nothing was checked with the vendor." : (health.message ?? undefined);
 }
 
 /** The line under a connector: its account, what agents can do with it, when it was last checked (in the person's `prefs`). */
@@ -165,6 +184,23 @@ export interface ConnectFieldView {
 export function needsConnectFields(c: { live?: boolean; connectFields?: readonly ConnectFieldView[] }): boolean {
   return Boolean(c.live) && (c.connectFields?.length ?? 0) > 0;
 }
+
+/**
+ * Two ways in, both offered (Stripe, founder Nov 17, 2026): signing in on the vendor's page, or the founder's own key.
+ * Only when the connector runs live; a test connection connects with one click as before.
+ */
+export function offersSignInAndKey(c: { live?: boolean; auth: { authorizationCode?: boolean }; connectFields?: readonly ConnectFieldView[] }): boolean {
+  return needsConnectFields(c) && c.auth.authorizationCode === true;
+}
+
+/** How a connector signs in, in words, for the row's second line. */
+export function authWordFor(c: { displayName: string; live?: boolean; auth: { kind: string; authorizationCode?: boolean }; connectFields?: readonly ConnectFieldView[] }): string {
+  if (offersSignInAndKey(c)) return `Sign in with ${c.displayName}, or an API key`;
+  return AUTH_WORD[c.auth.kind] ?? plainWords(c.auth.kind);
+}
+
+/** The connection was made with a pasted key (Stripe's `config.kind` "own"), so renewing asks for a key again. */
+const connectedWithKey = (integ: { settings?: unknown } | null): boolean => ((integ?.settings as { config?: { kind?: unknown } } | undefined)?.config?.kind ?? null) === "own";
 
 /** The `connect()` input from what was typed (trimmed; empty optional fields left out), or null while a required one is empty. */
 export function connectInputFrom(fields: readonly ConnectFieldView[], values: Record<string, string>): Record<string, string> | null {
@@ -354,19 +390,18 @@ export function PlatformMailSection({ data, businessId }: { data: PlatformMailVi
 
 export function IntegrationsTab() {
   const datePrefs = useDateFormat();
-  const { businessId, departments } = useBusiness();
-  // The Code tab by the department over the Development module, as the founder named it ("Formulation Lab › Code").
-  const codeTab = moduleTabLabel(departments, "development", "code") ?? "the Code tab";
+  const { businessId, data: businessData } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
   const list = useQuery(trpc.integrations.list.queryOptions({ businessId }));
+  const vendorName = (key: string) => list.data?.catalogue.find((c) => c.key === key)?.displayName ?? plainWords(key);
   const platformMail = useQuery(trpc.integrations.platformMail.queryOptions({ businessId }));
   /** The connector whose key dialog is open (Connect on a live API-key connector). */
   const [keyForKey, setKeyForKey] = useState<string | null>(null);
   const connect = useMutation(
     trpc.integrations.connect.mutationOptions({
-      onSuccess: (r) => {
+      onSuccess: (r, vars) => {
         void invalidate(["integrations"]);
         if (r.consentUrl) {
           // The vendor's page opens in this tab: a new tab opened after the request returns is a pop-up browsers block
@@ -374,7 +409,7 @@ export function IntegrationsTab() {
           // Google, Notion, Shopify: /integrations/oauth/callback, finished in OAuthFinish).
           t.info("Your consent is needed", "Opening the vendor's page; the connection completes when you accept and come back here.");
           navigateTo(r.consentUrl);
-        } else t.saved("Connected", r.record.accountLabel ?? undefined);
+        } else t.saved(connectedTitle(vendorName(vars.connectorKey), businessData?.business.name), connectedAccountLine(r.record.accountLabel, businessData?.business.name));
       },
       onError: (e) => t.failed(e, "Could not connect"),
     }),
@@ -382,7 +417,7 @@ export function IntegrationsTab() {
   const disconnect = useMutation(trpc.integrations.disconnect.mutationOptions({ onSuccess: () => (void invalidate(["integrations"]), t.saved("Disconnected", "Credentials revoked.")), onError: (e) => t.failed(e) }));
   const health = useMutation(
     trpc.integrations.health.mutationOptions({
-      onSuccess: (r) => (void invalidate(["integrations"]), r.health.ok ? t.saved("Healthy", r.health.message ?? undefined) : t.failed(new Error(r.health.message ?? "health check failed"), "Unhealthy")),
+      onSuccess: (r) => (void invalidate(["integrations"]), r.health.ok ? t.saved("Healthy", healthLine(r.health)) : t.failed(new Error(r.health.message ?? "health check failed"), "Unhealthy")),
       onError: (e) => t.failed(e, "Health check failed"),
     }),
   );
@@ -409,6 +444,75 @@ export function IntegrationsTab() {
 
   if (loadFailed(list)) return <ErrorPanel title="Integrations" message={errorMessage(list.error)} onRetry={() => void list.refetch()} />;
   const rows = list.data?.catalogue ?? [];
+  // One row per connector, the same wherever it appears (Stripe's own box above the list, and the list).
+  const renderRow = (c: (typeof rows)[number]) => {
+    const integ = c.integration;
+    const status = STATUS_TONE[(integ?.status ?? "disconnected") as IntegrationStatus] ?? STATUS_TONE.disconnected;
+    const connected = integ !== null && integ.status !== "disconnected";
+    const renew = connected && needsRenewal(integ);
+    const expiry = consentExpiry(integ);
+    const both = offersSignInAndKey(c);
+    const renewWithKey = both ? connectedWithKey(integ) : needsConnectFields(c);
+    const renewWord = both ? (renewWithKey ? "Reconnect" : `Sign in with ${c.displayName} again`) : c.auth.kind === "oauth" ? "Renew consent" : "Reconnect";
+    const pending = connect.isPending && connect.variables?.connectorKey === c.key;
+    const signIn = () => connect.mutate({ businessId, connectorKey: c.key, input: {} });
+    return (
+      <li key={c.key} className={cn("flex min-h-row-comfortable items-start gap-3 border-b border-line-faint py-2.5 last:border-b-0", focusKey === c.key && "rounded-panel bg-panel-alt outline outline-2 -outline-offset-2 outline-link")} data-connector={c.key} aria-current={focusKey === c.key ? "true" : undefined}>
+        <span className="flex w-40 shrink-0 flex-col">
+          <span className="text-body-strong text-primary">{c.displayName}</span>
+          <span className="text-small text-tertiary">{authWordFor(c)}</span>
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="flex flex-wrap items-center gap-1.5">
+            <StatusPill tone={status.tone}>{status.word}</StatusPill>
+            {list.data?.mode === "mock" && c.live ? <Chip tone="good">Live</Chip> : null}
+          </span>
+          <span className="break-words text-small text-secondary" title={integ?.scopes.length ? `Permissions: ${integ.scopes.join(", ")}` : undefined}>
+            {connectorDetail(c, integ, datePrefs)}
+          </span>
+          {connected && expiry ? <span className={cn("text-small", renew ? "text-status-warn" : "text-tertiary")}>Consent until {formatDateTime(expiry, datePrefs)}</span> : null}
+          {integ?.lastError ? <span className="break-words text-small text-status-bad">{integ.lastError}</span> : null}
+        </span>
+        <span className="flex shrink-0 items-center gap-1 pt-0.5">
+          {MANAGED_ON_KEYS_TAB.has(c.key) ? (
+            <ShellLinkButton size="sm" icon={KeyRound} href={routes.settings(businessId, "keys")} data-testid="manage-in-keys">
+              Manage in Keys
+            </ShellLinkButton>
+          ) : connected ? (
+            <>
+              {renew ? (
+                <Button size="sm" icon={renewWithKey ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : RefreshCw} loading={pending} onClick={() => (renewWithKey ? setKeyFor(c) : signIn())}>
+                  {renewWord}
+                </Button>
+              ) : null}
+              <IconButton label={`Check ${c.displayName} health`} icon={Activity} size="sm" disabled={health.isPending} onClick={() => integ && health.mutate({ businessId, integrationId: integ.id })} />
+              <IconButton label={`Disconnect ${c.displayName}`} icon={Unplug} size="sm" disabled={disconnect.isPending} onClick={() => integ && disconnect.mutate({ businessId, integrationId: integ.id })} />
+            </>
+          ) : c.available === false ? (
+            <Chip tone="neutral" data-testid="connector-not-available">
+              Not available yet
+            </Chip>
+          ) : both ? (
+            <>
+              <Button size="sm" variant="primary" icon={ExternalLink} loading={pending} onClick={signIn} data-testid="sign-in-with-vendor">
+                Sign in with {c.displayName}
+              </Button>
+              <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setKeyFor(c)} data-testid="use-an-api-key">
+                Use an API key
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : Plug} loading={pending} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : signIn())}>
+              Connect
+            </Button>
+          )}
+        </span>
+      </li>
+    );
+  };
+  // Stripe has its own box above the other connectors (founder, Nov 18, 2026), so it is listed once.
+  const stripeRow = rows.find((r) => r.key === STRIPE_CONNECTOR_KEY) ?? null;
+  const listed = rows.filter((r) => r.key !== STRIPE_CONNECTOR_KEY);
   const keyFor = rows.find((r) => r.key === keyForKey) ?? null;
   const setKeyFor = (c: { key: string } | null) => setKeyForKey(c?.key ?? null);
 
@@ -421,7 +525,7 @@ export function IntegrationsTab() {
             {installCode && installState ? (
               <>
                 <Hint>
-                  GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own <Term id="branch">branches</Term>. GitHub confirms you can manage it first. Then choose the <Term id="repository">repository</Term> on {codeTab}.
+                  GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own <Term id="branch">branches</Term>. GitHub confirms you can manage it first. Then choose the <Term id="repository">repository</Term> below.
                 </Hint>
                 <Button variant="primary" icon={FolderGit2} loading={connect.isPending} onClick={confirmInstallation}>
                   Connect installation
@@ -434,64 +538,20 @@ export function IntegrationsTab() {
         </SettingsSection>
       ) : null}
       <PlatformMailSection data={platformMail.data} businessId={businessId} />
-      <OAuthFinish businessId={businessId} connectors={rows} pending={connect.isPending} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
-      <SettingsSection wide title="Connectors" meta={list.data ? plural(rows.filter((r) => r.integration && r.integration.status !== "disconnected").length, "connected", "connected") : undefined} actions={list.data && showsModeChip(list.data.mode, rows) ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
+      <OAuthFinish businessId={businessId} connectors={rows} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
+      {stripeRow ? (
+        <SettingsSection wide title="Accept payments with Stripe" data-testid="stripe-payments" loading={list.isLoading}>
+          <Hint>Take payments on your own Stripe account. Sign in with Stripe, or use a restricted key from your Stripe dashboard. Stripe's fees stay on your account.</Hint>
+          <ul className="flex flex-col">{renderRow(stripeRow)}</ul>
+        </SettingsSection>
+      ) : null}
+      <SettingsSection wide title="Connectors" meta={list.data ? plural(listed.filter((r) => r.integration && r.integration.status !== "disconnected").length, "connected", "connected") : undefined} actions={list.data && showsModeChip(list.data.mode, rows) ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
         <Hint>Consents and API keys are yours to grant: a connector that needs one opens the vendor's page and waits for you. Secrets are stored encrypted and never shown again.</Hint>
         <ul className="flex flex-col" data-testid="connector-list">
-          {rows.map((c) => {
-            const integ = c.integration;
-            const status = STATUS_TONE[(integ?.status ?? "disconnected") as IntegrationStatus] ?? STATUS_TONE.disconnected;
-            const connected = integ !== null && integ.status !== "disconnected";
-            const renew = connected && needsRenewal(integ);
-            const expiry = consentExpiry(integ);
-            const renewWord = c.auth.kind === "oauth" ? "Renew consent" : "Reconnect";
-            return (
-              <li key={c.key} className={cn("flex min-h-row-comfortable items-start gap-3 border-b border-line-faint py-2.5 last:border-b-0", focusKey === c.key && "rounded-panel bg-panel-alt outline outline-2 -outline-offset-2 outline-link")} data-connector={c.key} aria-current={focusKey === c.key ? "true" : undefined}>
-                <span className="flex w-40 shrink-0 flex-col">
-                  <span className="text-body-strong text-primary">{c.displayName}</span>
-                  <span className="text-small text-tertiary">{AUTH_WORD[c.auth.kind] ?? plainWords(c.auth.kind)}</span>
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    <StatusPill tone={status.tone}>{status.word}</StatusPill>
-                    {list.data?.mode === "mock" && c.live ? <Chip tone="good">Live</Chip> : null}
-                  </span>
-                  <span className="break-words text-small text-secondary" title={integ?.scopes.length ? `Permissions: ${integ.scopes.join(", ")}` : undefined}>
-                    {connectorDetail(c, integ, datePrefs)}
-                  </span>
-                  {connected && expiry ? <span className={cn("text-small", renew ? "text-status-warn" : "text-tertiary")}>Consent until {formatDateTime(expiry, datePrefs)}</span> : null}
-                  {integ?.lastError ? <span className="break-words text-small text-status-bad">{integ.lastError}</span> : null}
-                </span>
-                <span className="flex shrink-0 items-center gap-1 pt-0.5">
-                  {MANAGED_ON_KEYS_TAB.has(c.key) ? (
-                    <ShellLinkButton size="sm" icon={KeyRound} href={routes.settings(businessId, "keys")} data-testid="manage-in-keys">
-                      Manage in Keys
-                    </ShellLinkButton>
-                  ) : connected ? (
-                    <>
-                      {renew ? (
-                        <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : RefreshCw} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : connect.mutate({ businessId, connectorKey: c.key, input: {} }))}>
-                          {renewWord}
-                        </Button>
-                      ) : null}
-                      <IconButton label={`Check ${c.displayName} health`} icon={Activity} size="sm" disabled={health.isPending} onClick={() => integ && health.mutate({ businessId, integrationId: integ.id })} />
-                      <IconButton label={`Disconnect ${c.displayName}`} icon={Unplug} size="sm" disabled={disconnect.isPending} onClick={() => integ && disconnect.mutate({ businessId, integrationId: integ.id })} />
-                    </>
-                  ) : c.available === false ? (
-                    <Chip tone="neutral" data-testid="connector-not-available">
-                      Not available yet
-                    </Chip>
-                  ) : (
-                    <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : Plug} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : connect.mutate({ businessId, connectorKey: c.key, input: {} }))}>
-                      Connect
-                    </Button>
-                  )}
-                </span>
-              </li>
-            );
-          })}
+          {listed.map(renderRow)}
         </ul>
       </SettingsSection>
+      {rows.some((r) => r.key === "github" && r.integration && r.integration.status !== "disconnected") ? <GitHubRepositoryPanel /> : null}
       <ConnectFieldsDialog
         connector={keyFor}
         pending={connect.isPending}
@@ -523,7 +583,7 @@ export function SimulatePanel({ businessId, connectors }: { businessId: string; 
   );
   return (
     <SettingsSection title="Simulate" actions={<Chip tone="warn" icon={FlaskConical}>Development only</Chip>} data-testid="simulate-panel">
-      <Hint>Fires a mock platform event through the API and apps/ingest exactly as a real event from the vendor would: it is labeled “Simulated”, costs nothing and never leaves this environment. Owners and admins only.</Hint>
+      <Hint>Makes up an event as if the vendor had sent it. It is labeled “Simulated”, costs nothing and never leaves this computer. Owners and admins only.</Hint>
       <div className="flex items-center gap-3">
         <span className="t-label">Connector</span>
         <SimpleSelect aria-label="Connector" controlSize="sm" value={connector} onValueChange={setConnector} placeholder="Default per event" options={[{ value: "", label: "Default per event" }, ...connectors.map((c) => ({ value: c.key, label: c.label }))]} className="w-56" />

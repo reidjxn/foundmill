@@ -4,6 +4,7 @@
  */
 import { IDEAS_BY_ID_MAX, repos, type IdeaWithVersion } from "@foundmill/db";
 import { HOUSE_STYLE } from "@foundmill/agents";
+import { TAKE_CHARGE_NEEDS_MESSAGE, TAKE_CHARGE_NEEDS_REASON, takeChargeMissing } from "@foundmill/config";
 import { AGENT_STYLES, ARCHETYPES, Archetype, BUSINESS_MODES, CurrencyCode, GAME_MODES, ValidationError } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -233,7 +234,7 @@ export const ideaRouter = router({
       schema: Verdict,
       system: `Compare the concept cards attribute by attribute and give an agent verdict with a ranking. ${HOUSE_STYLE}`,
       messages: [{ role: "user", content: "```json\n" + JSON.stringify({ concepts: ideas.map((i) => ({ id: i.id, title: i.title, pitch: i.pitch, attributes: i.current?.attributes ?? {} })) }) + "\n```" }],
-      attribution: { kind: "ideation_compare" },
+      attribution: { kind: "ideation_compare", userId: ctx.userId },
     });
     const versionIds = ideas.map((i) => i.current?.id).filter((v): v is string => Boolean(v));
     const comparison = await repos.ideas.compare(ctx.db, ctx.userId, { ideaVersionIds: versionIds, verdictMd: result.json.verdict_md });
@@ -341,6 +342,12 @@ export const ideaRouter = router({
         spendCapMinor: z.number().int().nonnegative().nullable().default(null),
         /** The founder's 18+ confirmation, asked when they take charge of a LIVE business (the network is for adults). */
         confirmAdult: z.boolean().optional(),
+        /**
+         * How much time the person can give and where they live, answered on Commit by a person whose profile lacks
+         * them (founder's answer A5, 2026-11-17): saved to the profile, where it has none, before anything is created.
+         */
+        timeCommitment: z.string().trim().min(1).max(120).optional(),
+        residence: z.string().trim().min(1).max(80).optional(),
         /** "Run on autopilot": the business starts its own cycles; off unless chosen. */
         autopilot: z.boolean().default(false),
         /**
@@ -366,9 +373,19 @@ export const ideaRouter = router({
       // sign-up asked) cannot start one; the confirmation it gave at sign-up answers both.
       if (input.gameMode === "live") await requireAdultToGoLive(ctx.db, ctx.userId, input.confirmAdult);
       else await requireAdult(ctx.db, ctx.userId, input.confirmAdult);
+      // Time and where the person lives are known before they take charge (A5): from the profile, else from this
+      // press. Without both nothing is created; the Commit screen asks for exactly the ones missing.
+      const { timeCommitment, residence, ...commitInput } = input;
+      const about = { timeCommitment: profile.timeCommitment?.trim() || timeCommitment, residence: profile.residence?.trim() || residence };
+      const missing = takeChargeMissing(about);
+      if (missing.length > 0) throw new ValidationError(TAKE_CHARGE_NEEDS_MESSAGE, { reason: TAKE_CHARGE_NEEDS_REASON, missing });
       // A logo is an upload check like any other (the SVG check is CPU work).
       if (input.logo) await takeLogoCheck(ctx.limits, ctx.userId);
-      // A profile with no budget starts no cycle and no finance or legal task at commit (WP-04 T3).
-      return commitIdea(ctx.db, ctx.temporal, ctx.userId, { ...input, hasBudget: (profile.budgetMinor ?? 0) > 0 }, () => importJobKey(ctx.env), { log: ctx.log, env: ctx.env });
+      // The answers given on this press fill what the profile lacks; an answer the profile has is never overwritten.
+      const answered = { ...(profile.timeCommitment?.trim() ? {} : { timeCommitment: about.timeCommitment }), ...(profile.residence?.trim() ? {} : { residence: about.residence }) };
+      if (Object.keys(answered).length > 0) await repos.founders.update(ctx.db, ctx.userId, answered);
+      // A profile with no budget starts no cycle and no finance or legal task at commit (WP-04 T3). The welcome note
+      // greets the founder by the profile's name (WP-04 T7).
+      return commitIdea(ctx.db, ctx.temporal, ctx.userId, { ...commitInput, hasBudget: (profile.budgetMinor ?? 0) > 0, displayName: profile.displayName ?? null }, () => importJobKey(ctx.env), { log: ctx.log, env: ctx.env });
     }),
 });

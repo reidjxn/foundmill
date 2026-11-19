@@ -70,3 +70,27 @@ test("every check id in docs/DEPLOY.md is known", async () => {
   assert.ok(rows.length >= 10);
   for (const r of rows) if (!r.check.startsWith("manual")) assert.ok(r.check in CHECKS, r.check);
 });
+
+test("sites-headers is skipped without --sites, and checks the header set and the preview's noindex with it", async () => {
+  const row = { area: "Foundmill Sites", expected: "", state: "", check: "sites-headers" };
+  const skipped = await runChecks([row], { fetch: async () => assert.fail("fetched without --sites") });
+  assert.equal(skipped.results[0].status, "manual");
+  assert.equal(skipped.exitCode, 0);
+  const headers = (h) => ({ get: (k) => h[k.toLowerCase()] ?? null });
+  const site = async (url) => ({ status: 200, headers: headers(url.includes("p-") ? { "x-robots-tag": "noindex, nofollow" } : { "content-security-policy": "default-src 'none'; img-src 'self' data:" }), json: async () => ({}), text: async () => "" });
+  const good = await runChecks([row], { fetch: site, sites: "https://lunchbox.example-sites.app/", preview: "https://p-abc.example-sites.app/" });
+  assert.equal(good.results[0].status, "ok");
+  const bad = await runChecks([row], { fetch: async () => ({ status: 200, headers: headers({}) }), sites: "https://lunchbox.example-sites.app/" });
+  assert.equal(bad.results[0].status, "differs");
+  assert.equal(bad.exitCode, 1);
+});
+
+test("landing-robots: hidden accepts a 404 or a 200 that disallows everything", async () => {
+  const row = { area: "Landing indexing", expected: "`noindex` and robots", state: "", check: "landing-robots" };
+  const page = { status: 200, headers: new Map(), text: async () => '<meta name="robots" content="noindex, nofollow"/>' };
+  const robots = (status, body) => ({ status, headers: new Map(), text: async () => body });
+  const run = async (answer) => (await runChecks([row], { fetch: async (url) => (url.endsWith("/robots.txt") ? answer : page) })).results[0].status;
+  assert.equal(await run(robots(404, "")), "ok");
+  assert.equal(await run(robots(200, "User-Agent: *\nDisallow: /\n")), "ok");
+  assert.notEqual(await run(robots(200, "User-Agent: *\nAllow: /\nDisallow: /api/\n")), "ok");
+});

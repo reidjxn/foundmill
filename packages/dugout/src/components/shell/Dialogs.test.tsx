@@ -19,7 +19,7 @@ describe("HolidayDialog logic", () => {
     expect(a.length).toBe(DECISION_TYPES.length - 1);
   });
   it("validates until and the budget ceiling", () => {
-    const base: HolidaySettings = { until: { kind: "return" }, authority: defaultAuthority(), budgetCeiling: null, wakeEvents: [...DEFAULT_WAKE_EVENTS] };
+    const base: HolidaySettings = { until: { kind: "return" }, authority: defaultAuthority(), budgetCeiling: null, wakeEvents: [...DEFAULT_WAKE_EVENTS], inboundPayments: false };
     expect(validateHolidaySettings(base, today)).toEqual({});
     expect(validateHolidaySettings({ ...base, until: { kind: "date", date: "" } }, today).until).toMatch(/Choose/);
     expect(validateHolidaySettings({ ...base, until: { kind: "date", date: "2026-10-01" } }, today).until).toMatch(/past/);
@@ -73,6 +73,8 @@ describe("HolidayDialog", () => {
     expect(settings.authority).toContain("publish_content");
     expect(settings.budgetCeiling).toEqual({ amountMinor: 250000, currency: "SEK" });
     expect(settings.wakeEvents).toEqual([...DEFAULT_WAKE_EVENTS, "customer_won"]);
+    // Payment powers are off unless chosen (founder, Nov 16, 2026).
+    expect(settings.inboundPayments).toBe(false);
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
   it("accepts a condition", async () => {
@@ -118,6 +120,17 @@ describe("KeyboardHelp", () => {
     expect(dialog.textContent).toContain("Refresh Inbox");
     expect(dialog.querySelectorAll("kbd").length).toBeGreaterThan(20);
   });
+
+  it("says when single keys are off and where to turn them on, and still lists every shortcut (WP-04 T13)", () => {
+    const { rerender } = render(<KeyboardHelp open onOpenChange={() => {}} departments={DEPARTMENTS_FOR_KEYS} />);
+    const dialog = screen.getByTestId("keyboard-help");
+    expect(dialog.getAttribute("data-single-keys")).toBe("off");
+    expect(dialog.textContent).toContain("Single-key shortcuts are off. Turn them on in Settings › Preferences.");
+    expect(dialog.textContent).toContain("Refresh Inbox");
+    rerender(<KeyboardHelp open onOpenChange={() => {}} departments={DEPARTMENTS_FOR_KEYS} singleKeys />);
+    expect(screen.getByTestId("keyboard-help").getAttribute("data-single-keys")).toBe("on");
+    expect(screen.getByTestId("keyboard-help").textContent).not.toContain("are off");
+  });
 });
 
 describe("ProfileHeader", () => {
@@ -145,4 +158,15 @@ describe("ProfileHeader", () => {
     expect(screen.getByText("sonnet")).toBeTruthy();
     expect(screen.getByRole("img", { name: "Ability: 3 of 5, could reach 4.5" })).toBeTruthy();
   });
+
+  it("turns the inbound payment power on when the founder ticks it", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(<HolidayDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} today={today} currency="SEK" initial={{ until: { kind: "return" } }} />);
+    await user.click(screen.getByRole("checkbox", { name: /Agents may create invoices and payment links without asking/ }));
+    await user.click(screen.getByTestId("holiday-submit"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect((onSubmit.mock.calls[0]?.[0] as HolidaySettings).inboundPayments).toBe(true);
+  });
 });
+

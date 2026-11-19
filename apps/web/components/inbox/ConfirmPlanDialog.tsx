@@ -157,7 +157,7 @@ export function ConfirmPlanDialog({ open, onOpenChange, lines, summary, loading,
                 );
               })}
             </ol>
-            <KeyValueList items={[{ label: "Total cost", value: totals.length ? <span className="inline-flex items-center gap-1.5" data-testid="confirm-plan-total">{totals.map((t) => formatMoney(t)).join(" + ")} <ProvenanceChip kind="estimate" /></span> : "No cost", numeric: true }]} />
+            <KeyValueList items={[{ label: "Total cost", value: totals.length ? <span className="inline-flex items-center gap-1.5" data-testid="confirm-plan-total"><ProvenanceChip kind="estimate">{totals.map((t) => formatMoney(t)).join(" + ")}</ProvenanceChip></span> : "No cost", numeric: true }]} />
             {totals.length ? <p className="text-small text-tertiary text-pretty">Budgets and caps as planned, not spend to date.{totals.length > 1 ? " Amounts in different currencies are listed side by side, not converted." : ""}</p> : null}
           </div>
         </DialogBody>

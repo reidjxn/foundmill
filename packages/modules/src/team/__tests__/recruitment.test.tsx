@@ -139,7 +139,8 @@ describe("RecruitmentScreen", () => {
     renderScreen(fake, <RecruitmentScreen {...props} />);
     await screen.findByRole("grid", { name: "Catalog" });
     const draft = screen.getByTestId("draft-agent");
-    expect(draft.textContent).toContain("Draft this agent");
+    expect(draft.textContent).toContain("Find the closest role");
+    expect(draft.textContent).not.toMatch(/draft/i);
     expect(draft.hasAttribute("disabled")).toBe(true);
     const box = screen.getByRole("textbox", { name: "Describe the agent" });
     await user.type(box, "writes our weekly customer newsletter");

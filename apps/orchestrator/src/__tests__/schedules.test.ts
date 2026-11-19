@@ -56,7 +56,7 @@ describe("schedule registration", () => {
   it("defines a schedule for every periodic job, each naming a workflow the worker bundles", () => {
     const ids = SCHEDULES.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const job of ["journeyDailyRefresh", "journeyMatviewRefresh", "benchmarksRebuild", "credentialExpiryScan", "consentRenewalScan", "agentMetricsRollup", "agentHealthSweep", "legalCalendarRoll", "sourceWatchSweep", "channelEngineReconcile", "crmDeletionSweep", "businessDeletionSweep", "founderNotifications", "platformMetrics", "waitlistAdmissions"]) {
+    for (const job of ["journeyDailyRefresh", "journeyMatviewRefresh", "benchmarksRebuild", "credentialExpiryScan", "consentRenewalScan", "agentMetricsRollup", "agentHealthSweep", "legalCalendarRoll", "sourceWatchSweep", "channelEngineReconcile", "crmDeletionSweep", "pageCatchUp", "businessDeletionSweep", "founderNotifications", "platformMetrics", "waitlistAdmissions"]) {
       expect(SCHEDULES.map((s) => s.workflowType)).toContain(job);
       expect(typeof (workflows as Record<string, unknown>)[job]).toBe("function");
     }
@@ -222,21 +222,22 @@ describe("schedule activities on PGlite", () => {
     expect(await acts.recordEngineWorkflows({ entries: [{ businessId: t.businessId, channelId: t.fixture.channelId, workflowId: `engine:${t.fixture.channelId}` }] })).toEqual({ updated: 0 });
   });
 
-  it("on staging the reconciler keeps only offline tracking: a channel that cannot act, or acts through tasks, gets no engine (founder, 2026-11-11; WP-02 T2)", async () => {
+  it("on staging no engine is ensured for a non-sample business, offline tracking included (founder, 2026-11-11; WP-02 T2; WP-08 T9)", async () => {
     const staging = createScheduleActivities({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging", LIVE_CONNECTORS: "github" } });
     const print = await repos.channels.upsert(t.db, t.businessId, { channelKey: "print", line: "wings", enabled: true, kitMode: true });
     const seo = await repos.channels.upsert(t.db, t.businessId, { channelKey: "seo", line: "defence", enabled: true, kitMode: false });
     const mine = async () => (await staging.listEnginesToEnsure()).channels.filter((c) => c.businessId === t.businessId).map((c) => c.channelKey).sort();
-    // Events has no publisher, SEO's connector is live here but not connected: only print (offline tracking) keeps its engine.
-    expect(await mine()).toEqual(["print"]);
+    // Events has no publisher, SEO's connector is live here but not connected, and offline tracking (print) no longer
+    // starts a weekly engine for a real project (WP-08 T9): none is ensured.
+    expect(await mine()).toEqual([]);
     await repos.integrations.upsert(t.db, t.businessId, { connectorKey: "github", status: "connected", authKind: "app" });
     // SEO can act now (the agents work through tasks and sessions), but the weekly engine has nothing it can send for
-    // it yet, so it gets no engine and no launch is ever claimed (WP-02 T2). Offline tracking keeps its engine.
-    expect(await mine()).toEqual(["print"]);
+    // it yet, so it gets no engine and no launch is ever claimed (WP-02 T2).
+    expect(await mine()).toEqual([]);
     // Tap-to-post (founder, 2026-11-12): social is available and on the board, and the founder posts it. No engine is
     // ever ensured for it, so the reconciler does not start one every 15 minutes for the engine to stop at once.
     const social = await repos.channels.upsert(t.db, t.businessId, { channelKey: "social", line: "midfield", enabled: true, kitMode: false });
-    expect(await mine()).toEqual(["print"]);
+    expect(await mine()).toEqual([]);
     // In test (and development) nothing is left out.
     const all = (await acts.listEnginesToEnsure()).channels.filter((c) => c.businessId === t.businessId).map((c) => c.channelId);
     expect(all).toEqual(expect.arrayContaining([t.fixture.channelId, print.id, seo.id, social.id]));

@@ -9,7 +9,7 @@ import { FOUNDER_NOTIFICATION_CHANNELS, FOUNDER_NOTIFICATION_KINDS, FOUNDER_NOTI
 import { date, index, integer, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { emptyArray, id, timestamps, tstz } from "./_common";
-import { businessId } from "./_refs";
+import { businessId, businessIdNullable } from "./_refs";
 
 /** One row per person per business: the last ping, the session it belongs to and the end of the session before it. */
 export const founderPresence = pgTable(
@@ -51,14 +51,15 @@ export type FounderVisitDay = typeof founderVisitDays.$inferSelect;
 /**
  * Every founder notification the notifier decided on: sent, skipped (with why) or failed. `dedupeKey` makes a sweep
  * that runs twice send once. An email that offers a one-click answer carries the option and the hash of its token
- * (never the token); `actionUsedAt` makes it single-use.
+ * (never the token); `actionUsedAt` makes it single-use. `businessId` is null only for the email about a kept card to a
+ * person with no project yet (0132, kind `getting_started`).
  */
 export const founderNotifications = pgTable(
   "founder_notifications",
   {
     id: id(),
     userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
-    businessId: businessId(),
+    businessId: businessIdNullable(),
     kind: text("kind", { enum: FOUNDER_NOTIFICATION_KINDS }).notNull(),
     channel: text("channel", { enum: FOUNDER_NOTIFICATION_CHANNELS }).notNull().default("email"),
     dedupeKey: text("dedupe_key").notNull(),
@@ -85,6 +86,7 @@ export const founderNotifications = pgTable(
     uniqueIndex("founder_notifications_action_token_key").on(t.actionTokenHash),
     index("founder_notifications_user_created_idx").on(t.userId, t.createdAt),
     index("founder_notifications_business_idx").on(t.businessId, t.createdAt),
+    index("founder_notifications_user_kind_idx").on(t.userId, t.kind, t.createdAt),
   ],
 );
 export type FounderNotification = typeof founderNotifications.$inferSelect;

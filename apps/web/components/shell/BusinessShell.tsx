@@ -49,14 +49,15 @@ import { useStreamSubscription } from "@/lib/stream-client";
 import { CONNECTION_GRACE_MS, LATE_NOTICE_MS, SAFETY_POLL_MS, streamPollInterval, useBusinessLive, useConnectionNotice } from "@/lib/stream-status";
 import { browserTimeZone, timeZoneToClaim, useClientToday } from "@/lib/today";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
-import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
+import { appErrorCode, errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { WidgetDataHost } from "@/lib/widget-data";
 import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
 import { useNetworkBadge } from "@/components/live/signals";
 import { termsFor } from "@/components/providers/GuidanceHost";
-import { worksOnSmallScreens } from "@/components/providers/DesktopOnly";
+import { useKeyboardShortcutsOn } from "@/components/providers/guidance-context";
+import { isTodayPath, worksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { agentOfAskItem, agentOfCallItem, askPaletteItems, askQuestion, callPaletteItems, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { switcherBusinesses } from "./business-switcher";
@@ -217,6 +218,22 @@ export const CONTINUE_PRESSED_NOTICE_PLAIN = "Starting the next round of work…
 export const continuePressedNotice = (builder: boolean): string => (builder ? CONTINUE_PRESSED_NOTICE : CONTINUE_PRESSED_NOTICE_PLAIN);
 /** How long the answer to a press stays as the strip's sentence when no cycle event replaces it sooner. */
 export const CONTINUE_NOTICE_MS = 15_000;
+/**
+ * Continue's refusal while paid entry's plan is missing (api `entry_plan_required`), as the request the founder sees:
+ * what is bought, its price and the one press. Null for any other error.
+ */
+export function entryPlanRequestOf(err: unknown): { title: string; description: string; action: string } | null {
+  if (appErrorCode(err) !== "entry_plan_required") return null;
+  const request = (err as { data?: { details?: { request?: { name?: string; priceMonthlyMinor?: number; includedCreditsMinor?: number } } } }).data?.details?.request;
+  const price = formatCredits({ amountMinor: request?.priceMonthlyMinor ?? 0, currency: "USD" });
+  const included = formatCredits({ amountMinor: request?.includedCreditsMinor ?? 0, currency: "USD" });
+  return {
+    title: "Your team is ready to start",
+    description: `Subscribe to the ${request?.name ?? "entry"} plan for ${price} a month, with ${included} of AI included, and the team starts as soon as the payment is confirmed.`,
+    action: `Subscribe · ${price}/month`,
+  };
+}
+
 /** Under Continue's tooltip while the orchestrator cannot be reached: what a press does and does not do. */
 export const ORCHESTRATOR_DOWN_CAVEAT = "The team cannot start right now. Pressing Continue will only write a short note.";
 
@@ -361,6 +378,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const { toast } = useToast();
   const chrome = useShellChromeValue();
   const shortcuts = useRegisteredShortcuts();
+  // Single keys only once the person turned them on in Settings › Preferences (WP-04 T13): a stray key does nothing.
+  const singleKeys = useKeyboardShortcutsOn();
 
   // --- data ---------------------------------------------------------------------------------------------------
   // The layout starts inbox, finance and cycle on the server and hands them over under these same keys
@@ -593,10 +612,25 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       onError: (err) => {
         const code = trpcErrorCode(err);
         void invalidate(["cycle", "inbox", "business"]);
+        // Paid entry (WP-09 T16): the refusal is the request, with its one press to Stripe; once the payment is
+        // confirmed the team starts by itself (the pay-and-resume loop), so there is nothing to press afterwards.
+        const request = entryPlanRequestOf(err);
+        if (request) {
+          announce(request.title, CONTINUE_NOTICE_MS);
+          toast({ title: request.title, description: request.description, tone: "info", action: { label: request.action, onClick: () => subscribe.mutate({ businessId, resume: "continue" }) } });
+          return;
+        }
         const title = code === "CONFLICT" ? "Continue is waiting on you" : "Continue failed";
         announce(`${title}: ${errorMessage(err)}`, CONTINUE_NOTICE_MS);
         toast({ title, description: errorMessage(err), tone: code === "CONFLICT" ? "warn" : "bad" });
       },
+    }),
+  );
+  const subscribe = useMutation(
+    trpc.billing.subscribe.mutationOptions({
+      // Stripe's own page; in mock mode the simulated checkout on the Billing tab.
+      onSuccess: (r) => (r.mode === "live" ? window.location.assign(r.checkoutUrl) : router.push(`${routes.settings(businessId, "billing")}?checkout=${r.checkout.id}`)),
+      onError: (err) => toast({ title: "Checkout not opened", description: errorMessage(err), tone: "bad" }),
     }),
   );
   const pauseCycle = useMutation(
@@ -837,6 +871,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
               <AppShell
                 // Today and Needs you work from 390 px (package 2.1): the shell's phone layout; other routes keep the 1280 px floor.
                 phone={worksOnSmallScreens(pathname)}
+                // "Explain this page" in the phone title row on Today only (WP-04 T7).
+                phoneExplain={isTodayPath(pathname)}
                 mode={business.gameMode}
                 businessMode={business.businessMode}
                 // The mode chip says the setting in words with the business's own currency ("Asks before spending over £50").
@@ -917,6 +953,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 onRunwayClick={financeDept ? onRunwayClick : undefined}
                 onModeClick={() => router.push(routes.settings(businessId, "mode"))}
                 keyboard={{
+                  singleKeys,
                   onRefreshInbox: shortcuts.onRefreshInbox ?? (access.canChange ? () => refreshInbox.mutate({ businessId }) : undefined),
                   onNextInboxItem: shortcuts.onNextInboxItem,
                   onPrevInboxItem: shortcuts.onPrevInboxItem,

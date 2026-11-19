@@ -96,21 +96,21 @@ export const Chip = forwardRef<HTMLSpanElement, ChipProps>(function Chip(
   if (onClick) {
     return (
       <span ref={ref} className="inline-flex max-w-full" {...rest}>
-        <button type="button" aria-pressed={selected} onClick={onClick} className={base} data-tone={tone} data-chip="">
+        <button type="button" aria-pressed={selected} onClick={onClick} className={cn(base, "min-h-target")} data-tone={tone} data-chip="">
           {content}
         </button>
       </span>
     );
   }
   return (
-    <span ref={ref} className={cn(base, onRemove && "pr-0.5")} data-tone={tone} data-chip="" {...rest}>
+    <span ref={ref} className={cn(base, onRemove && "min-h-target pr-0.5")} data-tone={tone} data-chip="" {...rest}>
       {content}
       {onRemove ? (
         <button
           type="button"
           aria-label={removeLabel}
           onClick={onRemove}
-          className="inline-flex size-icon-inline shrink-0 items-center justify-center rounded-xs text-current opacity-75 transition-opacity hover:bg-white/8 hover:opacity-100 focus-visible:outline-1"
+          className="hit-target inline-flex size-icon-inline shrink-0 items-center justify-center rounded-xs text-current opacity-75 transition-opacity hover:bg-white/8 hover:opacity-100 focus-visible:outline-1"
         >
           <Icon icon={X} size={10} strokeWidth={2.25} />
         </button>
@@ -124,44 +124,82 @@ export type ProvenanceKind = "forecast" | "estimate";
 export interface ProvenanceChipProps extends Omit<ChipProps, "children" | "tone" | "icon" | "onClick"> {
   kind: ProvenanceKind;
   /**
-   * "chip" (default): the dashed 18 px chip, the word in full in the data style. "word": the word alone in text-3,
-   * for 15 px reading prose, after the number.
+   * The figure that is an estimate or a forecast. It renders in the estimate style (`est-fig`: its own size and
+   * color, a dashed underline); the word is its tooltip and the end of its accessible name. Without a figure the
+   * word itself is shown: for a chart, a panel or a sentence, where no one figure carries it.
+   */
+  children?: ReactNode;
+  /**
+   * For the word alone. "chip" (default): the word in full in the data style. "word": the word in text-3, for 15 px
+   * reading prose, after the number.
    */
   appearance?: "chip" | "word";
   /** Show the kind's icon (a trend line for Forecast, a calculator for Estimate) before the word. */
   showIcon?: boolean;
+  /** For a figure on something clickable (a metric tile): a click on the figure does what a click beside it does. */
+  onClick?: () => void;
 }
 
-/** The one-sentence meaning behind the word, when the definitions map has no entry for it. */
+export const PROVENANCE_WORD: Record<ProvenanceKind, string> = { forecast: "Forecast", estimate: "Estimate" };
+
+/** The one-sentence meaning, opening on the word, when the definitions map has no entry for it. */
 export const PROVENANCE_SENTENCE: Record<ProvenanceKind, string> = {
-  forecast: "A projected value, not a measurement.",
-  estimate: "An estimated value, not a measurement.",
+  forecast: "Forecast: a projected value, not a measurement.",
+  estimate: "Estimate: an estimated value, not a measurement.",
 };
 
 /**
- * DESIGN §8: every non-real number carries "Forecast" or "Estimate". A dashed edge always means "not measured". Keep
- * it at least 4 px from its figure. The word is a focusable button whose meaning opens as a real tooltip on hover and
- * focus, or as the definition card when the definitions map holds `estimate` / `forecast` (ProvenanceTip, the
- * client piece; finding D3 replaced the native title). The chip itself is server-safe.
+ * DESIGN §8 and §10 (founder, Nov 17, 2026): every non-real number renders in one style, a dashed underline under
+ * the figure, and its screen carries the one legend line (EstimateLegend). Pass the figure as children. The word
+ * "Estimate" or "Forecast" opens as a real tooltip on hover and focus, or as the definition card when the definitions
+ * map holds `estimate` / `forecast` (ProvenanceTip, the client piece), and is read after the figure by a screen
+ * reader. With no figure, the word is shown in the same style. The component itself is server-safe.
  */
-export function ProvenanceChip({ kind, appearance = "chip", showIcon, className, mono: _mono, dot: _dot, fit: _fit, onRemove: _onRemove, removeLabel: _removeLabel, selected: _selected, ...rest }: ProvenanceChipProps) {
-  // plain-allow: this chip is the definition; ProvenanceTip opens the word's meaning on hover and focus.
-  const word = kind === "forecast" ? "Forecast" : "Estimate";
-  const chip =
-    appearance === "word" ? (
-      <button type="button" data-provenance={kind} data-appearance="word" className={cn("inline cursor-help rounded-xs text-tertiary in-data-[phone]:tap-reach", className)} {...rest}>
-        {word}
-      </button>
-    ) : (
-      <button type="button" data-provenance={kind} data-appearance="chip" className={cn("est-chip cursor-help in-data-[phone]:tap-reach", className)} {...rest}>
-        {showIcon ? <Icon icon={kind === "forecast" ? TrendingUp : Calculator} size={11} /> : null}
-        <span>{word}</span>
-      </button>
-    );
+export function ProvenanceChip({ kind, children, appearance = "chip", showIcon, className, mono: _mono, dot: _dot, fit: _fit, onRemove: _onRemove, removeLabel: _removeLabel, selected: _selected, ...rest }: ProvenanceChipProps) {
+  // plain-allow: this is the definition; ProvenanceTip opens the word's meaning on hover and focus.
+  const word = PROVENANCE_WORD[kind];
+  const hasFigure = children !== undefined && children !== null && children !== false && children !== "";
+  const chip = hasFigure ? (
+    <button type="button" data-provenance={kind} data-appearance="figure" className={cn("est-fig rounded-xs in-data-[phone]:tap-reach", className)} {...rest}>
+      {children}
+      {/* Read after the figure by a screen reader, and copied with it: "$1,200 Estimate". */}{" "}
+      <span className="sr-only">{word}</span>
+    </button>
+  ) : appearance === "word" ? (
+    <button type="button" data-provenance={kind} data-appearance="word" className={cn("est-fig inline rounded-xs text-tertiary in-data-[phone]:tap-reach", className)} {...rest}>
+      {word}
+    </button>
+  ) : (
+    <button type="button" data-provenance={kind} data-appearance="chip" className={cn("est-chip in-data-[phone]:tap-reach", className)} {...rest}>
+      {showIcon ? <Icon icon={kind === "forecast" ? TrendingUp : Calculator} size={11} /> : null}
+      <span>{word}</span>
+    </button>
+  );
   return (
     <ProvenanceTip kind={kind} sentence={PROVENANCE_SENTENCE[kind]}>
       {chip}
     </ProvenanceTip>
+  );
+}
+
+/** The legend's sentence, exactly (founder, Nov 17, 2026). */
+export const ESTIMATE_LEGEND = "Numbers in this style are your team's estimates. Everything else is measured.";
+const LEGEND_SAMPLE = "Numbers in this style";
+
+export type EstimateLegendProps = HTMLAttributes<HTMLParagraphElement>;
+
+/**
+ * The single legend line of a screen that shows any estimate: its first words are drawn in the estimate style, so
+ * the line is its own key. AppShell renders one for every console screen, in a footer that shows only while the page
+ * holds an estimate (`est-legend-auto`); a screen outside the shell that shows an estimate renders one itself, inside
+ * a landmark. One per screen.
+ */
+export function EstimateLegend({ className, ...rest }: EstimateLegendProps) {
+  return (
+    <p data-estimate-legend="" className={cn("text-small text-tertiary", className)} {...rest}>
+      <span className="est-fig cursor-default">{LEGEND_SAMPLE}</span>
+      {ESTIMATE_LEGEND.slice(LEGEND_SAMPLE.length)}
+    </p>
   );
 }
 

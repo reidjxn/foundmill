@@ -124,6 +124,41 @@ describe("/profiles/[kind]/[id]", () => {
     expect(screen.queryByTestId("profile-connect")).toBeNull();
   });
 
+  it("Report (and block in the same step) on another founder's profile; never on one's own (NETWORK F21)", async () => {
+    api.handlers["live.people.profile"] = () => founderProfile();
+    api.handlers["report.create"] = () => ({ reported: true, blocked: true });
+    mount(<ProfileScreen kind="founder" id={ids.ana} />);
+    fireEvent.click(await screen.findByTestId("profile-report-open"));
+    const dialog = await screen.findByTestId("report-person-dialog");
+    fireEvent.click(within(dialog).getByTestId("report-person-block"));
+    fireEvent.click(within(dialog).getByTestId("report-person-send"));
+    await waitFor(() => expect(callsTo(api, "report.create")).toEqual([{ target: { kind: "person", userId: FOUNDER_HIT.userId }, reason: "spam", note: undefined, block: true }]));
+    cleanup();
+
+    api.handlers["live.people.profile"] = () => founderProfile(null, true);
+    mount(<ProfileScreen kind="founder" id={ids.ana} />);
+    await screen.findByTestId("profile-screen");
+    expect(screen.queryByTestId("profile-report-open")).toBeNull();
+  });
+
+  it("one identity: a person who published /u/<handle> shows what their page says, and an answer of building alone says nothing", async () => {
+    const person = { handle: "ana", headline: "Coffee cart in Austin", about: "I sell coffee.", strengths: ["Coffee"], wantsToLearn: ["Pricing"], lookingFor: "on_my_own", place: "Austin, TX", projects: [{ slug: "cart", name: "Cart Co", pitch: "Coffee on wheels" }] };
+    api.handlers["live.people.profile"] = () => ({ ...founderProfile(), businesses: [], person });
+    mount(<ProfileScreen kind="founder" id={ids.ana} />);
+    const about = await screen.findByTestId("profile-person");
+    expect(about.textContent).toContain("Coffee cart in Austin");
+    expect(about.textContent).toContain("I sell coffee.");
+    expect(within(about).getByText("Cart Co").getAttribute("href")).toBe("/p/cart");
+    expect(screen.getByTestId("profile-person-page").getAttribute("href")).toBe("/u/ana");
+    expect(screen.queryByTestId("profile-looking-for")).toBeNull();
+    // No empty Businesses panel beside a page.
+    expect(screen.queryByTestId("profile-businesses")).toBeNull();
+    cleanup();
+    api.handlers["live.people.profile"] = () => ({ ...founderProfile(), person: { ...person, lookingFor: "looking_to_join" } });
+    mount(<ProfileScreen kind="founder" id={ids.ana} />);
+    expect((await screen.findByTestId("profile-looking-for")).textContent).toBe("Looking to join a project");
+  });
+
   it("a Personal business explains why Connect is off", async () => {
     ctx.gameMode = "personal";
     api.handlers["live.people.profile"] = () => founderProfile();
@@ -133,13 +168,14 @@ describe("/profiles/[kind]/[id]", () => {
     expect(screen.getByTestId("profile-connect-note").textContent).toMatch(/live business/);
   });
 
-  it("with no project the Connect button and its note are not drawn, and no notice names a business", async () => {
+  it("with no project there is no Connect button, the screen says honestly why, and no notice names a business", async () => {
     ctx.noBusiness = true;
     api.handlers["live.people.profile"] = () => founderProfile();
     mount(<ProfileScreen kind="founder" id={ids.ana} />);
     await screen.findByTestId("profile-screen");
     expect(screen.queryByTestId("profile-connect")).toBeNull();
     expect(screen.queryByTestId("profile-connect-note")).toBeNull();
+    expect(screen.getByTestId("profile-connect-no-project").textContent).toMatch(/works from a project on the network for now/);
     expect(screen.queryByTestId("personal-notice")).toBeNull();
   });
 

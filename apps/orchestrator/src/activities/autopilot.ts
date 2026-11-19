@@ -11,6 +11,7 @@ import { autopilotChangedPayload, loadAutopilotFacts, repos, runRoundsOf } from 
 import { CONTINUE_RUN_LIMITS, autopilotCycleBudgetMinor, decideAutopilot, decideRun, pauseNote, type AutopilotCadence, type AutopilotDecision, type AutopilotPauseReason, type ContinueRunDecision, type ContinueRunEndReason } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
+import { entryPlanOpenFor } from "../entry-plan";
 
 /** How often a standing wait (an Inbox item, a vacation, a running cycle) is looked at again. */
 export const AUTOPILOT_POLL_MS = 5 * 60 * 1000;
@@ -43,7 +44,9 @@ export function createAutopilotActivities(deps: OrchestratorDeps) {
       const { db, clock } = deps;
       const now = clock.now();
       const business = await repos.businesses.get(db, input.businessId, { includeArchived: true });
-      const facts = await loadAutopilotFacts(db, business, now, { unrecordedFailures: input.unrecordedFailures, run: input.run ?? null });
+      // Paid entry (WP-09 T16): until a founder holds the entry plan, no cycle starts on its own and a run ends.
+      const entryPlanOpen = await entryPlanOpenFor(deps, input.businessId);
+      const facts = await loadAutopilotFacts(db, business, now, { unrecordedFailures: input.unrecordedFailures, run: input.run ?? null, entryPlanOpen });
       const decision = decideAutopilot(facts);
       const runDecision = decideRun(facts);
       const run = runDecision ? { decision: runDecision, waitMs: runDecision.action === "wait" ? Math.max(1_000, Math.min(CONTINUE_RUN_LIMITS.pollMs, runDecision.until !== null ? runDecision.until - now.getTime() : CONTINUE_RUN_LIMITS.pollMs)) : 0 } : null;

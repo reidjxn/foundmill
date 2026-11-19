@@ -28,6 +28,7 @@ describeConnectorContract("stripe (mock)", {
     { tool: "send_invoice", args: { invoiceId: "in_MockAnna0001Paid" }, expectOk: false, check: (r) => expect(r.error?.status).toBe(400) },
     { tool: "create_checkout_session", args: { mode: "payment", lines: [{ description: "Sample kit", amountMinor: 12_000, currency: "EUR" }], successUrl: "https://northwind.example/ok", cancelUrl: "https://northwind.example/cancel" }, check: (r) => expect(r.data).toMatchObject({ mode: "payment", paymentStatus: "unpaid", amountTotalMinor: 12_000, url: expect.stringContaining("checkout.stripe.com") }) },
     { tool: "create_checkout_session", args: { mode: "subscription", successUrl: "https://northwind.example/ok", cancelUrl: "https://northwind.example/cancel" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
+    { tool: "create_billing_portal_session", args: { customerId: "cus_MockAnnaLind01", returnUrl: "https://foundmill.test/billing" }, check: (r) => expect((r.data as { url: string }).url).toContain("billing.stripe.com") },
     { tool: "list_payouts", args: { limit: 2 }, check: (r) => expect((r.data as { items: unknown[] }).items).toHaveLength(2) },
   ],
   webhooks: [
@@ -43,7 +44,16 @@ describeConnectorContract("stripe (mock)", {
     { name: "checkout.session.completed (subscription mode → invoice.paid follows)", valid: () => signedStripeRequest(TEST_BUSINESS_ID, evt("checkout.session.completed", { ...ST_CHECKOUT_PAID, mode: "subscription" as const })), expectEvents: 0 },
     { name: "customer.subscription.created (trialing)", valid: () => signedStripeRequest(TEST_BUSINESS_ID, evt("customer.subscription.created", ST_TRIAL_SUBSCRIPTION)), expectEvents: 1, expectTypes: ["signup.created"] },
     { name: "customer.subscription.deleted (no catalogue event)", valid: () => signedStripeRequest(TEST_BUSINESS_ID, evt("customer.subscription.deleted", { ...ST_TRIAL_SUBSCRIPTION, status: "canceled" })), expectEvents: 0 },
+    { name: "account.application.deauthorized (no catalogue event; ingest marks the connection expired)", valid: () => signedStripeRequest(TEST_BUSINESS_ID, evt("account.application.deauthorized", { id: "ca_test_platform", object: "application" })), expectEvents: 0 },
   ],
+});
+
+describe("stripe webhooks: Foundmill's access withdrawn in Stripe", () => {
+  it("names the account only for account.application.deauthorized", async () => {
+    const hook = stripeMock.webhooks![0]!;
+    expect(await hook.revokedAccount!(signedStripeRequest(TEST_BUSINESS_ID, evt("account.application.deauthorized", { id: "ca_test_platform", object: "application" })))).toBe(MOCK_STRIPE_ACCOUNT_ID);
+    expect(await hook.revokedAccount!(signedStripeRequest(TEST_BUSINESS_ID, evt("invoice.paid", ST_INVOICES[0]!)))).toBeNull();
+  });
 });
 
 describe("stripe hard gates", () => {
@@ -62,7 +72,9 @@ describe("stripe hard gates", () => {
       expect(stripeMock.policyHints[tool]?.hardGate).toBe(true);
     }
     expect(stripeMock.policyHints.create_payout).toMatchObject({ spendsMoney: true, irreversible: true });
-    expect(stripeMock.policyHints.create_checkout_session).toEqual({});
+    // Founder, Nov 16, 2026: a payment page and a finalized invoice ask first (payment powers decide automated mode).
+    expect(stripeMock.policyHints.create_checkout_session).toEqual({ irreversible: true });
+    expect(stripeMock.policyHints.create_invoice).toEqual({ irreversible: true });
     expect(stripeMock.policyHints.send_invoice).toEqual({ contactsThirdParty: true, irreversible: true });
   });
 });
@@ -75,6 +87,20 @@ describe("stripe webhook normalisation and signature details", () => {
     const [renewal] = await stripeMock.webhooks![0]!.normalise(signedStripeRequest(TEST_BUSINESS_ID, evt("invoice.paid", ST_INVOICES[1]!)));
     expect(renewal!.payload).toMatchObject({ firstPayment: false, recurring: true });
     expect(renewal!.entityIds).toEqual(first!.entityIds);
+  });
+  it("marks a test-mode payment simulated, and a live one not: invoice.paid and a one-off checkout alike", async () => {
+    const normalise = (event: object) => stripeMock.webhooks![0]!.normalise(signedStripeRequest(TEST_BUSINESS_ID, event as never));
+    // The mock signs `livemode: false` unless the event says otherwise, as Stripe does for test mode.
+    for (const [type, object] of [["invoice.paid", ST_INVOICES[0]!], ["checkout.session.completed", ST_CHECKOUT_PAID]] as const) {
+      const [test] = await normalise(evt(type, object));
+      expect(test!.type, type).toBe("payment.received");
+      expect(test!.payload, `${type} in test mode`).toMatchObject({ simulated: true });
+      const [live] = await normalise({ ...evt(type, object), livemode: true });
+      expect(live!.payload, `${type} live`).toMatchObject({ simulated: false });
+    }
+    // Only an explicit `livemode: false` is test mode: Stripe sends the field on every event, and a body without it is not guessed at.
+    const [absent] = await normalise({ ...evt("invoice.paid", ST_INVOICES[0]!), livemode: undefined });
+    expect(absent!.payload).toMatchObject({ simulated: false });
   });
   it("carries the payer (customer id, email, name) so ingest can link or add the CRM record", async () => {
     const [paid] = await stripeMock.webhooks![0]!.normalise(signedStripeRequest(TEST_BUSINESS_ID, evt("invoice.paid", ST_INVOICES[0]!)));
@@ -143,31 +169,135 @@ describe("stripe live (canned responses)", () => {
     expect(account).toBe(MOCK_STRIPE_ACCOUNT_ID);
     expect(isUntrusted(r.data) && r.data.content).toMatchObject({ items: [{ id: "cus_MockAnnaLind01", currency: "EUR" }], hasMore: false });
   });
-  it("connect: an account id is not proof; the account must be tagged for this business, or the founder brings its own key (audit VGPC-X1)", async () => {
+  it("connect: an account id alone is refused before Stripe is called; a key issued by the account binds that key's own account (audit VGPC-X1)", async () => {
     const VICTIM = "acct_1VictimAccount0001";
-    const account = (over: Record<string, unknown> = {}) => jsonResponse({ object: "account", id: VICTIM, country: "GB", default_currency: "gbp", charges_enabled: true, payouts_enabled: true, business_profile: { name: "Northwind Skincare Ltd" }, ...over });
+    const calls: string[] = [];
     const connector = createStripeConnector({
-      secrets: { stripeSecretKey: "sk_test_platform" },
+      secrets: { stripeSecretKey: "sk_test_platform", stripeConnectClientId: "ca_test_platform" },
       fetch: routedFetch({
-        [`GET https://api.stripe.com/v1/accounts/${VICTIM}`]: () => account({ metadata: { foundmill_business_id: TEST_BUSINESS_ID } }),
-        "GET https://api.stripe.com/v1/accounts/acct_1OtherBusiness0002": () => account({ id: "acct_1OtherBusiness0002", metadata: { foundmill_business_id: "00000000-0000-4000-8000-0000000000aa" } }),
-        "GET https://api.stripe.com/v1/accounts/acct_1Untagged00000003": () => account({ id: "acct_1Untagged00000003" }),
-        "GET https://api.stripe.com/v1/account": () => account({ id: "acct_1OwnKeyAccount004" }),
+        [`GET https://api.stripe.com/v1/accounts/${VICTIM}`]: (req) => (calls.push(req.url), jsonResponse({ object: "account", id: VICTIM, business_profile: { name: "Victim Ltd" } })),
+        "GET https://api.stripe.com/v1/account": (req) => (calls.push(`${req.url} ${req.headers.get("authorization")}`), jsonResponse({ object: "account", id: "acct_1OwnKeyAccount004", country: "GB", default_currency: "gbp", charges_enabled: true, payouts_enabled: true })),
       }),
     });
-    // Another business's account, and an account nobody tagged: refused, and nothing about the account is returned.
-    for (const accountId of ["acct_1OtherBusiness0002", "acct_1Untagged00000003"]) {
-      const err = await connector.connect(TEST_BUSINESS_ID, { accountId }).then(() => null, (e: unknown) => e as Error & { code?: string });
-      expect(err?.code, accountId).toBe("account_not_proven");
-      expect(err?.message).not.toMatch(/Northwind|GB|GBP/);
-    }
-    // The platform tagged this account for this business: connected.
-    const tagged = await connector.connect(TEST_BUSINESS_ID, { accountId: VICTIM });
-    expect(tagged).toMatchObject({ status: "connected", externalAccountId: VICTIM, config: { kind: "connect" } });
+    const err = await connector.connect(TEST_BUSINESS_ID, { accountId: VICTIM }).then(() => null, (e: unknown) => e as Error & { code?: string });
+    expect(err?.code).toBe("connect_input_required");
+    expect(err?.message).toMatch(/Sign in with Stripe/);
+    expect(calls).toEqual([]);
     // A key issued by the account itself proves control: the key's own account is bound, whatever id was pasted next to it.
     const own = await connector.connect(TEST_BUSINESS_ID, { apiKey: "rk_test_business", accountId: VICTIM });
     expect(own).toMatchObject({ externalAccountId: "acct_1OwnKeyAccount004", config: { kind: "own" }, credentialToStore: { kind: "api_key", secret: "rk_test_business" } });
+    expect(calls).toEqual(["https://api.stripe.com/v1/account Bearer rk_test_business"]);
   });
+
+  describe("Sign in with Stripe (Connect OAuth)", () => {
+    const START = { state: "eyJiIjoiYiJ9.c2ln", redirectUri: "https://foundmill.com/integrations/oauth/callback" };
+    const signIn = (over: Record<string, unknown> = {}, seen: string[] = []) =>
+      createStripeConnector({
+        secrets: { stripeSecretKey: "sk_live_billing", stripeConnectSecretKey: "sk_test_connect", stripeConnectClientId: "ca_test_platform", ...over },
+        fetch: routedFetch({
+          "POST https://connect.stripe.com/oauth/token": async (req) => (seen.push(`token ${req.headers.get("authorization")} ${await req.text()}`), jsonResponse({ stripe_user_id: "acct_1Founder00000001", access_token: "sk_test_dropped", livemode: false, scope: "read_write" })),
+          "GET https://api.stripe.com/v1/accounts/acct_1Founder00000001": (req) => (seen.push(`account ${req.headers.get("authorization")}`), jsonResponse({ object: "account", id: "acct_1Founder00000001", business_profile: { name: "Founder Ltd" }, country: "US", default_currency: "usd", charges_enabled: true, payouts_enabled: true })),
+          "POST https://connect.stripe.com/oauth/deauthorize": async (req) => (seen.push(`deauthorize ${req.headers.get("authorization")} ${await req.text()}`), jsonResponse({ stripe_user_id: "acct_1Founder00000001" })),
+        }),
+      });
+
+    it("the first step only answers Stripe's sign-in page for the signed state; nothing is stored", async () => {
+      const seen: string[] = [];
+      const first = await signIn({}, seen).connect(TEST_BUSINESS_ID, START);
+      const url = new URL(String(first.config.authorizeUrl));
+      expect(`${url.origin}${url.pathname}`).toBe("https://connect.stripe.com/oauth/authorize");
+      expect(Object.fromEntries(url.searchParams)).toEqual({ response_type: "code", client_id: "ca_test_platform", scope: "read_write", redirect_uri: START.redirectUri, state: START.state });
+      expect(first).toMatchObject({ status: "disconnected", externalAccountId: null });
+      expect(first.credentialToStore).toBeUndefined();
+      expect(seen).toEqual([]);
+      // Without the platform's client id nothing starts, and an unsigned start is refused.
+      await expect(signIn({ stripeConnectClientId: undefined }).connect(TEST_BUSINESS_ID, START)).rejects.toMatchObject({ name: "ConfigError" });
+      await expect(signIn().connect(TEST_BUSINESS_ID, {})).rejects.toThrow(/signed state/);
+    });
+
+    it("the code exchange names the account; Stripe's access token is dropped and calls use the Connect key with Stripe-Account", async () => {
+      const seen: string[] = [];
+      const connector = signIn({}, seen);
+      const record = await connector.connect(TEST_BUSINESS_ID, { code: "ac_TestCode123", redirectUri: START.redirectUri });
+      expect(record).toMatchObject({ status: "connected", externalAccountId: "acct_1Founder00000001", accountLabel: "Founder Ltd", config: { kind: "connect", defaultCurrency: "USD" } });
+      expect(record.credentialToStore).toBeUndefined();
+      expect(JSON.stringify(record)).not.toContain("sk_test_dropped");
+      expect(seen[0]).toMatch(/^token Bearer sk_test_connect .*grant_type=authorization_code.*code=ac_TestCode123/);
+      expect(seen[1]).toBe("account Bearer sk_test_connect");
+      expect(seen.join(" ")).not.toContain("sk_live_billing");
+    });
+
+    it("disconnecting a sign-in withdraws Foundmill's access in Stripe; a pasted key is only forgotten", async () => {
+      const seen: string[] = [];
+      const connector = signIn({}, seen);
+      const integration = { id: "int-1", businessId: TEST_BUSINESS_ID, connectorKey: "stripe", status: "connected" as const, scopes: [], accountLabel: null, externalAccountId: "acct_1Founder00000001", config: { kind: "connect" }, credentialRef: null, expiresAt: null, lastHealthAt: null, createdAt: MOCK_NOW.toISOString() };
+      await connector.disconnect!(integration);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatch(/^deauthorize Bearer sk_test_connect .*client_id=ca_test_platform.*stripe_user_id=acct_1Founder00000001/);
+      await connector.disconnect!({ ...integration, config: { kind: "own" } });
+      expect(seen).toHaveLength(1);
+    });
+  });
+
+  it("checks health with the founder's own key or the Connect key for the signed-in account, never the platform key alone", async () => {
+    const seen: string[] = [];
+    const connector = createStripeConnector({
+      secrets: { stripeSecretKey: "sk_live_platform" },
+      fetch: routedFetch({
+        "GET https://api.stripe.com/v1/account": (req) => (seen.push(`own ${req.headers.get("authorization")}`), jsonResponse({ object: "account", id: "acct_1OwnKeyAccount004", charges_enabled: true, payouts_enabled: true })),
+        "GET https://api.stripe.com/v1/accounts/acct_1Founder00000001": (req) => (seen.push(`connect ${req.headers.get("authorization")}`), jsonResponse({ object: "account", id: "acct_1Founder00000001", charges_enabled: true, payouts_enabled: true })),
+      }),
+    });
+    const base = { id: "int-1", businessId: TEST_BUSINESS_ID, connectorKey: "stripe", status: "connected" as const, scopes: [], accountLabel: null, credentialRef: null, expiresAt: null, lastHealthAt: null, createdAt: MOCK_NOW.toISOString() };
+    const own = await connector.healthcheck({ ...base, externalAccountId: "acct_1OwnKeyAccount004", config: { kind: "own" } }, { kind: "api_key", secret: "rk_live_founder" } as never);
+    expect(own.status).toBe("connected");
+    const signedIn = await connector.healthcheck({ ...base, externalAccountId: "acct_1Founder00000001", config: { kind: "connect" } });
+    expect(signedIn.status).toBe("connected");
+    expect(seen).toEqual(["own Bearer rk_live_founder", "connect Bearer sk_live_platform"]);
+    // A key-paste row without its key never falls back to the platform's own account.
+    const orphan = await connector.healthcheck({ ...base, externalAccountId: "acct_1OwnKeyAccount004", config: { kind: "own" } });
+    expect(orphan.status).toBe("disconnected");
+    expect(seen).toHaveLength(2);
+  });
+
+  it("money never goes out: no Stripe tool that refunds, pays out, transfers or cancels has a handler, each stays a hard gate, and only money-in and read tools run (CLAUDE.md Never; founder, Nov 17, 2026)", async () => {
+    const MONEY_OUT = /refund|payout|transfer|cancel|void|delete|reverse|credit_note|onboarding/i;
+    const RUNS = ["create_billing_portal_session", "create_checkout_session", "create_customer", "create_invoice", "get_account", "get_balance", "get_customer", "get_invoice", "list_charges", "list_customers", "list_invoices", "list_payouts", "send_invoice"];
+    const reached: string[] = [];
+    const live = createStripeConnector({ secrets: { stripeSecretKey: "sk_test_platform" }, fetch: (async (input: RequestInfo | URL) => (reached.push(String(input instanceof Request ? input.url : input)), new Response("{}", { status: 500 }))) as typeof fetch });
+    const names = live.tools.map((t) => t.name);
+    const gated = names.filter((n) => live.policyHints[n]?.hardGate === true);
+    expect(names.filter((n) => !gated.includes(n)).sort()).toEqual(RUNS);
+    for (const name of names) {
+      const description = live.tools.find((t) => t.name === name)?.description ?? "";
+      if (name === "list_payouts" || name === "list_charges") continue; // read-only lists, annotated readOnlyHint
+      if (MONEY_OUT.test(name) || /\b(refunds?|pays? out|transfers?|cancels?)\b/i.test(description)) expect(gated, name).toContain(name);
+    }
+    expect(gated.sort()).toEqual(["create_payout", "create_transfer", "refund_payment", "start_connect_onboarding"]);
+    // A running tool cannot do it through an argument either (an update tool with `cancel_at`, a "refund" flag).
+    // `cancelUrl` is only the page a customer returns to when they leave checkout.
+    const ALLOWED = new Set(["cancelUrl"]);
+    const fieldsOf = (schema: unknown): string[] => {
+      if (!schema || typeof schema !== "object") return [];
+      const o = schema as { properties?: Record<string, unknown>; items?: unknown };
+      return [...Object.entries(o.properties ?? {}).flatMap(([k, v]) => [k, ...fieldsOf(v)]), ...fieldsOf(o.items)];
+    };
+    for (const name of RUNS) {
+      const risky = fieldsOf(live.tools.find((t) => t.name === name)?.inputSchema).filter((f) => !ALLOWED.has(f) && /cancel|refund|payout|transfer|void|reverse|credit_?note|destination/i.test(f));
+      expect(risky, name).toEqual([]);
+    }
+    // A hard-gated tool has no handler: the live call is answered with the founder's card and never reaches Stripe,
+    // even with the founder's own key and a signed-in account present.
+    const ARGS: Record<string, unknown> = { create_payout: { amountMinor: 1000, currency: "USD" }, create_transfer: { amountMinor: 1000, currency: "USD", destinationAccountId: "acct_1Other000" }, refund_payment: { paymentIntentId: "pi_Test000001" }, start_connect_onboarding: {} };
+    const ctx = makeToolContext(live, { credential: { kind: "api_key", secret: "rk_test_founder" } as never });
+    for (const name of gated) {
+      const r = await live.callTool(name, ARGS[name], { ...ctx, integration: { ...ctx.integration, externalAccountId: "acct_1Founder00000001", config: { kind: "connect" } } });
+      expect(r.ok, name).toBe(false);
+      expect(r.error?.code, name).toBe("hard_gate");
+    }
+    expect(reached).toEqual([]);
+  });
+
   it("prefers the business's own key and verifies webhooks with the per-business secret", async () => {
     let auth = "";
     const connector = createStripeConnector({
@@ -204,6 +334,9 @@ describe("stripe live (canned responses)", () => {
     await expect(connector.callTool("get_balance", {}, ctx)).rejects.toMatchObject({ code: "connector_unconfigured" });
     // A stored row is never the platform's: any other id, or a credential reference, is refused.
     await expect(connector.callTool("create_checkout_session", args, { ...ctx, integration: { ...platform, id: crypto.randomUUID() } })).rejects.toMatchObject({ code: "connector_unconfigured" });
+    // The billing portal opens for Foundmill's own subscribers only: a business's own record reaches no Stripe account.
+    const portal = { customerId: "cus_MockAnnaLind01", returnUrl: "https://foundmill.com/billing" };
+    expect(await connector.callTool("create_billing_portal_session", portal, makeToolContext(connector, { mode: "live" }))).toMatchObject({ ok: false });
     expect(seen).toHaveLength(1);
   });
   it("throws ConfigError without any key", async () => {

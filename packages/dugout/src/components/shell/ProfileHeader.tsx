@@ -89,8 +89,7 @@ export const ProfileHeader = forwardRef<HTMLElement, ProfileHeaderProps>(functio
             <div key={f.id ?? (typeof f.label === "string" ? f.label : i)} className="flex min-w-0 flex-col gap-0.5">
               <dt className="t-data whitespace-nowrap">{f.label}</dt>
               <dd className="inline-flex flex-wrap items-center gap-1.5 text-body-strong text-primary tabular-nums">
-                {f.value}
-                {f.provenance ? <ProvenanceChip kind={f.provenance} /> : null}
+                {f.provenance ? <ProvenanceChip kind={f.provenance}>{f.value}</ProvenanceChip> : f.value}
               </dd>
             </div>
           ))}

@@ -21,6 +21,7 @@
  *
  * Ideation is private: no business exists yet, so there is no kit bar and nothing reaches Live.
  */
+import type { FitBasis } from "@foundmill/config";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Bookmark, CircleAlert, CircleCheck, Columns3, FileText, History, Info, Layers, PenLine, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -33,6 +34,7 @@ import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { StudioFrame } from "../StudioFrame";
+import { SharpenOffer } from "./SharpenOffer";
 import { COMPARE_MAX, COMPARE_MIN, attributeChanges, buildDeck, CHOOSE_IDEA_LABEL, commitHref, compareHref, discardLocally, lineageOf, orderDeck, pinnedIdsToLoad, restoreLocally, settlePinned, toConcept, toggleSelection, withPinned, type IdeaLike, type IdeaVersionLike } from "./concepts";
 import { conceptErrorMessage } from "./concept-errors";
 import { AskDialog, EditDialog, ForkDialog, HistoryDialog, MergeDialog, WriteDialog, type AskExchange, type AskInput } from "./dialogs";
@@ -46,6 +48,17 @@ export interface IdeationStudioProps {
   profileLine?: string | null;
   /** The founder's constraint chips, echoed next to "surprise me". */
   constraints?: string[];
+  /**
+   * The card to open on (`/new/ideate/<ideaId>`: the landing page's kept card, founder 2026-11-16): once the deck has
+   * it, it wears the just-landed highlight, is scrolled into view and takes focus, ready to shape with its own actions.
+   */
+  focusIdeaId?: string | null;
+  /** What Founder fit rests on (`fitBasisOf` the profile): each card says "quick profile" until the long profile is saved (WP-14 T2). */
+  fitBasis?: FitBasis;
+  /** The person just saved the long profile over a quick one (`?sharpened=1`): fit was re-rated, and a fresh set is offered. */
+  sharpened?: boolean;
+  /** The account, for remembering "Not now" on the sharpen offer. */
+  accountId?: string | null;
 }
 
 /**
@@ -125,7 +138,7 @@ const ARCHETYPE_OPTIONS = [{ value: "any", label: "Any (optional)" }, ...ARCHETY
 
 type DialogKind = "ask" | "fork" | "merge" | "history" | "write" | "edit" | null;
 
-export function IdeationStudio({ viewer, profileLine, constraints = [] }: IdeationStudioProps) {
+export function IdeationStudio({ viewer, profileLine, constraints = [], focusIdeaId = null, fitBasis = "full", sharpened = false, accountId = null }: IdeationStudioProps) {
   const datePrefs = useDateFormat();
   const trpc = useTRPC();
   const router = useRouter();
@@ -167,6 +180,17 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
   }, [hydrated]);
 
   const active = useMemo(() => deck.find((i) => i.id === activeId) ?? null, [deck, activeId]);
+  // The card the page opened on: scrolled to and focused once, the first time the deck holds it.
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focusIdeaId || focused.current || !deck.some((i) => i.id === focusIdeaId)) return;
+    focused.current = true;
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`concept-${focusIdeaId}`);
+      el?.scrollIntoView({ block: "center" });
+      el?.querySelector<HTMLElement>("button, a[href]")?.focus({ preventScroll: true });
+    });
+  }, [deck, focusIdeaId]);
   const invalidateIdeas = () => queryClient.invalidateQueries({ queryKey: trpcPathPrefix("idea") as unknown[] });
 
   const client = useTRPCClient();
@@ -356,9 +380,8 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
 
   useKeyboardMap({
     enabled: dialog === null,
+    // Esc clears the pick. Space is no page shortcut (WP-04 T13): Compare takes it only with focus, as any button does.
     onEscape: () => setSelection([]),
-    // Space compares only when there is something to compare; otherwise it stays the page's (or the focused control's).
-    onContinue: canCompare ? goCompare : undefined,
   });
 
   // Stable handlers, so a streamed card (or a ticking timer) re-renders only what changed, not every card in the deck.
@@ -558,6 +581,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
           <>
             {notice && deck.length === 0 ? <NoticeLine notice={notice} onDismiss={() => setNotice(null)} className="mb-3" /> : null}
             {deck.length > 0 ? <Explainer {...HOW_TO_READ_CARD} className="mb-3" data-testid="how-to-read-card" /> : null}
+            <SharpenOffer basis={fitBasis} sharpened={sharpened} hasIdeas={deck.length > 0} accountId={accountId} onRedraft={() => void generateRef.current()} busy={busy} />
             {deck.length > 0 ? (
               <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <span className="t-label tabular-nums" data-testid="deck-count">
@@ -576,7 +600,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                     <span data-testid="compare-kbd-tip">
                       <InfoTip always label="Keyboard shortcuts for comparing">
                         <span className="flex items-center gap-1.5">
-                          <Kbd>Space</Kbd> compares the picked cards · <Kbd>Esc</Kbd> clears the pick
+                          <Kbd>Esc</Kbd> clears the pick
                         </span>
                       </InfoTip>
                     </span>
@@ -589,7 +613,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                 entry.kind === "placeholder" ? (
                   <DraftingCard key={`slot-${entry.slot.index}`} slot={entry.slot} />
                 ) : (
-                  <DeckCard key={entry.idea.id} idea={entry.idea} fresh={entry.fresh} dimmed={busy && !entry.fresh} selected={selection.includes(entry.idea.id)} shortlisted={studio.shortlist.includes(entry.idea.id)} onToggleSelect={toggleSelect} onAction={stableOnAction} onOpenHistory={stableOpenHistory} />
+                  <DeckCard key={entry.idea.id} fitBasis={fitBasis} idea={entry.idea} fresh={entry.fresh || entry.idea.id === focusIdeaId} dimmed={busy && !entry.fresh} selected={selection.includes(entry.idea.id)} shortlisted={studio.shortlist.includes(entry.idea.id)} onToggleSelect={toggleSelect} onAction={stableOnAction} onOpenHistory={stableOpenHistory} />
                 ),
               )}
             </div>
@@ -696,14 +720,15 @@ interface DeckCardProps {
   onToggleSelect: (id: string) => void;
   onAction: (action: ConceptAction, id: string) => void;
   onOpenHistory: (id: string) => void;
+  fitBasis: FitBasis;
 }
 
 /** One card of the deck. Memoised: the brand colours and ten attribute bars are only recomputed when the idea changes. */
-const DeckCard = memo(function DeckCard({ idea, fresh, dimmed, selected, shortlisted, onToggleSelect, onAction, onOpenHistory }: DeckCardProps) {
+const DeckCard = memo(function DeckCard({ idea, fresh, dimmed, selected, shortlisted, onToggleSelect, onAction, onOpenHistory, fitBasis }: DeckCardProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
   return (
     <div className={cn("relative transition-opacity duration-micro", dimmed && "opacity-60")} id={`concept-${idea.id}`} data-fresh={fresh || undefined}>
-      <ConceptCard concept={concept} className={cn("w-full", fresh && landedCardClass({ justIn: true }))} shortlisted={shortlisted} selected={selected} onToggleSelect={onToggleSelect} onAction={onAction} />
+      <ConceptCard concept={concept} className={cn("w-full", fresh && landedCardClass({ justIn: true }))} shortlisted={shortlisted} selected={selected} onToggleSelect={onToggleSelect} onAction={onAction} fitBasis={fitBasis} />
       <div className="mt-1.5 flex items-center gap-1.5">
         <Tooltip content="Every version of this card">
           <Button size="sm" variant="ghost" icon={History} onClick={() => onOpenHistory(idea.id)} data-testid="history-button">

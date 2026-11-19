@@ -1,8 +1,9 @@
 "use client";
 /**
- * The rated examples beside the idea box (founder, 2026-11-16): a row of examples just under the Example line, Northwind
- * Skincare first, then Sole Revival, Tutorlane and Glitchwick, and the chosen one's real `IdeaCard` under it. A radio
- * group: one tab stop, arrow keys and Home/End move and choose, every option a 44 px target.
+ * The rated examples beside the idea box (founder, 2026-11-16): a row of examples just under the "Example companies you
+ * can create" line, Northwind Skincare first, then Tutorlane, Sole Revival and Glitchwick (founder, 2026-11-17), and the chosen one's real `IdeaCard` under it. A radio
+ * group: one tab stop, arrow keys and Home/End move and choose. Small pills, so the four fit on one line in the hero's
+ * example column on a desktop (founder, 2026-11-16): 28 px tall from 1280 px, 44 px tap targets below.
  */
 import { useRef, useState, type KeyboardEvent } from "react";
 import { BusinessLogo, IdeaCard, cn } from "@foundmill/dugout";
@@ -29,7 +30,7 @@ export function ExampleIdeas({ ideas, cardClassName }: { ideas: readonly Example
 
   return (
     <div className="flex flex-col gap-3" data-example-ideas="">
-      <div role="radiogroup" aria-label={EXAMPLE_IDEAS_LABEL} className="flex flex-wrap gap-2" onKeyDown={onKeyDown}>
+      <div role="radiogroup" aria-label={EXAMPLE_IDEAS_LABEL} className="flex flex-wrap gap-1" onKeyDown={onKeyDown}>
         {ideas.map((x, i) => {
           const on = i === chosen;
           return (
@@ -45,11 +46,11 @@ export function ExampleIdeas({ ideas, cardClassName }: { ideas: readonly Example
               onClick={() => choose(i)}
               data-example-idea={x.id}
               className={cn(
-                "t-landing-small inline-flex min-h-tap items-center gap-2 rounded-sm px-3 font-medium transition-colors duration-hover",
+                "t-label inline-flex min-h-tap items-center gap-1.5 rounded-sm px-1.5 transition-colors duration-hover desktop:min-h-control-sm",
                 on ? "bg-surface-2 text-primary ring-1 ring-line-strong" : "text-secondary hover:text-primary",
               )}
             >
-              <BusinessLogo src={x.logo} name={x.label} primary="" size={20} title="" />
+              <BusinessLogo src={x.logo} name={x.label} primary="" size={16} title="" />
               {x.label}
             </button>
           );

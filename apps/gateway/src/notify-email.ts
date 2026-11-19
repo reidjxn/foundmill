@@ -23,7 +23,8 @@
  *      person before (`notify.email_sent`, the Redis marker `pn:item:<user>:<item>`). The other kinds: a project that
  *      has started (`loadNotifyFacts`), the win, milestone, run or credits note named, within the day's lookback; a
  *      brief with news (item 10: four sections, its What worked real outcomes only, `briefExtrasFor`). Every kind once (`founder_notifications`' dedupe key `<kind>:<id or day>`);
- *   6. their address, from `auth.users` (never from the request);
+ *   6. their address, from `auth.users` (never from the request), not suppressed platform-wide (WP-04: a bounce, a spam
+ *      report, "Don't send me invitations");
  *   7. the counts, in Redis shared by every replica: one email a day per person and project, three a day per person
  *      across every kind and project (the morning brief and weekly review count toward neither: `LIMITED_EMAIL_KINDS`),
  *      and this email's own daily ceiling (`pn:all:day`, PLATFORM_NOTIFY_DAILY_CEILING) for all, never the projects'
@@ -61,9 +62,19 @@ import {
   decisionWaitingEmail,
   EMAIL_NOTIFICATION_KINDS,
   ENTITY_MARKUP_RE,
+  firstEditionOf,
   FOUNDER_NOTIFICATION_LIMITS,
+  isLetter,
+  isLifecycleStage,
+  kindOfStage,
+  LETTER_REPLY_TO,
+  LETTER_SIGNATURE,
+  LIFECYCLE_EMAIL_KINDS,
+  LIFECYCLE_PER_PERSON_PER_DAY,
+  lifecycleStageDue,
   hasSectionAccess,
   invitationAcceptedEmail,
+  isAdminRole,
   LIMITED_EMAIL_KINDS,
   mockResultsAllowed,
   NOTIFY_EMAIL_REFUSALS,
@@ -86,13 +97,16 @@ import {
   type BusinessNotifyFacts,
   type EmailNotificationKind,
   type InvitationRole,
+  type LifecycleRecipient,
   type NotifyEmailNotSent,
   type NotifyEmailText,
   type NotifyItemLike,
   type RetentionEmailPlan,
+  effortCounts,
+  effortSentence,
 } from "@foundmill/shared";
 import { newActionToken, signPauseToken } from "@foundmill/shared/email-links";
-import { DEV_PLATFORM_MAIL_SECRET, isConfigError, mockIntegrationRecord, notifyOffToken, notifyOffUrl, PLATFORM_NOTIFY_KEY, type ToolContext } from "@foundmill/connectors";
+import { DEV_PLATFORM_MAIL_SECRET, isConfigError, mockIntegrationRecord, notifyOffToken, notifyOffUrl, PLATFORM_NOTIFY_KEY, suppressionHashOfEmail, type ToolContext } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { modeFor, safeError, vendorRefusedOutright, type GatewayDeps } from "./pipeline";
 import { PLATFORM_MAIL_CEILING_KEY, PLATFORM_NOTIFY_DEFAULT_CEILING } from "./platform-mail";
@@ -115,6 +129,8 @@ export const NotifyEmailRequest = z
       runId: z.guid().optional(),
       day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       invitationId: z.guid().optional(),
+      /** The lifecycle stage (`getting_started`, `checkin`; WP-04 T11, T16). */
+      stage: z.string().refine(isLifecycleStage).optional(),
     }),
   })
   .refine(
@@ -133,6 +149,10 @@ export const NotifyEmailRequest = z
           return !!data.day;
         case "invitation_accepted":
           return !!data.invitationId;
+        case "getting_started":
+        case "checkin":
+          // A card (no project) goes through notify-card-email.ts; here the stage must belong to the kind and a project.
+          return isLifecycleStage(data.stage) && kindOfStage(data.stage) === kind && data.stage !== "card_saved" && data.stage !== "card_week";
       }
     },
     { message: "the ids this kind needs are missing" },
@@ -244,7 +264,10 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
     // A project that has not started (no commit yet) gets no brief, win or milestone email; a waiting note still does.
     if (!facts) return notSent("not_started");
     const recent = (at: Date) => now.getTime() - at.getTime() <= FOUNDER_NOTIFICATION_LIMITS.lookbackMs;
-    const plan = retentionPlanOf(kind as Exclude<EmailNotificationKind, "decision_waiting" | "invitation_accepted">, input.data, facts, userId, recent);
+    // The lifecycle emails go to the people who run the project (the notifier's recipients), never a collaborator.
+    if ((LIFECYCLE_EMAIL_KINDS as readonly string[]).includes(kind) && !isAdminRole(membership.role)) return notSent("not_member");
+    const lifecycle = (LIFECYCLE_EMAIL_KINDS as readonly string[]).includes(kind) ? await lifecycleRecipient(deps, businessId, userId) : null;
+    const plan = retentionPlanOf(kind as Exclude<EmailNotificationKind, "decision_waiting" | "invitation_accepted">, input.data, facts, userId, recent, lifecycle, now);
     if (!plan) return notSent("not_waiting");
     if (plan.kind === "daily_brief" || plan.kind === "weekly_review") {
       // Today's brief already went out: its window now starts at it, so say so before reading the window.
@@ -253,16 +276,26 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
       const brief = await briefExtrasFor(deps, { businessId, userId, membership, prefs, timeZone: extra.timeZone ?? business.timeZone, weekly: plan.kind === "weekly_review", now });
       plan.stats = briefStats(facts, brief.since);
       plan.extras = brief.extras;
-      if (briefIsEmpty(plan.stats, plan.waiting, plan.extras, now)) return notSent("nothing_new");
+      // A project's first brief and first week go out with no news too, with the one thing to do (WP-04 T11).
+      const first = facts.lifecycle ? firstEditionOf(plan.kind, facts.lifecycle.committedAt, ref, extra.timeZone ?? business.timeZone) : undefined;
+      if (first && facts.lifecycle) {
+        plan.firstEdition = first;
+        plan.lifecycle = facts.lifecycle;
+      } else if (briefIsEmpty(plan.stats, plan.waiting, plan.extras, now)) return notSent("nothing_new");
     }
-    const itemIds = plan.kind === "win" || plan.kind === "credits" ? [plan.item.id] : plan.kind === "milestone" ? (plan.itemId ? [plan.itemId] : []) : plan.waiting.slice(0, 5).map((i) => i.id);
-    subject = { kind: "retention", plan, dedupeKey: `${kind}:${ref}`, inboxItemIds: itemIds, waiting: plan.kind === "run_finished" || plan.kind === "daily_brief" || plan.kind === "weekly_review" ? plan.waiting : [] };
+    const itemIds = plan.kind === "win" || plan.kind === "credits" ? [plan.item.id] : plan.kind === "milestone" ? (plan.itemId ? [plan.itemId] : []) : plan.kind === "getting_started" || plan.kind === "checkin" ? [] : plan.waiting.slice(0, 5).map((i) => i.id);
+    const dedupeKey = (plan.kind === "getting_started" || plan.kind === "checkin" ? plan.dedupeKey : undefined) ?? `${kind}:${ref}`;
+    subject = { kind: "retention", plan, dedupeKey, inboxItemIds: itemIds, waiting: plan.kind === "run_finished" || plan.kind === "daily_brief" || plan.kind === "weekly_review" ? plan.waiting : [] };
   }
   if (await repos.notifications.exists(deps.db, businessId, userId, subject.dedupeKey)) return notSent("already_sent");
 
   // 6. Their address, from their account.
   const email = await repos.founders.emailOf(deps.db, userId);
   if (!email) return notSent("no_address");
+  // An address suppressed platform-wide (a bounce, a spam report, "Don't send me invitations") gets none of these emails
+  // (WP-04, founder Nov 17, 2026: every kind, not only the lifecycle ones).
+  if (await repos.channels.isSuppressed(deps.db, NIL_ID, { emailHash: suppressionHashOfEmail(email) })) return notSent("hard_suppressed");
+  const lifecycleKind = (LIFECYCLE_EMAIL_KINDS as readonly string[]).includes(kind);
 
   // 7. Once (the marker), the projects' room, and the counts, shared by every replica: one a day per project and three a
   //    day per person for every kind but the briefs (founder 2026-11-12), and this email's own ceiling for all.
@@ -298,7 +331,8 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
     }
   }
   const caps: [string, number, NotifyEmailNotSent][] = [
-    ...(limited ? ([[notifyProjectDayKey(userId, businessId), NOTIFY_PER_PROJECT_PER_DAY, "per_project"], [notifyPersonDayKey(userId), NOTIFY_PER_PERSON_PER_DAY, "per_person"]] as [string, number, NotifyEmailNotSent][]) : []),
+    // A lifecycle email may only be one of a person's first two of the day, so a decision that holds up work keeps room.
+    ...(limited ? ([[notifyProjectDayKey(userId, businessId), NOTIFY_PER_PROJECT_PER_DAY, "per_project"], [notifyPersonDayKey(userId), lifecycleKind ? LIFECYCLE_PER_PERSON_PER_DAY : NOTIFY_PER_PERSON_PER_DAY, "per_person"]] as [string, number, NotifyEmailNotSent][]) : []),
     [PLATFORM_NOTIFY_CEILING_KEY, config.notifyCeiling ?? PLATFORM_NOTIFY_DEFAULT_CEILING, "ceiling"],
   ];
   for (const [key, cap, reason] of caps) {
@@ -361,6 +395,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
       hideSubjects,
       streak,
       now,
+      pageUrl: facts?.lifecycle?.page?.live ? `${appUrl}/p/${facts.lifecycle.page.slug}` : null,
       oneClick: answer && answerLink ? { itemId: answer.item.id, label: answer.option.label, consequence: answer.option.consequence, url: answerLink } : null,
     });
   }
@@ -385,7 +420,13 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   const connector = deps.registry.get(PLATFORM_NOTIFY_KEY, mode);
   let result;
   try {
-    result = await connector.callTool("send_notification", { from: { email: platformMailAddress(config.notifyLocalPart, config.domain), name: APP_NAME }, to: { email }, subject: words.subject, text: words.text, html: words.html, unsubscribeUrl: offUrl }, ctx);
+    // Foundmill's letters (D6) are signed by the team and their replies reach Foundmill's own mailbox.
+    const letter = subject.kind === "retention" && isLetter(subject.plan);
+    result = await connector.callTool(
+      "send_notification",
+      { from: { email: platformMailAddress(config.notifyLocalPart, config.domain), name: letter ? LETTER_SIGNATURE : APP_NAME }, ...(letter ? { replyTo: { email: LETTER_REPLY_TO } } : {}), to: { email }, subject: words.subject, text: words.text, html: words.html, unsubscribeUrl: offUrl },
+      ctx,
+    );
   } catch (e) {
     await release();
     await repos.notifications.markFailed(deps.db, businessId, notificationId, isConfigError(e) ? "unconfigured" : "error");
@@ -427,8 +468,26 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
 }
 
 /** The retention kind's plan from the facts the gateway read itself; null when what the ids name is not there (or too old). */
-function retentionPlanOf(kind: Exclude<EmailNotificationKind, "decision_waiting" | "invitation_accepted">, data: NotifyEmailRequest["data"], facts: BusinessNotifyFacts, userId: string, recent: (at: Date) => boolean): RetentionEmailPlan | null {
+function retentionPlanOf(
+  kind: Exclude<EmailNotificationKind, "decision_waiting" | "invitation_accepted">,
+  data: NotifyEmailRequest["data"],
+  facts: BusinessNotifyFacts,
+  userId: string,
+  recent: (at: Date) => boolean,
+  lifecycle: LifecycleRecipient | null,
+  now: Date,
+): (RetentionEmailPlan & { dedupeKey?: string }) | null {
   switch (kind) {
+    case "getting_started":
+    case "checkin": {
+      // Due now by the same rule the notifier asked by, from this read.
+      if (!facts.lifecycle || !lifecycle || !isLifecycleStage(data.stage)) return null;
+      const due = lifecycleStageDue(facts.businessId, data.stage, facts.lifecycle, lifecycle, now);
+      if (!due) return null;
+      if (due.kind === "getting_started" && (due.stage === "page_ready" || due.stage === "ask_five")) return { kind: "getting_started", stage: due.stage, lifecycle: facts.lifecycle, dedupeKey: due.dedupeKey };
+      if (due.kind === "checkin" && due.stage !== "page_ready" && due.stage !== "ask_five" && due.stage !== "card_saved" && due.stage !== "card_week") return { kind: "checkin", stage: due.stage, lifecycle: facts.lifecycle, lastSeenAt: lifecycle.lastSeenAt, dedupeKey: due.dedupeKey };
+      return null;
+    }
     case "win": {
       const item = facts.recentItems.find((i) => i.id === data.inboxItemId && i.type === "customer_won");
       return item && recent(item.createdAt) ? { kind, item } : null;
@@ -458,6 +517,12 @@ function retentionPlanOf(kind: Exclude<EmailNotificationKind, "decision_waiting"
   }
 }
 
+/** The person's last visit and lifecycle emails about this project, read here (never from the request). */
+async function lifecycleRecipient(deps: GatewayDeps, businessId: string, userId: string): Promise<LifecycleRecipient> {
+  const [seen, history] = await Promise.all([repos.presence.lastSeenByUser(deps.db, businessId, [userId]), repos.notifications.lifecycleHistory(deps.db, businessId, [userId])]);
+  return { lastSeenAt: seen.get(userId) ?? null, history: history.get(userId) ?? [] };
+}
+
 /**
  * The brief's window and its extra sections for one person (item 10, Nov 13, 2026). The window starts at this person's
  * last brief from this business (a day back when there is none, a week at most; a week for the weekly review). What
@@ -484,6 +549,9 @@ async function briefExtrasFor(
       timeZone: q.timeZone,
       agentNames,
       recipientUserId: q.userId,
+      // Effort beside the results (WP-14 T5): counted records in the same window. Finished tasks are left to the
+      // brief's own "tasks done", so the two never say one number twice.
+      effort: can("development") ? effortSentence({ ...effortCounts(facts.effortEvents, since, q.now), tasksDone: 0 }) : null,
     },
   };
 }

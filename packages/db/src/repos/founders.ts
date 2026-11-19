@@ -1,7 +1,7 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
 import { BIDI_NAME_MESSAGE, INPUT_LIMITS, RESERVED_NAME_MESSAGE, hasBidiControl, isReservedName } from "@foundmill/config";
-import { ADMIN_ROLES, boundedRecord, OWNER_ROLES, VISIBILITY, ValidationError } from "@foundmill/shared";
-import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { ADMIN_ROLES, boundedRecord, founderContextFrom, OWNER_ROLES, VISIBILITY, ValidationError, type FounderContext } from "@foundmill/shared";
+import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import { businesses, founderProfiles, memberships, type Business, type FounderProfile, type Membership } from "../schema";
@@ -163,6 +163,41 @@ export const foundersRepo = {
       .orderBy(sql`(${memberships.userId} = ${businesses.createdBy} and ${memberships.role} = 'owner') desc`, asc(memberships.createdAt), asc(memberships.id))
       .limit(1);
     return rows[0]?.experience ?? null;
+  },
+
+  /**
+   * Who an agent is talking with on one business (WP-04 T10): the person's own profile as `founderContextFrom` reads it,
+   * and the first names of the business's other founders (owners and cofounders whose membership has not ended, never an
+   * example one), oldest first, in one statement. Without `userId` the person is the business's primary owner (the one
+   * `ownerExperience` picks): a note goes to the project, not to whoever pressed. The person need not be a founder of
+   * the business (an admin talking with an agent): their own profile is still theirs to be addressed by.
+   *
+   * Other founders' profiles are outside the asker's RLS (`founder_profiles_own`), so it runs on the service connection;
+   * callers have already checked the person's membership, and only first names leave this function.
+   */
+  async contextFor(db: Executor, businessId: string, userId?: string | null): Promise<FounderContext> {
+    const bid = parseInput(Id, businessId, "business id");
+    const me = userId ? parseInput(Id, userId, "user id") : null;
+    const rows = await db
+      .select({
+        userId: memberships.userId,
+        displayName: founderProfiles.displayName,
+        experience: founderProfiles.experience,
+        strengths: founderProfiles.strengths,
+        wantsToLearn: founderProfiles.wantsToLearn,
+        lookingFor: founderProfiles.lookingFor,
+        budgetMinor: founderProfiles.budgetMinor,
+      })
+      .from(memberships)
+      .innerJoin(businesses, eq(businesses.id, memberships.businessId))
+      .leftJoin(founderProfiles, and(eq(founderProfiles.userId, memberships.userId), isNull(founderProfiles.archivedAt)))
+      .where(and(eq(memberships.businessId, bid), membershipNotEnded, ne(memberships.source, "example"), me ? or(inArray(memberships.role, [...OWNER_ROLES]), eq(memberships.userId, me)) : inArray(memberships.role, [...OWNER_ROLES])))
+      .orderBy(sql`(${memberships.userId} = ${businesses.createdBy} and ${memberships.role} = 'owner') desc`, asc(memberships.createdAt), asc(memberships.id));
+    // Every row but the person's is a founder's (the filter admits a non-founder only as the person themselves).
+    const self = me ? (rows.find((r) => r.userId === me) ?? null) : (rows[0] ?? null);
+    const others = rows.filter((r) => r !== self);
+    const profile = self && self.displayName !== null ? { displayName: self.displayName, experience: self.experience, strengths: self.strengths ?? [], wantsToLearn: self.wantsToLearn ?? [], lookingFor: self.lookingFor, budgetMinor: self.budgetMinor } : null;
+    return founderContextFrom(profile, others.map((r) => ({ displayName: r.displayName })));
   },
 
   async update(db: Executor, userId: string, patch: FounderProfilePatch): Promise<FounderProfile> {

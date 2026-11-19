@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { CONCEPT_ATTRIBUTE_KEYS, GuidanceProvider, TooltipProvider } from "@foundmill/dugout";
+import { BuilderViewProvider, CONCEPT_ATTRIBUTE_KEYS, GuidanceProvider, TooltipProvider } from "@foundmill/dugout";
 import { TRPCClientError } from "@trpc/client";
 import { FIRST_DAY_PROMISE, domainCandidates } from "@foundmill/shared";
 import { termsWithGlossary } from "@foundmill/shared/terms";
-import { CommitForm, HOW_IT_RUNS_REASSURANCE, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, spendCapSummary, teamCountsLine, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
+import { COMMIT_WORDS, CommitForm, HOW_IT_RUNS_REASSURANCE, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, spendCapSummary, startingTeamLine, teamCountsLine, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
 import type { DomainCheck } from "../commit/naming";
 import { IMPORT_STEPS, STUDIO_STEPS } from "../StudioFrame";
 import { META_KIND, type IdeaLike } from "../ideate/concepts";
@@ -66,29 +66,218 @@ function fakeDomainApi(statuses: Record<string, Partial<DomainCheck>> = {}, over
 const TERMS = termsWithGlossary(null);
 
 /**
- * Renders the form with guidance on and the definitions, and opens "How it runs" (the five controls start behind
- * "Change" while guidance is on, §7.6); `collapsed: true` leaves them closed.
+ * Renders the form with guidance on and the definitions, and opens "More options" (WP-04 T2: the name checks, the logo,
+ * How it runs and the team start behind it, for everyone); `collapsed: true` leaves it closed.
  */
-function renderForm(onCommit = vi.fn(), extra: Partial<React.ComponentProps<typeof CommitForm>> = {}, { collapsed = false } = {}) {
+function renderForm(onCommit = vi.fn(), extra: Partial<React.ComponentProps<typeof CommitForm>> = {}, { collapsed = false, guidance = "on" as "on" | "off", builder = false } = {}) {
   render(
-    <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
-      <TooltipProvider>
-        <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={onCommit} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} {...extra} />
-      </TooltipProvider>
+    <GuidanceProvider value={{ guidance, terms: TERMS }}>
+      <BuilderViewProvider on={builder}>
+        <TooltipProvider>
+          <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={onCommit} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} {...extra} />
+        </TooltipProvider>
+      </BuilderViewProvider>
     </GuidanceProvider>,
   );
-  if (!collapsed) openHowItRuns();
+  if (!collapsed) openMore();
   return onCommit;
 }
 
-function openHowItRuns() {
-  const change = screen.getByTestId("how-it-runs-change");
-  if (change.getAttribute("aria-expanded") !== "true") fireEvent.click(change);
+function openMore() {
+  const more = screen.getByTestId("commit-more");
+  if (more.getAttribute("aria-expanded") !== "true") fireEvent.click(more);
 }
 
-describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => {
-  it("opens Name and Logo and sums up How it runs in chips; Change opens the five controls (A3, §7.6)", () => {
+/** The panels that wait behind "More options". */
+const MORE_PANELS = ["name-checks-panel", "logo-panel", "how-it-runs", "how-it-runs-controls", "squad-preview", "commit-words-note"] as const;
+
+describe("CommitForm: name and go (WP-04 T2)", () => {
+  for (const guidance of ["on", "off"] as const) {
+    it(`with guidance ${guidance}, shows the name, what happens next, the credits line and one button; the rest waits behind More options`, () => {
+      const domainApi = fakeDomainApi();
+      renderForm(vi.fn(), { domainApi }, { collapsed: true, guidance });
+      const form = screen.getByTestId("commit-form");
+      // One field: the name, prefilled from the card.
+      const inputs = [...form.querySelectorAll("input, textarea, select")].filter((n) => (n as HTMLInputElement).type !== "hidden");
+      expect(inputs).toHaveLength(1);
+      expect((screen.getByLabelText(/Business name/) as HTMLInputElement).value).toBe("Ledgerly");
+      // What happens next, each line, and the included credits.
+      const next = screen.getByTestId("what-happens-next");
+      expect(next.querySelectorAll("li")).toHaveLength(WHAT_HAPPENS_NEXT.length);
+      for (const step of WHAT_HAPPENS_NEXT) expect(next.textContent).toContain(step);
+      expect(screen.getByTestId("commit-credits-line").textContent).toBe(includedCreditsLine());
+      // One button that starts it: "Start my project".
+      const starts = [...form.querySelectorAll("button")].filter((b) => /Start my project/.test(b.textContent ?? ""));
+      expect(starts).toHaveLength(1);
+      expect(starts[0]!.getAttribute("data-testid")).toBe("take-charge");
+      expect(screen.queryByTestId("take-charge-bottom")).toBeNull();
+      // Closed for everyone, guidance on or off.
+      const more = screen.getByTestId("commit-more");
+      expect(more.textContent).toContain("More options");
+      expect(more.getAttribute("aria-expanded")).toBe("false");
+      for (const id of MORE_PANELS) expect(screen.queryByTestId(id)).toBeNull();
+      // Nothing on the default view names a domain, a trademark, a spend line, a mode or a wage.
+      expect(form.textContent).not.toMatch(/domain|trademark|spend cap|Assisted|Automated|Augmented|wage/i);
+      // The domain checker is not asked until the founder opens More options.
+      expect(domainApi.check).not.toHaveBeenCalled();
+      fireEvent.click(more);
+      expect(more.getAttribute("aria-expanded")).toBe("true");
+      for (const id of MORE_PANELS) expect(screen.getByTestId(id)).toBeTruthy();
+      expect(screen.getByTestId("take-charge-bottom").textContent).toContain("Start my project");
+      fireEvent.click(more);
+      expect(screen.queryByTestId("logo-panel")).toBeNull();
+    });
+  }
+
+  it("asks the domain checker only once More options is open", async () => {
+    vi.useFakeTimers();
+    try {
+      const domainApi = fakeDomainApi();
+      renderForm(vi.fn(), { domainApi }, { collapsed: true });
+      await settle();
+      expect(domainApi.check).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId("commit-more"));
+      await settle();
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+      expect(domainApi.check.mock.calls[0]![0]).toEqual({ name: "Ledgerly" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("opens More options when an answer inside it is refused", async () => {
+    const onCommit = vi.fn();
+    renderForm(onCommit, { idea: { ...idea, archetype: null } }, { collapsed: true });
+    expect(screen.queryByTestId("archetype-panel")).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(screen.getByTestId("commit-more").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("archetype-panel")).toBeTruthy();
+  });
+
+  it("asks for time and where you live when the profile lacks them, and Start waits for exactly those two (WP-14 T2)", async () => {
+    const onCommit = renderForm(vi.fn(), { aboutMissing: ["timeCommitment", "residence"] }, { collapsed: true });
+    const panel = screen.getByTestId("commit-about-you");
+    expect(within(panel).getAllByRole("radio").length).toBe(4);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(screen.getByText("2 things to fix first")).toBeTruthy();
+    expect(within(panel).getByText("Pick how much time you can give.")).toBeTruthy();
+    expect(within(panel).getByText("Tell your team where you live.")).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("radio", { name: /A few hours a week/ }));
+    fireEvent.change(within(panel).getByLabelText(/Where do you live/), { target: { value: " Canada " } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: "Ledgerly", timeCommitment: "few_hours", residence: "Canada" });
+  });
+
+  it("asks only for the one that is missing, and for nothing when the profile has both", async () => {
+    renderForm(vi.fn(), { aboutMissing: ["residence"] }, { collapsed: true });
+    expect(within(screen.getByTestId("commit-about-you")).queryAllByRole("radio").length).toBe(0);
+    expect(screen.getByLabelText(/Where do you live/)).toBeTruthy();
+    cleanup();
+    const onCommit = renderForm(vi.fn(), {}, { collapsed: true });
+    expect(screen.queryByTestId("commit-about-you")).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[0]![0]).not.toHaveProperty("timeCommitment");
+    expect(onCommit.mock.calls[0]![0]).not.toHaveProperty("residence");
+  });
+
+  it("starts with the defaults in one press when nothing is opened", async () => {
+    const onCommit = renderForm(vi.fn(), {}, { collapsed: true });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: "Ledgerly", gameMode: "personal", businessMode: "assisted", archetype: "b2b_saas" });
+  });
+
+  it("says the words of the plan: the title, the lede, the reassurance and the button while it starts", () => {
     renderForm(vi.fn(), {}, { collapsed: true });
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Start Ledgerly");
+    expect(screen.getByText(COMMIT_WORDS.lede)).toBeTruthy();
+    expect(COMMIT_WORDS.lede).toBe("Name your project. We've set everything else to the careful option, and you can change any of it later.");
+    expect(screen.getByTestId("reassure-name").textContent).toBe("You can change the name, the logo and how your team works any time.");
+    fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "" } });
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Start your project");
+    cleanup();
+    renderForm(vi.fn(), { committing: true }, { collapsed: true });
+    expect(screen.getByTestId("take-charge").textContent).toMatch(/Starting…/);
+  });
+
+  it("shows the wage line inside More options only while Builder view is on", () => {
+    const preview = {
+      departments: [{ slug: "product", name: "Product", icon: "box", colourToken: "dept-1", moduleKeys: ["product"], budgetMinor: 0, budgetLabel: "Estimate" }],
+      agents: [{ templateKey: "chief_of_staff", name: "Chief of Staff", role: "Chief of Staff", layer: "assistant", modelKey: "opus", wageCapMinor: 40_000, wageCurrency: "USD", wageLabel: "Estimate" }],
+      defaultChannels: [],
+      specOutline: [],
+    } as unknown as React.ComponentProps<typeof CommitForm>["preview"];
+    renderForm(vi.fn(), { preview });
+    expect(screen.getByTestId("squad-preview")).toBeTruthy();
+    expect(screen.queryByTestId("squad-preview-wages")).toBeNull();
+    cleanup();
+    renderForm(vi.fn(), { preview }, { builder: true });
+    expect(screen.getByTestId("squad-preview-wages").textContent).toMatch(/^Up to \$400\.00 a month in wage caps/);
+  });
+});
+
+/** A b2b-shaped preview: the three starters, four more agents and one background helper. */
+const TEAM_PREVIEW = {
+  departments: [{ slug: "product", name: "Product", icon: "box", colourToken: "dept-1", moduleKeys: ["product"], budgetMinor: 0, budgetLabel: "Estimate" }],
+  agents: [
+    { templateKey: "chief_of_staff", name: "Chief of Staff", role: "Chief of Staff", layer: "assistant", modelKey: "opus", wageCapMinor: 40_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "product_lead", name: "Product Lead", role: "Leads Product", layer: "lead", modelKey: "opus", wageCapMinor: 30_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "researcher", name: "Researcher", role: "Finds sources", layer: "worker", modelKey: "sonnet", wageCapMinor: 10_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "product_researcher", name: "Product researcher", role: "Studies users", layer: "worker", modelKey: "sonnet", wageCapMinor: 10_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "engineering_lead", name: "Engineering Lead", role: "Leads Development", layer: "lead", modelKey: "opus", wageCapMinor: 30_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "planner", name: "Planner", role: "Plans the build", layer: "worker", modelKey: "opus", wageCapMinor: 10_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "finance_lead", name: "Finance Lead", role: "Leads Finance", layer: "lead", modelKey: "sonnet", wageCapMinor: 10_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "entity_linker", name: "Entity linker", role: "Links mentions", layer: "utility", background: true, modelKey: "haiku", wageCapMinor: 2_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+  ],
+  defaultChannels: [],
+  specOutline: [],
+} as unknown as NonNullable<React.ComponentProps<typeof CommitForm>["preview"]>;
+
+describe("CommitForm: the starting team, as shown (WP-04 T4)", () => {
+  it("names the three starters and counts the rest, background helpers left out", () => {
+    expect(startingTeamLine(TEAM_PREVIEW)).toBe("Your starting team: Chief of Staff, Product Lead and Researcher. 4 more join as the work needs them.");
+    expect(startingTeamLine({ agents: TEAM_PREVIEW.agents.slice(0, 3) })).toBe("Your starting team: Chief of Staff, Product Lead and Researcher.");
+  });
+
+  it("says the starting team in one line on the default view, with no model or wage", () => {
+    renderForm(vi.fn(), { preview: TEAM_PREVIEW }, { collapsed: true });
+    expect(screen.getByTestId("starting-team-line").textContent).toBe(startingTeamLine(TEAM_PREVIEW));
+    expect(screen.getByTestId("commit-form").textContent).not.toMatch(/Opus|Sonnet|Haiku|wage/i);
+    expect(screen.queryByTestId("squad-preview")).toBeNull();
+  });
+
+  it("lists the three starters inside More options, everyone behind See everyone, model chips only in Builder view", () => {
+    renderForm(vi.fn(), { preview: TEAM_PREVIEW });
+    const list = () => within(screen.getByTestId("squad-preview")).getByRole("list", { name: "Team" });
+    expect(within(list()).getAllByRole("listitem").map((li) => li.querySelector(".text-body-strong")?.textContent)).toEqual(["Chief of Staff", "Product Lead", "Researcher"]);
+    expect(screen.getByTestId("squad-preview").textContent).not.toMatch(/Opus|Sonnet/);
+    const all = screen.getByRole("button", { name: "See everyone" });
+    expect(all.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(all);
+    expect(within(list()).getAllByRole("listitem")).toHaveLength(7);
+    expect(screen.getByTestId("squad-preview").textContent).not.toMatch(/Entity linker/);
+    cleanup();
+    renderForm(vi.fn(), { preview: TEAM_PREVIEW }, { builder: true });
+    expect(screen.getByTestId("squad-preview").textContent).toMatch(/Opus/);
+  });
+});
+
+describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => {
+  it("inside More options: Name checks, Logo, and How it runs summed up in labeled lines over its five controls (A3, §7.6)", () => {
+    renderForm();
     expect(screen.getByTestId("name-panel")).toBeTruthy();
     expect(screen.getByTestId("logo-panel")).toBeTruthy();
     const summary = screen.getByTestId("how-it-runs-summary");
@@ -97,9 +286,9 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(chips()).toEqual([
       ["game-mode", "Personal"],
       ["business-mode", "Assisted"],
-      ["spend-cap", "Asks you above €250.00"],
+      ["spend-cap", "Asks you above €5.00"],
       ["archetype", "B2B SaaS"],
-      ["autopilot", "Overnight shift on"],
+      ["autopilot", "Autopilot off"],
     ]);
     for (const label of ["Where it runs", "Who decides", "Kind of business", "On a schedule"]) expect(summary.textContent).toContain(label);
     // The chips that have a definition are Terms: the dotted word opens its definition card.
@@ -109,17 +298,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
       ["autopilot", "autopilot"],
     ]) expect(summary.querySelector(`[data-summary="${chip}"] button[data-term="${term}"]`)?.className).toContain("term-link");
     expect(screen.getByTestId("reassure-how-it-runs").textContent).toBe(HOW_IT_RUNS_REASSURANCE);
-    // Closed by default while guidance is on: no archetype cards, no mode cards, no spend cap, no autopilot switch.
-    const change = screen.getByTestId("how-it-runs-change");
-    expect(change.textContent).toContain("Change");
-    expect(change.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByTestId("archetype-panel")).toBeNull();
-    expect(screen.queryByTestId("business-mode-panel")).toBeNull();
-    expect(screen.queryByLabelText(/Spend cap per action/)).toBeNull();
-    expect(screen.queryByRole("switch", { name: "Overnight shift" })).toBeNull();
-    fireEvent.click(change);
-    expect(change.getAttribute("aria-expanded")).toBe("true");
-    expect(change.textContent).toContain("Hide");
+    // The five controls are open under the summary once More options is.
     expect(screen.getByRole("radiogroup", { name: "Personal or live" })).toBeTruthy();
     expect(screen.getByTestId("archetype-panel")).toBeTruthy();
     expect(screen.getByTestId("business-mode-panel")).toBeTruthy();
@@ -134,36 +313,20 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
       ["business-mode", "Automated"],
       ["spend-cap", "No spend cap"],
       ["archetype", "B2B SaaS"],
-      ["autopilot", "Autopilot off"],
+      ["autopilot", "Overnight shift on"],
     ]);
-    fireEvent.click(change);
+    // Closing More options keeps the choices.
+    fireEvent.click(screen.getByTestId("commit-more"));
     expect(screen.queryByTestId("archetype-panel")).toBeNull();
+    expect(screen.getByTestId("commit-form").dataset.businessMode).toBe("automated");
     expect(spendCapSummary(" 1,000 ", "USD")).toBe("Asks you above $1,000.00");
     expect(spendCapSummary("abc", "USD")).toBe("Spend cap to fix");
   });
 
-  it("shows the five controls at once when guidance is off, and opens them to show a refused answer", async () => {
-    render(
-      <GuidanceProvider value={{ guidance: "off", terms: TERMS }}>
-        <TooltipProvider>
-          <CommitForm idea={{ ...idea, archetype: null }} viewer={{ email: null }} currency="EUR" onCommit={vi.fn()} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} />
-        </TooltipProvider>
-      </GuidanceProvider>,
-    );
-    expect(screen.getByTestId("how-it-runs-change").getAttribute("aria-expanded")).toBe("true");
+  it("asks for the archetype inside More options when the card has none", () => {
+    renderForm(vi.fn(), { idea: { ...idea, archetype: null } }, { guidance: "off" });
     expect(screen.getByTestId("archetype-panel")).toBeTruthy();
     expect(screen.getByTestId("how-it-runs-summary").querySelector('[data-summary="archetype"]')?.textContent).toBe("Pick an archetype");
-    cleanup();
-    // Guidance on, nothing picked: Take charge refuses, and the controls open on the archetype that is missing.
-    const onCommit = vi.fn();
-    renderForm(onCommit, { idea: { ...idea, archetype: null } }, { collapsed: true });
-    expect(screen.queryByTestId("archetype-panel")).toBeNull();
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("take-charge"));
-    });
-    expect(onCommit).not.toHaveBeenCalled();
-    expect(screen.getByTestId("how-it-runs-change").getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByTestId("archetype-panel")).toBeTruthy();
   });
 
   it("defaults to Assisted and Personal with the card's archetype and name", () => {
@@ -173,7 +336,10 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(document.querySelector('[data-option="personal"]')?.getAttribute("data-selected")).toBe("true");
     expect(document.querySelector('[data-option="b2b_saas"]')?.getAttribute("data-selected")).toBe("true");
     expect((screen.getByLabelText(/Business name/) as HTMLInputElement).value).toBe("Ledgerly");
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("250");
+    // The careful defaults (WP-14 T11, A4): a 5.00 cap for each action, the overnight shift off, the initials mark.
+    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("5");
+    expect(screen.getByRole("switch", { name: "Overnight shift" }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByTestId("autopilot-choice").textContent).toContain("Off unless you turn it on.");
     expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/Screen, not legal clearance/);
     expect(screen.getByTestId("kit-contrast").dataset.passes).toBe("true");
   });
@@ -209,16 +375,19 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     }
   });
 
-  it("says what happens next in the real order, with the included credits and no card (A4, A10)", () => {
+  it("says what happens next in the real order, with the included credits line and no dollar figure (A4, A10; WP-14 T11)", () => {
     renderForm();
     const next = screen.getByTestId("what-happens-next");
-    // The steps are the shared first-day promise itself, not a copy of it (WP-02 T6).
-    expect(WHAT_HAPPENS_NEXT).toBe(FIRST_DAY_PROMISE.steps);
-    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "Your public page is drafted first: check it and put it live", "Then your plan arrives as two notes to sign off", "Nothing is spent on finding customers until you say so"]);
+    // The steps are the shared first-day promise itself, not a copy of it (WP-02 T6), and the welcome note repeats it (WP-04 T7).
+    expect(WHAT_HAPPENS_NEXT).toBe(FIRST_DAY_PROMISE);
+    expect(WHAT_HAPPENS_NEXT).toEqual(["Your page is drafted first, from your own words. About a minute.", "You check it and publish it. Then you have a link to send.", "Your plan arrives as one note to approve.", "Nothing costs money or goes out in your name unless you say so."]);
+    expect(next.textContent).not.toMatch(/specification|roadmap|two notes|sign them off/i);
     for (const step of WHAT_HAPPENS_NEXT) expect(next.textContent).toContain(step);
     expect(next.textContent).not.toMatch(/Board|three decisions|first cycle/);
-    expect(includedCreditsLine()).toBe("Starts with $5.00 of included credits this month. No card.");
-    expect(screen.getByTestId("commit-credits-line").textContent).toBe("Starts with $5.00 of included credits this month. No card.");
+    // No dollar figure and no word about a card (WP-14 T11): true while the entry plan is free and after it is paid.
+    expect(includedCreditsLine()).toBe("Your team starts with this month's included credits.");
+    expect(includedCreditsLine()).not.toMatch(/[$€£]|\d|card|free/i);
+    expect(screen.getByTestId("commit-credits-line").textContent).toBe("Your team starts with this month's included credits.");
     cleanup();
     // When this month's pool already went elsewhere, the paused notice speaks instead; the credits line never contradicts it.
     renderForm(vi.fn(), { creditsNotice: "This month's included credits ($5.00) already went to another business you took charge of." });
@@ -237,7 +406,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
   it("reassures under Name, Logo, How it runs, Archetype and Mode while guidance is on, and says nothing when it is off (§5.7, §5.9)", () => {
     renderForm();
     for (const id of ["reassure-name", "reassure-logo", "reassure-how-it-runs", "reassure-archetype", "reassure-mode"]) expect(screen.getByTestId(id).getAttribute("data-reassurance")).toBe("settings");
-    expect(screen.getByTestId("reassure-name").textContent).toBe("You can change this later in Settings › Business.");
+    expect(screen.getByTestId("reassure-name").textContent).toBe("You can change the name, the logo and how your team works any time.");
     expect(screen.getByTestId("reassure-logo").textContent).toBe("You can change this later in Settings › Business.");
     expect(screen.getByTestId("reassure-archetype").textContent).toBe("You can change this later in Settings › Business.");
     expect(screen.getByTestId("reassure-mode").textContent).toBe("You can change this later in Settings › What the team can do.");
@@ -249,50 +418,61 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
         </TooltipProvider>
       </GuidanceProvider>,
     );
+    openMore();
     for (const id of ["reassure-name", "reassure-logo", "reassure-how-it-runs", "reassure-archetype", "reassure-mode"]) expect(screen.queryByTestId(id)).toBeNull();
     // Information stays: the credits line, the chips and the example lines are not tutoring.
     expect(screen.getByTestId("commit-credits-line")).toBeTruthy();
-    expect(screen.getByTestId("how-it-runs-summary").textContent).toContain("Asks you above €250.00");
+    expect(screen.getByTestId("how-it-runs-summary").textContent).toContain("Asks you above €5.00");
     expect(document.querySelectorAll("[data-mode-example]")).toHaveLength(3);
     // Panel titles carry the defined words as plain text when guidance is off, never a broken underline.
     expect(screen.getByTestId("archetype-panel").querySelector('[data-term="archetype"]')?.getAttribute("data-guided")).toBe("off");
   });
-  it("changes the default spend cap with the business mode until the founder edits it", () => {
+  it("keeps the careful cap when the mode changes, drops to 0 for Augmented, and never overwrites what the founder typed", () => {
     renderForm();
+    const cap = () => (screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value;
     fireEvent.click(screen.getByLabelText(/Automated/));
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("1,000");
+    expect(cap()).toBe("5");
+    fireEvent.click(screen.getByLabelText(/Augmented/));
+    expect(cap()).toBe("0");
+    fireEvent.click(screen.getByLabelText(/Assisted/));
+    expect(cap()).toBe("5");
     fireEvent.change(screen.getByLabelText(/Spend cap per action/), { target: { value: "75" } });
     fireEvent.click(screen.getByLabelText(/Augmented/));
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("75");
+    expect(cap()).toBe("75");
   });
 
-  it("starts the spend line at 0 for a founder with no budget, in every mode, so every spend asks first (WP-04 T3)", async () => {
-    const onCommit = renderForm(vi.fn(), { hasBudget: false });
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("0");
-    expect(screen.getByTestId("how-it-runs-summary").querySelector('[data-summary="spend-cap"]')?.textContent).toBe("Asks you above €0.00");
-    fireEvent.click(screen.getByLabelText(/Automated/));
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("0");
+  it("commits with the careful defaults in one press, and a founder who changes two of them gets what they chose (WP-14 T11)", async () => {
+    const onCommit = renderForm();
     await act(async () => {
       fireEvent.click(screen.getByTestId("take-charge"));
     });
-    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ spendCapMinor: 0 }));
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ businessMode: "assisted", gameMode: "personal", spendCapMinor: 500, currency: "EUR", autopilot: false, logo: null });
+    expect(onCommit.mock.calls[0]![0]).not.toHaveProperty("overnight");
+    // Change two: the cap and the overnight shift.
+    fireEvent.change(screen.getByLabelText(/Spend cap per action/), { target: { value: "40" } });
+    fireEvent.click(screen.getByRole("switch", { name: "Overnight shift" }));
+    expect(screen.getByTestId("how-it-runs-summary").querySelector('[data-summary="spend-cap"]')?.textContent).toBe("Asks you above €40.00");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[1]![0]).toMatchObject({ spendCapMinor: 4_000, autopilot: true, overnight: { timeZone: expect.any(String) } });
   });
 
-  it("offers the overnight shift, on by default, and sends the choice with idea.commit", async () => {
+  it("offers the overnight shift, off when the page opens (A4), and sends the choice with idea.commit", async () => {
     const onCommit = renderForm();
     const toggle = screen.getByRole("switch", { name: "Overnight shift" });
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("take-charge"));
-    });
-    expect(onCommit.mock.calls[0]![0]).toMatchObject({ autopilot: true, overnight: { timeZone: expect.any(String) } });
-    fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     await act(async () => {
       fireEvent.click(screen.getByTestId("take-charge"));
     });
-    expect(onCommit.mock.calls[1]![0]).toMatchObject({ autopilot: false });
-    expect(onCommit.mock.calls[1]![0]).not.toHaveProperty("overnight");
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ autopilot: false });
+    expect(onCommit.mock.calls[0]![0]).not.toHaveProperty("overnight");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[1]![0]).toMatchObject({ autopilot: true, overnight: { timeZone: expect.any(String) } });
   });
 
   it("offers Give agents names and faces, starting from the account preference, sends the choice with idea.commit and keeps the five chips", async () => {
@@ -346,7 +526,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
         </TooltipProvider>
       </GuidanceProvider>,
     );
-    openHowItRuns();
+    openMore();
     const toggle = screen.getByRole("switch", { name: "Give agents names and faces" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     // The preference arrives late: the switch follows it while untouched ...
@@ -395,7 +575,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
       fireEvent.click(screen.getByTestId("take-charge-bottom"));
     });
     expect(onCommit).toHaveBeenCalledTimes(1);
-    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", confirmAdult: true, archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 25_000, kit: { primary: "#1b4fd8" } });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", confirmAdult: true, archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 500, kit: { primary: "#1b4fd8" } });
   });
 
   it("does not ask again for a LIVE start once the founder's 18+ confirmation is on record, and never for Personal", async () => {
@@ -507,7 +687,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getByTestId("committing-status").textContent).toBe("Setting up your business: departments, team and the first tasks. This takes a few seconds.");
     // The header says it too, beside the top button, which reads as the work in progress rather than the action.
     expect(screen.getAllByText(/^Setting up your business/)).toHaveLength(2);
-    expect(screen.getByTestId("take-charge").textContent).toMatch(/Setting up…/);
+    expect(screen.getByTestId("take-charge").textContent).toMatch(/Starting…/);
   });
 
   it("turns the plan's business limit into an upgrade prompt that opens Billing of the business whose plan sets it", () => {
@@ -531,7 +711,9 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
   });
 
   it("shows the team the archetype seeds", () => {
-    renderForm(vi.fn(), {
+    renderForm(
+      vi.fn(),
+      {
       preview: {
         departments: [{ slug: "product", name: "Editorial", baseName: "Product", icon: "box", colourToken: "dept-1", moduleKeys: ["product"], budgetMinor: 0, budgetLabel: "Estimate" }],
         agents: [
@@ -541,7 +723,10 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
         defaultChannels: ["seo"],
         specOutline: [],
       } as unknown as React.ComponentProps<typeof CommitForm>["preview"],
-    });
+      },
+      // The wage line is Builder view's (WP-04 T2).
+      { builder: true },
+    );
     const squad = screen.getByTestId("squad-preview");
     expect(squad.textContent).toMatch(/Chief of Staff/);
     // A platform helper stays off the roster, as on the Team screen; the count says it is there (first-time founder report, Nov 8, 2026).

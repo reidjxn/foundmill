@@ -21,8 +21,10 @@ test.describe("billing", () => {
     const topUp = screen.getByTestId("top-up");
     await expect(topUp).toBeEnabled({ timeout: LONG });
     // Credits are US dollars.
-    await expect(screen.getByRole("combobox", { name: "Top-up amount" })).toContainText("$50.00");
+    await expect(screen.getByRole("combobox", { name: "Top-up amount" })).toContainText("$10.00");
     await expect(screen).toContainText("This server simulates payments");
+    // Paid entry is off on this stack (as in production until sign-up opens): no entry plan is offered (WP-09 T16).
+    await expect(screen.getByTestId("entry-plan")).toHaveCount(0);
     // "Credits" is defined where the founder first meets it, on the panel's title (a dotted word with guidance on).
     await expect(screen.locator('[data-term="credits"]').first()).toBeVisible();
 
@@ -33,9 +35,9 @@ test.describe("billing", () => {
     await expect(panel).toContainText("Mock checkout");
     await expect(panel).toContainText("no money moves");
 
-    await panel.getByRole("button", { name: /^Complete mock payment of \$50\.00$/ }).click();
+    await panel.getByRole("button", { name: /^Complete mock payment of \$10\.00$/ }).click();
     await expect(panel).toHaveAttribute("data-status", "paid", { timeout: LONG });
-    await expect(panel).toContainText("$50.00 in credits added. Mock top-up: no money moved.");
+    await expect(panel).toContainText("$10.00 in credits added. Mock top-up: no money moved.");
     await expect(panel.getByRole("button", { name: /Complete mock payment/ })).toHaveCount(0);
 
     // A reload of the same address shows the checkout paid; nothing is offered twice.

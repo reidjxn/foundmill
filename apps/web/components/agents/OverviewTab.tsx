@@ -6,7 +6,7 @@
  * sessions as diamonds) and the contract panel. The version and type live on the History tab.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpenText, CalendarClock, ShieldOff } from "lucide-react";
+import { BookOpenText, ShieldOff } from "lucide-react";
 import { useMemo } from "react";
 import { effectiveApprovalThresholdMinor } from "@foundmill/config";
 import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, POSITION_MAP_BASIS, POSITION_MAP_TITLE, Panel, PositionMap, ProvenanceChip, RATING_MAX, SKILL_GRID_WHY, SkillGrid, SpeechAccentPicker, Term, TraitChips, formatMoney, formatRelative, useFormatters, useGuided, useToast } from "@foundmill/dugout";
@@ -15,6 +15,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { playSpeechOnce } from "@/components/calls/play-once";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import type { TabProps } from "./AgentProfileScreen";
+import { AddedSkillsPanel } from "./AddedSkillsPanel";
 import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, latestPromotedRun, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
 
 /** What the Skills panel is about, for its "About Skills" tip (InfoTip through Panel `help`; hidden with guidance off). */
@@ -64,7 +65,7 @@ export function AccentPanel({ businessId, agentId, released }: { businessId: str
   );
 }
 
-export function OverviewTab({ businessId, profile, currency }: TabProps) {
+export function OverviewTab({ businessId, profile, currency, refetch }: TabProps) {
   const { prefs: datePrefs } = useFormatters();
   const guided = useGuided();
   const business = useBusiness();
@@ -82,7 +83,6 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
   const coachRun = latestPromotedRun(profile.trainingRuns) ?? profile.trainingRuns.find((r) => r.coachSummaryMd) ?? null;
   const about = whatIDo(profile);
   const autonomy = autonomyFromAgent(agent.autonomy);
-  const schedule = (agent.schedule ?? {}) as { cron?: string; triggers?: string[] };
   const money = (minor: number | null) => (minor === null ? "No cap" : formatMoney({ amountMinor: minor, currency }));
   // The founder's "Spend cap per action" (Settings › What the team can do) lowers every agent's ask line, as the gateway applies it.
   const businessCapMinor = business.data.business.spendCapMinor;
@@ -146,9 +146,10 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
         data-testid="skills-panel"
       >
         <div className="p-panel-pad">
-          <SkillGrid skills={skills} showPotential />
+          <SkillGrid skills={skills} showPotential legend />
         </div>
       </Panel>
+      <AddedSkillsPanel businessId={businessId} profile={profile} onChanged={refetch} />
 
       <Panel title={<Term id="position_map">{POSITION_MAP_TITLE}</Term>} span={6} loading={catalogueQ.isLoading && !catalogueQ.data} empty={!catalogueQ.isLoading && roles.length === 0 ? { children: "The roles this agent could take appear once the template catalog loads." } : undefined} footer={POSITION_MAP_BASIS} data-testid="position-map">
         <PositionMap roles={roles} currentRoleId={agent.agentType} columns={2} />
@@ -180,11 +181,10 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
           items={[
             // A wage cap caps the agent's metered cost, so it is in US dollars like that cost (`profile.wage.currency`).
             { label: <Term id="wage_cap">Wage cap (USD)</Term>, value: agent.wageCapMinor === null ? "No cap" : formatMoney({ amountMinor: Number(agent.wageCapMinor), currency: profile.wage.currency }), numeric: true },
-            { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^AI cost/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
+            { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^AI cost/, "Spent"), value: <span className="inline-flex items-center gap-1"><ProvenanceChip kind="estimate">{formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })}</ProvenanceChip></span>, numeric: true },
             { label: "Spend cap per action", value: money(autonomy.spendCapMinor), numeric: true },
             { label: "Needs your OK above", value: asksAbove, numeric: true },
             { label: <Term id="autonomy">Autonomy</Term>, value: autonomy.mode === "inherit" ? <Term id="business_mode">Business mode</Term> : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },
-            { label: "Schedule", value: schedule.cron ? <span className="font-mono text-mono">{schedule.cron}</span> : schedule.triggers?.length ? `${schedule.triggers.length} ${schedule.triggers.length === 1 ? "trigger" : "triggers"}` : <span className="inline-flex items-center gap-1 text-secondary"><Icon icon={CalendarClock} size="inline" /> On demand</span> },
           ]}
         />
       </Panel>

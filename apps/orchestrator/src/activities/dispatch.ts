@@ -22,8 +22,9 @@ import { Context } from "@temporalio/activity";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
 import { agentCooldown, failureStreak } from "../retry";
+import { ENTRY_PLAN_CLOSED_DETAIL, entryPlanOpenFor } from "../entry-plan";
 
-export type DispatchRefusal = "agents_stopped" | "agent_paused" | "agent_archived" | "wage_cap" | "model_budget" | "open_session" | "concurrency_limit";
+export type DispatchRefusal = "agents_stopped" | "entry_plan" | "agent_paused" | "agent_archived" | "wage_cap" | "model_budget" | "open_session" | "concurrency_limit";
 
 export type OpenSessionResult = { sessionId: string; workflowId: string; refused: null; detail: null } | { sessionId: null; workflowId: null; refused: DispatchRefusal; detail: string };
 
@@ -69,6 +70,8 @@ export async function openAgentSession(deps: OrchestratorDeps, input: { business
   if (id && open.items.some((s) => s.id === id)) return { sessionId: id, workflowId: sessionWorkflowId(id), refused: null, detail: null };
   const stop = await repos.businesses.stopState(db, businessId);
   if (stop.stopped) return refuse("agents_stopped", stop.archived ? "the business is archived" : `agents are stopped (${(stop.reason ?? "kill_switch").replace(/_/g, " ")}); an owner or admin resumes them`);
+  // Paid entry (WP-09 T16): no session opens before a founder holds the entry plan (src/entry-plan.ts).
+  if (!(await entryPlanOpenFor(deps, businessId))) return refuse("entry_plan", ENTRY_PLAN_CLOSED_DETAIL);
   const [agent, task, business] = await Promise.all([repos.agents.get(db, businessId, input.agentId), repos.tasks.get(db, businessId, input.taskId), repos.businesses.get(db, businessId)]);
   if (agent.archivedAt) return refuse("agent_archived", `${agent.name} has left the team`);
   if (agent.status === "paused") return refuse("agent_paused", `${agent.name} is paused${agent.pausedReason === "wage_cap" ? " (wage cap reached)" : ""}`);

@@ -3,11 +3,11 @@
  * kind, name, aliases); named queries available for exhibits; glossary"). Everything here is read through repositories
  * with the business id first (ARCHITECTURE §4) so a note can never see another club's rows.
  */
-import { prompts } from "@foundmill/agents";
+import type { prompts } from "@foundmill/agents";
 import { repos, type Agent, type Business, type Event, type Executor } from "@foundmill/db";
 import { buildManifest, type Manifest, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { getEventDeclaration } from "@foundmill/events";
-import { AppError, EVENT_TYPES, isBackgroundHelper, type EntityKind, type EventType } from "@foundmill/shared";
+import { AppError, EVENT_TYPES, isBackgroundHelper, type EntityKind, type EventType, type FounderContext } from "@foundmill/shared";
 import { loadMetricsSnapshot, statusMetrics, type MetricsSnapshot, type StatusMetric } from "./metrics";
 
 export type FounderExperience = prompts.FounderExperience;
@@ -37,13 +37,20 @@ export interface ComposeContext {
    * the four profile answers; a first-time founder when the owner has no profile or wrote something else.
    */
   founderExperience: FounderExperience;
+  /**
+   * Who the note is written to (WP-04 T10): the primary owner's profile and the other founders' first names
+   * (`repos.founders.contextFor`), sent as `founder` in the inputs. Optional for callers that build a context by hand.
+   */
+  founder?: FounderContext;
   now: Date;
 }
 
-/** The owner's founder profile experience, as the Composer prompt reads it. Never throws: no owner or no profile reads as first-time. */
-export async function loadFounderExperience(db: Executor, businessId: string): Promise<FounderExperience> {
-  // One statement (the owner joined to their profile), not the owner and then the profile in sequence.
-  return prompts.founderExperienceFrom(await repos.founders.ownerExperience(db, businessId));
+/**
+ * Who the note is written to: the primary owner's founder context (WP-04 T10), in one statement. Its experience is the
+ * Composer's `founder.experience`; no owner or no profile reads as a first-time founder with nothing said.
+ */
+export async function loadFounderContext(db: Executor, businessId: string): Promise<FounderContext> {
+  return repos.founders.contextFor(db, businessId);
 }
 
 export class NoAgentsError extends AppError {
@@ -63,14 +70,14 @@ export interface LoadContextOptions {
 export async function loadContext(db: Executor, businessId: string, options: LoadContextOptions = {}): Promise<ComposeContext> {
   const now = options.now ?? new Date();
   const business = await repos.businesses.get(db, businessId);
-  const [agentsPage, crm, named, metrics, unnarrated, chief, founderExperience] = await Promise.all([
+  const [agentsPage, crm, named, metrics, unnarrated, chief, founder] = await Promise.all([
     repos.agents.list(db, businessId, { limit: 200 }),
     repos.entities.manifest(db, businessId, { limit: MANIFEST_LIMIT }),
     options.entityIds && options.entityIds.length > 0 ? repos.entities.manifest(db, businessId, { ids: options.entityIds }) : Promise.resolve([]),
     loadMetricsSnapshot(db, businessId, now),
     options.skipUnnarrated ? Promise.resolve([] as Event[]) : unnarratedNarratable(db, businessId),
     repos.agents.chiefOfStaff(db, businessId),
-    loadFounderExperience(db, businessId),
+    loadFounderContext(db, businessId),
   ]);
   const agents = agentsPage.items;
   if (agents.length === 0) throw new NoAgentsError(businessId);
@@ -105,7 +112,8 @@ export async function loadContext(db: Executor, businessId: string, options: Loa
     metrics,
     status: statusMetrics(metrics),
     unnarrated,
-    founderExperience,
+    founderExperience: founder.experience,
+    founder,
     now,
   };
 }

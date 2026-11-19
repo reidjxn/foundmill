@@ -5,7 +5,8 @@
 import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, uuidFromSeed } from "../../mock-utils";
 import type { ToolContext } from "../../contract";
-import { PLATFORM_KEY, PLATFORM_RATE_LIMITS, platformTools, PlatformToolError, type AgentMessageT, type PlatformCaller, type PlatformHost, type PlatformResult, type TaskDetailT } from "./tools";
+import { acceptanceLines, acceptanceRefusal } from "./acceptance";
+import { PLATFORM_KEY, PLATFORM_RATE_LIMITS, READ_SKILL_NOTICE, platformTools, PlatformToolError, type AgentMessageT, type PlatformCaller, type PlatformHost, type PlatformResult, type TaskDetailT } from "./tools";
 
 /** A report in the in-memory world: what read_report answers, plus the session that saved it. */
 type MockReport = PlatformResult<"read_report"> & { sessionId: string | null };
@@ -28,7 +29,10 @@ export function platformHandlers(host: PlatformHost) {
     send_message: async (args: Parameters<PlatformHost["sendMessage"]>[1], ctx: ToolContext) => host.sendMessage(caller(ctx), args),
     list_messages: async (args: Parameters<PlatformHost["listMessages"]>[1], ctx: ToolContext) => host.listMessages(caller(ctx), args),
     read_business: async (_args: unknown, ctx: ToolContext) => host.readBusiness(caller(ctx)),
+    list_pay_links: async (_args: unknown, ctx: ToolContext) => host.listPayLinks(caller(ctx)),
     search_entities: async (args: Parameters<PlatformHost["searchEntities"]>[1], ctx: ToolContext) => host.searchEntities(caller(ctx), args),
+    create_entity: async (args: Parameters<PlatformHost["createEntity"]>[1], ctx: ToolContext) => host.createEntity(caller(ctx), args),
+    log_interaction: async (args: Parameters<PlatformHost["logInteraction"]>[1], ctx: ToolContext) => host.logInteraction(caller(ctx), args),
     list_approvals: async (args: Parameters<PlatformHost["listApprovals"]>[1], ctx: ToolContext) => host.listApprovals(caller(ctx), args),
     list_sessions: async (args: Parameters<PlatformHost["listSessions"]>[1], ctx: ToolContext) => host.listSessions(caller(ctx), args),
     check_contact: async (args: Parameters<PlatformHost["checkContact"]>[1], ctx: ToolContext) => host.checkContact(caller(ctx), args),
@@ -40,8 +44,15 @@ export function platformHandlers(host: PlatformHost) {
     list_repository_docs: async (args: Parameters<PlatformHost["listRepositoryDocs"]>[1], ctx: ToolContext) => host.listRepositoryDocs(caller(ctx), args),
     read_repository_doc: async (args: Parameters<PlatformHost["readRepositoryDoc"]>[1], ctx: ToolContext) => host.readRepositoryDoc(caller(ctx), args),
     list_skills: async (args: Parameters<PlatformHost["listSkills"]>[1], ctx: ToolContext) => host.listSkills(caller(ctx), args),
+    read_skill: async (args: Parameters<NonNullable<PlatformHost["readSkill"]>>[1], ctx: ToolContext) => {
+      if (!host.readSkill) throw new PlatformToolError("invalid_state", "Reading a skill is not available here: use the skills shown in full in your instructions");
+      return host.readSkill(caller(ctx), args);
+    },
     assign_skill: async (args: Parameters<PlatformHost["assignSkill"]>[1], ctx: ToolContext) => host.assignSkill(caller(ctx), args),
     remove_skill: async (args: Parameters<PlatformHost["removeSkill"]>[1], ctx: ToolContext) => host.removeSkill(caller(ctx), args),
+    read_positioning: async (_args: unknown, ctx: ToolContext) => host.readPositioning(caller(ctx)),
+    propose_positioning_change: async (args: Parameters<PlatformHost["proposePositioningChange"]>[1], ctx: ToolContext) => host.proposePositioningChange(caller(ctx), args),
+    draft_follower_update: async (args: Parameters<PlatformHost["draftFollowerUpdate"]>[1], ctx: ToolContext) => host.draftFollowerUpdate(caller(ctx), args),
   };
 }
 
@@ -52,7 +63,7 @@ export function createMemoryPlatformHost(): PlatformHost {
   const world = perBusiness((businessId) => {
     const task = (n: number, title: string, kind: TaskDetailT["kind"], status: TaskDetailT["status"]): TaskDetailT => ({ id: uuidFromSeed("mock-platform", businessId, "task", n), title, kind, status, priority: 10 * n, progress: 0, assigneeAgentId: null, updatedAt: MOCK_NOW.toISOString(), goalMd: `${title}.`, acceptance: [], fileScope: [], dependsOn: [], lastReport: null, lastBlock: null });
     const tasks = new Map<string, TaskDetailT>([task(1, "Draft the pricing page", "code", "ready"), task(2, "Research three competitors", "research", "ready"), task(3, "Reconcile last month's bank feed", "finance", "planned")].map((t) => [t.id, t]));
-    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>() };
+    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, positioningDrafts: 0, updateDrafts: 0, entities: new Map<string, string>(), interactions: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>() };
   });
   const summary = ({ goalMd: _g, acceptance: _a, fileScope: _f, dependsOn: _d, lastReport: _r, lastBlock: _b, ...s }: TaskDetailT) => s;
   const report = (caller: PlatformCaller, t: TaskDetailT, input: { title: string; bodyMd: string; sources: { url: string; title: string }[] }) => {
@@ -108,11 +119,18 @@ export function createMemoryPlatformHost(): PlatformHost {
       await this.sendMessage(caller, { toAgentId, type: "inform", subject: `Handed over: ${t.title}`.slice(0, 200), body: note, taskId });
       return summary(touch(t, { assigneeAgentId: toAgentId }));
     },
-    async completeTask(caller, { taskId, summary: text }) {
+    async completeTask(caller, { taskId, summary: text, acceptance }) {
       const t = mustTask(caller, taskId);
       if (t.assigneeAgentId !== caller.agentId) throw new PlatformToolError("not_yours", "only the agent working on a task can complete it");
       const saved = world(caller.businessId).reports.get(t.id);
-      if (!saved || saved.sessionId !== caller.sessionId) report(caller, t, { title: t.title, bodyMd: text, sources: [] });
+      const own = saved && saved.sessionId === caller.sessionId ? saved : null;
+      // The same acceptance rule as the gateway's host: one result per line, and a line not met keeps the task open.
+      const lines = acceptanceLines(t);
+      const refusal = acceptanceRefusal(lines, acceptance, own ? own.bodyMd : null);
+      if (refusal) throw new PlatformToolError("invalid_state", refusal);
+      if (!own) report(caller, t, { title: t.title, bodyMd: text, sources: [] });
+      // Its session sets the status when it ends (the mock host has no sessions to judge by).
+      if (lines.length > 0) return summary(t);
       return summary(touch(t, { status: t.kind === "code" ? "review" : "done", progress: 1 }));
     },
     async saveReport(caller, { taskId, title, bodyMd, sources }) {
@@ -144,6 +162,24 @@ export function createMemoryPlatformHost(): PlatformHost {
       const all = [{ id: uuidFromSeed("mock-platform", "entity", "maja"), kind: "person", name: "Maja Lindgren" }, { id: uuidFromSeed("mock-platform", "entity", "hallbergs"), kind: "organisation", name: "Hallbergs Hud AB" }];
       return { items: all.filter((e) => e.name.toLowerCase().includes(query.toLowerCase())).slice(0, limit) };
     },
+    async createEntity(caller, { kind, name }) {
+      const w = world(caller.businessId);
+      const key = `${kind}:${name.toLowerCase()}`;
+      const found = w.entities.get(key);
+      if (found) return { entityId: found, created: false };
+      const entityId = uuidFromSeed("mock-platform", caller.businessId, "entity", w.entities.size, key);
+      w.entities.set(key, entityId);
+      return { entityId, created: true };
+    },
+    async logInteraction(caller, { entityId }) {
+      const w = world(caller.businessId);
+      if (![...w.entities.values()].includes(entityId)) throw new PlatformToolError("not_found", `record ${entityId} is not in this business's records`);
+      w.interactions += 1;
+      return { interactionId: uuidFromSeed("mock-platform", caller.businessId, "interaction", w.interactions) };
+    },
+    async listPayLinks() {
+      return { items: [{ key: "starter-kit", label: "Starter kit", priceMinor: 1900, currency: "USD" }] };
+    },
     async listApprovals() {
       return { items: [] };
     },
@@ -151,7 +187,9 @@ export function createMemoryPlatformHost(): PlatformHost {
       return { items: [] };
     },
     async checkContact(_caller, { email }) {
-      return { email, contactable: !MOCK_SUPPRESSED.has(email.toLowerCase()) };
+      // The mock knows nobody it was not told about as cold: a suppressed address has no basis; any other agreed.
+      const suppressed = MOCK_SUPPRESSED.has(email.toLowerCase());
+      return { email, contactable: !suppressed, basis: suppressed ? "none" : "consent" };
     },
     async readProduct() {
       return { spec: [{ id: uuidFromSeed("mock-platform", "spec", 1), section: "vision", text: "Gentle skincare for sensitive skin." }], roadmap: [], sources: [] };
@@ -196,6 +234,13 @@ export function createMemoryPlatformHost(): PlatformHost {
       }
       return { skill, assigned, skipped };
     },
+    async readSkill(caller, { skillKey }) {
+      // The same lookup as the gateway's: only a skill this agent carries, in this business's world.
+      const found = (world(caller.businessId).skills.get(caller.agentId) ?? []).find((x) => x.skillKey === skillKey);
+      if (!found) throw new PlatformToolError("not_found", `You have no skill ${skillKey}: use a key from your skills list`);
+      const source = found.source === "upload" ? ("upload" as const) : ("library" as const);
+      return { skillKey: found.skillKey, name: found.name, source, text: `<skill name="${found.name}" source="${source === "upload" ? "uploaded file" : "library"}">\n# ${found.name}\n\nMock instructions for ${found.name}.\n</skill>`, notice: READ_SKILL_NOTICE };
+    },
     async removeSkill(caller, { agentId, skillKey }) {
       const w = world(caller.businessId);
       const has = w.skills.get(agentId) ?? [];
@@ -203,6 +248,19 @@ export function createMemoryPlatformHost(): PlatformHost {
       if (!found) throw new PlatformToolError("not_found", `agent ${agentId} has no skill ${skillKey}`);
       w.skills.set(agentId, has.filter((x) => x !== found));
       return { removed: true as const, name: found.name };
+    },
+    async readPositioning() {
+      return { approved: false, version: null, text: "", heard: [] };
+    },
+    async proposePositioningChange(caller) {
+      const w = world(caller.businessId);
+      w.positioningDrafts += 1;
+      return { draftVersion: w.positioningDrafts };
+    },
+    async draftFollowerUpdate(caller) {
+      const w = world(caller.businessId);
+      w.updateDrafts += 1;
+      return { updateId: `00000000-0000-4000-8000-${String(w.updateDrafts).padStart(12, "0")}`, followers: 0 };
     },
   };
 }

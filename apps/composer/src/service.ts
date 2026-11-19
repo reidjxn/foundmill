@@ -7,6 +7,7 @@ import { repos, type Db, type InboxItem } from "@foundmill/db";
 import { stableHash, type ModelClient, type ModelLogger } from "@foundmill/models";
 import { NotFoundError, ValidationError, type ParkedTask } from "@foundmill/shared";
 import { composeChapterTitle, parseQuarter, quarterOf, type ChapterTitleResult } from "./chapter";
+import { composeChapterReport, type ChapterReportResult } from "./chapter-report";
 import { composeCommentary, type CommentaryResult } from "./commentary";
 import { composeNote } from "./compose";
 import { loadContext } from "./context";
@@ -132,14 +133,26 @@ export class ComposerService {
    * `POST /v1/chapter-title`; `quarter` defaults to the current one. The model's title for a quarter that has ended is
    * stored (`chapter_titles`, 0044), so the Ribbon names that chapter from then on. A current quarter's facts still
    * move, and a provisional fallback is never stored: the Ribbon keeps its own provisional title until a model title.
+   *
+   * A chapter that has ended also gets its report (WP-14 T8, `chapterReport`): asking for the title of an ended
+   * chapter is how the product learns a chapter closed. The report never holds the title back: a failure is logged.
    */
   async chapterTitle(businessId: string, quarter?: string): Promise<ChapterTitleResult> {
     const q = quarter ?? quarterOf(this.now());
     const result = await composeChapterTitle(this.deps, businessId, q);
-    if (result.source === "model" && parseQuarter(q).to.getTime() <= this.now().getTime()) {
-      await repos.journeys.setChapterTitle(this.deps.db, businessId, { chapterId: result.quarter, title: result.title, subtitle: result.subtitle, mood: result.mood });
+    if (parseQuarter(q).to.getTime() <= this.now().getTime()) {
+      if (result.source === "model") await repos.journeys.setChapterTitle(this.deps.db, businessId, { chapterId: result.quarter, title: result.title, subtitle: result.subtitle, mood: result.mood });
+      await this.chapterReport(businessId, q).catch((err: unknown) => this.deps.log.warn({ businessId, quarter: q, err: (err as Error).message }, "chapter report was not written"));
     }
     return result;
+  }
+
+  /**
+   * The chapter report (WP-14 T8, chapter-report.ts): one page from the Chief of Staff for the chapter that has just
+   * ended, from records only, written once (a second call returns the same note).
+   */
+  chapterReport(businessId: string, quarter: string): Promise<ChapterReportResult> {
+    return composeChapterReport(this.deps, businessId, quarter, this.now());
   }
 
   /**

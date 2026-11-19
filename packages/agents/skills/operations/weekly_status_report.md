@@ -5,6 +5,14 @@ description: Writes a short weekly update: progress against goals, blockers and 
 category: operations
 attribute_name: Status reporting
 attribute_group: execution
+when_to_use: Use when the week is ending and the founder needs a short update: progress against goals, blockers and the help needed.
+roles: chief_of_staff, operations_lead
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: communication
 version: 1
 ---
 # Weekly status report

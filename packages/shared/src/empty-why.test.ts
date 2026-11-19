@@ -21,7 +21,9 @@ describe("emptyWhy", () => {
   });
 
   it("Needs you on a new business says when the first notes arrive; later it keeps its calm line", () => {
-    expect(emptyWhy("today_needs_you", { firstDays: true }).text).toBe("Nothing needs you yet. Your page arrives first, usually within a few minutes, then the plan to sign off.");
+    expect(emptyWhy("today_needs_you", { firstDays: true }).text).toBe("Nothing needs you yet. Your page is being drafted and will show here in about a minute.");
+    // One first-day story (WP-04 T7): the page first, never the two documents to sign off.
+    expect(emptyWhy("today_needs_you", { firstDays: true }).text).not.toMatch(/specification|roadmap|two notes|sign/i);
     expect(emptyWhy("today_needs_you").text).toBe("Nothing needs you right now. The team keeps working.");
   });
 

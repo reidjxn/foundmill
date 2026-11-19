@@ -5,13 +5,14 @@
  */
 import { repos } from "@foundmill/db";
 import { extractEntityIds, validateMarkup } from "@foundmill/entity-linker";
-import { MOCK_ROUTES, createModelClient, type MockGenerator } from "@foundmill/models";
+import { MOCK_ROUTES, MODELS, createModelClient, meter, type MockGenerator } from "@foundmill/models";
 import { parkedTasksSentence, type EventType } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ComposeTimeoutError, ComposerRejectedError, OFFLINE_TRACKING_NOTE, SIMULATED_FINDINGS_NOTE, founderJargonOf, jargonReask } from "../compose";
 import { isNamedQueryId } from "../exhibits";
 import { isDraftWorthy } from "../persist";
 import { createComposerService, narrationKey } from "../service";
+import { createUsageSink } from "../usage";
 import { countInbox, createComposerHarness, silentLog, type ComposerHarness } from "./harness";
 
 let hz: ComposerHarness;
@@ -395,5 +396,16 @@ describe("task reports reach the composer as untrusted data, and a simulated one
     await service.narrate(hz.A.businessId, [(await hz.writeEvent(hz.A.businessId, "task.completed", { title: "Find two wholesalers", summary: "Two wholesalers.", reportId: null, simulated: true })).id]);
     expect(seen.data).toMatchObject({ note: SIMULATED_FINDINGS_NOTE });
     expect((seen.data?.events as { payload: Record<string, unknown> }[])[0]!.payload).toMatchObject({ summary: "Two wholesalers." });
+  });
+});
+
+describe("the composer's usage sink (WP-09 T1)", () => {
+  it("books the cache figures and counts them in quantity", async () => {
+    const usage = { inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 3, cacheReadInputTokens: 2 };
+    const before = new Set((await repos.usage.list(hz.db, hz.B.businessId, { limit: 500 })).items.map((u) => u.id));
+    await createUsageSink(hz.db, silentLog)({ route: "inboxComposer", model: MODELS.opus, modelKey: "opus", mode: "live", billedTo: "credits", usage, cost: meter(usage, MODELS.opus), attribution: { businessId: hz.B.businessId }, durationMs: 1, occurredAt: new Date().toISOString(), attempt: 0 });
+    const row = (await repos.usage.list(hz.db, hz.B.businessId, { limit: 500 })).items.find((u) => !before.has(u.id))!;
+    expect(Number(row.quantity)).toBe(20);
+    expect((row.details as { tokens: unknown }).tokens).toEqual({ input: 10, output: 5, cacheRead: 2, cacheWrite: 3 });
   });
 });

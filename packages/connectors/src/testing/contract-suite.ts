@@ -72,6 +72,31 @@ export interface ContractWebhookCase {
   expectTypes?: EventType[];
 }
 
+/**
+ * Tools that write but carry no outward hint, each with the reason it never contacts a third party, spends or cannot be
+ * undone (WP-11 T11, A7-16). The gateway lets such a tool run in every mode, so the list is reviewed: a new entry, or a
+ * tool leaving it for a hint, is the founder's call, because a tool that gains a hint starts asking in assisted mode.
+ */
+export const INTERNAL_WRITE_TOOLS: ReadonlyMap<string, string> = new Map([
+  ["stripe:create_billing_portal_session", "a link to Stripe's page for the platform's own subscriber; refused on any business's account"],
+  ["e2b:pause_sandbox", "pauses the project's own sandbox; resume undoes it"],
+  ["github:create_branch", "a branch in the project's repository; deleting it undoes it"],
+  ["github:commit_files", "a commit on an agent's working branch, never the default branch; merging is a hard stop"],
+  ["github:run_checks", "starts the repository's own CI on an agent's branch"],
+  ["github:open_pr", "a pull request in the project's repository; merging is a hard stop"],
+  ["github:update_branch", "brings an agent's working branch up to date with the default branch"],
+  ["gmail:create_draft", "a draft in the founder's mailbox; nothing is sent until the founder sends it"],
+  ["google_drive:create_doc", "a document in the founder's Drive"],
+  ["google_drive:append_to_doc", "text appended to a document in the founder's Drive; the document's history undoes it"],
+  ["notion:create_page", "a page in the founder's workspace"],
+  ["notion:append_paragraphs", "paragraphs appended to a page in the founder's workspace"],
+  ["onesignal:send_push", "service-only: the platform's own app notifying founders' own phones; agents never call it"],
+  ["sendgrid:add_suppression", "stops mail to an address that opted out; only ever sends less"],
+  ["sendgrid:create_campaign", "a draft single send; nothing is sent until schedule_campaign, which asks"],
+  ["shopify:create_draft_order", "a draft order in the founder's store; nobody is charged or emailed"],
+  ["stripe:create_customer", "a customer record in the founder's Stripe; no email is sent"],
+]);
+
 export interface ContractSuiteOptions {
   connector: Connector;
   mode: ConnectorMode;
@@ -127,6 +152,20 @@ export function describeConnectorContract(title: string, opts: ContractSuiteOpti
         }
       }
       for (const name of Object.keys(connector.policyHints)) expect(names).toContain(name);
+    });
+
+    it("a tool whose hints are all false either only reads or is a reviewed write inside the founder's own accounts", () => {
+      for (const t of connector.tools) {
+        const ref = `${connector.key}:${t.name}`;
+        const h = connector.policyHints[t.name] ?? {};
+        const quiet = !(h.spendsMoney || h.contactsThirdParty || h.irreversible || h.hardGate);
+        if (INTERNAL_WRITE_TOOLS.has(ref)) {
+          expect(quiet, `${ref} is on INTERNAL_WRITE_TOOLS but declares an outward hint`).toBe(true);
+          expect(t.annotations?.readOnlyHint, `${ref} writes, so it must not tell MCP clients it is read-only`).toBe(false);
+        } else if (quiet) {
+          expect(t.annotations?.readOnlyHint, `${ref} has no outward hint and writes: add it to INTERNAL_WRITE_TOOLS with its reason, or give it the hint`).toBe(true);
+        }
+      }
     });
 
     it("mock and live sides agree on tools and policy hints", () => {

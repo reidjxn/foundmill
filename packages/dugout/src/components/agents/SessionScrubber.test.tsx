@@ -96,6 +96,11 @@ describe("SessionScrubber", () => {
     expect(onPositionChange).toHaveBeenCalledTimes(2);
   });
 
+  it("the replay position's thumb says the time to a screen reader (aria-valuetext on the thumb, WP-10 T7)", () => {
+    render(<SessionScrubber events={events} startedAt={START} endedAt="2026-10-07T09:10:00Z" position={84_000} onPositionChange={() => undefined} playing={false} speed={1} onPlayingChange={() => undefined} />);
+    expect(screen.getByRole("slider", { name: "Replay position" }).getAttribute("aria-valuetext")).toBe(formatClock(84_000));
+  });
+
   it("step buttons and , . keys jump between markers", () => {
     const onPositionChange = vi.fn();
     const markers = scrubberMarkers(events, START);

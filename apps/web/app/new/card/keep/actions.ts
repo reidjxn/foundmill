@@ -17,14 +17,24 @@ async function clearIdeaCookie(): Promise<void> {
   store.set({ name: IDEA_COOKIE, value: "", path: "/", maxAge: 0, httpOnly: true, sameSite: "lax", ...(domain ? { domain } : {}) });
 }
 
-export async function keepCard(form: FormData): Promise<void> {
+/**
+ * Keeps the card, then its own page (and on to Commit), or with `studio` (the idea box's "Shape it in the Ideation
+ * Studio") the Studio opened on that card (`/new/ideate/<ideaId>`). The page binds `studio` from its own `?then=`.
+ */
+export async function keepCard(studio: boolean, form: FormData): Promise<void> {
   const server = await serverApi();
   if (!server) redirect("/login?next=%2Fstart");
   const claim = form.get(IDEA_CLAIM_PARAM);
   const token = (await cookies()).get(IDEA_COOKIE)?.value ?? null;
   const res = await server.api.ideaBox.claim.mutate({ token, claim: typeof claim === "string" && claim ? claim : null }).catch(() => null);
   await clearIdeaCookie();
-  redirect(res ? `/new/card/${res.ideaId}` : "/start");
+  if (!res) redirect("/start");
+  if (!studio) redirect(`/new/card/${res.ideaId}`);
+  // The Studio, opened on the card. Without a profile, the three questions first and on from there: here, not on the
+  // Studio page, because on a phone that page shows only the larger-window notice and its own redirect never runs.
+  const here = `/new/ideate/${res.ideaId}`;
+  const profile = await server.api.founder.profile.get.query().catch(() => null);
+  redirect(profile && !(profile.complete && profile.adultConfirmed) ? `/onboarding?next=${encodeURIComponent(here)}` : here);
 }
 
 export async function notMine(): Promise<void> {

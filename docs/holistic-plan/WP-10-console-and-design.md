@@ -262,7 +262,9 @@ Layout: the dialog keeps `size="lg"` with two panes (list left, preview right) a
 
 ### T9: Ratings a first-timer can read [M] [ships alone]
 
-**Why:** TS-02, display side ("Tested 10" is a constant written at hire, not a test result; CLAUDE.md "Label every non-real number"); a3b §3.2 ("add one sentence of meaning where a number is shown"); s1 §3.11, §4.3 item 6, P2-6. Recorded decisions this task keeps: ratings out of 20 stay (docs/DECISIONS.md "2026-11-11 — The last five answers to docs/THESIS_REVIEW.md §14", answer 3); with Builder view off a rating draws as its band word (docs/DECISIONS.md "Builder view… PR 1 of 2", Nov 8, 2026). Whether the figure should also show with Builder view off is founder decision 5 below; this task makes it a one-line change.
+**Amended by WP-14 T7 (Nov 17, 2026):** there is no dashed Estimate chip any more. Where step 3 says a `starting` row shows an "Estimate" chip, pass the rating figure as `ProvenanceChip`'s children so it draws in the estimate style (with Builder view off, where no figure shows, keep the word: `<ProvenanceChip kind="estimate" />`). The shell already carries the legend line. DESIGN §8 "Estimate / Forecast" and §10 are the rule.
+
+**Why:** TS-02, display side ("Tested 10" is a constant written at hire, not a test result; FOUNDMILL.md "Label every non-real number"); a3b §3.2 ("add one sentence of meaning where a number is shown"); s1 §3.11, §4.3 item 6, P2-6. Recorded decisions this task keeps: ratings out of 20 stay (docs/DECISIONS.md "2026-11-11 — The last five answers to docs/THESIS_REVIEW.md §14", answer 3); with Builder view off a rating draws as its band word (docs/DECISIONS.md "Builder view… PR 1 of 2", Nov 8, 2026). Whether the figure should also show with Builder view off is founder decision 5 below; this task makes it a one-line change.
 
 **Files.** Create: `packages/dugout/src/components/guidance/RatingKey.tsx` (+ story, test; add to `SERVER_SAFE_FILES` in `clientBoundaries.test.ts`), `packages/dugout/src/lib/rating-words.ts` (+ test). Modify: `packages/dugout/src/components/data/SkillGrid.tsx`, `RatingBar.tsx` (`RatingFigure`), `packages/modules/src/team/SquadScreen.tsx`, `apps/web/components/agents/logic.ts` (`toSkillRows`), `OverviewTab.tsx`, `packages/shared/src/terms.ts` (`potential`, line 557), `apps/web/components/agents/__tests__/w19-logic.test.ts`.
 
@@ -390,7 +392,7 @@ Questions 1 to 4 are carried from `audits/s1-design-critique.md` §9. Only 3 blo
 
 1. **Is the landing page for the first-timer alone,** with the investor's material moved to a linked tour? Most of s1 §3.1 follows from the answer. (WP-03.)
 2. **May the main action on outer pages be the flat filled primary,** including "Shape my idea", reversing the Oct 10 and Nov 13 glass and dark-outline decisions for that one role? (WP-03, WP-04.)
-3. **May the console scroll sideways between 640 and 1279 px instead of showing the wall?** It fixes zoom for low-vision users (WCAG 1.4.4, 1.4.10) and 13-inch laptops at once. It needs CLAUDE.md's "Never show the dense console below 1280 px" read as "never lay it out narrower than 1280 px". If yes, it is one more S task here: `DesktopOnly.tsx` and `AppShell.tsx` render at `min-width: 1280px` in a scrolling shell with a dismissible note; test at 1152 × 800.
+3. **May the console scroll sideways between 640 and 1279 px instead of showing the wall?** It fixes zoom for low-vision users (WCAG 1.4.4, 1.4.10) and 13-inch laptops at once. It needs FOUNDMILL.md's "Never show the dense console below 1280 px" read as "never lay it out narrower than 1280 px". If yes, it is one more S task here: `DesktopOnly.tsx` and `AppShell.tsx` render at `min-width: 1280px` in a scrolling shell with a dismissible note; test at 1152 × 800.
 4. **How far should a phone-only person get:** the profile and "Start building" with a name, so that Today (which already works on a phone) is reachable? (WP-04.)
 5. **Should a rating's figure show with Builder view off** ("14 of 20 · Good" instead of "Good")? Nov 8 says band word only; Nov 11 says ratings out of 20 stay the default view. Yes is one constant in T9 (`RATING_SHOWS_FIGURE_WITHOUT_BUILDER`).
 6. **The streak (your Nov 12 decision):** keep "Not opened" days and the at-risk line, or show only the days opened? Both audits read the empty days as the one place the product grades the person (A2-26, s1 §3.9).
@@ -408,7 +410,7 @@ Questions 1 to 4 are carried from `audits/s1-design-critique.md` §9. Only 3 blo
 ## Starting prompt
 
 ```
-You are executing docs/holistic-plan/WP-10-console-and-design.md in the Foundmill repo. Read, in this order: CLAUDE.md; docs/holistic-plan/README.md; the work package; packages/dugout/CLAUDE.md, packages/modules/CLAUDE.md, apps/web/CLAUDE.md, apps/api/CLAUDE.md; docs/DESIGN.md §1 to §10; and, for the task you are on, the audit sections it cites in docs/holistic-plan/audits/ (a2-console-design.md, s1-design-critique.md, a3b-templates-skills-team.md).
+You are executing docs/holistic-plan/WP-10-console-and-design.md in the Foundmill repo. Read, in this order: FOUNDMILL.md; docs/holistic-plan/README.md; the work package; packages/dugout/CLAUDE.md, packages/modules/CLAUDE.md, apps/web/CLAUDE.md, apps/api/CLAUDE.md; docs/DESIGN.md §1 to §10; and, for the task you are on, the audit sections it cites in docs/holistic-plan/audits/ (a2-console-design.md, s1-design-critique.md, a3b-templates-skills-team.md).
 
 Before any code: run the plan-change skill; confirm WP-04 has merged and whether claude/blissful-fermat-q03yq1 has merged (T2, T5, T6, T7 and T13 wait for it or rebase on it); ask the WP-06 session which of us edits packages/modules/src/team/skills.tsx first. Tell me what you found.
 

@@ -54,6 +54,5 @@ export const financeLead = defineTemplate({
   ],
   skills: withCoreSkills(["financial_modelling", "runway_forecasting", "anomaly_detection", "investor_reporting"]),
   autonomy: { ...AUTONOMY_INHERIT, mode: "lower" },
-  schedule: { cron: "0 6 * * *", triggers: ["bank.balance_updated", "payment.received", "runway.threshold_crossed"] },
   neverDoes: ["Initiate or approve payments", "Move funds or payouts", "Sign anything", "Show an unlabeled forecast"],
 });

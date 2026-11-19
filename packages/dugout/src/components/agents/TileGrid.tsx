@@ -190,7 +190,7 @@ export function TileGrid<T extends TileGridItem>({ items, renderTile, focusedId:
         // tile grew past the region and anything below it (the replay strip) drew over its footer.
         <div role="region" aria-label={ariaLabel} className="grid min-h-0 flex-1 grid-cols-3 grid-rows-[minmax(0,1fr)] gap-2 p-2" data-layout="focused">
           <div className="col-span-2 min-h-0 min-w-0">{cell(focusedItem, 0, { focused: true, compact: false, inRail: false }, { height: "100%" })}</div>
-          <div role="list" aria-label="Other tiles" className="flex min-h-0 flex-col gap-2 overflow-y-auto">
+          <div role="list" aria-label="Other tiles" tabIndex={0} className="focus-ring flex min-h-0 flex-col gap-2 overflow-y-auto">
             {ordered.slice(1).map((item, i) => cell(item, i + 1, { focused: false, compact: true, inRail: true }, { height: railTileHeight }))}
           </div>
         </div>
@@ -208,9 +208,9 @@ export function TileGrid<T extends TileGridItem>({ items, renderTile, focusedId:
         <div role="list" aria-label={`${overflow.length} more agents`} className="flex h-control-lg shrink-0 items-center gap-1.5 overflow-x-auto border-t border-line px-2.5" data-testid="overflow-strip">
           <span className="t-data mr-1 shrink-0">+{overflow.length} more</span>
           {overflow.map((item) => (
+            // A list item holding a button, so the button keeps its role (a role="listitem" button is no longer a button).
+            <span key={item.id} role="listitem" className="shrink-0">
             <button
-              key={item.id}
-              role="listitem"
               type="button"
               onClick={() => setFocused(item.id)}
               title={item.avatar ? persona.labelFor(item.avatar) : item.label}
@@ -219,6 +219,7 @@ export function TileGrid<T extends TileGridItem>({ items, renderTile, focusedId:
               {item.avatar ? <Avatar size={22} name={persona.nameFor(item.avatar)} agent={{ seed: item.avatar.seed, dept: item.avatar.dept, personaKey: item.avatar.personaKey }} status={item.avatar.status} surface="surface-2" /> : null}
               <span className="whitespace-nowrap">{item.avatar ? persona.nameFor(item.avatar) : item.label}</span>
             </button>
+            </span>
           ))}
         </div>
       ) : null}

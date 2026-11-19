@@ -133,6 +133,8 @@ export const accountPreferences = pgTable("account_preferences", {
   /** 0075 — keep money amounts out of lock-screen notifications. */
   hideAmountsOnLockScreen: boolean("hide_amounts_on_lock_screen").notNull().default(false),
   builderView: boolean("builder_view").notNull().default(false),
+  /** 0114 — the single-key shortcuts (R, G chords, J, K, 1–4, E); off by default, on for accounts that had guidance off (WP-04 T13). */
+  keyboardShortcuts: boolean("keyboard_shortcuts").notNull().default(false),
   /** 0082 — share this person's one-to-one calls with the project (default false: private to them). */
   shareOneToOneCalls: boolean("share_one_to_one_calls").notNull().default(false),
   /**
@@ -253,6 +255,11 @@ export const businesses = pgTable(
      * when an owner or admin turns it on again; `autopilotChangedAt` is when it was last turned on (the idle streak
      * counts from there); `autopilotNextAt` is the next planned cycle (an Estimate, written by the workflow).
      */
+    /**
+     * 0135 — payment powers (founder, Nov 16, 2026): `inbound` lets agents create invoices and payment pages without
+     * asking in automated mode and on vacation. Empty: they ask. No outbound power exists.
+     */
+    paymentPowers: text("payment_powers", { enum: ["inbound"] }).array().notNull().default(sql`'{}'::text[]`),
     autopilotEnabled: boolean("autopilot_enabled").notNull().default(false),
     autopilotCadence: text("autopilot_cadence", { enum: AUTOPILOT_CADENCES }).notNull().default("every_4h"),
     autopilotDailyHour: integer("autopilot_daily_hour").notNull().default(9),

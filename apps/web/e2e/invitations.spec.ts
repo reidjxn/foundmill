@@ -151,7 +151,7 @@ test.describe("invitations", () => {
 
   test("a second account signs in, accepts, and is taken into the project", async ({ browser }) => {
     test.skip(!path, "needs the invitation made above");
-    const context = await browser.newContext();
+    const context = await browser.newContext({ viewport: PHONE });
     const page = await context.newPage();
     await signInAs(page, invitee, path);
     await expect(page.getByTestId("invitation")).toHaveAttribute("data-state", "pending", { timeout: LONG });
@@ -162,12 +162,12 @@ test.describe("invitations", () => {
     await expect(page).toHaveURL(new RegExp(`${path}$`));
     await adult.getByRole("checkbox", { name: "I am 18 or older" }).check();
     await page.getByTestId("invitation-accept").click();
-    // Into the project; a new person first meets their profile (the project's layout asks for it), without the box again.
-    await page.waitForURL(new RegExp(`/b/${bid}/|/onboarding`), { timeout: LONG });
-    if (/\/onboarding/.test(page.url())) {
-      await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
-      await expect(page.getByTestId("profile-adult")).toHaveCount(0);
-    }
+    // A new person names themselves on the card, then lands on Today (never /onboarding, which is desktop only).
+    await page.getByTestId("invitation-name").fill("Dana Invited", { timeout: LONG });
+    await page.getByTestId("invitation-continue").click();
+    await page.waitForURL(new RegExp(`/b/${bid}/today`), { timeout: LONG });
+    expect(page.url()).not.toContain("/onboarding");
+    await noHorizontalScroll(page);
     await expect(page.getByTestId("on-waitlist")).toHaveCount(0);
     await expect(page.getByTestId("not-invited")).toHaveCount(0);
     // The link is used up.

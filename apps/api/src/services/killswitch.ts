@@ -23,8 +23,8 @@
  * canceled (Train again from the Training tab).
  */
 import { LIMITS } from "@foundmill/config";
-import { autopilotChangedPayload, periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Executor } from "@foundmill/db";
-import type { AgentStopReason } from "@foundmill/shared";
+import { autopilotChangedPayload, periodOf, periodRange, repos, resumeBusinessAgents, stopBusinessAgents, waysToContinue, type Executor } from "@foundmill/db";
+import { topUpsOnSale, type AgentStopReason } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { cycleStatus, endRun } from "./cycle";
@@ -182,7 +182,11 @@ export async function resumeBlocker(ctx: BusinessContext): Promise<string | null
     return null;
   }
   const balance = await repos.usage.creditBalance(ctx.db, ctx.businessId, periodOf(new Date()));
-  if (balance && Number(balance.balanceMinor) <= 0) return "This month's credits are used up. Top up in Settings › Billing or store your own key in Settings › Keys; the team resumes with either.";
+  if (balance && Number(balance.balanceMinor) <= 0) {
+    // A top-up is named only where credits can be bought here (WP-09 T13).
+    const period = periodOf(new Date());
+    return `This month's credits are used up. ${waysToContinue({ topUps: topUpsOnSale(ctx.env), nextCreditsOn: periodRange(period).to })}`;
+  }
   return null;
 }
 

@@ -29,4 +29,11 @@ describe("createLogger", () => {
     createLogger("ingest", "info", stream).info({ platformMail: { domain: "mail.foundmill.com", signingSecret: "s".repeat(32), inboundToken: "t", eventPublicKey: "k" }, env: { PLATFORM_MAIL_SIGNING_SECRET: "s", PLATFORM_MAIL_INBOUND_TOKEN: "t", PLATFORM_MAIL_EVENT_PUBLIC_KEY: "k" } }, "boot");
     expect(lines[0]).toMatchObject({ platformMail: { domain: "mail.foundmill.com", signingSecret: "[redacted]", inboundToken: "[redacted]", eventPublicKey: "[redacted]" }, env: { PLATFORM_MAIL_SIGNING_SECRET: "[redacted]", PLATFORM_MAIL_INBOUND_TOKEN: "[redacted]", PLATFORM_MAIL_EVENT_PUBLIC_KEY: "[redacted]" } });
   });
+
+  it("redacts a secret two levels down, OAuth tokens and sealed values (WP-11 T18)", () => {
+    const { lines, stream } = capture();
+    createLogger("gateway", "info", stream).info({ integration: { credential: { secret: "x", token: "y" } }, oauth: { accessToken: "a", refreshToken: "r" }, row: { sealed: "s" } }, "connect");
+    expect(lines[0]).toMatchObject({ integration: { credential: { secret: "[redacted]", token: "[redacted]" } }, oauth: { accessToken: "[redacted]", refreshToken: "[redacted]" }, row: { sealed: "[redacted]" } });
+  });
 });
+

@@ -103,12 +103,14 @@ describe("POST /idea-box/draft", () => {
     const { hz, app } = await setup();
     const first = await draft(app, idea, { address: "203.0.113.40" });
     // Each redraw from its own address, so only the browser's count can refuse the third.
-    for (let i = 0; i < IDEA_BOX_REDRAWS_PER_BROWSER; i++) expect(last((await draft(app, { ...idea, again: true }, { cookie: first.token!, address: `203.0.113.${41 + i}` })).events).type).toBe("card");
+    // Each card says how many redraws it has left today, so the page can say so instead of offering the button.
+    expect(last(first.events)).toMatchObject({ type: "card", redrawsLeft: IDEA_BOX_REDRAWS_PER_BROWSER });
+    for (let i = 0; i < IDEA_BOX_REDRAWS_PER_BROWSER; i++) expect(last((await draft(app, { ...idea, again: true }, { cookie: first.token!, address: `203.0.113.${41 + i}` })).events)).toMatchObject({ type: "card", redrawsLeft: IDEA_BOX_REDRAWS_PER_BROWSER - 1 - i });
     const third = await draft(app, { ...idea, again: true }, { cookie: first.token!, address: "203.0.113.49" });
     expect(third.events).toEqual([{ type: "error", code: "limit", message: IDEA_BOX_ERRORS.limit }]);
     expect(third.setCookie).toBeNull();
-    // The card stays the browser's.
-    expect((await draft(app, idea, { cookie: first.token! })).events[0]).toMatchObject({ type: "card", again: true });
+    // The card stays the browser's, with none left today.
+    expect((await draft(app, idea, { cookie: first.token! })).events[0]).toMatchObject({ type: "card", again: true, redrawsLeft: 0 });
     expect((await hz.db.select().from(s.ideaDrafts)).length).toBe(1);
   });
 
@@ -172,12 +174,15 @@ describe("POST /idea-box/draft", () => {
 
   it("reserves the ceiling card by card at the worst case, before any model call", async () => {
     expect(IDEA_BOX_CARD_RESERVE_MICRO).toBeGreaterThan(0);
-    const oneCard = Math.ceil(IDEA_BOX_CARD_RESERVE_MICRO / 1_000_000);
-    expect(ideaBoxDailyCards(oneCard)).toBe(1);
+    // The smallest ceiling, one cent, buys a few cards on the free plan's model (WP-13: Haiku 5.5): every one of them
+    // runs, and the next draft rests.
+    const cards = ideaBoxDailyCards(1);
+    expect(cards).toBe(Math.floor(1_000_000 / IDEA_BOX_CARD_RESERVE_MICRO));
+    expect(cards).toBeGreaterThanOrEqual(1);
     expect(ideaBoxDailyCards(0)).toBe(0);
-    const { app } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: String(oneCard) });
-    expect(last((await draft(app, idea, { address: "203.0.113.20" })).events).type).toBe("card");
-    expect((await draft(app, idea, { address: "203.0.113.21" })).events[0]).toMatchObject({ type: "error", code: "resting" });
+    const { app } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: "1" });
+    for (let i = 0; i < cards; i++) expect(last((await draft(app, idea, { address: `203.0.113.${20 + i}` })).events).type).toBe("card");
+    expect((await draft(app, idea, { address: "203.0.113.19" })).events[0]).toMatchObject({ type: "error", code: "resting" });
   });
 
   it("a visitor who closes the stream early still spends a card (security review P1-1): nothing is given back", async () => {
@@ -197,8 +202,8 @@ describe("POST /idea-box/draft", () => {
   });
 
   it("a model call that never answers ends in one failed line at the deadline, and its card stays spent (WP-03 T7)", async () => {
-    const oneCard = Math.ceil(IDEA_BOX_CARD_RESERVE_MICRO / 1_000_000);
-    const { hz } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: String(oneCard) });
+    const cards = ideaBoxDailyCards(1);
+    const { hz } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: "1" });
     // The worst case: a model that never answers and ignores the abort.
     const stalled = { mode: "mock", streamStructured: () => new Promise<never>(() => {}) } as unknown as ModelClient;
     const deps = { db: hz.deps.db, models: stalled, limits: hz.deps.limits, env: hz.deps.env, gateway: hz.deps.gateway, log: hz.deps.log };
@@ -218,8 +223,15 @@ describe("POST /idea-box/draft", () => {
       vi.useRealTimers();
     }
     expect(await hz.db.select().from(s.ideaDrafts)).toHaveLength(0);
-    // The reserved card is not given back (security review P1-1): the day's one card is gone.
-    const after = await planIdeaBoxDraft({ ...deps, models: hz.deps.models }, { body: idea, cookieToken: null, address: "203.0.113.41", hostname: null });
+    // The reserved card is not given back (security review P1-1): only the day's other cards remain.
+    const live = { ...deps, models: hz.deps.models };
+    for (let i = 1; i < cards; i++) {
+      const plan = await planIdeaBoxDraft(live, { body: idea, cookieToken: null, address: `203.0.113.${50 + i}`, hostname: null });
+      const events = [];
+      for await (const e of plan.events) events.push(e);
+      expect(events.at(-1)?.type).toBe("card");
+    }
+    const after = await planIdeaBoxDraft(live, { body: idea, cookieToken: null, address: "203.0.113.41", hostname: null });
     expect((await after.events.next()).value).toMatchObject({ type: "error", code: "resting" });
   });
 });
@@ -306,16 +318,40 @@ describe("ideaBox.claim and the waitlist", () => {
     const outsider = hz.caller({ userId: hz.B.ownerId, email: "outsider@test.local", emailConfirmed: true });
     await expect(outsider.ideaBox.claim({ token: first.token })).rejects.toThrow();
     const shareUrl = expect.stringMatching(/^http:\/\/localhost:3000\/\?via=w\.[a-z2-7]{10}$/);
-    expect(await outsider.waitlist.join({ token: first.token })).toEqual({ joined: true, cardKept: true, shareUrl });
+    // They chose "Shape it in the Ideation Studio" (0127): the choice is kept with the card.
+    expect(await outsider.waitlist.join({ token: first.token, then: "studio" })).toEqual({ joined: true, cardKept: true, shareUrl });
     expect(await outsider.waitlist.status()).toEqual({ joined: true, cardKept: true, shareUrl });
     // Admitted later, on any browser (no cookie, no link): the waitlist's card is the one to keep.
     hz.deps.env.SIGNUP_ALLOWLIST = "outsider@test.local";
-    expect(await outsider.ideaBox.preview({})).toMatchObject({ source: "waitlist", prompt: idea.prompt });
-    expect(await outsider.ideaBox.claim({})).toMatchObject({ again: false });
+    expect(await outsider.ideaBox.preview({})).toMatchObject({ source: "waitlist", prompt: idea.prompt, then: "studio" });
+    const kept = await outsider.ideaBox.claim({});
+    expect(kept).toMatchObject({ again: false });
+    // The kept card is in the deck the Ideation Studio lists (`idea.list`), so the person can shape it there at once.
+    expect((await outsider.idea.list()).items.map((i) => i.id)).toContain(kept!.ideaId);
     hz.deps.env.SIGNUP_ALLOWLIST = "someone-else@test.local";
     const [draftRow] = await hz.db.select().from(s.ideaDrafts);
     expect(draftRow!.heldUntil!.getTime() - Date.now()).toBeGreaterThan(80 * 24 * 60 * 60_000);
     await expect(hz.caller({ userId: hz.B.ownerId, email: "outsider@test.local", emailConfirmed: false }).waitlist.join({})).rejects.toThrow(/Confirm/);
+  });
+
+  it("the Studio choice goes with the waitlist's card: none without it, kept by a join with no card, cleared by a new card (0127)", async () => {
+    const { hz, app } = await setup({ SIGNUP_ALLOWLIST: "someone-else@test.local" });
+    const first = await draft(app, idea);
+    const person = hz.caller({ userId: hz.B.ownerId, email: "chooser@test.local", emailConfirmed: true });
+    await person.waitlist.join({ token: first.token, then: "studio" });
+    // A join with no card (the page again, another browser) keeps the choice with the card already held.
+    await person.waitlist.join({});
+    hz.deps.env.SIGNUP_ALLOWLIST = "chooser@test.local";
+    expect(await person.ideaBox.preview({})).toMatchObject({ source: "waitlist", then: "studio" });
+    hz.deps.env.SIGNUP_ALLOWLIST = "someone-else@test.local";
+    // A new card held without the choice replaces both.
+    const second = await draft(app, { ...idea, prompt: "Bike repair at the office" }, { address: "203.0.113.90" });
+    await person.waitlist.join({ token: second.token });
+    hz.deps.env.SIGNUP_ALLOWLIST = "chooser@test.local";
+    expect(await person.ideaBox.preview({})).toMatchObject({ source: "waitlist", prompt: "Bike repair at the office", then: null });
+    // A browser's own card carries its choice in the address, never from here.
+    expect(await person.ideaBox.preview({ token: second.token })).toMatchObject({ source: "browser", then: null });
+    await expect(person.waitlist.join({ then: "elsewhere" as "studio" })).rejects.toThrow();
   });
 
   it("a person who joins through someone's waitlist link is recorded as brought by them, once (WP-03 T10)", async () => {

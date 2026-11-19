@@ -2,10 +2,13 @@
  * Builder for the 15 channel engine agents (BUILD §11.7 channel table). Each channel file supplies the specifics; this
  * composes the description, goals around the channel's core metric, the shared engine-loop rules and the tool grants.
  */
-import { CHANNEL_META, type ChannelKey, type ChannelLine, type EventType } from "@foundmill/shared";
+import { CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
 import { grant, PLATFORM_BASE_TOOLS, QUARANTINE_TOOLS, type ConnectorKey } from "../../connectors";
 import { type AgentExample, type AgentTemplate, type ToolGrant } from "../../types";
-import { CHANNEL_COMMON_RULES, defineTemplate, SAVE_REPORT_RULE, spendingAutonomy, WORKER_COMMON_RULES, withCoreSkills } from "../_shared";
+import { CHANNEL_COMMON_RULES, CHANNEL_SOURCE_RULE, defineTemplate, SAVE_REPORT_RULE, spendingAutonomy, WORKER_COMMON_RULES, WORKER_SOURCE_RULE, withCoreSkills } from "../_shared";
+
+/** The worker rules with the channel's own source rule (WP-08 T1): claims come from the positioning notes. */
+const channelWorkerRules = (): string[] => WORKER_COMMON_RULES.map((r) => (r === WORKER_SOURCE_RULE ? CHANNEL_SOURCE_RULE : r));
 
 export interface ChannelTemplateInit {
   channelKey: ChannelKey;
@@ -26,7 +29,6 @@ export interface ChannelTemplateInit {
   kitMode?: boolean;
   /** Extra platform tools (e.g. campaigns.list) beyond the base set; only capabilities a tool serves (packages/connectors grants.ts). */
   platformTools?: string[];
-  triggers?: EventType[];
   neverDoes: string[];
 }
 
@@ -48,6 +50,8 @@ export const CHANNEL_PLATFORM_TOOLS = [
   "budgets.read",
   "kit.create_founder_task",
   "crm.entities.search",
+  // The project's positioning notes (WP-08 T1): every claim a channel makes comes from them.
+  "positioning.read",
 ];
 
 /** What the founder reads for a channel's line (CLAUDE.md: Acquisition / Engagement / Organic / Offline); the key stays internal. */
@@ -89,7 +93,7 @@ export function defineChannelTemplate(init: ChannelTemplateInit): AgentTemplate 
         "Every launch has passed policy approval, every contact has passed suppression and consent checks, and every result is attributed through links, codes or conversion APIs.",
         "Learn weekly: move spend and effort toward what measured best, pause what breached its cap, and say so in the report.",
       ],
-      rules: [...CHANNEL_COMMON_RULES, ...WORKER_COMMON_RULES, SAVE_REPORT_RULE, ...init.guardrails],
+      rules: [...CHANNEL_COMMON_RULES, ...channelWorkerRules(), SAVE_REPORT_RULE, ...init.guardrails],
       playbook: init.playbook,
       tone: "Practical marketer's voice: specific audiences, specific numbers, no hype, no invented social proof.",
       examples: init.examples,
@@ -97,7 +101,6 @@ export function defineChannelTemplate(init: ChannelTemplateInit): AgentTemplate 
     tools,
     skills: withCoreSkills(init.craftSkills),
     autonomy: spendingAutonomy(init.spendCapMinor),
-    schedule: { cron: "0 8 * * 1", triggers: init.triggers ?? ["campaign.launched", "channel.threshold_breached", "customer.converted"] },
     neverDoes: init.neverDoes,
   });
 }

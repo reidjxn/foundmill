@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildLiveConnector, buildMockConnector, ConnectInputError, connectInputValue, createAnthropicConnector, createCompaniesHouseConnector, createDefaultRegistry, createRegistry, defineTool, jsonResponse, mockHealth, mockIntegrationRecord, routedFetch, type Connector, type ConnectorRegistry, type HealthResult } from "@foundmill/connectors";
+import { buildLiveConnector, buildMockConnector, createStripeConnector, ConnectInputError, connectInputValue, createAnthropicConnector, createCompaniesHouseConnector, createDefaultRegistry, createRegistry, defineTool, jsonResponse, mockHealth, mockIntegrationRecord, routedFetch, type Connector, type ConnectorRegistry, type HealthResult } from "@foundmill/connectors";
 import { INTEGRATION_CREDENTIAL_KIND, repos, type Db } from "@foundmill/db";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { MODELS, validateApiKey } from "@foundmill/models";
@@ -189,12 +189,15 @@ describe("POST /v1/keys/validate", () => {
 
   it("is limited per business, apart from the agents' own anthropic calls", async () => {
     const rateLimits = new MemoryRateLimitStore();
-    const { app } = liveApp(messageOk, { rateLimits });
+    // Pinned inside one minute window: on the wall clock the calls could straddle a minute boundary and the over-limit
+    // call land in a fresh window (it flaked on #237's CI, expected 429, got 200).
+    const at = new Date("2026-11-17T12:00:30.000Z");
+    const { app } = liveApp(messageOk, { rateLimits, now: () => at });
     for (let i = 0; i < KEY_VALIDATION_LIMITS.perMinute; i++) expect((await post(app, "/v1/keys/validate", { businessId, apiKey: KEY })).status).toBe(200);
     const over = await post(app, "/v1/keys/validate", { businessId, apiKey: KEY });
     expect(over.status).toBe(429);
     expect(over.body.error?.code).toBe("rate_limited");
-    expect(rateLimits.peek(rateLimitKey(businessId, "anthropic", "minute"), Date.now())).toBe(0);
+    expect(rateLimits.peek(rateLimitKey(businessId, "anthropic", "minute"), at.getTime())).toBe(0);
   });
 });
 
@@ -359,3 +362,121 @@ describe("POST /v1/integrations/connect and /health beyond App connectors", () =
     expect((await post(app, "/v1/integrations/connect", { businessId, connector: "keyed", input: { apiKey: VENDOR_SECRET } })).status).toBe(429);
   });
 });
+
+describe("a founder's own Stripe: the webhook signing secret (WP-11 T20)", () => {
+  const KEY = "rk_live_founder_own_restricted_key_0123";
+  const HOOK = "whsec_FounderOwnEndpointSecret0123456789";
+  const stripeApp = (vault: LocalVault, logs: unknown[] = []) => {
+    const stripe = createStripeConnector({ secrets: {}, fetch: routedFetch({ "GET https://api.stripe.com/v1/account": () => jsonResponse({ id: "acct_founder123", object: "account", country: "US", default_currency: "usd", charges_enabled: true, payouts_enabled: true, settings: { dashboard: { display_name: "Founder Co" } } }) }) });
+    return appFor({ registry: createRegistry([stripe]), vault, liveConnectors: ["stripe"], logs });
+  };
+
+  it("stores it as a second credential of its own kind, sealed, and never echoes or audits it", async () => {
+    const vault = new LocalVault(generateMasterKey());
+    const logs: unknown[] = [];
+    const biz = (await repos.businesses.create(db, { name: "Own Stripe Co" })).id;
+    const r = await post(stripeApp(vault, logs), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY, webhookSecret: HOOK } });
+    expect(r.status).toBe(200);
+    expect(r.text).not.toContain(HOOK);
+    const integrationId = r.body.integrationId as string;
+    const metas = await repos.credentials.listMetadata(db, biz, { integrationId });
+    expect(metas.map((m) => m.kind).sort()).toEqual([INTEGRATION_CREDENTIAL_KIND, "stripe_webhook_secret"].sort());
+    const hook = (await repos.credentials.latest(db, biz, integrationId, "stripe_webhook_secret"))!;
+    expect(await decryptJson(vault, hook.record, buildAad(biz, "credentials", hook.meta.id))).toEqual({ secret: HOOK });
+    const audits = JSON.stringify(await repos.audit.list(db, biz, { limit: 200 }));
+    expect(audits).not.toContain(HOOK);
+    expect(audits).toContain("stripe_webhook_secret");
+    expect(JSON.stringify(logs)).not.toContain(HOOK);
+  });
+
+  it("stores one row without it, and refuses a value that is not a signing secret before Stripe is called", async () => {
+    const vault = new LocalVault(generateMasterKey());
+    const biz = (await repos.businesses.create(db, { name: "Own Stripe Two" })).id;
+    const r = await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY } });
+    expect(r.status).toBe(200);
+    expect((await repos.credentials.listMetadata(db, biz, { integrationId: r.body.integrationId as string })).map((m) => m.kind)).toEqual([INTEGRATION_CREDENTIAL_KIND]);
+    const bad = await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY, webhookSecret: "abc" } });
+    expect(bad).toMatchObject({ status: 400, body: { error: { code: "invalid_webhook_secret" } } });
+    for (const webhookSecret of [123, { secret: HOOK }, "whsec_has space inside", `whsec_${"a".repeat(201)}`]) {
+      expect((await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY, webhookSecret } })).status, String(webhookSecret)).toBe(400);
+    }
+    // Only beside the founder's own key.
+    expect(await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { accountId: "acct_founder123", webhookSecret: HOOK } })).toMatchObject({ status: 400, body: { error: { code: "invalid_webhook_secret" } } });
+  });
+
+  it("a reconnect to another Stripe account without a new secret retires the old one; the same account keeps it", async () => {
+    const vault = new LocalVault(generateMasterKey());
+    const biz = (await repos.businesses.create(db, { name: "Own Stripe Three" })).id;
+    const first = await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY, webhookSecret: HOOK } });
+    const integrationId = first.body.integrationId as string;
+    await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY } });
+    expect(await repos.credentials.latest(db, biz, integrationId, "stripe_webhook_secret")).not.toBeNull();
+    const other = createStripeConnector({ secrets: {}, fetch: routedFetch({ "GET https://api.stripe.com/v1/account": () => jsonResponse({ id: "acct_another456", object: "account", country: "US", default_currency: "usd", charges_enabled: true, payouts_enabled: true }) }) });
+    await post(appFor({ registry: createRegistry([other]), vault, liveConnectors: ["stripe"] }), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY } });
+    expect(await repos.credentials.latest(db, biz, integrationId, "stripe_webhook_secret")).toBeNull();
+  });
+});
+
+describe("Sign in with Stripe through the gateway (WP-11, Nov 17, 2026)", () => {
+  const signIn = (account: string, seen: string[]) => {
+    const stripe = createStripeConnector({
+      secrets: { stripeSecretKey: "sk_test_platform", stripeConnectClientId: "ca_test_platform" },
+      fetch: routedFetch({
+        "POST https://connect.stripe.com/oauth/token": () => (seen.push("token"), jsonResponse({ stripe_user_id: account, scope: "read_write", livemode: false })),
+        [`GET https://api.stripe.com/v1/accounts/${account}`]: () => jsonResponse({ id: account, object: "account", country: "US", default_currency: "usd", charges_enabled: true, payouts_enabled: true }),
+        "GET https://api.stripe.com/v1/account": () => jsonResponse({ id: "acct_1PastedKey0000009", object: "account", country: "US", default_currency: "usd", charges_enabled: true, payouts_enabled: true }),
+        "POST https://connect.stripe.com/oauth/deauthorize": async (req) => (seen.push(`deauthorize ${new URLSearchParams(await req.text()).get("stripe_user_id")}`), jsonResponse({ stripe_user_id: "x" })),
+      }),
+    });
+    return appFor({ registry: createRegistry([stripe]), vault: new LocalVault(generateMasterKey()), liveConnectors: ["stripe"] });
+  };
+  /** What the api writes after a sign-in (the gateway stores nothing for one: there is no secret). */
+  const signedInRow = (biz: string, account: string) => repos.integrations.upsert(db, biz, { connectorKey: "stripe", status: "connected", authKind: "oauth", settings: { externalAccountId: account, config: { kind: "connect" } } });
+  const code = { code: "ac_TestCode123", redirectUri: "https://foundmill.com/integrations/oauth/callback" };
+
+  it("refuses an account another project signed in with, before anything changes", async () => {
+    const seen: string[] = [];
+    const first = (await repos.businesses.create(db, { name: "Stripe Owner One" })).id;
+    const second = (await repos.businesses.create(db, { name: "Stripe Owner Two" })).id;
+    await signedInRow(first, "acct_1Taken000000001");
+    const r = await post(signIn("acct_1Taken000000001", seen), "/v1/integrations/connect", { businessId: second, connector: "stripe", input: code });
+    expect(r).toMatchObject({ status: 409, body: { error: { code: "account_in_use", message: "This Stripe account is already connected to another project." } } });
+    expect(seen).toEqual(["token"]); // nothing withdrawn: the account stays connected to the first project
+  });
+
+  it("connecting withdraws nothing itself: the previous sign-in waits for the api's save (security review, Nov 17)", async () => {
+    const seen: string[] = [];
+    const biz = (await repos.businesses.create(db, { name: "Stripe Switch" })).id;
+    await signedInRow(biz, "acct_1Previous0000001");
+    expect((await post(signIn("acct_1Next000000000002", seen), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: code })).status).toBe(200);
+    expect(seen).toEqual(["token"]);
+  });
+
+  it("POST /v1/integrations/release withdraws an account no project holds, and never one a project is signed in with", async () => {
+    const seen: string[] = [];
+    const biz = (await repos.businesses.create(db, { name: "Stripe Release" })).id;
+    const other = (await repos.businesses.create(db, { name: "Stripe Release Other" })).id;
+    await signedInRow(other, "acct_1HeldElsewhere001");
+    expect(await post(signIn("x", seen), "/v1/integrations/release", { businessId: biz, connector: "stripe", externalAccountId: "acct_1HeldElsewhere001" })).toMatchObject({ status: 409, body: { error: { code: "account_in_use" } } });
+    await signedInRow(biz, "acct_1Current0000001");
+    expect((await post(signIn("x", seen), "/v1/integrations/release", { businessId: biz, connector: "stripe", externalAccountId: "acct_1Current0000001" })).status).toBe(409);
+    expect(seen).toEqual([]);
+    expect(await post(signIn("x", seen), "/v1/integrations/release", { businessId: biz, connector: "stripe", externalAccountId: "acct_1Replaced000001" })).toMatchObject({ status: 200, body: { released: true } });
+    expect(seen).toEqual(["deauthorize acct_1Replaced000001"]);
+    expect((await post(signIn("x", seen), "/v1/integrations/release", { businessId: biz, connector: "stripe", externalAccountId: "not-an-account" })).status).toBe(400);
+    expect(JSON.stringify(await repos.audit.list(db, biz, { limit: 50 }))).toContain("gateway.integration.access_released");
+  });
+
+  it("POST /v1/integrations/disconnect withdraws a sign-in at Stripe, and only a sign-in", async () => {
+    const seen: string[] = [];
+    const biz = (await repos.businesses.create(db, { name: "Stripe Disconnect" })).id;
+    await signedInRow(biz, "acct_1Leaving00000005");
+    expect(await post(signIn("acct_1Leaving00000005", seen), "/v1/integrations/disconnect", { businessId: biz, connector: "stripe" })).toMatchObject({ status: 200, body: { released: true } });
+    expect(seen).toEqual(["deauthorize acct_1Leaving00000005"]);
+    await repos.integrations.upsert(db, biz, { connectorKey: "stripe", settings: { externalAccountId: "acct_1Pasted00000006", config: { kind: "own" } } });
+    expect(await post(signIn("acct_1Leaving00000005", seen), "/v1/integrations/disconnect", { businessId: biz, connector: "stripe" })).toMatchObject({ status: 200, body: { released: false } });
+    expect(seen).toHaveLength(1);
+    expect((await post(signIn("acct_1Leaving00000005", seen), "/v1/integrations/disconnect", { businessId: biz, connector: "stripe" }, "orchestrator")).status).toBe(403);
+  });
+});
+

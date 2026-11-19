@@ -31,6 +31,7 @@ import { startIdeaBoxSweep } from "./services/idea-box";
 import { startShowcaseSweep } from "./services/showcase";
 import { DEMO_ROLL_BOOT_WAIT_MS, demoRollForwardEnabled, startDemoRollForward } from "./services/demo-roll-forward";
 import { notifyEmailEnabled, startNotifyEmail } from "./services/push/email-pass";
+import { backfillDefaultSkillsOnBoot } from "./services/default-skills-backfill";
 import { backfillPersonasOnBoot } from "./services/persona-backfill";
 import { startWorkflowReconciler } from "./services/workflow-reconcile";
 
@@ -163,9 +164,11 @@ export async function main(): Promise<void> {
   let warmer: PoolWarmer | null = null;
   let watchdog: PoolWatchdog | null = null;
   // Fetched now and refreshed in the background: no request waits for Supabase's signing keys.
+  if (deps.auth.devUserId) deps.log.warn({ userId: deps.auth.devUserId }, "DEV_AUTH_USER_ID is set: tokens are not verified (development/test only)");
   const keys: KeyRefresher | null = deps.auth.keepKeysFresh?.({ onError: (err) => deps.log.warn({ err: (err as Error)?.message }, "fetching Supabase's signing keys failed; retrying in 5 minutes (a token with an unknown key fetches them at once)") }) ?? null;
   // With SIGNUP_ALLOWLIST: is Supabase's "Confirm email" on? Read in the background; boot never waits for it.
   const confirmEmail = deps.confirmEmail?.start() ?? null;
+  const dataApi = deps.dataApi?.start() ?? null;
   // Installed before the migration: a SIGTERM during boot still closes the pool (the migration transaction rolls back).
   const lifecycle = onShutdown({
     service: "api",
@@ -187,6 +190,7 @@ export async function main(): Promise<void> {
       { name: "stop showcase sweep", run: async () => showcaseSweep?.stop() },
       { name: "stop key refresh", run: () => keys?.stop() },
       { name: "stop confirm-email check", run: () => confirmEmail?.stop() },
+      { name: "stop data-api check", run: () => dataApi?.stop() },
       { name: "stop pool warmer", run: () => warmer?.stop() },
       { name: "stop pool watchdog", run: () => watchdog?.stop() },
       { name: "stop outbox relay", run: () => relay?.stop() },
@@ -237,6 +241,8 @@ export async function main(): Promise<void> {
   const bootWork = seedSettled
     // Agents hired before 0067 get their persona keys (idempotent; failures are logged and never block).
     .then(() => (migrated && !lifecycle.stopping ? backfillPersonasOnBoot(deps) : undefined))
+    // Agents hired before a release of role defaults get the ones they lack, never one a founder removed (WP-06 T6).
+    .then(() => (migrated && !lifecycle.stopping ? backfillDefaultSkillsOnBoot(deps) : undefined))
     .catch(() => undefined);
   // The sample businesses roll forward with the calendar (DECISIONS 2026-11-10), after the seed and every hour after;
   // DEMO_ROLL_FORWARD=off turns it off. The reconciler below waits for the boot roll at most DEMO_ROLL_BOOT_WAIT_MS (a

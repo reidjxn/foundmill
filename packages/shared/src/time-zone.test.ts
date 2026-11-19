@@ -7,6 +7,8 @@ describe("business time zone", () => {
     const at = new Date("2026-10-11T21:12:00Z");
     expect(dayKeyIn(at, "Asia/Tokyo")).toBe("2026-10-12");
     expect(dayKeyIn(at, "UTC")).toBe("2026-10-11");
+    // A project in Los Angeles at 11:30 PM on Oct 11 is still on Oct 11, when UTC is already Oct 12 (WP-10 T12, Milestones).
+    expect(dayKeyIn(new Date("2026-10-12T06:30:00Z"), "America/Los_Angeles")).toBe("2026-10-11");
     expect(dayKeyIn(new Date("2026-10-12T02:00:00Z"), "America/Los_Angeles")).toBe("2026-10-11");
   });
 

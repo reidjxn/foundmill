@@ -96,7 +96,7 @@ describe("TileGrid", () => {
     render(<TileGrid items={items(30)} renderTile={renderTile} />);
     const strip = screen.getByTestId("overflow-strip");
     expect(within(strip).getAllByRole("listitem")).toHaveLength(6);
-    fireEvent.click(within(strip).getByRole("listitem", { name: "Tile 28" }));
+    fireEvent.click(within(strip).getByRole("button", { name: "Tile 28" }));
     expect(screen.getByTestId("tile-t28").dataset.ctx).toBe("focused");
   });
 

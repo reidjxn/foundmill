@@ -96,8 +96,8 @@ const FAMILY_ORDER: Record<TemplateRow["family"], number> = { assistant: 0, lead
 /** What the Recruitment tab is for (UX plan §6.2 Explainer, C10), with the wage cap defined on first use. */
 export const TEAM_RECRUITMENT_EXPLAINER = {
   screenId: "team-recruitment",
-  purpose: "Hire new agents: describe one in a sentence, or pick a ready-made template from the catalog.",
-  action: "Say what the agent should do and press Draft this agent; or use the … on a template and choose Hire…. It joins a department and starts next cycle.",
+  purpose: "Hire new agents: describe the work to find the closest role, or pick one from the catalog.",
+  action: "Say what the agent should do and press Find the closest role; or use the … on a template and choose Hire…. It joins a department and starts next cycle.",
   watchFor: (
     <>
       The <Term id="wage_cap">wage cap</Term>: the most an agent may cost per month, in US dollars (Estimate).
@@ -194,9 +194,10 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         meta: { numeric: true, csv: (r) => r.wageCapMinor / 100 },
         cell: ({ row }) => (
           <span className="inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums">
-            {formatMoney({ amountMinor: row.original.wageCapMinor, currency: CREDITS_CURRENCY })}
-            <span className="t-unit">/mo</span>
-            <ProvenanceChip kind="estimate" />
+            <ProvenanceChip kind="estimate">
+              {formatMoney({ amountMinor: row.original.wageCapMinor, currency: CREDITS_CURRENCY })}
+              <span className="t-unit">/mo</span>
+            </ProvenanceChip>
           </span>
         ),
       },
@@ -250,7 +251,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
 
   return (
     <Screen name="team/recruitment">
-      <Panel span={12} title="Agent builder" glow="brand" footer="The closest template gives the new agent its description, instructions, skills and tools; train it from its profile to tune them. Hiring needs no approval; the wage cap is an estimate until the first month closes.">
+      <Panel span={12} title="Find a role" glow="brand" footer="The closest template gives the new agent its description, instructions, skills and tools; train it from its profile to tune them. Hiring needs no approval; the wage cap is an estimate until the first month closes.">
         <div className="flex flex-col gap-3">
           {/* The per-screen intro (UX plan §6.2): inside the first panel's body, never floating; nothing with guidance off. */}
           <Explainer {...TEAM_RECRUITMENT_EXPLAINER} />
@@ -271,7 +272,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
           <div className="flex flex-wrap items-center gap-3">
             {/* The key cap is an operator's affordance: shown only with guidance off; the shortcut works in both states. */}
             <Button variant="generate" size="md" disabled={!best} kbd={guided ? undefined : "⌘↵"} onClick={draft} data-testid="draft-agent">
-              Draft this agent
+              Find the closest role
             </Button>
             <span className="min-w-0 text-small text-secondary" role="status">
               {best ? (

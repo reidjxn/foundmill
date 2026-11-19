@@ -34,6 +34,11 @@ export interface PanelMenu {
 
 export interface PanelProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   title: ReactNode;
+  /**
+   * The title's heading level: 2 (default) on a screen whose own title is the h1, 1 when the panel is the page (a
+   * sign-in or email page in the brand frame), so every page has exactly one h1 (WCAG, axe `page-has-heading-one`).
+   */
+  headingLevel?: 1 | 2;
   /** Columns on the 12-column grid (BUILD §5.3). Omit when the panel is not on a PageGrid. */
   span?: GridSpan;
   /** Caret menu on the right of the header. Omitted → no caret. */
@@ -103,7 +108,7 @@ function isEmptyStateProps(v: unknown): v is Omit<EmptyStateProps, "children"> &
  * (PanelMenuButton), and the help tip is the guidance group's client InfoTip.
  */
 export const Panel = forwardRef<HTMLElement, PanelProps>(function Panel(
-  { title, span, menu, actions, meta, help, helpLearn, helpLabel: helpLabelProp, glow, loading, empty, error, onRetry, footer, flush, bodyClassName, className, children, ...rest },
+  { title, headingLevel = 2, span, menu, actions, meta, help, helpLearn, helpLabel: helpLabelProp, glow, loading, empty, error, onRetry, footer, flush, bodyClassName, className, children, ...rest },
   ref,
 ) {
   const titleId = useId();
@@ -122,6 +127,7 @@ export const Panel = forwardRef<HTMLElement, PanelProps>(function Panel(
   else if (state === "empty") body = isEmptyStateProps(empty) ? <EmptyState {...empty} className={cn("py-6", empty.className)} /> : <EmptyState className="py-6">{empty as ReactNode}</EmptyState>;
   else body = children;
 
+  const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
     <section
       ref={ref}
@@ -135,9 +141,9 @@ export const Panel = forwardRef<HTMLElement, PanelProps>(function Panel(
     >
       <header className="panel-head" data-panel-header>
         <div className="flex min-w-0 flex-auto items-baseline gap-2">
-          <h2 id={titleId} className="t-title min-w-0 text-balance text-primary">
+          <Heading id={titleId} className="t-title min-w-0 text-balance text-primary">
             {title}
-          </h2>
+          </Heading>
           {meta ? <span className="t-mono shrink-0 text-tertiary">{meta}</span> : null}
           {help ? (
             <InfoTip label={helpLabel} learn={helpLearn} className="-my-1 self-center">

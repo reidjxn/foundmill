@@ -11,7 +11,7 @@
  * the business is complete without them, and a source nothing will read is marked not read). A founder with no budget
  * (WP-04 T3; founder, 2026-11-16 D1) gets no finance or legal task and no cycle at commit: the open-questions task waits
  * `ready` for the plan's approval, a press of Continue or the first overnight shift, whichever comes first. The vision, specification content and roadmap are
- * drafted on the first open (services/foundations.ts), and the founder is asked to sign them off; the channel engines,
+ * drafted on the first open (services/foundations.ts), and the founder approves them as one plan note; the channel engines,
  * the channel-scoring task and the Board's question wait for the founder's Start distribution (founder, 2026-10-18;
  * services/signoff.ts).
  *
@@ -25,13 +25,13 @@
  */
 import { randomUUID } from "node:crypto";
 import { DEPARTMENT_DEFAULTS, departmentTabs, firstCycleTasksFor, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
-import { CREDITS_CURRENCY, initialModelBilling } from "@foundmill/config";
+import { CREDITS_CURRENCY, firstCycleInput, initialModelBilling } from "@foundmill/config";
 
 /** Wage caps are model credits, counted in the credits' own currency whatever the business counts in. */
 const WAGE_CURRENCY = CREDITS_CURRENCY;
 import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, OVERNIGHT_SHIFT, ValidationError, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, FIRST_DAY_PROMISE, OVERNIGHT_SHIFT, ValidationError, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
 import { channelRowsFor } from "./channel-availability";
 import { QUEUE_ACTION } from "./cycle";
@@ -44,6 +44,7 @@ import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 import { importJobIdOf, resolveImportLink, seedFoundations, type ImportLink, type ScoutingReportLike } from "./foundations";
 import { queueImportReads } from "./import";
 import { seedConceptSources } from "./concept-sources";
+import { accountPlanOpen } from "./payments";
 
 export interface CommitIdeaInput {
   ideaId: string;
@@ -66,6 +67,8 @@ export interface CommitIdeaInput {
    * one, commit seeds no finance or legal task and starts no cycle (WP-04 T3). Absent: treated as having one.
    */
   hasBudget?: boolean;
+  /** The founder's name for the welcome note ("Hi Sam."; idea.commit reads it from the profile). Absent: "Hi." */
+  displayName?: string | null;
   /** With `autopilot`: the overnight shift (daily cadence at about 2 AM in this zone; retention plan, 2026-11-11). */
   overnight?: { timeZone: string };
   /** The Launch step's "Anthropomorphic agents" switch: written to the founder's account preferences when given (0067). */
@@ -79,7 +82,7 @@ export interface CommitIdeaResult {
   departmentIds: string[];
   agentIds: string[];
   chiefOfStaffId: string;
-  /** The Chief of Staff's welcome note: the team is drafting the foundations, two sign-off notes follow (non-blocking). */
+  /** The Chief of Staff's welcome note: the team is drafting the foundations, the plan note follows (non-blocking). */
   firstItem: InboxItem;
   taskIds: string[];
   /**
@@ -151,20 +154,20 @@ export function importBoardDecision(name: string, link: ImportLink): ReturnType<
 }
 
 /**
- * The Chief of Staff's welcome note at Take charge (non-blocking): who the Chief of Staff is and what is always the
- * founder's (the house rules' founder line, UX plan §7.19), the team is hired, the Product lead is drafting the
- * foundations, two sign-off notes follow, and nothing is spent on distribution until the founder starts it.
+ * The Chief of Staff's welcome note at Take charge (non-blocking; WP-04 T7 "one first-day story"): the project has
+ * started, the Product lead is drafting its public page, the plan note follows, and nothing costs money or goes out in
+ * the founder's name unless they say so. Its last line is `FIRST_DAY_PROMISE`'s, so Commit and the note agree.
  */
-export function welcomeNote(input: { agents: number; departments: number; productLeadName: string | null; door: "ideation" | "import" }): { subject: string; bodyMd: string } {
-  const from = input.door === "import" ? "the Import report" : "your idea and your founder profile";
+export function welcomeNote(input: { displayName: string | null; businessName: string; productLeadName: string | null; door: "ideation" | "import" }): { subject: string; bodyMd: string } {
+  const from = input.door === "import" ? "what you imported" : "your own words";
   const who = input.productLeadName ?? "The Product lead";
+  const name = input.displayName?.trim();
   return {
-    subject: "Your team is drafting your page and your plan",
+    subject: `${input.businessName} has started`,
     bodyMd: [
-      prompts.HOUSE_RULES_FOUNDER_LINE,
-      `The team is hired: ${input.agents} agents in ${input.departments} departments.`,
-      `${who} is drafting your public page first, from ${from}: check it and put it live. The vision, the specification and the roadmap follow as two notes to sign off. Building starts when both are approved.`,
-      "Nothing is spent on distribution until you start it from Customers › Board.",
+      `${name ? `Hi ${name}.` : "Hi."} ${input.businessName} is yours, and it has started.`,
+      `${who} is drafting its public page from ${from}. In about a minute you can check it and publish it.`,
+      `After that your plan arrives as one note. ${FIRST_DAY_PROMISE[3]}`,
     ].join("\n\n"),
   };
 }
@@ -178,7 +181,7 @@ function uniqueSlug(name: string): string {
  * `importKey` returns the key import job ids are signed with (`importJobKey(env)`); it is only called for an idea that
  * Import drafted, so a Door A commit never needs it.
  */
-export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string, deps: { log?: Pick<ApiLogger, "warn">; env?: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> } = {}): Promise<CommitIdeaResult> {
+export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string, deps: { log?: Pick<ApiLogger, "warn">; env?: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "MODEL_MODE" | "ALLOW_MOCK_PAYMENTS"> & Partial<Pick<Env, "PAID_ENTRY">> } = {}): Promise<CommitIdeaResult> {
   const idea = await repos.ideas.get(db, userId, input.ideaId);
   if (idea.committedAt) return committedIdeaResult(db, userId, input.ideaId);
   // Door B: the Import job this idea was drafted from (recorded by idea.generate), verified again (signed for this
@@ -187,6 +190,11 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   const importLink = importJobId ? await resolveImportLink(db, importKey(), importJobId, userId) : null;
   const seed = getArchetypeSeed(input.archetype);
   const hasBudget = input.hasBudget ?? true;
+  // Paid entry (WP-09 T16): without the entry plan the project, its page, plan and foundations are created as always, but
+  // no cycle starts and Autopilot stays off until the founder subscribes (Continue then starts cycle 1).
+  // Without the environment the gate cannot be read: closed, never open (the router always passes it).
+  const planOpen = deps.env ? await accountPlanOpen(db, deps.env, userId) : false;
+  const autopilotOn = Boolean(input.autopilot) && planOpen;
   const businessMode = input.businessMode ?? DEFAULT_BUSINESS_MODE;
   // The business keeps its money in the currency the founder chose (their profile's unless they changed it): stored on
   // the business itself (0025), which every business amount and every screen reads, and on the rows created here. Every
@@ -227,7 +235,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     const businessId = business.id;
     await repos.memberships.add(tx, businessId, { userId, role: "owner", source: "founder" });
     // "Run on autopilot": on from the first minute, audited like turning it on in Settings.
-    if (input.autopilot) {
+    if (autopilotOn) {
       const overnight = input.overnight ? { cadence: OVERNIGHT_SHIFT.cadence, dailyHour: overnightUtcHour(isValidTimeZone(input.overnight.timeZone) ? input.overnight.timeZone : null), ownMaxCyclesPerDay: OVERNIGHT_SHIFT.ownMaxCyclesPerDay, ownSpendCeilingMinor: OVERNIGHT_SHIFT.ownSpendCeilingMinor } : {};
       const on = await repos.autopilot.set(tx, businessId, { enabled: true, ...overnight });
       await repos.audit.append(tx, businessId, { actorKind: "user", actorId: userId, action: "autopilot.turn_on", target: { kind: "business", id: businessId }, details: { enabled: true, cadence: on.business.autopilotCadence, maxCyclesPerDay: on.business.autopilotMaxCyclesPerDay, via: input.overnight ? "commit_overnight" : "commit" } });
@@ -362,7 +370,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Start distribution and Door B's import decisions for the build start (services/signoff.ts).
     const productDept = seed.departments.find((d) => d.moduleKeys.includes("product"));
     const productLeadId = productDept ? leadByDepartment.get(departmentIdBySlug.get(productDept.slug)!) : undefined;
-    const welcome = welcomeNote({ agents: agentIds.length, departments: seed.departments.length, productLeadName: hired.find((h) => h.agent.id === productLeadId)?.agent.name ?? null, door: importLink ? "import" : "ideation" });
+    const welcome = welcomeNote({ displayName: input.displayName ?? null, businessName: business.name, productLeadName: hired.find((h) => h.agent.id === productLeadId)?.agent.name ?? null, door: importLink ? "import" : "ideation" });
     const firstItem = await repos.inbox.createItem(tx, businessId, {
       type: "update",
       from_agent_id: chief.agent.id,
@@ -448,7 +456,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
 
   // With a budget, cycle 1 starts now. Without one (WP-04 T3) nothing is dispatched yet: the first round starts on the
   // plan's approval, Continue or the first overnight shift, and is still cycle 1 (cycles are numbered from history).
-  const cycle = hasBudget ? await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue" }] }) : null;
+  // A free project on credits runs it one session at a time under the first-round cap (WP-09 T11).
+  const firstRound = firstCycleInput({ modelBilling: result.business.modelBilling, tier: result.business.planTier });
+  const cycle = hasBudget && planOpen ? await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue", ...firstRound }] }) : null;
   // The first cycle exists from here on, even while the orchestrator has not picked it up: Continue shows it and Pause reaches it.
   if (cycle && cycle.queued && !cycle.alreadyStarted) await repos.audit.append(db, result.business.id, { actorKind: "user", actorId: userId, action: QUEUE_ACTION, target: { kind: "cycle", id: cycle.workflowId }, details: { cycleNumber: 1, workflowId: cycle.workflowId, trigger: "continue" } });
   // Door B: the sign-up job read nothing; this is the import that reads the sources (or marks them not read).
@@ -456,7 +466,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   // The starters are on the board, but their engines wait for the founder's Start distribution (services/signoff.ts).
   // Autopilot starts after the first cycle, which it waits for (and for the sign-off notes, which block Continue); with no
   // cycle at commit, its first scheduled look starts cycle 1.
-  const autopilot = input.autopilot ? await startAutopilotWorkflow({ businessId: result.business.id, temporal }) : null;
+  const autopilot = autopilotOn ? await startAutopilotWorkflow({ businessId: result.business.id, temporal }) : null;
   return { ...result, cycle, import: imported, engines: [], autopilot, alreadyCommitted: false };
 }
 

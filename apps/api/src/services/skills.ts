@@ -9,9 +9,10 @@
  * The rows are written on the service connection after the team-write check (agent_skills is service-written), as
  * hiring and custom skills are.
  */
-import { SKILL_FILE_MAX_BYTES, SKILL_LIBRARY, SKILL_LIBRARY_CATEGORY_LABELS, librarySkillKey, parseSkillFile, type AgentSkillPrompt, type ParsedSkillFile } from "@foundmill/agents";
-import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, type AddedAgentSkill, type Agent, type Executor, type ResolvedSkill } from "@foundmill/db";
-import { ValidationError } from "@foundmill/shared";
+import { NO_TOOL_LOOP_PRELOAD_BODIES, SKILL_FILE_MAX_BYTES, SKILL_LIBRARY, SKILL_LIBRARY_CATEGORY_LABELS, attachedSkills, getLibrarySkill, selectSkills, getTemplate, getTemplateByAgentType, librarySkillKey, parseSkillFile, suggestFor, type AgentSkillPrompt, type LibrarySkill, type ParsedSkillFile } from "@foundmill/agents";
+import { BUILTIN_CONNECTOR_FACTORIES, CONNECTOR_FACTORIES, channelAvailabilityFacts, type ChannelAvailabilityFacts, type ConnectorFactory } from "@foundmill/connectors";
+import { attachAddedSkills, loadProductStage, repos, resolveLibrarySkill, resolveSkillFile, type AddedAgentSkill, type Agent, type Executor, type ResolvedSkill } from "@foundmill/db";
+import { NotFoundError, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { audit, type BusinessContext } from "../trpc";
 
@@ -29,9 +30,65 @@ export type SkillChoice = z.infer<typeof SkillChoice>;
 /** A skill ready to attach: what the definition stores (packages/db skill-attach). */
 export type { ResolvedSkill };
 
-/** The library as the hire flow and the profile list it: grouped by category, with each skill's attribute and text. */
-export function libraryView() {
-  return SKILL_LIBRARY.map((s) => ({
+/** Who the picker was opened for: an agent on its profile, or the template being hired. Neither: no suggestions. */
+export const LibraryFor = z.object({ agentId: z.string().uuid().optional(), templateKey: z.string().min(1).max(80).optional() });
+export type LibraryFor = z.infer<typeof LibraryFor>;
+
+/** "Adapted from marketing-skills:cro under the MIT license."; null for text written for the product. */
+export function skillAttribution(s: Pick<LibrarySkill, "provenance">): string | null {
+  const p = s.provenance;
+  if (p.origin !== "adapted") return null;
+  return `Adapted from ${p.sources.join(", ")}${p.license ? ` under the ${p.license} license` : ""}.`;
+}
+
+/** A connector a skill names, as the picker shows it: its display name, and whether it needs an account at all. */
+const CONNECTOR_FACTORY_BY_KEY: Readonly<Record<string, ConnectorFactory>> = { ...CONNECTOR_FACTORIES, ...BUILTIN_CONNECTOR_FACTORIES };
+const connectorInfo = new Map<string, { name: string; accountFree: boolean }>();
+function connectorOf(key: string): { name: string; accountFree: boolean } {
+  let info = connectorInfo.get(key);
+  if (!info) {
+    const c = CONNECTOR_FACTORY_BY_KEY[key]?.();
+    info = { name: c?.displayName ?? key, accountFree: c?.auth.kind === "none" };
+    connectorInfo.set(key, info);
+  }
+  return info;
+}
+
+/**
+ * Whether a connector a skill is better with is connected for this business, read from the facts the channel rules use
+ * (`channelAvailabilityFacts` over the business's integrations): the project's sending address where it really sends,
+ * a connector that needs no account always, any other once its integration is connected.
+ */
+function isConnected(key: string, facts: ChannelAvailabilityFacts): boolean {
+  if (key === "platform_mail") return facts.platformMail === true;
+  return connectorOf(key).accountFree || facts.connectedConnectors.includes(key);
+}
+
+/** The template the picker suggests for: the agent's (read under RLS, so another business's agent is not found), or the one being hired. */
+async function templateFor(ctx: BusinessContext, input: LibraryFor): Promise<string | null> {
+  if (input.agentId) {
+    const agentId = input.agentId;
+    const agent = await ctx.rls((tx) => repos.agents.get(tx, ctx.businessId, agentId));
+    return getTemplateByAgentType(agent.agentType)?.key ?? null;
+  }
+  if (input.templateKey) return getTemplate(input.templateKey).key;
+  return null;
+}
+
+/**
+ * The library as the hire flow and the profile list it (WP-06 T7): every skill with its category, the attribute it shows
+ * as, when an agent uses it, the connectors that make it better (and whether each is connected), the tools it would use
+ * that are not built yet and where its text comes from. Suggested skills (`suggestFor`: the role's, those that fit the
+ * project's stage first) lead the list. No bodies: a person reads one with team.skills.get.
+ */
+export async function libraryView(ctx: BusinessContext, input: LibraryFor = {}) {
+  const templateKey = await templateFor(ctx, input);
+  const [facts, suggested] = await Promise.all([
+    ctx.rls(async (tx) => channelAvailabilityFacts(ctx.env, ctx.business, await repos.integrations.list(tx, ctx.businessId))),
+    templateKey ? ctx.rls(async (tx) => suggestFor(templateKey, (await loadProductStage(tx, ctx.businessId)).stage)) : Promise.resolve([] as string[]),
+  ]);
+  const rank = new Map(suggested.map((k, i) => [k, i]));
+  const rows = SKILL_LIBRARY.map((s) => ({
     key: s.key,
     skillKey: librarySkillKey(s.key),
     name: s.name,
@@ -39,8 +96,22 @@ export function libraryView() {
     category: s.category,
     categoryLabel: SKILL_LIBRARY_CATEGORY_LABELS[s.category],
     attribute: s.attribute,
-    instructionsMd: s.instructionsMd,
+    whenToUse: s.whenToUse,
+    version: s.version,
+    suggested: rank.has(s.key),
+    suggestedBecause: rank.has(s.key) ? "Fits this role" : null,
+    requires: s.requires.map((r) => ({ connectorKey: r.connectorKey, name: connectorOf(r.connectorKey).name, connected: isConnected(r.connectorKey, facts) })),
+    notYetOnFoundmill: [...s.notYetOnFoundmill],
+    attribution: skillAttribution(s),
   }));
+  return [...rows.filter((r) => r.suggested).sort((a, b) => rank.get(a.key)! - rank.get(b.key)!), ...rows.filter((r) => !r.suggested)];
+}
+
+/** One library skill's whole text, for a person to read in the picker (founder, Nov 16, 2026: D6); 404 for an unknown key. */
+export function librarySkillText(key: string) {
+  const s = getLibrarySkill(key);
+  if (!s) throw new NotFoundError("library skill", key);
+  return { key: s.key, name: s.name, version: s.version, attribution: skillAttribution(s), instructionsMd: s.instructionsMd };
 }
 
 /** Parses and screens a file; a refusal is a 400 whose message says what to change. */
@@ -76,7 +147,7 @@ export function resolveSkillChoice(choice: SkillChoice): ResolvedSkill {
  * one audit entry each.
  */
 export async function attachSkills(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, agent: Pick<Agent, "id" | "name" | "agentType">, skills: readonly ResolvedSkill[]): Promise<AddedAgentSkill[]> {
-  return attachAddedSkills(tx, ctx.businessId, agent, skills, (definition, s) => audit(tx, ctx, { action: "agent.skills.add", target: { kind: "skill_definition", id: definition.id }, details: { agentId: agent.id, skillKey: s.skillKey, source: s.source, fileName: s.fileName, contentHash: s.contentHash } }).then(() => undefined));
+  return attachAddedSkills(tx, ctx.businessId, agent, skills, (definition, s) => audit(tx, ctx, { action: "agent.skills.add", target: { kind: "skill_definition", id: definition.id }, details: { agentId: agent.id, skillKey: s.skillKey, source: s.source, fileName: s.fileName, contentHash: s.contentHash } }).then(() => undefined), "founder");
 }
 
 /** Takes an added skill off an agent (its definition stays as the record) and audits it; 400 when it has none. */
@@ -88,9 +159,13 @@ export async function detachSkill(tx: Executor, ctx: Pick<BusinessContext, "busi
   return added;
 }
 
-/** The skills an agent's prompt carries, in the order they were added (`buildSystemPrompt` `skills`). */
-export function promptSkills(added: readonly Pick<AddedAgentSkill, "name" | "source" | "instructionsMd">[]): AgentSkillPrompt[] {
-  return added.filter((a) => a.instructionsMd.trim()).map((a) => ({ name: a.name, source: a.source, instructionsMd: a.instructionsMd }));
+/**
+ * The skills a conversation reply carries (`buildSystemPrompt` `skills`, WP-06 T4): every added skill in the index, in
+ * the order added. A reply has no tool loop, so up to two bodies are loaded, chosen by the founder's message. Library
+ * skills follow the catalog.
+ */
+export function promptSkills(added: readonly Pick<AddedAgentSkill, "skillKey" | "name" | "source" | "description" | "instructionsMd">[], message: string): AgentSkillPrompt[] {
+  return selectSkills({ skills: attachedSkills([], added), message, maxBodies: NO_TOOL_LOOP_PRELOAD_BODIES });
 }
 
 /** An added skill as the profile lists it (no instructions body beyond its first lines). */
@@ -104,6 +179,8 @@ export function addedSkillView(a: AddedAgentSkill) {
     source: a.source,
     fileName: a.fileName,
     untested: a.tested === null,
+    /** "template": it came with the role (WP-06 T6), shown as "Came with the role"; removable like any other. */
+    addedBy: a.addedBy,
     displayed: a.displayed,
     preview: a.instructionsMd.split("\n").filter((l) => l.trim()).slice(0, 4),
     addedAt: a.addedAt,

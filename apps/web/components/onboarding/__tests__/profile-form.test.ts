@@ -155,12 +155,12 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
     expect(form.noBudget).toBe(false);
     expect(form.currency).toBe("SEK");
     expect(profilePatch(form).budgetMinor).toBe(1_000_000);
-    // A saved profile without a budget made that choice: it reads as "I have no budget yet".
+    // A profile saved through this form without a budget made that choice: it reads as "I have no budget yet".
     const saved = formFromProfile({
       displayName: "Sara",
-      experience: null,
+      experience: "first_time",
       skills: {},
-      timeCommitment: null,
+      timeCommitment: "full_time",
       budgetMinor: null,
       currency: "",
       citizenship: null,
@@ -171,6 +171,10 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
     });
     expect(saved.noBudget).toBe(true);
     expect(saved.currency).toBe(FALLBACK_CURRENCY);
+    // One made by the three questions (WP-04 T1: a name, no time commitment) never answered: the amount stays open.
+    const first = formFromProfile({ displayName: "Sara", experience: null, skills: {}, timeCommitment: null, budgetMinor: null, currency: "", citizenship: null, residence: null, targetMarkets: [], constraints: [], riskAppetite: null });
+    expect(first.noBudget).toBe(false);
+    expect(first.budget).toBe("");
   });
 
   it("'I have no budget yet' sends no budget, whatever was typed, and never fails validation (A11)", () => {

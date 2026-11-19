@@ -38,7 +38,7 @@ export interface PaletteHelpItem {
 }
 
 /** The Help row every palette has: the AppShell opens the keyboard overlay when it is chosen. */
-export const KEYBOARD_SHORTCUTS_HELP_ITEM: PaletteHelpItem = { id: "help:keyboard-shortcuts", title: "Keyboard shortcuts", line: "Every key the product listens for, from Space for Continue to G then a letter." };
+export const KEYBOARD_SHORTCUTS_HELP_ITEM: PaletteHelpItem = { id: "help:keyboard-shortcuts", title: "Keyboard shortcuts", line: "Every key the product listens for, and the single keys you can turn on in Settings." };
 
 /** At most this many Help rows for a query, so a one-letter query never floods the list with definitions. */
 export const HELP_ROW_LIMIT = 6;

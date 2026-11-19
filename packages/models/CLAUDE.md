@@ -6,7 +6,7 @@ Owns model routing (the only place model ids live), the Anthropic client with it
 - **Model ids only in `src/routing.ts`.** Everywhere else (fixtures, stories, prompts, other packages) imports them or names a route. `src/model-ids.test.ts` fails on any other source file that spells one.
 - Callers pick a route key (`ROUTES`), never a model: `resolveModel(routeKey, override?)` applies the lock and warn rules. Per-route `effort`, `speed` and `maxTokens` live in `ROUTES` next to the model.
 - `MODEL_MODE=mock` (the default) returns deterministic responses from `src/mock/`, keyed by route and a stable hash of the input; unknown inputs fall back to a generic fixture per route. Evals always force live. Everything must work in mock mode.
-- Mock completions are user-facing text: no football words, US English, the subtext rule (root CLAUDE.md); a mock never pretends a simulated action was done.
+- Mock completions are user-facing text: no football words, US English, the subtext rule (root FOUNDMILL.md); a mock never pretends a simulated action was done.
 - Every call reaches `onUsage` once, with its `attribution` and `billedTo` (`credits` on the platform key, `byok` on a business's own key). Sinks book it through `bookUsage` (packages/db), never a literal.
 - Services on the platform key wrap their client with `gateModelClient` and ask `assertPlatformCredits` before each call for a business (`credits_exhausted`, 402).
 - Costs are US dollars and labeled estimates (`src/pricing.ts`); never present them as real.

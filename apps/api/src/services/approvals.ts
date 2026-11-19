@@ -16,6 +16,7 @@
  * Answering never moves money by itself: the approval lets one call run exactly as it was asked, within the amount it
  * named, and only when the agent makes it again; hard gates are never approvals of this kind.
  */
+import { firstCycleInput } from "@foundmill/config";
 import { APPROVAL_OPTIONS, ASK_FOR_DETAILS_NOTE, RELEASE_FOLLOW_UP, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, approvalWhatExactly, founderReasons, founderReworkDetail, integrationConnected, isReleaseApproval, releaseFollowUpItem, repos, type Approval, type ApprovalReview, type ApprovalWhat, type ApprovalWhatContext, type Db, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { ConflictError, DesignCheckResult, ForbiddenError, agentMention, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
@@ -27,6 +28,7 @@ import { assertMayResolveApproval } from "./approver";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
+import { entryPlanOpen } from "./payments";
 
 export type ApprovalOutcome = "approved" | "rejected";
 
@@ -257,6 +259,7 @@ export async function deliverApprovalAnswer(ctx: BusinessContext, recorded: Reco
  */
 async function cycleForApprovedTask(ctx: BusinessContext, stopped: boolean): Promise<{ started: boolean; workflowId: string | null; reason: string | null }> {
   if (stopped) return { started: false, workflowId: null, reason: "agents are stopped; the task runs once they are resumed" };
+  if (!(await entryPlanOpen(ctx.db, ctx.env, ctx.businessId))) return { started: false, workflowId: null, reason: "the team starts working once you subscribe in Settings › Billing" };
   const status = await cycleStatus(ctx);
   if (status.running) return { started: false, workflowId: status.workflowId, reason: "a cycle is running; the next one picks the task up" };
   const state = await continueStateFor(ctx, status);
@@ -264,7 +267,9 @@ async function cycleForApprovedTask(ctx: BusinessContext, stopped: boolean): Pro
   if (state.kind === "blocked") return { started: false, workflowId: null, reason: `${state.count} other Inbox item${state.count === 1 ? "" : "s"} wait for you before the next cycle` };
   const cycleNumber = status.nextCycleNumber;
   const workflowId = workflowIds.cycle(ctx.businessId, cycleNumber);
-  const workflow = await ctx.temporal.start(WORKFLOWS.businessCycle, { workflowId, args: [{ businessId: ctx.businessId, cycleNumber, trigger: "wake" }] });
+  // Round 1 of a free project on credits is capped wherever it starts (WP-09 T11).
+  const firstRound = cycleNumber === 1 ? firstCycleInput({ modelBilling: ctx.business.modelBilling, tier: ctx.business.planTier }) : {};
+  const workflow = await ctx.temporal.start(WORKFLOWS.businessCycle, { workflowId, args: [{ businessId: ctx.businessId, cycleNumber, trigger: "wake", ...firstRound }] });
   if (!workflow.queued) return { started: false, workflowId, reason: workflow.reason ?? "the orchestrator is unreachable; Continue runs it" };
   await ctx.rls((tx) => audit(tx, ctx, { action: "business.continue", target: { kind: "cycle", id: workflowId }, details: { cycleNumber, mode: "temporal", workflowId, trigger: "approval" } }));
   return { started: true, workflowId, reason: null };

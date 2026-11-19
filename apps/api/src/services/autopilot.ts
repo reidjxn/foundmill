@@ -14,6 +14,7 @@ import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertAgentsRunning } from "./stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
+import { assertEntryPlan } from "./payments";
 
 export interface AutopilotStatus {
   enabled: boolean;
@@ -103,7 +104,11 @@ export async function setAutopilot(ctx: BusinessContext, input: SetAutopilotInpu
   const before = ctx.business;
   const willBeOn = input.enabled ?? before.autopilotEnabled;
   // Turning it on (or back on after a pause) needs a team that can run: a stopped team never auto-starts.
-  if (input.enabled === true && (!before.autopilotEnabled || before.autopilotPausedReason !== null)) await assertAgentsRunning(ctx, "Autopilot");
+  if (input.enabled === true && (!before.autopilotEnabled || before.autopilotPausedReason !== null)) {
+    await assertAgentsRunning(ctx, "Autopilot");
+    // Paid entry (WP-09 T16): the overnight shift and every other Autopilot round wait for the entry plan.
+    await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
+  }
 
   const result = await ctx.rls(async (tx) => {
     const r = await repos.autopilot.set(tx, ctx.businessId, input);

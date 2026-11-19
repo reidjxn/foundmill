@@ -2,19 +2,20 @@
 /**
  * How it works: four steps, each shown with the product part it uses. The Ideation Studio's concept cards, the
  * logo and brand colours picker (it works: pick one and the brand bar follows), the Chief of Staff's cycle plan, and
- * day one as it really runs (docs/UX_AUDIT_AND_PLAN.md §7.1): the foundations drafting panel with its authors, the two
- * sign-off notes tagged Respond in the Inbox, then Continue.
+ * day one as it really runs (docs/UX_AUDIT_AND_PLAN.md §7.1): the foundations drafting panel with its authors, the plan
+ * note tagged Respond in the Inbox, then Continue.
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { Flag, Lightbulb, LoaderCircle, Play, Sunrise, type LucideIcon } from "lucide-react";
 import { Avatar, AvatarStack, BusinessLogo, Chip, ConceptCard, ContinueButton, DRAFTING_LINE, Icon, ProgressRing, ProvenanceChip, StatusPill, Term, cn, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
+import { PLAN_READY_NOTE } from "@foundmill/shared";
 import { NOTE_TAG_ICONS, RESPOND_TAG } from "@foundmill/widgets/shared/note-tags";
 import { useExample } from "./examples/context";
 import { departmentOf, exampleMoney, leadOf } from "./examples/helpers";
 import { Glass, Reveal, Section, SectionHeading } from "./parts";
 
-/** The two notes day one sends, word for word (packages/agents foundations.ts `SPEC_SIGNOFF_SUBJECT`, `ROADMAP_SIGNOFF_SUBJECT`). */
-export const FIRST_DAY_SIGNOFFS = ["Sign off the product specification", "Sign off the product roadmap"] as const;
+/** The plan note day one sends, word for word (WP-04 T5: one note, `PLAN_READY_NOTE` in packages/shared). */
+export const FIRST_DAY_SIGNOFFS = [PLAN_READY_NOTE.subject] as const;
 /** The drafting panel's title as the app shows it (Dugout `FoundationsStatus`: the heading and its Drafting pill). */
 export const FIRST_DAY_PANEL_TITLE = "Vision, specification and roadmap · Drafting";
 /** One sentence on day one (docs/UX_AUDIT_AND_PLAN.md §7.1). */
@@ -23,7 +24,7 @@ export const FIRST_DAY_SENTENCE = "The team drafts; you sign off; then they buil
 export function HowItWorks() {
   return (
     <Section id="how">
-      <SectionHeading id="how" eyebrow="How it works" title="From an idea to a running business, one cycle at a time." lede="You do not manage prompts. You run a business: set the direction, approve what matters, and let the team carry the rest." />
+      <SectionHeading id="how" eyebrow="How it works" title="From an idea to a running business, one cycle at a time." />
       {/* Two by two: each step's product part keeps the width it has in the app (a concept card, the brand picker). */}
       <ol className="grid grid-cols-2 gap-10">
         <Step n="01" icon={Lightbulb} title="Shape the idea" text={
@@ -82,7 +83,8 @@ function ConceptStack() {
   return (
     <div className="absolute inset-0" style={{ maskImage: "linear-gradient(180deg, black 70%, transparent 100%)" }}>
       {back ? (
-        <div aria-hidden className="absolute left-1/2 top-10 origin-top-left -translate-x-1/3 rotate-6 opacity-50">
+        <div aria-hidden inert className="absolute left-1/2 top-10 origin-top-left -translate-x-1/3 rotate-6 opacity-50">
+          {/* Decoration: out of the accessibility tree and out of the tab order (its card has buttons). */}
           <ConceptCard concept={back} hideActions />
         </div>
       ) : null}
@@ -183,7 +185,7 @@ function CyclePlan() {
 /**
  * Day one, in the order it happens (docs/UX_AUDIT_AND_PLAN.md §7.1; the founder's decision of Oct 20, 2026 keeps the
  * first Continue red until both notes are answered): the foundations drafting panel as Home shows it, with the agents
- * writing it named; the two sign-off notes in the Inbox, each tagged Respond with the product's own tag; then Continue,
+ * writing it named; the plan note in the Inbox, tagged Respond with the product's own tag; then Continue,
  * which starts the building. It is the sequence, not the deck: nothing here is pressed, so Continue is inert.
  */
 function FirstDay() {

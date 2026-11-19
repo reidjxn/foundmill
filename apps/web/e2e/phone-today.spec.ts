@@ -58,7 +58,8 @@ test.describe("Today and Needs you on a phone", () => {
     expect(needs.width).toBeGreaterThan(390 - 40);
     const week = (await page.getByTestId("week-plan").boundingBox())!;
     expect(week.width).toBeGreaterThan(390 - 40);
-    // The health strip wraps two to a row.
+    // The health strip wraps two to a row (a project past its first day: WP-04 D5 hides it on day one).
+    await expect(page.getByTestId("today-health")).toBeVisible({ timeout: LONG });
     const tiles = page.locator("[data-testid=today-health] [role=listitem]");
     expect(await tiles.count()).toBeGreaterThanOrEqual(3);
     const first = (await tiles.nth(0).boundingBox())!;
@@ -66,6 +67,14 @@ test.describe("Today and Needs you on a phone", () => {
     const third = (await tiles.nth(2).boundingBox())!;
     expect(Math.abs(first.y - second.y)).toBeLessThan(2);
     expect(third.y).toBeGreaterThan(first.y + 10);
+
+    // Needs you leads on a phone (WP-04 T7); the quiet streak sits under the week plan.
+    expect((await page.getByTestId("needs-you").boundingBox())!.y).toBeLessThan((await page.getByTestId("goal-panel").boundingBox())!.y);
+    const streak = page.getByTestId("streak-strip");
+    await expect(streak).toBeVisible({ timeout: LONG });
+    expect((await streak.boundingBox())!.y).toBeGreaterThan(week.y);
+    // Explain this page sits in the phone title row on Today, a finger's size.
+    await expect(page.getByTestId("phone-title-row").getByRole("button", { name: /Explain this page/ })).toBeVisible({ timeout: LONG });
 
     expect(await shortTargets(page), "every link and button on Today is at least 44 px high").toEqual([]);
 
@@ -139,7 +148,7 @@ test.describe("Today and Needs you on a phone", () => {
     const note = page.getByTestId("needs-larger-window");
     await expect(note).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("phone-bar")).toHaveCount(0);
-    await expect(note.getByRole("heading", { name: "This part is built for a bigger screen" })).toBeVisible();
+    await expect(note.getByRole("heading", { name: "Foundmill is built for a big screen." })).toBeVisible();
     await expect(note).not.toContainText("390 px");
     // WP-03 T3: never a dead end. No email goes from this stack (no gateway runs, or its mail is only simulated), and the
     // note says so instead of "Sent", with Copy link.

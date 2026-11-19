@@ -47,7 +47,8 @@ describe("resolveAgentPrompt", () => {
     expect(got.instructions.role).toBe(edited.role);
     expect(got.instructions.rules).toContain("Name the customer in every decision.");
     expect(got.description).toBe(lead.description);
-    expect(got.skills).toEqual([{ name: skill.attribute.name, source: "library", instructionsMd: skill.instructionsMd }]);
+    // The index line and, with no task to choose by, the body (a one-call builder loads the first two; WP-06 T4).
+    expect(got.skills).toEqual([{ key: `library_${skill.key}`, name: skill.attribute.name, source: "library", whenToUse: skill.whenToUse, instructionsMd: skill.instructionsMd }]);
     const byId = await resolveAgentPrompt(r.db, r.A.businessId, { agentId: leadId });
     expect(byId).toEqual(got);
   });

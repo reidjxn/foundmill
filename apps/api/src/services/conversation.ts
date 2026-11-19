@@ -842,9 +842,9 @@ async function replyContext(tx: DbTx, ctx: BusinessContext, p: Prepared, forMode
   // The prompt carries only what this person may read: the masked note and thread, and no CRM names without CRM read.
   const seen = await seenAtDesk(tx, ctx, p.r, toMessageViews(p.history));
   if (!forModel) return { seen, model: null };
-  // Skills the founder added from the library or files: a delimited section after the house rules and instructions.
+  // Skills from the library or files: an index after the house rules and instructions, the bodies the message calls for after the brief.
   const [ins, manifest, persona, skills] = await Promise.all([instructionsOf(tx, ctx, p.r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, seen.r, seedOf(p)), repos.skills.listAddedForAgent(tx, ctx.businessId, p.r.agent.id, p.r.agent.agentType)]);
-  return { seen, model: { ins, manifest, persona, skills: promptSkills(skills) } };
+  return { seen, model: { ins, manifest, persona, skills: promptSkills(skills, p.founderText ?? "") } };
 }
 
 /** A scripted reply carries no mention it could check against the manifest: any markup is reduced to its name. */
@@ -912,8 +912,12 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
 
   // 4. Everything else → the conversation route, then the server-side checks.
   const model = ctxData.model ?? (await ctx.rls((tx) => replyContext(tx, ctx, p, true))).model!;
+  // Who the agent is talking with (WP-04 T10): this person's profile and the other founders' first names. The other
+  // founders' profiles are outside this person's RLS, so it reads on the service connection; the membership was checked.
+  const founder = await repos.founders.contextFor(ctx.db, ctx.businessId, ctx.userId);
   const requestInput: ConversationRequestInput = {
     ...turn,
+    founder,
     businessName: ctx.business.name,
     appName: APP_NAME,
     agent: { ...turn.agent, instructions: model.ins.instructions, description: model.ins.description, skills: model.skills },
@@ -1127,7 +1131,7 @@ export async function replyAboutConcept(
   try {
     const result = await conversationReply(
       models,
-      { ...request, attribution: { kind: "ideation_ask" }, scope: input.userId ? `ideation:${input.userId}` : undefined },
+      { ...request, attribution: { kind: "ideation_ask", ...(input.userId ? { userId: input.userId } : {}) }, scope: input.userId ? `ideation:${input.userId}` : undefined },
       CONCEPT_GUARD,
       emit ? { show: (b) => emit({ type: "bubble", ...b }), reset: () => emit({ type: "reset" }) } : undefined,
     );

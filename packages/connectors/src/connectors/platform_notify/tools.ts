@@ -9,8 +9,10 @@
  * (`CONNECTOR_MODE_KEYS`), like `platform_mail`.
  *
  * Unlike a project's message it carries no custom args (a delivery event about it binds to no project, so ingest's
- * `/mail/events` ignores it and nothing is suppressed for any project), no Reply-To (Inbound Parse drops replies to the
- * reserved local part) and the person's own one-click link that turns this kind of email off.
+ * `/mail/events` ignores it and nothing is suppressed for any project) and the person's own one-click link that turns
+ * this kind of email off. Most carry no Reply-To (Inbound Parse drops replies to the reserved local part); Foundmill's
+ * letters (WP-04 D6: the day-3 note, the check-ins and the win-back letters) carry `replyTo`, Foundmill's own mailbox,
+ * which a person reads.
  */
 import { createHmac } from "node:crypto";
 import { z } from "zod";
@@ -27,6 +29,8 @@ export const PlatformSendNotification = z
     /** The sender the gateway resolved: Foundmill's own address on the platform domain. */
     from: z.strictObject({ email: z.email().max(254), name: z.string().trim().min(1).max(100).regex(/^[^\r\n<>"]*$/) }),
     to: z.strictObject({ email: z.email().max(254) }),
+    /** Where a reply goes, for Foundmill's letters only (`LETTER_REPLY_TO`); left out, replies reach nobody. */
+    replyTo: z.strictObject({ email: z.email().max(254) }).optional(),
     subject: z.string().trim().min(1).max(200).regex(/^[^\r\n]*$/),
     text: z.string().min(1).max(10_000),
     html: z.string().min(1).max(40_000),
@@ -64,6 +68,7 @@ export function buildNotificationData(mail: PlatformSendNotificationT): Record<s
   return {
     from: mail.from,
     personalizations: [{ to: [{ email: mail.to.email }] }],
+    ...(mail.replyTo ? { replyTo: mail.replyTo } : {}),
     subject: mail.subject,
     text: mail.text,
     html: mail.html,

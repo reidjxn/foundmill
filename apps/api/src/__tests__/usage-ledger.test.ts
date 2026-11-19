@@ -86,6 +86,15 @@ describe("apiUsageSink", () => {
     expect(row.costMinor).toBe(meter(usage, MODELS.opus).costMinorInt);
   });
 
+  it("books the cache figures and counts them in quantity (WP-09 T1)", async () => {
+    const before = await ledger(hz.B.businessId);
+    const cached = { inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 3, cacheReadInputTokens: 2 };
+    await apiUsageSink(hz.db, silentLog())(event({ businessId: hz.B.businessId, kind: "logo" }, { usage: cached, cost: meter(cached, MODELS.opus) }));
+    const row = (await ledger(hz.B.businessId)).find((u) => !before.some((b) => b.id === u.id))!;
+    expect(Number(row.quantity)).toBe(20);
+    expect((row.details as { tokens: unknown }).tokens).toEqual({ input: 10, output: 5, cacheRead: 2, cacheWrite: 3 });
+  });
+
   it("a ledger write that fails is logged and never fails the call", async () => {
     const warnings: unknown[] = [];
     const log = silentLog();

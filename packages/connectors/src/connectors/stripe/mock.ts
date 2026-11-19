@@ -2,7 +2,7 @@ import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, stableHash } from "../../mock-utils";
 import { makeWebhookRequest, ReplayGuard } from "../../webhooks";
 import { MOCK_NOW_UNIX, MOCK_STRIPE_ACCOUNT_ID, MOCK_STRIPE_WEBHOOK_SECRET, ST_ACCOUNT, ST_CHECKOUT_PAID, ST_CUSTOMERS, ST_INVOICES, ST_PAYOUTS, ST_TRIAL_SUBSCRIPTION } from "./fixtures/stripe";
-import { mapAccount, mapBalance, mapCharge, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_KEY, STRIPE_RATE_LIMITS, stripeTools, type StCharge, type StCheckoutSession, type StCustomer, type StEvent, type StInvoice } from "./tools";
+import { mapAccount, mapBalance, mapCharge, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_AUTH, STRIPE_KEY, STRIPE_RATE_LIMITS, stripeTools, type StCharge, type StCheckoutSession, type StCustomer, type StEvent, type StInvoice } from "./tools";
 import { createStripeWebhook, normaliseStripeEvent, STRIPE_SIGNATURE_HEADER, stripeSignatureHeader } from "./webhooks";
 
 const notFound = (what: string) => Object.assign(new Error(`No such ${what}`), { status: 404 });
@@ -36,7 +36,7 @@ export function createStripeMock() {
     key: STRIPE_KEY,
     displayName: "Stripe",
     phase: 2,
-    auth: { kind: "oauth", scopes: ["read_write"], platformKey: true },
+    auth: STRIPE_AUTH,
     tools: stripeTools,
     rateLimits: STRIPE_RATE_LIMITS,
     now: () => MOCK_NOW,
@@ -100,6 +100,10 @@ export function createStripeMock() {
         const s: StCheckoutSession = { id, url: `https://checkout.stripe.com/c/pay/${id}`, mode, status: "open", payment_status: "unpaid", amount_total: total, currency: currency.toLowerCase(), customer: customerId ?? null, customer_email: customerEmail ?? null, expires_at: MOCK_NOW_UNIX + 24 * 3600, metadata };
         sessions.set(id, s);
         return mapCheckoutSession(s);
+      },
+      create_billing_portal_session: async ({ customerId }) => {
+        const id = `bps_test_${stableHash(["bps", customerId], 20)}`;
+        return { id, url: `https://billing.stripe.com/p/session/${id}` };
       },
       // Each paid invoice was taken as one charge (none refunded in the fixtures).
       list_charges: async ({ customerId, limit }, ctx) => {

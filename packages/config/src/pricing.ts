@@ -33,6 +33,56 @@ export const PRICE_TBA_LABEL = "Price to be announced" as const;
  */
 export const CREDITS_CURRENCY = "USD" as const;
 
+/** The top-up amounts the Billing tab offers, in US cents (founder D4, Nov 16, 2026: $5, $10, $25 and $50). */
+export const TOP_UP_OPTIONS_MINOR = [500, 1000, 2500, 5000] as const;
+
+/**
+ * The entry plan from the day sign-up opens (founder, Nov 17, 2026; WP-09 T16): $5.00 a month with $5.00 of credits a
+ * month on the free plan's models. Until then nobody is offered it (`PAID_ENTRY` off). The name is what copy shows.
+ */
+export const ENTRY_PLAN = { name: "Entry", priceMonthlyMinor: 500, includedCreditsMinor: 500 } as const;
+
+/**
+ * The markup on what the platform's keys cost (founder, Nov 17, 2026): every call on Foundmill's keys is charged against
+ * credits at cost plus 30%, on every plan and pack, from day one (the invited testers and the included monthly budgets
+ * too). A founder's own key is never marked up: the vendor bills them. The usage ledger keeps the true cost, and the
+ * free plan's $600 cap and the cost report measure true cost; only the credit charge is marked up.
+ */
+export const CREDIT_MARKUP = 0.3;
+
+/**
+ * How much true cost `creditsMinor` of credits pays for (the inverse of `chargedMinor`, rounded down). Use it wherever
+ * credits left become a spend limit measured at cost (a session's budget, the day's ceiling), so a session cannot spend
+ * past what its credits cover.
+ */
+export function costCoveredMinor(creditsMinor: number): number {
+  return Math.floor(creditsMinor / (1 + CREDIT_MARKUP));
+}
+
+/** What a call that cost `trueCost` (any unit: cents or millionths of a cent) charges against credits, rounded. */
+export function chargedMinor(trueCost: number): number {
+  return Math.round(trueCost * (1 + CREDIT_MARKUP));
+}
+
+/** Credit-pack prices from the day sign-up opens, in US cents (founder, Nov 17, 2026): $20 to $500. */
+export const CREDIT_PACKS_MINOR = [2000, 5000, 10000, 25000, 50000] as const;
+
+/**
+ * The credits a pack carries, in US cents. The founder has not set the discount per size or the markup yet, so this is
+ * a placeholder at face value (an Estimate): a pack carries as much credit as it costs. One table to change.
+ */
+/**
+ * The team budget a pack adds, in US cents (founder, Nov 17, 2026): a bonus on top of the price, larger for bigger
+ * packs, not a discount: $20 adds $20.00, $50 adds $52.50 (5%), $100 adds $110.00 (10%), $250 adds $287.50 (15%) and $500
+ * adds $600.00 (20%).
+ */
+export const CREDIT_PACK_CREDITS_MINOR: Readonly<Record<(typeof CREDIT_PACKS_MINOR)[number], number>> = { 2000: 2000, 5000: 5250, 10000: 11000, 25000: 28750, 50000: 60000 };
+
+/** The credits a pack of `priceMinor` carries, or null when that is not a pack's price. */
+export function creditPackCreditsMinor(priceMinor: number): number | null {
+  return (CREDIT_PACK_CREDITS_MINOR as Record<number, number>)[priceMinor] ?? null;
+}
+
 /**
  * What a second of a sandbox costs the platform, in millionths of a US cent (an Estimate, audit BILL-11 / O-32). E2B
  * bills per second of vCPU and memory at its list prices ($0.000014 per vCPU-second, $0.0000045 per GiB-second); the
@@ -82,6 +132,18 @@ export function creditsAreLow(spendableMinor: number, includedMinor: number): bo
 }
 
 /**
+ * The first round of work of a free project on Foundmill's credits (WP-09 T11, founder D6, Nov 16, 2026): its sessions
+ * run one at a time under this cap, in US cents, so round 1 fits the $5.00 allowance's first-session target ($1.50,
+ * D1) less what the first day spends outside sessions. An Estimate until the cost report's `firstDayPerProject` sets it.
+ */
+export const FIRST_CYCLE_SESSION_CAP_MINOR = 75;
+
+/** What cycle 1 starts with, wherever it starts (commit, an approval, Continue): a free project on credits is capped; others start as before. */
+export function firstCycleInput(input: { modelBilling: "credits" | "byok"; tier: TierKey }): { budgetCapMinor?: number; maxConcurrent?: number } {
+  return input.tier === "free" && input.modelBilling === "credits" ? { budgetCapMinor: FIRST_CYCLE_SESSION_CAP_MINOR, maxConcurrent: 1 } : {};
+}
+
+/**
  * How a new business on `tier` pays for model calls: on credits (its included credits) unless the tier requires the
  * founder's own key. Storing a key moves a business to `byok` (apps/api keys).
  */
@@ -118,6 +180,30 @@ export function tierIncludedCreditPlaces(tier: TierKey): number | null {
  */
 export function tierShowsBuiltOnMark(tier: TierKey): boolean {
   return tier === "free";
+}
+
+/**
+ * Whether a business on `tier` gets the full set of models on Foundmill's key (founder, Nov 16, 2026; WP-13): only a
+ * paid plan. A tier is paid when it has a price, "TBD" included; `assertTierAvailable` (apps/api) keeps those out of
+ * production until a plan can be bought. A credit top-up never makes a tier paid.
+ */
+export function tierIsPaid(tier: TierKey): boolean {
+  return TIERS[tier].priceMonthly !== null;
+}
+
+/** Who pays for a model call (packages/models `ModelFunding`, the same three values). */
+export type ModelFundingKind = "paid_plan" | "free_plan" | "own_key";
+
+/**
+ * Who pays for a model call (WP-13): the business's own Anthropic key when it has one; a paid plan, every model on
+ * Foundmill's key; everyone else the free plan (Haiku 5.5 on Foundmill's key, and GLM-5.3 Flash for agent sessions):
+ * a free project, a person with no project (pass the highest tier among the projects they own, `businessAllowance`)
+ * and a visitor who is signed out (`planTier: null`).
+ */
+export function modelFundingFor(input: { planTier: TierKey | null; modelBilling: "credits" | "byok" | null }): ModelFundingKind {
+  if (input.modelBilling === "byok") return "own_key";
+  if (input.planTier !== null && tierIsPaid(input.planTier)) return "paid_plan";
+  return "free_plan";
 }
 
 /** The higher of two tiers. */

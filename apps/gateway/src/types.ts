@@ -57,6 +57,8 @@ export type ConnectIntegrationRequest = z.input<typeof ConnectIntegrationRequest
 
 /** Service call: health of a business's App connector integration. */
 export const IntegrationHealthRequest = z.object({ businessId: z.uuid(), connector: z.string().regex(/^[a-z][a-z0-9_]{1,40}$/) });
+/** After the api replaced a sign-in: the previous account whose access is withdrawn (apps/gateway integrations.ts releaseAccount). */
+export const ReleaseAccountRequest = IntegrationHealthRequest.extend({ externalAccountId: z.string().regex(/^acct_[A-Za-z0-9]{1,64}$/) });
 export type IntegrationHealthRequest = z.input<typeof IntegrationHealthRequest>;
 
 export const MintSessionTokenRequest = SessionClaims.extend({
@@ -158,5 +160,7 @@ export interface HealthResponse {
   policy: { cedar: string; policies: number };
   vault: "local" | "kms" | "none";
   rateLimitStore: "memory" | "redis";
+  /** How the api's service token is checked (WP-11 T12): "shared", "legacy" (switching), "own". A word, never a value. */
+  apiServiceToken: "shared" | "legacy" | "own";
   time: string;
 }

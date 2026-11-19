@@ -24,7 +24,9 @@ export interface PlatformSecrets {
   e2bApiKey?: string;
   stripeSecretKey?: string;
   stripeWebhookSecret?: string;
+  /** Stripe Connect: the platform's OAuth client id (`ca_…`) and, when it differs from STRIPE_SECRET_KEY, its secret key. */
   stripeConnectClientId?: string;
+  stripeConnectSecretKey?: string;
   sendgridApiKey?: string;
   sendgridWebhookPublicKey?: string;
   /** Shared token the Inbound Parse URL carries as `?token=`; Inbound Parse has no signature scheme. */
@@ -78,6 +80,7 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   set("stripeSecretKey", env.STRIPE_SECRET_KEY);
   set("stripeWebhookSecret", env.STRIPE_WEBHOOK_SECRET);
   set("stripeConnectClientId", env.STRIPE_CONNECT_CLIENT_ID);
+  set("stripeConnectSecretKey", env.STRIPE_CONNECT_SECRET_KEY);
   set("sendgridApiKey", env.SENDGRID_API_KEY);
   set("sendgridWebhookPublicKey", env.SENDGRID_WEBHOOK_PUBLIC_KEY);
   set("sendgridInboundToken", env.SENDGRID_INBOUND_TOKEN);

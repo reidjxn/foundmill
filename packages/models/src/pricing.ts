@@ -9,12 +9,12 @@
  * drift; callers writing `usage_ledger.cost_minor` should store `costMinorInt` per row and, when aggregating many rows,
  * sum `costMicroMinor` and round once.
  */
-import { MODELS, type ModelId } from "./routing";
+import { FALLBACK_SERVED_MODELS, MODELS, type ModelId } from "./routing";
 import type { TokenUsage } from "./types";
 
 export const PRICING_CURRENCY = "USD" as const;
 export const PRICING_LABEL = "Estimate" as const;
-export const PRICING_AS_OF = "2026-10-05";
+export const PRICING_AS_OF = "2026-11-15";
 
 /** Message Batches API bills at 50% of the standard price. */
 export const BATCH_DISCOUNT = 0.5;
@@ -30,12 +30,28 @@ export interface ModelPrice {
   cacheReadPerMTok: number;
   /** Human label for settings screens. */
   displayName: string;
+  /**
+   * A model billed at a higher card once the prompt (input plus cache reads plus cache writes) is over `overTokens`:
+   * the whole call is priced at it (WP-09 T4).
+   */
+  longPrompt?: { overTokens: number; inputPerMTok: number; outputPerMTok: number; cacheWritePerMTok: number; cacheReadPerMTok: number };
 }
 
 export const MODEL_PRICING: Record<ModelId, ModelPrice> = {
   [MODELS.opus]: { displayName: "Claude Opus 5.5", inputPerMTok: 4, outputPerMTok: 20, cacheWritePerMTok: 5, cacheReadPerMTok: 0.2 },
-  [MODELS.sonnet]: { displayName: "Claude Sonnet 5.5", inputPerMTok: 2, outputPerMTok: 10, cacheWritePerMTok: 2.5, cacheReadPerMTok: 0.2 },
-  [MODELS.haiku]: { displayName: "Claude Haiku 4.5", inputPerMTok: 1, outputPerMTok: 5, cacheWritePerMTok: 1.25, cacheReadPerMTok: 0.1 },
+  [MODELS.sonnet]: { displayName: "Claude Sonnet 5.5", inputPerMTok: 2, outputPerMTok: 10, cacheWritePerMTok: 2.5, cacheReadPerMTok: 0.1 },
+  // Haiku 5.5 (Anthropic's model reference, Nov 2026): a prompt over 100K tokens bills the whole call at the long card.
+  [MODELS.haiku]: {
+    displayName: "Claude Haiku 5.5",
+    inputPerMTok: 0.1,
+    outputPerMTok: 0.5,
+    cacheWritePerMTok: 0.125,
+    cacheReadPerMTok: 0.01,
+    longPrompt: { overTokens: 100_000, inputPerMTok: 0.5, outputPerMTok: 2.5, cacheWritePerMTok: 0.625, cacheReadPerMTok: 0.05 },
+  },
+  // Z.ai's list price on Nov 16, 2026 (docs.z.ai/guides/overview/pricing): $0.15 in, $0.03 cached, $0.50 out; no cache
+  // write fee is listed, so a write is priced as plain input.
+  [MODELS.glm]: { displayName: "GLM-5.3 Flash", inputPerMTok: 0.15, outputPerMTok: 0.5, cacheWritePerMTok: 0.15, cacheReadPerMTok: 0.03 },
 };
 
 /**
@@ -91,6 +107,23 @@ export interface MeterOptions {
   batch?: boolean;
   /** `fast` meters at FAST_MODE_PRICING (falls back to the standard price for a model without fast mode). */
   speed?: "standard" | "fast";
+  /** The card to meter at instead of the model's own: a fallback model served the call (`priceForServed`). */
+  price?: ModelPrice;
+}
+
+/**
+ * List prices of the models a server-side fallback may be served by (WP-09 T5), USD per million tokens, Estimate. Cache
+ * figures follow the usual ratios (a 5-minute write at 1.25x input, a read at 0.1x input).
+ */
+export const FALLBACK_PRICING: Record<string, ModelPrice> = {
+  [FALLBACK_SERVED_MODELS.opus5]: { displayName: "Claude Opus 5", inputPerMTok: 5, outputPerMTok: 25, cacheWritePerMTok: 6.25, cacheReadPerMTok: 0.5 },
+  [FALLBACK_SERVED_MODELS.opus48]: { displayName: "Claude Opus 4.8", inputPerMTok: 5, outputPerMTok: 25, cacheWritePerMTok: 6.25, cacheReadPerMTok: 0.5 },
+  [FALLBACK_SERVED_MODELS.sonnet5]: { displayName: "Claude Sonnet 5", inputPerMTok: 2, outputPerMTok: 10, cacheWritePerMTok: 2.5, cacheReadPerMTok: 0.2 },
+};
+
+/** The card of a model that served a call: a routed model or a fallback target; undefined for any other id. */
+export function priceForServed(modelId: string): ModelPrice | undefined {
+  return (MODEL_PRICING as Record<string, ModelPrice>)[modelId] ?? FALLBACK_PRICING[modelId];
 }
 
 /** USD per million tokens → integer micro-cents per token. ($4/MTok = 400 cents/MTok = 400 micro-cents per token.) */
@@ -105,7 +138,10 @@ export function priceFor(modelId: ModelId): ModelPrice {
 /** Cost of a completion in minor units (labelled estimate). */
 export function meter(usage: TokenUsage, modelId: ModelId, opts: MeterOptions = {}): MeterResult {
   const fastPrice = opts.speed === "fast" ? FAST_MODE_PRICING[modelId] : undefined;
-  const price = fastPrice ?? priceFor(modelId);
+  const base = opts.price ?? fastPrice ?? priceFor(modelId);
+  const nonNegative = (n: number) => (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+  const promptTokens = nonNegative(usage.inputTokens) + nonNegative(usage.cacheReadInputTokens) + nonNegative(usage.cacheCreationInputTokens);
+  const price = base.longPrompt && promptTokens > base.longPrompt.overTokens ? { ...base, ...base.longPrompt } : base;
   const batch = opts.batch === true;
   const factor = batch ? BATCH_DISCOUNT : 1;
   const nonNeg = (n: number) => (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
@@ -170,6 +206,15 @@ export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
     cacheCreationInputTokens: a.cacheCreationInputTokens + b.cacheCreationInputTokens,
     cacheReadInputTokens: a.cacheReadInputTokens + b.cacheReadInputTokens,
   };
+}
+
+/**
+ * The one definition of a usage ledger row's token figures (WP-09 T1): `quantity` counts every token the call was billed
+ * for (input, output and both cache figures), and `tokens` keeps each, so the cost report can read the cache share.
+ */
+export function usageForLedger(usage: TokenUsage): { quantity: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number } } {
+  const tokens = { input: usage.inputTokens, output: usage.outputTokens, cacheRead: usage.cacheReadInputTokens, cacheWrite: usage.cacheCreationInputTokens };
+  return { quantity: tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite, tokens };
 }
 
 /**

@@ -351,7 +351,7 @@ The api admits them on their next request and the sweep emails them within 15 mi
 **Done when:** Done-when 4.
 **Needs setup:** the Follow lines in the examples assume a follower gets the confirmation email: WP-00 S1 recorded done. If it is not, ship with "leave an email address on the page" cut from Day 2 and restore it later.
 
-### T6: Findable by search engines and AI readers [M] [ships alone, after T5]
+### [x] T6: Findable by search engines and AI readers [M] [ships alone, after T5]
 
 **Why:** FR-06 (indexing), s3 findings 1, 2, 3, 5, 9, 13, 16.
 
@@ -443,7 +443,7 @@ Facts:
 
 ### [x] T9: The store-links value and its first readers [S] [ships alone] (the value and `GetTheApp` built; the landing footer built on claude/wp03-t7-stall-guard; `ContinueLater` reads it since T3)
 
-**Why:** A2-02, A9-P2-1; CLAUDE.md "through one config value for the store links (unset until launch)".
+**Why:** A2-02, A9-P2-1; FOUNDMILL.md "through one config value for the store links (unset until launch)".
 
 **Files (create):** `packages/config/src/app-links.ts` (+ test in `packages/config/src/__tests__/`), `packages/dugout/src/components/public/GetTheApp.tsx` (+ story at 390 px, + test). **Modify:** `packages/config/src/index.ts`, `apps/web/lib/env.ts`, `.env.example`, `apps/web/components/providers/ContinueLater.tsx` (T3), `apps/web/components/landing/LandingPage.tsx` (footer).
 
@@ -477,7 +477,7 @@ Facts:
 7. **`IDEA_BOX_INTERESTS` stays.** s2 §3.4 adds four interests and renames "Surprise me". The list is a Zod enum in `IdeaBoxDraftRequest` and is read by the idea-box eval; the gain does not justify touching the contract. Cut.
 8. **s2 §3.5's example weeks use things that do not exist yet:** an email to followers (AR-04: no agent path to one), a count of page visits, replies recorded by the product. T5's examples use only the card, the page, Follow with its confirmation, a drafted post the founder taps to post, milestones and a waiting decision.
 9. **"Look for people here" is not true in production** (the people layer is behind the closed `liveMode` flag; `/home` shows "Opening soon", a1 §7 item 10). The solo section offers inviting someone, which works.
-10. **A2-02 proposes two environment variables;** CLAUDE.md says one config value. One variable holding both links.
+10. **A2-02 proposes two environment variables;** FOUNDMILL.md says one config value. One variable holding both links.
 11. **s1 keeps the tagline as the `h1`; s2 replaces it.** s2 is followed; `APP_TAGLINE` stays in the footer, the share image and the layout default.
 12. **FR-14's "up to 3 cards per browser" changes a founder answer** ("one card per browser", `docs/IDEA_BOX.md`). It is Decision 3, not a task.
 13. **Platform mail is configured** (WP-00 §1: variables, DKIM, MX, 14 `notify.email_sent` events). s2 could not verify it; a11 §5 lists it as pending. What is still unproven is a real follow and ingest hearing bounces (S1, S2).
@@ -509,7 +509,7 @@ Facts:
 ## Starting prompt
 
 ```
-You are executing docs/holistic-plan/WP-03-the-door.md in the Foundmill repo. Read, in this order: CLAUDE.md, docs/holistic-plan/README.md, the work package, then the audit sections each task cites (docs/holistic-plan/audits/a1-first-run.md FR-01 to FR-03, FR-06, FR-13, FR-14; a9 A9-P0-1; s2 sections 3 and 4; s3 findings 1 to 3). Read the CLAUDE.md of each package before you touch it (apps/web, apps/api, apps/gateway, apps/orchestrator, packages/db, packages/shared, packages/dugout, packages/config).
+You are executing docs/holistic-plan/WP-03-the-door.md in the Foundmill repo. Read, in this order: FOUNDMILL.md, docs/holistic-plan/README.md, the work package, then the audit sections each task cites (docs/holistic-plan/audits/a1-first-run.md FR-01 to FR-03, FR-06, FR-13, FR-14; a9 A9-P0-1; s2 sections 3 and 4; s3 findings 1 to 3). Read the CLAUDE.md of each package before you touch it (apps/web, apps/api, apps/gateway, apps/orchestrator, packages/db, packages/shared, packages/dugout, packages/config).
 
 Start with T1. Before writing code run the plan-change skill (it checks other branches for overlap and gives the next free migration number), then follow test-driven-development: write the task's failing test first and show it failing. One task is one pull request on a branch named claude/wp03-t<n>-<short-name>; never push to main and never merge. For T5 use the copywriting skill, then copy-editing and humanizer, and keep every string in apps/web/components/landing/words.ts exactly as the work package gives it unless a check in the task proves it false; if it is false, cut it and say so in the pull request. Follow the karpathy-guidelines skill on every change: state assumptions, make the smallest change, touch only the task's files.
 

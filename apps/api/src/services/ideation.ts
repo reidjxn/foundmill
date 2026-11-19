@@ -15,7 +15,8 @@
  * Import's single card (`single`) is one card call on the same prefix.
  */
 import { recordFirstIdeas } from "./funnel-facts";
-import { buildFounderCardRequest, buildIdeationCardRequest, buildIdeationSlateRequest, buildSingleConceptRequest, IDEATION_AGENT_NAME, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, type IdeationBrief } from "@foundmill/agents";
+import { buildFounderCardRequest, buildIdeationCardRequest, buildIdeationSlateRequest, buildSingleConceptRequest, FULL_SKILLS_BASIS, IDEATION_AGENT_NAME, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, QUICK_SKILLS_BASIS, type IdeationBrief } from "@foundmill/agents";
+import { fitBasisOf } from "@foundmill/config";
 import { repos, type CreateIdeaInput, type IdeaWithVersion } from "@foundmill/db";
 import { isModelBillingError, ModelAbortedError, ModelOutputError, streamStructured, type ConceptCard, type IdeationSlateItem, type ModelClient, type ModelMode } from "@foundmill/models";
 import { AppError, type Archetype } from "@foundmill/shared";
@@ -156,11 +157,14 @@ export interface DraftResult {
   failed: number;
 }
 
-/** The founder profile as the Ideation agent reads it (null when they skipped it). */
+/**
+ * The founder profile as the Ideation agent reads it (null when they skipped it). `skills_basis` says what the skill
+ * ratings rest on (WP-14 T2): the first profile's quick answers, or the ratings the person set in the long profile.
+ */
 export async function founderBrief(db: Parameters<typeof repos.founders.get>[0], userId: string): Promise<Record<string, unknown> | null> {
   const profile = await repos.founders.get(db, userId);
   return profile
-    ? { experience: profile.experience, skills: profile.skills, time_commitment: profile.timeCommitment, budget_minor: profile.budgetMinor, citizenship: profile.citizenship, residence: profile.residence, target_markets: profile.targetMarkets, constraints: profile.constraints, risk_appetite: profile.riskAppetite }
+    ? { experience: profile.experience, skills: profile.skills, skills_basis: fitBasisOf(profile) === "quick" ? QUICK_SKILLS_BASIS : FULL_SKILLS_BASIS, time_commitment: profile.timeCommitment, budget_minor: profile.budgetMinor, citizenship: profile.citizenship, residence: profile.residence, target_markets: profile.targetMarkets, constraints: profile.constraints, risk_appetite: profile.riskAppetite }
     : null;
 }
 
@@ -255,7 +259,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
 
   if (input.single) {
     emit({ type: "writing", index: 0, attempt: 1 });
-    const res = await models.complete({ ...buildSingleConceptRequest(brief), signal, scope, attribution: { kind: "ideation" } }).catch((err: unknown) => {
+    const res = await models.complete({ ...buildSingleConceptRequest(brief), signal, scope, attribution: { kind: "ideation", userId: deps.userId } }).catch((err: unknown) => {
       throw tooLong(err) ?? err;
     });
     costMicro += res.cost.costMicroMinor;
@@ -283,7 +287,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
         card = await limit(async () => {
           if (cardsAbort.signal.aborted) throw new ModelAbortedError();
           emit({ type: "writing", index, attempt });
-          const res = await models.complete({ ...buildIdeationCardRequest(brief, item), signal: cardsAbort.signal, scope, attribution: { kind: "ideation" } });
+          const res = await models.complete({ ...buildIdeationCardRequest(brief, item), signal: cardsAbort.signal, scope, attribution: { kind: "ideation", userId: deps.userId } });
           costMicro += res.cost.costMicroMinor;
           return res.json;
         });
@@ -325,7 +329,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
         ...slateRequest,
         signal,
         scope,
-        attribution: { kind: "ideation_slate" },
+        attribution: { kind: "ideation_slate", userId: deps.userId },
         onElement: ({ index, value }) => outline(index, value),
       });
       costMicro += result.cost.costMicroMinor;
@@ -392,7 +396,7 @@ export async function writeIdea(deps: DraftDeps, input: WriteIdeaInput, opts: { 
   const title = input.title.trim().slice(0, 60);
   const brief: IdeationBrief = { prompt: words, archetypeHint: input.archetype, founder: await founderBrief(deps.db, deps.userId) };
   const id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "my-idea";
-  const res = await models.complete({ ...buildFounderCardRequest(brief, { id, name: title, archetype: input.archetype, words }), signal: opts.signal, scope: `ideation:${deps.userId}`, attribution: { kind: "ideation" } }).catch((err: unknown) => {
+  const res = await models.complete({ ...buildFounderCardRequest(brief, { id, name: title, archetype: input.archetype, words }), signal: opts.signal, scope: `ideation:${deps.userId}`, attribution: { kind: "ideation", userId: deps.userId } }).catch((err: unknown) => {
     throw tooLong(err) ?? err;
   });
   const card: ConceptCard = { ...res.json, name: title, pitch: words, archetype: input.archetype ?? res.json.archetype };

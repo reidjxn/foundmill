@@ -1,10 +1,11 @@
 /**
  * today.get, the business's front door (founder, 2026-11-07): the first three notes of Needs you with a one-tap answer
  * only where no plan compiler is needed (an agent's request, a sign-off, the goal), "This week and next" in plain
- * sentences from data, and the week's spend in each currency, never added together. Each part follows the reader's
+ * sentences from data, and the week's real outcomes as the headline (never a cost, never a zero). Each part follows the reader's
  * section access.
  */
-import { APPROVAL_OPTIONS, openApprovalItem, repos, signoffDecisionBlock, type ComposerItem } from "@foundmill/db";
+import { APPROVAL_OPTIONS, openApprovalItem, planDecisionBlock, repos, signoffDecisionBlock, type ComposerItem } from "@foundmill/db";
+import { EVENT_FIXTURES } from "@foundmill/events/testing/fixtures";
 import { GOAL_OPTION_IDS, WEEK_PRESS_CONTINUE, founderJargonHits } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -52,7 +53,7 @@ const proposeGoal = (b: { id: string; chief: { id: string } }) =>
   repos.goals.propose(hz.db, b.id, { sentence: "Get the first 10 paying customers by Dec 19", kind: "paying_customers", target: 10, currency: null, dueOn: "2026-12-19", startValue: 0, reason: "first", agentId: b.chief.id, replacesGoalId: null, item: note(b.chief.id, "Your first goal: get 10 paying customers by Dec 19", goalOptions) });
 
 describe("today.get", () => {
-  it("on a fresh business: nothing needs you, the week in three plain sentences, no spend, the Chief of Staff by name", async () => {
+  it("on a fresh business: nothing needs you, the week in three plain sentences, no outcome count, the Chief of Staff by name", async () => {
     const b = await business("Today Fresh");
     const view = await b.owner.today.get({ businessId: b.id });
     expect(view.needsYou).toEqual({ items: [], total: 0 });
@@ -63,7 +64,9 @@ describe("today.get", () => {
     expect(sentences.length).toBeLessThanOrEqual(5);
     expect(sentences.at(-1)).toBe(WEEK_PRESS_CONTINUE);
     for (const s of sentences) expect(founderJargonHits(s), s).toEqual([]);
-    expect(view.spend).toEqual({ aiUsage: { amountMinor: 0, currency: "USD" }, channel: { amountMinor: 0, currency: "USD", otherCurrencies: [] } });
+    // An empty week: no count and no zero (WP-14 T4), and no cost anywhere on Today.
+    expect(view.outcomes).toMatchObject({ count: 0, headline: null, detail: null });
+    expect(view).not.toHaveProperty("spend");
   });
 
   it("offers one tap on a sign-off and the goal, opens anything else; viewers get no taps", async () => {
@@ -133,20 +136,65 @@ describe("today.get", () => {
     expect(view.week!.next[1]).toBe("“Online booking” is planned for Dec 4, 2099 (Estimate).");
   });
 
-  it("keeps AI usage in dollars and channel spend in the business's currency, never added; walls hide each part", async () => {
-    const b = await business("Today Spend");
-    await repos.businesses.update(hz.db, b.id, { currency: "GBP" });
+  it("the headline counts the week's real outcomes: nothing simulated, each kind behind its wall, no cost on Today", async () => {
+    const b = await business("Today Outcomes");
     await repos.usage.record(hz.db, b.id, { kind: "tokens", costMinor: 420 });
-    const seo = await repos.channels.upsert(hz.db, b.id, { channelKey: "seo", line: "defence", enabled: true });
-    const ads = await repos.channels.upsert(hz.db, b.id, { channelKey: "paid_ads", line: "attack", enabled: true, currency: "USD" });
-    const day = new Date().toISOString().slice(0, 10);
-    await repos.channels.upsertMetric(hz.db, b.id, { channelId: seo.id, day, spendMinor: 10_000 });
-    await repos.channels.upsertMetric(hz.db, b.id, { channelId: ads.id, day, spendMinor: 9_000, currency: "USD" });
-    const view = await b.owner.today.get({ businessId: b.id });
-    expect(view.spend).toEqual({ aiUsage: { amountMinor: 420, currency: "USD" }, channel: { amountMinor: 10_000, currency: "GBP", otherCurrencies: [{ currency: "USD", amountMinor: 9_000 }] } });
+    const write = (type: string, actor: { kind: string; id: string }, payload: Record<string, unknown>, occurredAt?: Date) => repos.events.write(hz.db, b.id, { type, actor, payload: { ...EVENT_FIXTURES[type as keyof typeof EVENT_FIXTURES], ...payload }, occurredAt } as never);
+    await write("page.published", { kind: "user", id: b.ownerId }, {});
+    await write("mail.sent", { kind: "agent", id: b.chief.id }, { simulated: false });
+    await write("payment.received", { kind: "webhook", id: "stripe" }, {});
+    // Not counted: a mock's email, the Simulate panel's payment, and a real email from before the week.
+    await write("mail.sent", { kind: "agent", id: b.chief.id }, { simulated: true });
+    await write("payment.received", { kind: "system", id: "simulate" }, {});
+    await write("mail.sent", { kind: "agent", id: b.chief.id }, { simulated: false }, new Date(Date.now() - 9 * 86_400_000));
 
+    const view = await b.owner.today.get({ businessId: b.id });
+    expect(view.outcomes).toEqual({ count: 3, headline: "This week: 3 real outcomes", detail: "1 payment, your page went live, 1 email sent", toward: null });
+    expect(founderJargonHits(`${view.outcomes.headline} ${view.outcomes.detail}`)).toEqual([]);
+    // No cost figure anywhere in Today's read, though the team's work cost something this week.
+    expect(view).not.toHaveProperty("spend");
+    expect(JSON.stringify(view)).not.toMatch(/costMinor|amountMinor|aiUsage/);
+
+    // Walled from Finance: the payment is not theirs to count.
     await repos.memberships.setSectionPermissions(hz.db, b.id, b.memberId, { finance: "none", development: "none", inbox: "none" });
-    expect(await b.member.today.get({ businessId: b.id })).toMatchObject({ spend: null, week: null, needsYou: null, chiefOfStaff: { name: CHIEF } });
+    const walled = await b.member.today.get({ businessId: b.id });
+    expect(walled).toMatchObject({ week: null, needsYou: null, chiefOfStaff: { name: CHIEF }, outcomes: { count: 2, headline: "This week: 2 real outcomes" } });
+  });
+
+  it("a week with no real outcome shows no count: it says what the team is working toward", async () => {
+    const b = await business("Today Toward");
+    await repos.tasks.create(hz.db, b.id, { kind: "code", title: "stripe-integration", founderTitle: "Set up card payments", status: "ready" });
+    await repos.events.write(hz.db, b.id, { type: "mail.sent", actor: { kind: "agent", id: b.chief.id }, payload: { ...EVENT_FIXTURES["mail.sent"], simulated: true } } as never);
+    expect((await b.owner.today.get({ businessId: b.id })).outcomes).toEqual({ count: 0, headline: null, detail: null, toward: "Working toward: your public page, live" });
+    await proposeGoal(b);
+    const goal = (await b.owner.goal.current({ businessId: b.id })).proposed!;
+    await b.owner.goal.approve({ businessId: b.id, goalId: goal.id });
+    expect((await b.owner.today.get({ businessId: b.id })).outcomes.toward).toBe("Working toward: Get the first 10 paying customers by Dec 19");
+  });
+
+  it("Working now lists each agent with a running task in the founder's words, and nothing when nobody is working (WP-14 T5)", async () => {
+    const b = await business("Today Working");
+    expect((await b.owner.today.get({ businessId: b.id })).workingNow).toEqual([]);
+    const builder = await repos.agents.create(hz.db, b.id, { name: "Rhea Stone", agentType: "backend_engineer", status: "healthy" });
+    const start = async (title: string, founderTitle: string, assigneeAgentId: string | null) => {
+      const t = await repos.tasks.create(hz.db, b.id, { kind: "code", title, founderTitle, status: "ready", assigneeAgentId });
+      await repos.tasks.setStatus(hz.db, b.id, t.id, "running", { force: true });
+    };
+    await start("stripe-integration", "Set up card payments", builder.id);
+    await start("stripe-webhooks", "Record each payment", builder.id);
+    await start("orphan", "Work with no agent yet", null);
+    await repos.tasks.create(hz.db, b.id, { kind: "code", title: "queued", founderTitle: "Waiting to start", status: "ready", assigneeAgentId: b.chief.id });
+
+    const view = await b.owner.today.get({ businessId: b.id });
+    // One line an agent (its oldest running work), by the founder-facing title; queued work and work with no agent are not "working now".
+    expect(view.workingNow).toEqual([{ agent: expect.objectContaining({ id: builder.id, name: "Rhea Stone" }), doing: "Set up card payments" }]);
+    expect(JSON.stringify(view.workingNow)).not.toContain("stripe-integration");
+
+    // Walled from Development: not theirs to read. Agents stopped: nobody is working.
+    await repos.memberships.setSectionPermissions(hz.db, b.id, b.memberId, { development: "none" });
+    expect((await b.member.today.get({ businessId: b.id })).workingNow).toBeNull();
+    await hz.db.execute(sql`update businesses set agents_stopped_at = now(), agents_stopped_reason = 'founder' where id = ${b.id}`);
+    expect((await b.owner.today.get({ businessId: b.id })).workingNow).toEqual([]);
   });
 
   it("is business-scoped: someone outside the business cannot read it", async () => {
@@ -167,7 +215,7 @@ describe("today.get › firstWeek", () => {
 
   it("reads Day 1 from the page and the sign-offs (package 1.3): both sign-offs leave the page to publish", async () => {
     const b = await business("Today First Week Facts");
-    expect((await b.owner.today.get({ businessId: b.id })).firstWeek!.steps[0]).toMatchObject({ team: "Your team drafts your page, your specification and your roadmap.", asks: "You are asked to publish your page and sign off the specification and the roadmap." });
+    expect((await b.owner.today.get({ businessId: b.id })).firstWeek!.steps[0]).toMatchObject({ team: "Your team drafts your page first, then your plan.", asks: "You are asked to publish your page and approve your plan." });
     await repos.productSignoffs.seedApproved(hz.db, b.id, { spec: { at: new Date() }, roadmap: { at: new Date() }, decidedBy: b.ownerId });
     const signed = await b.owner.today.get({ businessId: b.id });
     expect(signed.firstWeek!.steps.map((s) => s.state)).toEqual(["now", "next", "next"]);
@@ -179,6 +227,19 @@ describe("today.get › firstWeek", () => {
     expect(view.firstWeek!.steps[0]!.when).toMatch(/^Done [A-Z][a-z]{2} \d{1,2}$/);
   });
 
+  it("says which day of the project it is: 1 on the day it was created (WP-04 T7)", async () => {
+    const b = await business("Today Project Day");
+    expect(await b.owner.today.get({ businessId: b.id })).toMatchObject({ projectDay: 1, firstDay: true });
+    await hz.db.execute(sql`update businesses set created_at = now() - interval '1 day' where id = ${b.id}`);
+    expect(await b.viewer.today.get({ businessId: b.id })).toMatchObject({ projectDay: 2, firstDay: false });
+    await hz.db.execute(sql`update businesses set created_at = now() - interval '30 days' where id = ${b.id}`);
+    expect((await b.owner.today.get({ businessId: b.id })).projectDay).toBe(31);
+    // A project created today that is already selling is past its first day.
+    const selling = await business("Today Project Day Selling");
+    await repos.businesses.startDistribution(hz.db, selling.id, { at: new Date() });
+    expect(await selling.owner.today.get({ businessId: selling.id })).toMatchObject({ projectDay: 1, firstDay: false });
+  });
+
   it("is away for a business past its first days and for one that is already selling", async () => {
     const old = await business("Today First Week Old");
     expect((await old.owner.today.get({ businessId: old.id })).firstWeek).not.toBeNull();
@@ -188,5 +249,79 @@ describe("today.get › firstWeek", () => {
     const selling = await business("Today First Week Selling");
     await repos.businesses.startDistribution(hz.db, selling.id, { at: new Date() });
     expect((await selling.owner.today.get({ businessId: selling.id })).firstWeek).toBeNull();
+  });
+
+  it("the followers' update line (WP-08 T3): nothing without followers; the invitation with followers; a waiting draft; nothing once one went out", async () => {
+    const b = await business("Today Followers");
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toBeNull();
+    const entity = await repos.entities.create(hz.db, b.id, { kind: "person", displayName: "Follower", identifiers: { email: "f@example.com" } });
+    await hz.db.execute(sql`insert into contact_consents (business_id, entity_id, purpose, source, source_ref, consent_text, confirmed_at) values (${b.id}, ${entity.id}, 'email', 'page', 'today-page', 'I agree.', now())`);
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toEqual({ kind: "invite", followers: 1 });
+    const draft = await repos.updates.draftByAgent(hz.db, b.id, { subject: "News", body: "Hi", agentId: b.chief.id });
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toEqual({ kind: "draft", updateId: draft.id });
+    await repos.updates.startSend(hz.db, b.id, draft.id, { userId: b.ownerId, at: new Date() });
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toBeNull();
+  });
+});
+
+describe("today.get › founderTask (WP-04 T9)", () => {
+  const content = { pitch: "Candles that smell like a walk in the woods", about: "Small batches.", forWhom: "", stage: "idea" as const, showFounders: false };
+  const uuid = () => crypto.randomUUID();
+  const follow = (b: { id: string }, actor: { kind: "system" | "user"; id: string }) => repos.events.write(hz.db, b.id, { type: "page.followed", actor, payload: { pageId: null, entityId: uuid(), consentId: uuid() } });
+
+  it("goes publish, share, approve the plan, ask five, and is null once a real follow came in", async () => {
+    const b = await business("Today Task");
+    await repos.productSignoffs.open(hz.db, b.id, { kind: "spec", item: note(b.chief.id, "Your plan is ready", planDecisionBlock()) });
+    const first = (await b.owner.today.get({ businessId: b.id })).founderTask!;
+    expect(first).toMatchObject({ id: "publish_page", title: "Check your page and publish it", action: { kind: "open_page" }, doneToday: false });
+    // No overnight shift on this project: the line without it.
+    expect(first.tomorrow).toBe("Come back when you have heard from someone, or press Continue for a round of work.");
+
+    const slug = `today-task-${b.id.slice(0, 8)}`;
+    await repos.pages.publish(hz.db, b.id, { content, slug, userId: b.ownerId });
+    const share = (await b.owner.today.get({ businessId: b.id })).founderTask!;
+    // Published today: one a day, so it is done for today and names the share for tomorrow.
+    expect(share).toMatchObject({ id: "share_page", action: { kind: "share" }, doneToday: true });
+    expect(share.action.text).toMatch(new RegExp(`^I'm starting Today Task \\d+\\. Candles that smell like a walk in the woods\\. Would you use this\\?\\n\\nhttps?://[^\\s]+/p/${slug}\\?via=`));
+
+    await b.owner.share.opened({ businessId: b.id, kind: "page", network: null, target: "copy" });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask).toMatchObject({ id: "approve_plan", action: { kind: "open_note" } });
+
+    const signoffs = await repos.productSignoffs.latest(hz.db, b.id);
+    await repos.productSignoffs.decide(hz.db, b.id, signoffs.spec!.id, { status: "approved", decidedBy: b.ownerId });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask).toMatchObject({ id: "ask_five", title: "Ask five people the question on your page", action: { kind: "copy" } });
+
+    // A simulated or hand-written follow never counts; one the public page wrote does.
+    await follow(b, { kind: "system", id: "simulate" });
+    await follow(b, { kind: "user", id: b.ownerId });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask?.id).toBe("ask_five");
+    await follow(b, { kind: "system", id: "public-page" });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask).toBeNull();
+  });
+
+  it("a share of a milestone is not a share of the page; a page taken down asks to publish again", async () => {
+    const b = await business("Today Task Shares");
+    await repos.pages.publish(hz.db, b.id, { content, slug: `today-shares-${b.id.slice(0, 8)}`, userId: b.ownerId });
+    await repos.events.write(hz.db, b.id, { type: "share.opened", actor: { kind: "user", id: b.ownerId }, payload: { network: null, kind: "draft", refId: null, target: "device" } });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask?.id).toBe("share_page");
+    await repos.pages.unpublish(hz.db, b.id, { userId: b.ownerId });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask?.id).toBe("publish_page");
+  });
+
+  it("names tomorrow morning when the overnight shift is on, and not once it is paused", async () => {
+    const b = await business("Today Task Overnight");
+    await repos.autopilot.set(hz.db, b.id, { enabled: true, cadence: "daily", dailyHour: 2 });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask!.tomorrow).toBe("Tomorrow morning: what your team found overnight, and one thing to do.");
+    await hz.db.execute(sql`update businesses set autopilot_paused_reason = 'credits_exhausted' where id = ${b.id}`);
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask!.tomorrow).toMatch(/^Come back when/);
+  });
+
+  it("is null for a sample business and for a reader without Product read", async () => {
+    const b = await business("Today Task Walls");
+    expect((await b.viewer.today.get({ businessId: b.id })).founderTask?.id).toBe("publish_page");
+    await repos.memberships.setSectionPermissions(hz.db, b.id, b.memberId, { product: "none" });
+    expect((await b.member.today.get({ businessId: b.id })).founderTask).toBeNull();
+    await hz.db.execute(sql`update businesses set is_demo = true where id = ${b.id}`);
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask).toBeNull();
   });
 });

@@ -2,6 +2,7 @@
 export * from "./routing";
 export * from "./pricing";
 export * from "./types";
+export * from "./batch";
 export * from "./errors";
 export { platformBillingRefusal, clearPlatformBillingRefusal, notePlatformBillingRefusal, type PlatformBillingRefusal } from "./billing-state";
 export { canonicalJson, stableHash, seededRng, uuidFromSeed, isUuidLike, UUID_RE, type Rng } from "./hash";
@@ -10,6 +11,7 @@ export { JsonElementScanner, getAtPath, arrayAtPath, elementPathKeys, type Scann
 export { streamStructured, runStructuredStream, StreamInterruptedError, elementIndexOf, DEFAULT_PARTIAL_THROTTLE_MS, MAX_STREAM_INTERRUPTIONS, type StreamCallArgs, type StreamCallResult, type StructuredStreamDeps } from "./structured-stream";
 export * from "./rate-limit";
 export { gateModelClient, type ModelCallGate, type ModelCallVerdict } from "./gate";
+export { enforceModelFunding, type FreeCapCheck, type FundingOf, type ModelFunding } from "./free-plan";
 export * from "./schemas";
 export * from "./planParams";
 // Team call (docs/TEAM_CALL.md §4): not through ./schemas, which this module imports `PlanAction` from.
@@ -31,3 +33,4 @@ export {
   type LiveModelClientOptions,
 } from "./client";
 export * from "./mock";
+export { OWN_KEY_GATEWAY_PATH, OWN_KEY_MISSING, OWN_KEY_REFUSED, ownKeyViaGateway, routeOwnKeyCalls, type OwnKeyViaGatewayOptions, type RouteOwnKeyOptions } from "./own-key-route";

@@ -122,7 +122,8 @@ export function DeltaBadge({ delta, className, id }: { delta: MetricDelta; class
       <span className="sr-only">{word} </span>
       {/* A flat change reads as "no change": the visible 0 would only repeat it. */}
       <span aria-hidden={flat || undefined}>{flat ? "0" : body}</span>
-      {delta.label ? <span className="font-normal opacity-80">{delta.label}</span> : null}
+      {/* Set apart by weight, not opacity: a dimmed label fell under AA on the tinted chip (axe color-contrast). */}
+      {delta.label ? <span className="font-normal">{delta.label}</span> : null}
     </span>
   );
 }
@@ -287,9 +288,15 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
               fallback={fallback && unit ? `${fallback} ${unit}` : fallback}
               tooltip={false}
             >
-              <Figure id={`${id}-value`} value={text} unit={unit} data-value={text} />
+              {estimate ? (
+                // Above the tile's own button so hover and focus reach it; a click on the figure still opens the tile.
+                <ProvenanceChip kind={estimate} className="relative z-10" onClick={onClick ? () => onClick() : undefined}>
+                  <Figure id={`${id}-value`} value={text} unit={unit} data-value={text} />
+                </ProvenanceChip>
+              ) : (
+                <Figure id={`${id}-value`} value={text} unit={unit} data-value={text} />
+              )}
             </FitText>
-            {estimate ? <ProvenanceChip kind={estimate} className="relative z-10 ml-0.5" /> : null}
             {delta ? <DeltaBadge delta={delta} id={`${id}-delta`} /> : null}
           </div>
         </PlainFigure>

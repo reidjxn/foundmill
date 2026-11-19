@@ -8,7 +8,7 @@
  * then sees the attribute and starts or moves on. An element that already carries another id, or a target that exists
  * natively somewhere else on the page, is left alone.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { findCoachmarkTarget } from "@foundmill/dugout";
 import type { TourStamp } from "./definitions";
 
@@ -41,12 +41,18 @@ export function removeCoachmarkStamps(stamped: Map<string, HTMLElement>): void {
   stamped.clear();
 }
 
-/** Stamps the tour's targets while the component is mounted, following the DOM as it changes. */
-export function useCoachmarkStamps(stamps: readonly TourStamp[]): void {
+/**
+ * Stamps the tour's targets while the component is mounted, following the DOM as it changes. Answers true once the
+ * first pass ran: a tour whose first step is a stamped target (Today's Needs you, WP-04 T7) starts its Coachmark only
+ * then, or the Coachmark would find that step missing and start on a later one.
+ */
+export function useCoachmarkStamps(stamps: readonly TourStamp[]): boolean {
+  const [ready, setReady] = useState(stamps.length === 0);
   useEffect(() => {
     if (typeof document === "undefined" || stamps.length === 0) return;
     const stamped = new Map<string, HTMLElement>();
     applyCoachmarkStamps(stamps, stamped);
+    setReady(true);
     if (typeof MutationObserver === "undefined") return () => removeCoachmarkStamps(stamped);
     let frame = 0;
     const observer = new MutationObserver(() => {
@@ -64,4 +70,5 @@ export function useCoachmarkStamps(stamps: readonly TourStamp[]): void {
       removeCoachmarkStamps(stamped);
     };
   }, [stamps]);
+  return ready;
 }

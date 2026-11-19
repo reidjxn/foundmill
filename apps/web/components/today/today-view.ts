@@ -92,20 +92,23 @@ export interface SinceLastVisitLike {
   wins: number;
   newDecisions: number;
   milestones: readonly string[];
-  spend: { amountMinor: number; currency: string } | null;
+  /** Accounts that arrived through the project's page since the previous visit (absent or 0: no line). */
+  arrived?: number;
 }
 
 /**
  * "Since you were last here" in plain lines (retention plan, 2026-11-11): the work, the wins, the new decisions with a
- * link to answer them, the milestones, and spend marked Estimate. Lines with nothing to say are left out.
+ * link to answer them and the milestones. No cost line: Today carries no cost figure (WP-14 T4). Lines with nothing to
+ * say are left out.
  */
-export function sinceLastVisitLines(view: SinceLastVisitLike, businessId: string, money: (m: { amountMinor: number; currency: string }) => string): SinceLastVisitLine[] {
+export function sinceLastVisitLines(view: SinceLastVisitLike, businessId: string): SinceLastVisitLine[] {
   const lines: SinceLastVisitLine[] = [];
   if (view.rounds > 0 || view.tasksDone > 0) lines.push({ id: "work", text: `${countOf(view.rounds, "round")} of work, ${countOf(view.tasksDone, "task")} done.` });
   if (view.wins > 0) lines.push({ id: "wins", text: `${countOf(view.wins, "customer")} won.`, tone: "gold", link: { href: routes.inbox(businessId), label: "Open" } });
   if (view.newDecisions > 0) lines.push({ id: "decisions", text: `${countOf(view.newDecisions, "new decision")} ${view.newDecisions === 1 ? "needs" : "need"} you.`, link: { href: needsYouHref(businessId), label: "Answer" } });
   view.milestones.forEach((m, i) => lines.push({ id: `milestone-${i}`, text: `Milestone: ${m}.`, tone: "gold", link: { href: `/b/${businessId}/milestones`, label: "See" } }));
-  if (view.spend) lines.push({ id: "spend", text: `Team spend ${money(view.spend)} (Estimate).` });
+  // A count and nothing else: no name, no link, nothing public (docs/NETWORK.md §14 answer 4).
+  if ((view.arrived ?? 0) > 0) lines.push({ id: "arrived", text: `${view.arrived === 1 ? "1 person" : `${view.arrived} people`} arrived through your page.` });
   return lines;
 }
 
@@ -121,8 +124,28 @@ export interface StreakLike {
 
 const WEEKDAY = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
 
-/** The StreakStrip's props: the shared words and a short weekday under each dot ("Mon"). */
-export function streakStripProps(s: StreakLike): { headline: string; line: string; atRisk: boolean; milestone: boolean; week: { day: string; label: string; state: StreakLike["week"][number]["state"] }[] } {
-  const words = streakWords(s);
-  return { ...words, atRisk: s.atRisk, milestone: s.milestone !== null, week: s.week.map((d) => ({ ...d, label: WEEKDAY.format(new Date(`${d.day}T12:00:00Z`)) })) };
+/**
+ * The StreakStrip's props (WP-04 D5: quieter): the shared words, never the at-risk line (the founder is here now), and
+ * only the days of the last seven the founder opened the business, each with its short weekday ("Mon").
+ */
+export function streakStripProps(s: StreakLike): { headline: string; line: string; milestone: boolean; opened: { day: string; label: string }[] } {
+  const words = streakWords({ ...s, atRisk: false });
+  return { ...words, milestone: s.milestone !== null, opened: s.week.filter((d) => d.state === "visited").map((d) => ({ day: d.day, label: WEEKDAY.format(new Date(`${d.day}T12:00:00Z`)) })) };
+}
+
+/** Today's sections, by the test id each one draws. */
+export type TodaySection = "needs-you" | "founder-task" | "public-page" | "post-ready" | "first-week" | "goal" | "week" | "since" | "streak" | "health";
+
+/**
+ * Today's reading order (WP-04 T7): one thing to do first. On a phone, and on a computer while the page waits to be
+ * checked and published, Needs you leads, then the page line, the first week and the goal; otherwise the first week,
+ * the goal beside Needs you. The week plan, Since you were last here, the streak and the health figures always come
+ * after, in that order, and the streak and health only after the project's first day (`today.get` › `firstDay`, WP-04
+ * D5; s1 §3.8: four empty figures on day one). Not known yet (`null`): not yet. The founder's one thing today (WP-04
+ * T9) comes right after Needs you in both orders, so it never pushes Needs you down.
+ */
+export function todaySections(f: { phone: boolean; pageFirst: boolean; firstDay: boolean | null }): TodaySection[] {
+  const lead: TodaySection[] = f.phone || f.pageFirst ? ["needs-you", "founder-task", "public-page", "post-ready", "first-week", "goal"] : ["first-week", "goal", "needs-you", "founder-task", "public-page", "post-ready"];
+  const later: TodaySection[] = f.firstDay === false ? ["week", "since", "streak", "health"] : ["week", "since"];
+  return [...lead, ...later];
 }

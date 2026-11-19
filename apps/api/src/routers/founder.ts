@@ -25,15 +25,17 @@
  */
 import { freeDisplayName, liveModeOpen } from "@foundmill/config";
 import { AccountPreferencesPatch, EmailPrefsPatch, RegisterDeviceInput, UnregisterDeviceInput, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type AccountPreferencesView, type Db, type DbTx, type GuidancePrefs, type NotificationPreferences } from "@foundmill/db";
-import { CONTINUE_PATH_MAX, FOUNDER_RETURN_VIA, GUIDANCE_OFF_SOURCES, isContinuePath, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX } from "@foundmill/shared";
+import { CONTINUE_PATH_MAX, FOUNDER_RETURN_VIA, GUIDANCE_OFF_SOURCES, founderExperienceFrom, isContinuePath, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX } from "@foundmill/shared";
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { adultConfirmedAt, recordAdultConfirmation, requireAdult } from "../services/adults";
+import { rerateFitForProfileChange } from "../services/founder-fit";
 import { IDEA_DRAFT_TOKEN_MAX_LENGTH, onPersonCreated } from "../services/person-created";
 import { writeEventRow } from "../services/events";
 import { getPublicProfile, publicPersonByHandle, publishPublicProfile, unpublishPublicProfile, updateFounderProfile, updatePublicProfile } from "../services/person-profile";
 import { protectedProcedure, publicProcedure, router, signedInProcedure } from "../trpc";
+import type { Context } from "../context";
 import { founderBusinessesRouter } from "./founder-businesses";
 import { cancelDeletionAsFormerFounder, formerProjectCards } from "../services/founder-notices";
 import { sendContinueLink } from "../services/continue-link";
@@ -42,6 +44,18 @@ import { modelLimited } from "../services/model-limits";
 /** Runs fn as the signed-in user, so Postgres RLS holds every row it touches to that user. */
 function asUser<T>(ctx: { db: Db; userId: string; email?: string | null }, fn: (tx: DbTx) => Promise<T>): Promise<T> {
   return withRls(ctx.db, { userId: ctx.userId, claims: ctx.email ? { email: ctx.email } : undefined }, fn);
+}
+
+/**
+ * Founder fit follows the profile's skill ratings on every idea the person holds (services/founder-fit.ts, WP-14 T2).
+ * The profile is saved already: a re-rating that fails is logged with the account id and never changes the answer.
+ */
+async function rerateFit(ctx: Pick<Context, "db" | "log"> & { userId: string }, before: Readonly<Record<string, number>> | null, after: { skills: Record<string, number>; experience: string | null }): Promise<void> {
+  try {
+    await rerateFitForProfileChange(ctx.db, ctx.userId, before, after);
+  } catch (err) {
+    ctx.log.warn({ userId: ctx.userId, reason: err instanceof Error ? err.name : "unknown" }, "founder fit was not re-rated after a profile save");
+  }
 }
 
 /**
@@ -55,9 +69,21 @@ export function guidanceOffByDefault(experience: string | null | undefined): boo
   return typeof experience === "string" && EXPERIENCED_FOUNDER_EXPERIENCES.includes(experience.trim().toLowerCase());
 }
 
+/**
+ * Named agents ("Anthropomorphic agents", 0067) start on for a first-time founder (WP-14 T6; the brief's A9): the team
+ * reads as "Malik (Chief of Staff)", a first name with the position always beside it, from the first screen. Anyone
+ * whose profile says they have done this before (Exited, Operator, Domain expert) starts with it off, as everyone did
+ * before. A profile with no experience answer reads as a first-time founder, as everywhere else
+ * (`founderExperienceFrom`). Decided once, on the save that creates the profile; the switch is the person's after that
+ * (Settings › Preferences, Commit's More options), and accounts that existed before keep what they had.
+ */
+export function namedAgentsOnByDefault(experience: string | null | undefined): boolean {
+  return founderExperienceFrom(experience) === "first_time";
+}
+
 /** The guided layer's part of the preferences row, the anthropomorphic agents switch and its style, and Builder view (what founder.preferences.guidance answers). */
 export function guidancePrefsOf(p: AccountPreferencesView): GuidancePrefs {
-  return { guidance: p.guidance, textSize: p.textSize, explainersSeen: p.explainersSeen, toursDone: p.toursDone, checklistDismissedAt: p.checklistDismissedAt, anthropomorphicAgents: p.anthropomorphicAgents, agentStyle: p.agentStyle, builderView: p.builderView };
+  return { guidance: p.guidance, textSize: p.textSize, explainersSeen: p.explainersSeen, toursDone: p.toursDone, checklistDismissedAt: p.checklistDismissedAt, anthropomorphicAgents: p.anthropomorphicAgents, agentStyle: p.agentStyle, builderView: p.builderView, keyboardShortcuts: p.keyboardShortcuts };
 }
 
 /** The mobile app's part of the preferences row (what founder.preferences.notifications answers). */
@@ -180,8 +206,10 @@ export const founderRouter = router({
      * Creates the profile on the first save, updates it after. `guidanceTurnedOff` is true only on the save that created
      * the profile with an Exited or Operator experience: guidance was set off then, once, and the client says so
      * ("Guidance is off for experienced founders. Turn it on any time in Settings › Preferences."). The same save turns
-     * Builder view on (0073; founder, Nov 8, 2026): they see how the platform runs the team from the start. A later edit
-     * never touches either switch, whatever the experience becomes.
+     * Builder view on (0073; founder, Nov 8, 2026): they see how the platform runs the team from the start; and the
+     * single-key shortcuts on (0114, WP-04 T13), which everyone else starts with off. The save that creates a first-time
+     * founder's profile turns named agents on (`namedAgentsOnByDefault`, WP-14 T6). A later edit never touches any of
+     * these switches, whatever the experience becomes.
      * A new display name the public can read (the public profile is public, or a published project page names the
      * person as a founder) is screened first, like the profile's own text, and refused with its sentence when held
      * (services/person-profile.ts `updateFounderProfile`).
@@ -192,7 +220,11 @@ export const founderRouter = router({
      */
     update: protectedProcedure.input(FounderProfileUpdateInput).mutation(async ({ ctx, input: { via, ideaDraftToken, confirmAdult, ...input } }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);
-      if (existing) return { ...(await updateFounderProfile(ctx, input)), guidanceTurnedOff: false };
+      if (existing) {
+        const updated = await updateFounderProfile(ctx, input);
+        await rerateFit(ctx, existing.skills, updated);
+        return { ...updated, guidanceTurnedOff: false };
+      }
       // 18 or older, for the whole product (services/adults.ts): a new account creates its profile only with the box
       // ticked on this save, or an earlier confirmation (an invitation's accept, the network). The confirmation is
       // recorded here, before the profile, so a profile never exists without it; the step after it writes nothing then.
@@ -200,7 +232,12 @@ export const founderRouter = router({
       const created = FounderProfileInput.parse({ displayName: input.displayName ?? freeDisplayName(ctx.email?.split("@")[0]), ...input });
       const profile = await repos.founders.upsert(ctx.db, ctx.userId, created);
       const guidanceTurnedOff = guidanceOffByDefault(profile.experience);
-      if (guidanceTurnedOff) await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { guidance: "off", builderView: true }));
+      if (guidanceTurnedOff) await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { guidance: "off", builderView: true, keyboardShortcuts: true }));
+      // A guided first-timer starts on comfortable text (WP-10 T5, DESIGN §4); existing accounts keep their setting.
+      // A first-time founder also starts with named agents on (WP-14 T6); a domain expert keeps them off.
+      else await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { textSize: "comfortable", ...(namedAgentsOnByDefault(profile.experience) ? { anthropomorphicAgents: true } : {}) }));
+      // A card kept before the profile existed (the landing page's idea box) gets its Founder fit from these answers.
+      await rerateFit(ctx, null, profile);
       await onPersonCreated(ctx, ctx.userId, { via, ideaDraftToken, confirmAdult, client: ctx.clientKind });
       return { ...profile, guidanceTurnedOff };
     }),
@@ -234,7 +271,7 @@ export const founderRouter = router({
      * The guided layer's preferences (the switch, the text size, the explainers seen, the tours done, the checklist) and
      * `anthropomorphicAgents` (0067: agents show a persona's first name and face; default false) with `agentStyle` (0069:
      * humans, cartoon_3d, cartoon_2d or fantasy; default humans, meaningful only while the switch is on) and `builderView`
-     * (0073: show how the platform runs the team; default false).
+     * (0073: show how the platform runs the team; default false) and `keyboardShortcuts` (0114: the single-key shortcuts; default false).
      */
     guidance: protectedProcedure.query(({ ctx }) => asUser(ctx, async (tx) => guidancePrefsOf(await repos.preferences.get(tx, ctx.userId)))),
     /** Which kinds of push the person's phones get (every kind on until turned off) and whether amounts stay off the lock screen (0075). */

@@ -24,26 +24,26 @@
 
 ## Tasks
 
-- [ ] T1 Profile as three questions; the card keeps its thread (M)
-- [ ] T2 Commit as name and go, at any width (M)
+- [x] T1 Profile as three questions; the card keeps its thread (M)
+- [x] T2 Commit as name and go, at any width (M)
 - [x] T3 What commit starts on the free plan (M)
 - [ ] T4 The starting team, as shown (S)
-- [ ] T5 One plan note, one approval (M)
+- [x] T5 One plan note, one approval (M)
 - [x] T6 Check, publish and share the page on any screen (M)
 - [ ] T7 One first-day story; guidance on Today (M)
 - [x] T8 Note budget and the day's digest (M)
-- [ ] T9 The founder's own task and tomorrow's reason (M)
-- [ ] T10 Chief of Staff as mentor, with founder context (M)
-- [ ] T11 Lifecycle email for a started project (M, needs setup)
-- [ ] T12 Email for a person with a card and no project (M, needs setup)
-- [ ] T13 Single-key shortcuts off by default (S)
+- [x] T9 The founder's own task and tomorrow's reason (M)
+- [x] T10 Chief of Staff as mentor, with founder context (M)
+- [x] T11 Lifecycle email for a started project (M, needs setup)
+- [x] T12 Email for a person with a card and no project (M, needs setup)
+- [x] T13 Single-key shortcuts off by default (S)
 - [x] T14 The one-click answer page on a phone (S)
 - [ ] T15 A phone start without a card (S)
-- [ ] T16 Win-back for the 11 stalled projects (S, needs the founder)
+- [x] T16 Win-back for the 11 stalled projects (S, needs the founder): closed by the founder (Nov 17, 2026): no win-back letters; step 2's note clearing built as a script
 
 Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any order after T7.
 
-### T1: Profile as three questions; the card keeps its thread   [M] [ships alone]
+### [x] T1: Profile as three questions; the card keeps its thread   [M] [ships alone]
 
 **Why:** FR-05, FR-08, FR-03 item 1, FR-19 (`ideaDraftToken`), A9-P0-2 item 1, s2 §4.1, s1 §3.4.
 
@@ -71,7 +71,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Done when:** a new account on a phone goes kept card → three questions → Commit without a wall; the long form is reachable only when editing.
 **Left for later, on purpose:** re-rating "Founder fit" after the profile (FR-15) is one more Opus call for a number a first-timer cannot use; the card keeps `founderFitKnown={false}`. Time, place, budget and the five ratings stay in the editing form; an agent asks when it first needs one (T10's context carries nulls as "not said").
 
-### T2: Commit as name and go, at any width   [M] [ships alone]
+### [x] T2: Commit as name and go, at any width   [M] [ships alone]
 
 **Why:** FR-09, FR-03 item 2, FR-16 (weak strings), FR-19 (the 18+ source), s2 §4.1 (Commit table), s1 §3.7.
 
@@ -121,7 +121,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** as above, plus `apps/web/e2e/first-days.spec.ts` (Today after commit shows no running cycle and no finance or legal task). No eval: the planner prompt is unchanged.
 **Done when:** a no-budget project commits with one task, no agent session before the page note, and less than $1.00 spent in its first hour (Estimate; WP-02's cost report confirms).
 
-### T4: The starting team, as shown   [S] [ships after T2]
+### [x] T4: The starting team, as shown   [S] [ships after T2]
 
 **Why:** s2 §5.3 ("25 agents and up to 17 notes on day one"), s1 §3.7 and §3.8, a3b §2.2, FR-16 row 2.
 
@@ -138,7 +138,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** unit test; `CommitForm.test.tsx` (the line); `apps/web/e2e/first-days.spec.ts` (Agents tab lists at most 5 rows before "Show all").
 **Done when:** no first-run surface shows more than 5 agents unasked.
 
-### T5: One plan note, one approval   [M] [ships alone]
+### [x] T5: One plan note, one approval   [M] [ships alone]
 
 **Why:** A4-16, FR-07, THESIS 1.3; e0 (founders answered 0 to 1 decisions).
 
@@ -177,7 +177,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** as above, both widths; Storybook story of the screen at 390.
 **Done when:** Done-when 1 of this package passes.
 
-### T7: One first-day story; guidance on Today   [M] [ships after T5 and T6]
+### [x] T7: One first-day story; guidance on Today   [M] [ships after T5 and T6]
 
 **Why:** FR-07, FR-16 rows 2 and "also weak", FR-18 (tour), A2-05, A2-06 (Today only; the other screens are WP-10), A2-10, s1 §3.8 and §3.9.
 
@@ -223,7 +223,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Done when:** a project left alone on day one holds the welcome or digest note, the page note and the plan note, and nothing else unarchived.
 **Risk:** an update a founder wanted is one click further away. The digest links each line to its note.
 
-### T9: The founder's own task and tomorrow's reason   [M] [ships after T7]
+### [x] T9: The founder's own task and tomorrow's reason   [M] [ships after T7]
 
 **Why:** s2 §5.1 (the session's end), §6.4 ("One thing to do today … Not built"), THESIS R7; onboarding skill: one goal per session, end on a positive note.
 
@@ -246,7 +246,7 @@ export function founderTaskOf(f: FounderTaskFacts): FounderTask | null
 **Tests and evals:** above; Storybook states (each task, done, none).
 **Done when:** Today always names one thing the founder can finish in minutes, and says what happens next.
 
-### T10: Chief of Staff as mentor, with founder context   [M] [ships alone]
+### [x] T10: Chief of Staff as mentor, with founder context   [M] [ships alone]
 
 **Why:** TS-06, TS-13 (examples), FR-16 row 2, a3b §3.3 (Composer and conversation rows), THESIS §12.6.
 
@@ -268,7 +268,7 @@ repos.founders.contextFor(db: Executor, businessId: string, userId: string): Pro
 **Tests and evals:** above; existing `evals/src/composer.ts` and `conversation/` suites must still pass.
 **Done when:** the eval passes live, and a welcome note, a decision note and a conversation reply for a first-timer all use their name and recommend a free first move.
 
-### T11: Lifecycle email for a started project   [M] [needs setup: WP-00 S2, S3]
+### [x] T11: Lifecycle email for a started project   [M] [needs setup: WP-00 S2, S3]
 
 **Why:** s2 §6.1 to §6.3, A9-P0-4 items 2, 3 and 5. Build with the mock passing; sends nothing live until S2 and S3 are recorded.
 
@@ -298,7 +298,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 **Tests and evals:** above; gateway `notify-email.test.ts` for the two kinds and the limit; `platform-mail.spec.ts` unchanged. Metrics to read once live: `notify.email_sent` by kind, and `founder.session_started` with `via: "email"` per email sent.
 **Done when:** in mock mode a new project's day 0, 1, 3 and 7 emails are planned and recorded, never more than three in a day.
 
-### T12: Email for a person with a card and no project   [M] [needs setup: WP-00 S2, S3]
+### [x] T12: Email for a person with a card and no project   [M] [needs setup: WP-00 S2, S3]
 
 **Why:** FR-17, A9-P0-4 item 4, s2 §6.2 row 1.
 
@@ -312,7 +312,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 3. Counts toward the person's three a day; the pause link and the kind's switch apply.
 **Done when:** the mock sweep records the two emails for a card-holder and nothing for anyone else.
 
-### T13: Single-key shortcuts off by default   [S] [ships alone]
+### [x] T13: Single-key shortcuts off by default   [S] [ships alone]
 
 **Why:** A2-03 (an accidental Space starts paid work; 1 to 4 answer a decision; WCAG 2.1.4).
 
@@ -328,7 +328,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 **Steps:** 1. Test first: a failed `email.action.answer` renders an inline `role="alert"` line "That did not go through. Try again." with a Try again button; at 390 the answer button is at least 44 px tall. 2. Both buttons `size="lg" className="min-h-tap w-full @page-wide:w-auto"`; add `onError`; replace bare "Loading…" with a three-line skeleton. verify: both tests pass.
 **Done when:** a tap from an email on a phone either answers or says why not.
 
-### T15: A phone start without a card   [S] [ships after T2]
+### [x] T15: A phone start without a card   [S] [ships after T2]
 
 **Why:** FR-03 item 5, s2 §5.3 ("A first-timer who has no idea"), FR-18 (`/home`).
 **Files:** create `apps/web/app/new/write/page.tsx`, `apps/web/components/new/WriteIdea.tsx` (+ test, + story); modify `apps/web/components/person-home/PersonHome.tsx`, `DesktopOnly.tsx` (`"/new/write"`).
@@ -336,7 +336,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 **Steps:** 1. Test first: on a narrow viewport `/home`'s "Start something" links to `/new/write`, on a wide one to `/new`; submitting calls `idea.write` once and navigates to Commit. 2. The page: "What do you want to build?" / "One sentence is enough." / fields "A working name" and "Your idea, in your words" / button "Shape it". 3. Hide `/home`'s "Opening soon" card while `features.liveMode` is false. verify: `person-home.spec.ts` at 390 reaches Commit.
 **Not built:** a signed-in "no idea at all" path on a phone (the interest picker lives in the signed-out idea box). Build it when WP-02's funnel shows admitted accounts with no idea after 24 hours.
 
-### T16: Win-back for the 11 stalled projects   [S] [needs the founder; after T6, T8 and WP-12's catch-up drafts]
+### [x] T16: Win-back for the 11 stalled projects   [S] [needs the founder; after T6, T8 and WP-12's catch-up drafts]
 
 **Why:** s2 §6.5, A9-P0-4 item 6. No product code.
 **Steps:** 1. A Desktop session lists, through the Supabase connector, each of the 10 owners' first name, project, creation date, count of day-one notes and whether a page draft exists (counts only; no addresses in the pull request). 2. On the founder's go-ahead, set aside notes older than 14 days with no answer on those 11 projects, except credit warnings (an api script that archives through `repos.inbox`, dry run first, the list shown before it runs). 3. The founder sends s2 §6.5's letter from their own mailbox, one by one, with replies read; a second note at day 7 and "Keep {project} or archive it?" at day 21, then stop. 4. Record replies and returns in docs/PROGRESS.md.
@@ -374,7 +374,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 ## Starting prompt
 
 ```
-You are executing docs/holistic-plan/WP-04-the-first-session.md. Read, in order: CLAUDE.md; docs/holistic-plan/README.md; the work package; the CLAUDE.md of each package the next task touches; and the audit sections the task cites under docs/holistic-plan/audits/. Line numbers have drifted: find each citation by the function or string it names.
+You are executing docs/holistic-plan/WP-04-the-first-session.md. Read, in order: FOUNDMILL.md; docs/holistic-plan/README.md; the work package; the CLAUDE.md of each package the next task touches; and the audit sections the task cites under docs/holistic-plan/audits/. Line numbers have drifted: find each citation by the function or string it names.
 
 Take the first unticked task in the order the package gives (T1, T2, T3, T6, T5, T4, T7, T8, then T9 to T16). For that task: run plan-change (other branches, next free migration number); state your assumptions; write the failing test the task names; make the smallest change that passes it; run verify-done and report every check with its result. One task is one pull request on branch claude/wp04-t<n>; never push to main and never merge. Tick the task in the work package file, add one line to docs/PROGRESS.md and any judgment call to docs/DECISIONS.md in the same pull request.
 

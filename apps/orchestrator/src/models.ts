@@ -18,8 +18,8 @@
  * call runs with `lowCredits` (the credit saver): a routine route moves to its lower-cost model, a kept route keeps its
  * own (packages/models routing.ts). A business on its own key is never moved: its agents' calls are the founder's.
  */
-import { assertPlatformCredits, loadByokApiKey, repos, type Db } from "@foundmill/db";
-import { createModelClient, keyFingerprint, ModelRequestError, type CompleteRequest, type CompleteResult, type CompleteResultWithJson, type ModelClient, type ModelLogger, type ModelMode, type StreamStructuredRequest, type StreamStructuredResult, type UsageSink } from "@foundmill/models";
+import { assertPlatformCredits, cachedModelFundingOf, freeCapCheck, loadByokApiKey, repos, type Db } from "@foundmill/db";
+import { createModelClient, enforceModelFunding, keyFingerprint, ModelRequestError, type CompleteRequest, type CompleteResult, type CompleteResultWithJson, type ModelClient, type ModelLogger, type ModelMode, type StreamStructuredRequest, type StreamStructuredResult, type UsageSink } from "@foundmill/models";
 import { CreditsExhaustedError, NotFoundError, type ModelBilling } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import type { z } from "zod";
@@ -28,6 +28,8 @@ export const BUSINESS_KEY_TTL_MS = 30_000;
 
 export interface BusinessModelClientOptions {
   db: Db;
+  /** The month's free-plan cap in US cents (WP-13 T6); unset, the cap is not checked (tests). */
+  freeCapCents?: number;
   vault: Vault | null;
   /** The mode business-key clients run in (the platform client's mode). */
   mode: ModelMode;
@@ -40,6 +42,8 @@ export interface BusinessModelClientOptions {
   createClient?: (opts: { mode: ModelMode; apiKey: string | null; onUsage?: UsageSink; logger?: ModelLogger }) => ModelClient;
   /** Ask the credits gate before a call on the platform key (default true; SEC2 S2). */
   checkCredits?: boolean;
+  /** Credits can be bought here: a refusal names a top-up (WP-09 T13; default false). */
+  topUps?: boolean;
 }
 
 export interface BusinessRoute {
@@ -64,7 +68,11 @@ interface CachedRoute {
 const byokRefused = (businessId: string, why: string) =>
   new ModelRequestError(`This business runs on its own Anthropic key and ${why}; set a key in Settings → Keys`, undefined, "missing_api_key", { businessId });
 
-export function createBusinessModelClient(platform: ModelClient, opts: BusinessModelClientOptions): BusinessModelClient {
+export function createBusinessModelClient(platformKey: ModelClient, opts: BusinessModelClientOptions): BusinessModelClient {
+  // Who pays decides the model (WP-13): on the platform key a business not on a paid plan runs on Haiku 5.5. A business
+  // on its own key never reaches the platform client (`load` below), so the own key is served here.
+  const freeCap = opts.freeCapCents === undefined ? undefined : freeCapCheck(opts.db, opts.freeCapCents);
+  const platform = enforceModelFunding(platformKey, cachedModelFundingOf(opts.db, { ownKeyServed: true }), { freeCap });
   const ttlMs = opts.ttlMs ?? BUSINESS_KEY_TTL_MS;
   const now = opts.now ?? (() => Date.now());
   const build = opts.createClient ?? (({ mode, apiKey, onUsage, logger }) => createModelClient({ mode, apiKey: apiKey ?? undefined, billedTo: "byok", onUsage, logger }));
@@ -112,7 +120,7 @@ export function createBusinessModelClient(platform: ModelClient, opts: BusinessM
   async function assertCredits(businessId: string): Promise<boolean> {
     if (opts.checkCredits === false) return false;
     try {
-      return (await assertPlatformCredits(opts.db, businessId, { live: platform.mode === "live" })).low;
+      return (await assertPlatformCredits(opts.db, businessId, { live: platform.mode === "live", topUps: opts.topUps ?? false })).low;
     } catch (err) {
       // A business that no longer exists has nothing to charge (its route is the platform's, as `load` decides).
       if (err instanceof NotFoundError) return false;
@@ -130,6 +138,9 @@ export function createBusinessModelClient(platform: ModelClient, opts: BusinessM
     return { client: entry.client, lowCredits };
   }
 
+  /** Which client submitted a batch (a worker restart loses it; collect then picks the business's key again). */
+  const batchClients = new Map<string, ModelClient>();
+
   async function complete<T>(req: CompleteRequest<T> & { schema: z.ZodType<T> }): Promise<CompleteResultWithJson<T>>;
   async function complete(req: CompleteRequest<unknown> & { schema?: undefined }): Promise<CompleteResult<unknown>>;
   async function complete(req: CompleteRequest<unknown>): Promise<CompleteResult<unknown>> {
@@ -144,6 +155,28 @@ export function createBusinessModelClient(platform: ModelClient, opts: BusinessM
       const { client, lowCredits } = await pick(req.attribution?.businessId);
       if (!client.streamStructured) throw new ModelRequestError("this model client cannot stream structured output", undefined, "unsupported");
       return client.streamStructured(lowCredits ? { ...req, lowCredits } : req);
+    },
+    /**
+     * A batch runs on the key that pays for its business (WP-09 T8): one business per batch (batch.ts), the credits are
+     * checked once at submit, and the batch id is remembered with that key so the batch is read and collected there.
+     */
+    async submitBatch(items) {
+      const businessId = items[0]?.request.attribution?.businessId;
+      const { client, lowCredits } = await pick(businessId);
+      if (!client.submitBatch) throw new ModelRequestError("this model client cannot run batches", undefined, "unsupported");
+      const submitted = await client.submitBatch(lowCredits ? items.map((i) => ({ ...i, request: { ...i.request, lowCredits } })) : items);
+      batchClients.set(submitted.batchId, client);
+      return submitted;
+    },
+    async batchEnded(batchId, businessId) {
+      const client = batchClients.get(batchId) ?? (await pick(businessId)).client;
+      if (!client.batchEnded) throw new ModelRequestError("this model client cannot run batches", undefined, "unsupported");
+      return client.batchEnded(batchId);
+    },
+    async collectBatch(batchId, items) {
+      const client = batchClients.get(batchId) ?? (await pick(items[0]?.request.attribution?.businessId)).client;
+      if (!client.collectBatch) throw new ModelRequestError("this model client cannot run batches", undefined, "unsupported");
+      return client.collectBatch(batchId, items);
     },
     async routeFor(businessId) {
       if (!businessId) return platformRoute;

@@ -123,8 +123,8 @@ describe("turning on a channel that cannot run is refused", () => {
     const listed = await staging().distribution.channels.list({ businessId: hz.A.businessId });
     // Still not available (no publisher): it is on the board because of offline tracking alone.
     expect(listed.channels.find((c) => c.channelKey === "print")).toMatchObject({ enabled: true, kitMode: true, availability: { available: false, reason: "no_publisher" } });
-    // Broadcast has no row yet and is in offline tracking by default.
-    expect((await staging().distribution.channels.enable({ businessId: hz.A.businessId, channelKey: "broadcast" })).channel).toMatchObject({ enabled: true, kitMode: true });
+    // Broadcast has no row yet and no longer starts in offline tracking (WP-08 T9): with no publisher it is refused.
+    await expect(staging().distribution.channels.enable({ businessId: hz.A.businessId, channelKey: "broadcast" })).rejects.toThrow();
     // Taking any channel off the board is always allowed.
     expect((await staging().distribution.channels.disable({ businessId: hz.A.businessId, channelKey: "print" })).channel.enabled).toBe(false);
   });
@@ -306,7 +306,7 @@ describe("a new project", () => {
     const userId = await hz.h.createUser(email);
     // The founder profile and the idea come from the test stack; the commit and what follows run with `env`.
     const setup = hz.caller({ userId, email });
-    await setup.founder.profile.update({ confirmAdult: true, displayName: "Sam", experience: "first-time", skills: { engineering: 10, sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await setup.founder.profile.update({ confirmAdult: true, displayName: "Sam", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 10, sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const idea = (await setup.idea.generate({ prompt: `${name}: booking software for dog groomers` })).ideas[0]!;
     const caller = callerWith(env, { userId, email });
     const { business } = await caller.idea.commit({ ideaId: idea.id, name, archetype: "b2b_saas", gameMode: "personal" });
@@ -355,7 +355,7 @@ describe("a new project", () => {
   it("an archetype whose routes need no channel still gets the Board's question on staging, whole", async () => {
     const userId = await hz.h.createUser("services-staging@test.local");
     const setup = hz.caller({ userId, email: "services-staging@test.local" });
-    await setup.founder.profile.update({ confirmAdult: true, displayName: "Sam", experience: "first-time", skills: { engineering: 10, sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await setup.founder.profile.update({ confirmAdult: true, displayName: "Sam", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 10, sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const idea = (await setup.idea.generate({ prompt: "bookkeeping for dog groomers, done for them" })).ideas[0]!;
     const caller = callerWith(STAGING, { userId, email: "services-staging@test.local" });
     const { business } = await caller.idea.commit({ ideaId: idea.id, name: "Groom Books", archetype: "services", gameMode: "personal" });

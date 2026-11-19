@@ -5,6 +5,14 @@ description: Drafts sales proposals that restate the customer's goals, the offer
 category: sales
 attribute_name: Proposal writing
 attribute_group: craft
+when_to_use: Use when a customer asked for a proposal that restates their goals, the offer, the price and the next steps.
+roles: channel_lead_generation
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: communication
 version: 1
 ---
 # Proposal writing

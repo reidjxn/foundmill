@@ -1,10 +1,18 @@
 ---
 key: api_reference
 name: API reference docs
-description: Documents endpoints with parameters, examples that run and every error a caller can get.
+description: Documents endpoints with parameters, examples taken from passing tests and every error a caller can get.
 category: engineering
 attribute_name: API documentation
 attribute_group: craft
+when_to_use: Use when an API needs reference pages: endpoints, parameters, examples and every error a caller can get.
+roles: docs_writer, backend_engineer
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: repo
+adapted_from: original
+license_note: original
+improves: technical_writing, example_quality
 version: 2
 ---
 # API reference docs

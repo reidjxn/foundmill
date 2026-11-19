@@ -5,6 +5,14 @@ description: Prepares a one-page brief before a sales call: the account, likely 
 category: sales
 attribute_name: Call preparation
 attribute_group: craft
+when_to_use: Use when a sales or discovery call is booked and needs a one-page brief: the account, likely needs and questions.
+roles: channel_lead_generation, product_researcher
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: web_research
+adapted_from: original
+license_note: original
+improves: icp_definition, discovery_interviewing
 version: 1
 ---
 # Discovery call prep

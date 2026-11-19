@@ -1,0 +1,49 @@
+# WP-09 live checks on the paid routing (no EVAL_FREE_PLAN): T5's one Opus call with the server-side fallback beta, and
+# the T4 step 5 suites that evals-free-plan.yml does not run (Source Watcher and the golden tasks). It calls the
+# Anthropic API on the repository secret ANTHROPIC_API_KEY and costs real money (Estimate: about $5 a run, under $0.05
+# of it the fallback call), so it runs only by hand, once per decision the founder asks for. Each suite is its own step,
+# so one failure shows which and the rest still run.
+name: Model routing evals (live)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: evals-models-live
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  models-live-evals:
+    name: Fallback, Source Watcher and golden tasks (live model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: true
+      APP_ENV: test
+      INTEGRATIONS_MODE: mock
+      MODEL_MODE: live
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TURBO_TELEMETRY_DISABLED: 1
+      DO_NOT_TRACK: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fail if the model key is missing (the suites would otherwise skip and look green)
+        run: test -n "$ANTHROPIC_API_KEY" || { echo "ANTHROPIC_API_KEY is not set for this repository"; exit 1; }
+      - name: Server-side fallback (WP-09 T5)
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/fallback.eval.test.ts --reporter=verbose
+      - name: Source Watcher
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/source-watcher.eval.test.ts --reporter=verbose
+      - name: Golden tasks
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/golden.eval.test.ts --reporter=verbose

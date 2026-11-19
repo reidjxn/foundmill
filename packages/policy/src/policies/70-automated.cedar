@@ -10,3 +10,9 @@ when { principal.businessMode == "automated" && context.amountMinor <= principal
 @reason("Automated mode: amount is above the approval threshold")
 permit (principal is Agent, action == Action::"call", resource is Tool)
 when { principal.businessMode == "automated" && context.amountMinor > principal.approvalThresholdMinor };
+
+@id("automated-ask-payment-record")
+@outcome("ask")
+@reason("Automated mode: an invoice or payment page needs approval unless you gave agents inbound payment powers")
+permit (principal is Agent, action == Action::"call", resource is Tool)
+when { principal.businessMode == "automated" && resource.paymentRecord && !principal.inboundPaymentPower };

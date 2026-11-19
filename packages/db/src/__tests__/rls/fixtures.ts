@@ -88,13 +88,10 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
   await db.execute(sql`insert into memberships (business_id, user_id, role) values
     (${businessId}, ${ownerId}, 'owner'), (${businessId}, ${adminId}, 'admin'), (${businessId}, ${memberId}, 'member'), (${businessId}, ${viewerId}, 'viewer')`);
 
-  const [agent, agent2] = await db
-    .insert(s.agents)
-    .values([
-      { businessId, name: `${slug} Chief of Staff`, agentType: "chief_of_staff", layer: "assistant", status: "healthy" },
-      { businessId, name: `${slug} Engineer`, agentType: "engineer", layer: "worker" },
-    ])
-    .returning({ id: s.agents.id });
+  // Named columns here too: the migration-point suites run before 0141 added `agents.default_skills_version`.
+  const [agent, agent2] = ((await db.execute(sql`insert into agents (business_id, name, agent_type, layer, status) values
+    (${businessId}, ${`${slug} Chief of Staff`}, 'chief_of_staff', 'assistant', 'healthy'),
+    (${businessId}, ${`${slug} Engineer`}, 'engineer', 'worker', 'idle') returning id`)) as unknown as { rows: { id: string }[] }).rows;
   if (!agent || !agent2) throw new Error("fixture: agents");
 
   const agentVersion = first(
@@ -235,11 +232,12 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
       .returning({ id: s.skillDefinitions.id }),
     "skill_definitions",
   );
+  // Named columns: the migration-point suites build this fixture on a database from before 0138, whose sessions have no
+  // route, effort, turns or cache totals yet.
   const session = first(
-    await db
-      .insert(s.agentSessions)
-      .values({ businessId, agentId: agent2.id, versionId: agentVersion.id, taskId: task.id, tokensIn: 1000, tokensOut: 200, costMinor: 12 })
-      .returning({ id: s.agentSessions.id }),
+    ((await db.execute(
+      sql`insert into agent_sessions (business_id, agent_id, version_id, task_id, tokens_in, tokens_out, cost_minor) values (${businessId}, ${agent2.id}, ${agentVersion.id}, ${task.id}, 1000, 200, 12) returning id`,
+    )) as unknown as { rows: { id: string }[] }).rows,
     "agent_sessions",
   );
   const agentThread = first(

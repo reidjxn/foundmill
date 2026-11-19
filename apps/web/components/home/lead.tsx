@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Button, Icon, Panel, StatusPill } from "@foundmill/dugout";
 import { FoundationsBanner, useFoundations } from "@foundmill/modules/product/foundations";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { WRITE_ROLES } from "@foundmill/shared/constants";
 import { shellQueryInputs } from "@/lib/shell-queries";
 import { trpcPathPrefix } from "@/lib/trpc";

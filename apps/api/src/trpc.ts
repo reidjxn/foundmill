@@ -10,11 +10,12 @@ import { ZodError, z } from "zod";
 import { liveModeOpen } from "@foundmill/config";
 import { repos, SLUG_TAKEN, uniqueViolation, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
 import type { EventPayloadInput } from "@foundmill/events";
-import { isModelBillingError } from "@foundmill/models";
+import { isModelBillingError, isModelRefusal, ModelNotFundedError, ModelRequestError } from "@foundmill/models";
 import { admitOrWait, assertConfirmedSignIn } from "./services/access";
-import { modelBillingAppError } from "./services/model-errors";
+import { modelBillingAppError, modelRefusalAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
 import { ADMIN_ROLES, AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, OWNER_ROLES, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type BusinessEventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
+import { parseOperatorIds } from "@foundmill/shared/reports";
 import type { Context } from "./context";
 
 export const Id = z.guid();
@@ -155,6 +156,19 @@ export function toTRPCError(err: unknown): TRPCError {
   if (isModelBillingError(cause)) {
     const billing = modelBillingAppError(cause);
     return new TRPCError({ code: "PAYMENT_REQUIRED", message: billing.message, cause: billing });
+  }
+  // The free plan's month is spent (WP-13 T6): a wait, said in plain words with the day it is back. A route a founder's
+  // own key cannot serve yet is a precondition, not a fault.
+  if (cause instanceof ModelNotFundedError) {
+    return new TRPCError({ code: cause.reason === "free_cap" ? "TOO_MANY_REQUESTS" : "PRECONDITION_FAILED", message: cause.message, cause });
+  }
+  // A project on its own Anthropic key whose key is missing or refused (WP-13 T11): the founder fixes it in Settings › Keys.
+  if (cause instanceof ModelRequestError && (cause.apiErrorType === "own_key_refused" || cause.apiErrorType === "own_key_missing")) {
+    return new TRPCError({ code: "PRECONDITION_FAILED", message: cause.message, cause });
+  }
+  if (isModelRefusal(cause)) {
+    const refused = modelRefusalAppError(cause);
+    return new TRPCError({ code: "UNPROCESSABLE_CONTENT", message: refused.message, cause: refused });
   }
   if (cause instanceof ZodError) {
     return new TRPCError({ code: "BAD_REQUEST", message: issueSummary(cause.issues), cause });
@@ -416,6 +430,15 @@ export const assertLiveOpen = (env: Pick<Context["env"], "LIVE_MODE">): void => 
 };
 export const liveGate = t.middleware(({ ctx, next }) => {
   assertLiveOpen(ctx.env);
+  return next();
+});
+
+/**
+ * The platform's operators (`OPERATOR_USER_IDS`): who reviews reports. Everyone else, a founder included, is answered
+ * NOT_FOUND, so the queue's existence is not announced. Never a database role: the api checks the list on each call.
+ */
+export const operatorProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (!parseOperatorIds(ctx.env.OPERATOR_USER_IDS).has(ctx.userId.toLowerCase())) throw new TRPCError({ code: "NOT_FOUND", message: "Not found" });
   return next();
 });
 

@@ -21,10 +21,35 @@ import type { Effort, Speed } from "./types";
 export const MODELS = {
   opus: "claude-opus-5-5",
   sonnet: "claude-sonnet-5-5",
-  haiku: "claude-haiku-4-5-20251001",
+  /**
+   * Haiku 5.5 (WP-09 T4, taken into WP-13): also the calls of an account not on a paid plan on the routes in
+   * `FREE_PLAN_HAIKU_ROUTES`, on Foundmill's key (founder, Nov 16, 2026; `resolveModel(..., { freePlan: true })`).
+   */
+  haiku: "claude-haiku-5-5",
+  /**
+   * GLM-5.3 Flash (Z.ai, MIT-licensed weights): the agent sessions of an account not on a paid plan (founder, Nov 16,
+   * 2026; docs/holistic-plan/WP-13-free-plan-on-glm.md), served by Z.ai's Anthropic-compatible endpoint
+   * (`MODEL_ENDPOINTS`). No other call reaches it.
+   */
+  glm: "glm-5.3-flash",
 } as const;
 export type ModelId = (typeof MODELS)[keyof typeof MODELS];
 export type ModelKey = keyof typeof MODELS;
+
+/** Who serves a model: Anthropic's API, or Z.ai's Anthropic-compatible endpoint (the same client and protocol). */
+export type ModelProvider = "anthropic" | "zai";
+export const MODEL_PROVIDER: Record<ModelKey, ModelProvider> = { opus: "anthropic", sonnet: "anthropic", haiku: "anthropic", glm: "zai" };
+
+/**
+ * The endpoint of each provider other than Anthropic's default. Z.ai takes its key as `Authorization: Bearer` (its
+ * Claude Code guide's `ANTHROPIC_AUTH_TOKEN`; probed Nov 16, 2026, WP-13 T1).
+ */
+export const MODEL_ENDPOINTS = {
+  zai: { baseURL: "https://api.z.ai/api/anthropic", auth: "bearer" },
+} as const satisfies Record<Exclude<ModelProvider, "anthropic">, { baseURL: string; auth: "bearer" | "x-api-key" }>;
+
+/** How people read each model's name (model dialogs, warnings). */
+export const MODEL_DISPLAY_NAMES: Record<ModelKey, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku", glm: "GLM-5.3 Flash" };
 
 /**
  * Image models (the other half of "model ids live only here"). Verified against OpenAI's docs on 2026-10-22: gpt-image-1
@@ -83,25 +108,49 @@ export type PanelModelKey = keyof typeof PANEL_MODELS;
  * as not routed, so an agent reading the list sees what a live account shows.
  */
 export const LISTED_UNROUTED_MODELS = [
+  { id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5", createdAt: "2025-10-01T00:00:00Z" },
   { id: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5", createdAt: "2025-09-29T00:00:00Z" },
   { id: "claude-opus-4-1-20250805", displayName: "Claude Opus 4.1", createdAt: "2025-08-05T00:00:00Z" },
 ] as const;
 
-/** What each model accepts (Anthropic model docs, 2026-10-09): Haiku 4.5 has no `effort`; fast mode is Opus only. */
-export const MODEL_CAPABILITIES: Record<ModelKey, { effort: boolean; fastMode: boolean }> = {
-  opus: { effort: true, fastMode: true },
-  sonnet: { effort: true, fastMode: false },
-  haiku: { effort: false, fastMode: false },
+/**
+ * What each model accepts. Anthropic's models (Anthropic's model reference, Nov 16, 2026): fast mode is Opus only;
+ * Haiku 5.5 takes `effort` (default `medium`) and, like the 5.5 models, refuses sampling parameters. GLM-5.3 Flash on
+ * Z.ai's compatible endpoint, probed Nov 16, 2026 (WP-13 T1): `effort` honored, `temperature` accepted.
+ */
+export interface ModelCapabilities {
+  effort: boolean;
+  fastMode: boolean;
+  /** Sampling parameters (`temperature`). */
+  temperature: boolean;
+}
+export const MODEL_CAPABILITIES: Record<ModelKey, ModelCapabilities> = {
+  opus: { effort: true, fastMode: true, temperature: false },
+  sonnet: { effort: true, fastMode: false, temperature: false },
+  haiku: { effort: true, fastMode: false, temperature: false },
+  glm: { effort: true, fastMode: false, temperature: true },
 };
 
 /** Beta header for Opus fast mode (Claude API only; not Bedrock, Vertex or Foundry). */
 export const FAST_MODE_BETA = "fast-mode-2026-02-01";
 
 /**
- * Models that always think (Opus 5.5 and Sonnet 5.5: adaptive thinking cannot be turned off, and it counts toward
- * `max_tokens`). Haiku 4.5 only thinks when a budget is sent, which this platform never does.
+ * Server-side refusal fallback (WP-09 T5): on Opus and Sonnet a declined request is re-run by the API on the model it
+ * recommends for the refusal's category (`fallbacks: "default"`), instead of coming back as a refusal. Haiku 5.5 has no
+ * server-side fallback (a `fallbacks` value there is a 400), so it never carries it.
  */
-export const ALWAYS_THINKS: Record<ModelKey, boolean> = { opus: true, sonnet: true, haiku: false };
+export const SERVER_FALLBACK_BETA = "server-side-fallback-2026-07-01";
+/** The model keys whose requests carry `fallbacks: "default"`. */
+export const SERVER_FALLBACK_KEYS: readonly string[] = ["opus", "sonnet"];
+/** Models a fallback may be served by (priced in pricing.ts `priceForServed`). Never routed to. */
+export const FALLBACK_SERVED_MODELS = { opus5: "claude-opus-5", opus48: "claude-opus-4-8", sonnet5: "claude-sonnet-5" } as const;
+
+/**
+ * Models that think by default (Opus 5.5 and Sonnet 5.5: adaptive thinking cannot be turned off; Haiku 5.5 thinks
+ * unless told not to, which this platform never does; GLM-5.3 Flash cannot turn it off), and the thinking counts toward
+ * `max_tokens`.
+ */
+export const ALWAYS_THINKS: Record<ModelKey, boolean> = { opus: true, sonnet: true, haiku: true, glm: true };
 
 /**
  * `max_tokens` budgets (audit CML-03). A planner graph of 15 tasks, 15 scored channels or six jurisdiction cards is
@@ -239,9 +288,15 @@ export type RouteResolution = {
 export interface ResolveOptions {
   /** The business's credits are low: routine routes move to their `lowCredits` model; kept routes are unchanged. */
   lowCredits?: boolean;
+  /**
+   * The account is not on a paid plan (WP-13): a route in `FREE_PLAN_HAIKU_ROUTES` runs on Haiku 5.5 on Foundmill's
+   * key, a lock included; every other route keeps its own model. No warning and no credit saver apply.
+   */
+  freePlan?: boolean;
 }
 
-const RANK: Record<ModelKey, number> = { haiku: 0, sonnet: 1, opus: 2 };
+// GLM is not on this ladder: it is the free plan's only model, not a step down from Haiku (`resolveModel`).
+const RANK: Record<ModelKey, number> = { glm: 0, haiku: 0, sonnet: 1, opus: 2 };
 
 /** A model key as a founder reads it in a warning ("opus" → "Opus"); never the route's internal name. */
 function modelWord(key: ModelKey): string {
@@ -255,6 +310,14 @@ export function lowCreditsModel(route: RouteKey): ModelKey | null {
 }
 
 /**
+ * The routes an account not on a paid plan runs on Haiku 5.5 (WP-13). Only routes that read no untrusted content, or
+ * only titles and addresses, and that hold no tools. Every other route keeps its own model for a free account: Haiku
+ * 5.5 leaked half of the planted instructions in the injection suites (T8, Nov 17, 2026), so the readers, the agents,
+ * the conversations, the composer's notes and the planners stay where they pass.
+ */
+export const FREE_PLAN_HAIKU_ROUTES: ReadonlySet<RouteKey> = new Set<RouteKey>(["ideation", "ideationSlate", "logoDesigner", "founderTitle", "goalProposal", "projectPage", "journeyCommentary", "moderation", "webSearch"]);
+
+/**
  * Resolve the model for a route, honouring locks and downgrade warnings (BUILD §10.1, §11.10 "Model selection"). With
  * `lowCredits`, a routine route runs on its lower-cost model, or on the agent's chosen model when that is cheaper still;
  * a kept or locked route is unchanged.
@@ -264,7 +327,12 @@ export function resolveModel(route: RouteKey, override?: ModelKey, options: Reso
   const locked = def.locked === true;
   let modelKey: ModelKey = def.model;
   let warning: string | undefined;
-  if (override && override !== def.model) {
+  if (options.freePlan && FREE_PLAN_HAIKU_ROUTES.has(route)) {
+    modelKey = "haiku";
+  } else if (override === "glm") {
+    // A free account's agent session (WP-13 T4): GLM on every route, a locked one included, as `freePlan` does.
+    modelKey = "glm";
+  } else if (override && override !== def.model) {
     if (locked) {
       warning = `This work is locked to ${modelWord(def.model)}, so ${modelWord(override)} is not used for it.`;
     } else {
@@ -274,7 +342,7 @@ export function resolveModel(route: RouteKey, override?: ModelKey, options: Reso
       }
     }
   }
-  const saver = options.lowCredits ? lowCreditsModel(route) : null;
+  const saver = options.lowCredits && !options.freePlan && modelKey !== "glm" ? lowCreditsModel(route) : null;
   const moved = saver !== null && RANK[saver] < RANK[modelKey];
   if (moved) modelKey = saver;
   const caps = MODEL_CAPABILITIES[modelKey];

@@ -96,6 +96,19 @@ export const auditRepo = {
   },
 
   /** Newest first by seq; cursor paging over seq. */
+  /**
+   * The skills ever taken off these agents (`agent.skills.remove` rows, as `${agentId}/${skillKey}`): the default
+   * skills backfill never gives one back (WP-06 T6).
+   */
+  async removedSkills(db: Executor, businessId: string, agentIds: readonly string[]): Promise<Set<string>> {
+    if (agentIds.length === 0) return new Set();
+    const rows = await db
+      .select({ agentId: sql<string>`${auditLog.details} ->> 'agentId'`, skillKey: sql<string>`${auditLog.details} ->> 'skillKey'` })
+      .from(auditLog)
+      .where(and(eq(auditLog.businessId, businessId), eq(auditLog.action, "agent.skills.remove"), inArray(sql<string>`${auditLog.details} ->> 'agentId'`, [...agentIds])));
+    return new Set(rows.map((r) => `${r.agentId}/${r.skillKey}`));
+  },
+
   async list(db: Executor, businessId: string, filter: AuditListFilter = {}): Promise<Page<AuditEntry>> {
     const f = parseInput(AuditListFilter, filter, "audit filter");
     const ks = seqKeyset<AuditEntry>(auditLog.seq, (r) => Number(r.seq));

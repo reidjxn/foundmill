@@ -23,9 +23,9 @@ describe("Simulate panel gate (SEC-2)", () => {
     }
   });
 
-  it("honours a verified token only in development and staging", () => {
+  it("honours a verified token only in development (never staging: production runs APP_ENV=staging)", () => {
     expect(simulatePanelHonoured({ appEnv: "development", serviceTokenVerified: true })).toBe(true);
-    expect(simulatePanelHonoured({ appEnv: "staging", serviceTokenVerified: true })).toBe(true);
+    expect(simulatePanelHonoured({ appEnv: "staging", serviceTokenVerified: true })).toBe(false);
     expect(simulatePanelHonoured({ appEnv: "test", serviceTokenVerified: true })).toBe(false);
     expect(simulatePanelHonoured({ appEnv: "production", serviceTokenVerified: true })).toBe(false);
   });
@@ -39,7 +39,7 @@ describe("Simulate panel gate (SEC-2)", () => {
 
   it("names the environments and the token contract", () => {
     expect(isSimulateEnv("development")).toBe(true);
-    expect(isSimulateEnv("staging")).toBe(true);
+    expect(isSimulateEnv("staging")).toBe(false);
     expect(isSimulateEnv("production")).toBe(false);
     expect(SIMULATE_TOKEN_AUDIENCE).toBe("foundmill-ingest/simulate");
     expect(SIMULATE_TOKEN_MAX_TTL_SECONDS).toBe(300);

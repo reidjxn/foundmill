@@ -28,6 +28,8 @@ export const CEDAR_SCHEMA: SchemaJson<string> = {
             businessMode: str,
             spendCapMinor: long,
             approvalThresholdMinor: long,
+            /** The business gave agents the inbound payment power (invoices and payment pages without asking in automated mode). */
+            inboundPaymentPower: bool,
           },
         },
       },
@@ -46,6 +48,8 @@ export const CEDAR_SCHEMA: SchemaJson<string> = {
             contract: bool,
             /** This call changes a security setting (e.g. a DNS record that routes or authenticates the domain's email): a hard gate. */
             securitySettings: bool,
+            /** Creates an immutable or customer-visible record that brings money in (a finalized invoice, a payment page). */
+            paymentRecord: bool,
           },
         },
       },
@@ -73,6 +77,7 @@ export const CEDAR_SCHEMA: SchemaJson<string> = {
               recipientCountry: { ...str, required: false },
               localTimeAtRecipient: { ...str, required: false },
               suppressed: bool,
+              recipientBasis: { ...str, required: false },
               holidayActive: bool,
               kitMode: bool,
             },

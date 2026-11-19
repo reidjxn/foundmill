@@ -55,7 +55,7 @@ describe("PLANNED_GRANTS.md (what was removed, kept as data)", () => {
   it("lists the capabilities removed on Nov 11, 2026 that are still waiting for a tool, under templates that exist", () => {
     const keys = new Set(ALL_TEMPLATES.map((t) => t.key));
     for (const key of planned.keys()) expect(keys.has(key), key).toBe(true);
-    expect([...planned.values()].reduce((n, rows) => n + rows.length, 0)).toBe(416);
+    expect([...planned.values()].reduce((n, rows) => n + rows.length, 0)).toBe(398);
     expect(planned.get("channel_social")).toContain("instagram.media.publish");
     expect(planned.get("product_lead")).toContain("platform.spec.publish");
   });
@@ -69,7 +69,7 @@ describe("PLANNED_GRANTS.md (what was removed, kept as data)", () => {
 
   it("the shared lists hold none of the capabilities no tool serves", () => {
     for (const c of ["campaigns.create", "campaigns.update", "campaigns.pause", "campaigns.results", "assets.create", "attribution.links.create", "attribution.codes.create", "crm.entities.create", "crm.interactions.append"]) expect(CHANNEL_PLATFORM_TOOLS).not.toContain(c);
-    for (const c of ["documents.read", "documents.write", "rfq.create", "rfq.track", "quotes.record", "samples.track", "costing.model.read", "costing.model.update", "crm.entities.create"]) expect(SPECIALIST_PLATFORM_TOOLS).not.toContain(c);
+    for (const c of ["documents.read", "documents.write", "rfq.create", "rfq.track", "quotes.record", "samples.track", "costing.model.read", "costing.model.update"]) expect(SPECIALIST_PLATFORM_TOOLS).not.toContain(c);
   });
 });
 
@@ -101,7 +101,8 @@ describe("what every agent is told", () => {
       if (kit) offline.push(t.channelKey!);
       if (CHANNEL_META[t.channelKey!].kitModeByDefault) expect(kit, t.key).toBe(true);
     }
-    expect(offline.sort()).toEqual(["broadcast", "outdoor", "print"]);
+    // WP-08 T9: no channel starts in offline tracking (print and broadcast were the only engines a real project could start).
+    expect(offline.sort()).toEqual([]);
     expect(CHANNEL_TEMPLATES.social.description).toContain(NO_TOOL_HANDOVER);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BATCH_DISCOUNT, MODEL_PRICING, PRICING_LABEL, WEB_SEARCH_FEE_MICRO_MINOR, addUsage, estimateTokens, meter, meterWebSearch, sumMeters } from "./pricing";
+import { BATCH_DISCOUNT, MODEL_PRICING, PRICING_AS_OF, PRICING_LABEL, WEB_SEARCH_FEE_MICRO_MINOR, addUsage, estimateTokens, usageForLedger, meter, meterWebSearch, sumMeters } from "./pricing";
 import { MODELS } from "./routing";
 
 const usage = (inputTokens: number, outputTokens: number, cacheCreationInputTokens = 0, cacheReadInputTokens = 0) => ({ inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens });
@@ -34,11 +34,11 @@ describe("pricing and metering (BUILD §10.4)", () => {
   });
 
   it("keeps sub-cent calls exact in micro-minor units and rounds the integer form", () => {
-    const m = meter(usage(500, 0), MODELS.haiku); // $1/MTok → 500 tokens = 0.05 cents
-    expect(m.costMinor).toBeCloseTo(0.05, 9);
-    expect(m.costMicroMinor).toBe(50_000);
+    const m = meter(usage(500, 0), MODELS.haiku); // Haiku 5.5: $0.10/MTok → 500 tokens = 0.005 cents
+    expect(m.costMinor).toBeCloseTo(0.005, 9);
+    expect(m.costMicroMinor).toBe(5_000);
     expect(m.costMinorInt).toBe(0);
-    const rounded = meter(usage(0, 1_100), MODELS.haiku); // 1100 * $5/MTok = 0.55 cents → 1
+    const rounded = meter(usage(0, 11_000), MODELS.haiku); // 11,000 * $0.50/MTok = 0.55 cents → 1
     expect(rounded.costMinorInt).toBe(1);
   });
 
@@ -63,7 +63,7 @@ describe("pricing and metering (BUILD §10.4)", () => {
   });
 
   it("sums meters without rounding until the end", () => {
-    const parts = Array.from({ length: 10 }, () => meter(usage(500, 0), MODELS.haiku)); // 10 × 0.05 cents
+    const parts = Array.from({ length: 10 }, () => meter(usage(5_000, 0), MODELS.haiku)); // 10 × 0.05 cents (Haiku 5.5)
     const total = sumMeters(parts, MODELS.haiku);
     expect(total.costMicroMinor).toBe(500_000);
     expect(total.costMinor).toBeCloseTo(0.5, 9);
@@ -78,3 +78,43 @@ describe("pricing and metering (BUILD §10.4)", () => {
     expect(estimateTokens("a".repeat(401))).toBe(101);
   });
 });
+
+describe("usageForLedger (WP-09 T1)", () => {
+  it("counts every token in quantity and keeps the four figures", () => {
+    expect(usageForLedger({ inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 3, cacheReadInputTokens: 2 })).toEqual({
+      quantity: 20,
+      tokens: { input: 10, output: 5, cacheRead: 2, cacheWrite: 3 },
+    });
+  });
+});
+
+describe("the price table (WP-09 T4, list prices on PRICING_AS_OF, USD per million tokens)", () => {
+  it("matches the table", () => {
+    expect(PRICING_AS_OF).toBe("2026-11-15");
+    const card = (id: string) => (({ inputPerMTok, outputPerMTok, cacheWritePerMTok, cacheReadPerMTok }) => [inputPerMTok, outputPerMTok, cacheWritePerMTok, cacheReadPerMTok])(MODEL_PRICING[id as keyof typeof MODEL_PRICING]);
+    expect(card(MODELS.opus)).toEqual([4, 20, 5, 0.2]);
+    expect(card(MODELS.sonnet)).toEqual([2, 10, 2.5, 0.1]);
+    expect(card(MODELS.haiku)).toEqual([0.1, 0.5, 0.125, 0.01]);
+    expect(MODEL_PRICING[MODELS.haiku].longPrompt).toEqual({ overTokens: 100_000, inputPerMTok: 0.5, outputPerMTok: 2.5, cacheWritePerMTok: 0.625, cacheReadPerMTok: 0.05 });
+    expect(MODEL_PRICING[MODELS.opus].longPrompt).toBeUndefined();
+    expect(MODEL_PRICING[MODELS.sonnet].longPrompt).toBeUndefined();
+  });
+
+  it("Sonnet cache reads meter at $0.10 per million", () => {
+    expect(meter(usage(0, 0, 0, 1_000_000), MODELS.sonnet).costMinor).toBe(10);
+  });
+
+  it("a Haiku prompt over 100,000 tokens (input, cache reads and cache writes together) is priced at the long card", () => {
+    // 100,000 prompt tokens: the base card. Input 60k + cache read 30k + cache write 10k.
+    const at = meter(usage(60_000, 1_000_000, 10_000, 30_000), MODELS.haiku);
+    expect(at.breakdown).toEqual({ input: 0.6, output: 50, cacheWrite: 0.125, cacheRead: 0.03 });
+    // One token more: every component at the long card.
+    const over = meter(usage(60_001, 1_000_000, 10_000, 30_000), MODELS.haiku);
+    expect(over.breakdown.output).toBe(250);
+    expect(over.breakdown.cacheWrite).toBe(0.625);
+    expect(over.breakdown.cacheRead).toBeCloseTo(0.15, 6);
+    // The batch discount still applies on the long card.
+    expect(meter(usage(60_001, 1_000_000, 10_000, 30_000), MODELS.haiku, { batch: true }).breakdown.output).toBe(125);
+  });
+});
+

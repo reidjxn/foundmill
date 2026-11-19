@@ -118,7 +118,7 @@ describe("NotInvitedPage (WP-03 T1: the gate tells the truth at any width)", () 
     joinWaitlist.mockClear();
     joinWaitlist.mockResolvedValueOnce({ status: "joined", cardKept: true });
     const first = render(<NotInvitedPage message="x" email="maya@example.com" />);
-    expect((await screen.findByTestId("waitlist-joined")).textContent).toBe("Your place is saved, and your card is kept for 90 days. Come back to check; we cannot email you yet.");
+    expect((await screen.findByTestId("waitlist-joined")).textContent).toBe("Your place is saved, and your idea is kept for 90 days. As soon as you are off the waitlist, you can shape it further in the Ideation Studio. Come back to check; we cannot email you yet.");
     first.unmount();
     joinWaitlist.mockResolvedValueOnce({ status: "error" });
     render(<NotInvitedPage message="x" email="maya@example.com" />);
@@ -176,7 +176,7 @@ describe("The saved line promises the email only where the waitlist sends it (WP
   it("with emails and a kept card, says both", async () => {
     joinWaitlist.mockResolvedValueOnce({ status: "joined", cardKept: true });
     render(<NotInvitedPage message="x" email="maya@example.com" emails />);
-    expect((await screen.findByTestId("waitlist-joined")).textContent).toBe("Your place is saved, and your card is kept for 90 days. We email maya@example.com the day your place opens.");
+    expect((await screen.findByTestId("waitlist-joined")).textContent).toBe("Your place is saved, and your idea is kept for 90 days. We email maya@example.com the day your place opens, and from then you can shape it further in the Ideation Studio.");
   });
 
   it("the ceiling page follows the same switch, either way", async () => {

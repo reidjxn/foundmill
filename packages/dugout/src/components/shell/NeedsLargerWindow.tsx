@@ -20,8 +20,9 @@ export interface NeedsLargerWindowProps extends Omit<HTMLAttributes<HTMLDivEleme
   showWidth?: boolean;
 }
 
+/** The title is the founder's line of Nov 17, 2026 (WP-14 answer A6); the page's own actions follow it, so it is never a dead end. */
 export const NEEDS_LARGER_WINDOW_WORDS = {
-  title: "This part is built for a bigger screen",
+  title: `${APP_NAME} is built for a big screen.`,
   body: "It has tables and boards that do not fit a phone yet. Open it on a computer, or go back to what works here.",
 } as const;
 

@@ -5,7 +5,9 @@
  * visitor's own idea lands the h1 becomes "<name> is yours to keep." and the page is told (`data-landed` on the
  * landing root), so the example steps aside for it.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Lock, Medal, Monitor, ShieldCheck } from "lucide-react";
+import { cn } from "@foundmill/dugout";
 import { IdeaBox, type IdeaBoxLanded } from "./idea-box/IdeaBox";
 import { LANDING_WORDS, type VariantWords } from "./words";
 
@@ -20,12 +22,23 @@ export interface LandingHeroProps {
 
 export function LandingHero({ signupOpen, words, example }: LandingHeroProps) {
   const [landed, setLanded] = useState<IdeaBoxLanded | null>(null);
+  // The free line follows the stage sign-up is in (the same SIGNUP_OPEN the api reads, through the page's switches).
+  const assurances = useMemo(
+    () => [
+      { icon: Medal, text: signupOpen ? W.assure.freeOpen : W.assure.freeInvite },
+      { icon: Lock, text: W.assure.private },
+      { icon: ShieldCheck, text: W.assure.safe },
+      { icon: Monitor, text: W.assure.bigScreen },
+    ],
+    [signupOpen],
+  );
   useEffect(() => {
     document.querySelector("[data-landing]")?.toggleAttribute("data-landed", landed !== null);
   }, [landed]);
   return (
     <section id="hero" aria-labelledby="hero-title" className="world-day landing-daylight pb-16 pt-10 @page-wide:pb-20 @page-wide:pt-16">
-      <div className="landing-col landing-hero-grid">
+      {/* Landed: the example steps aside and the card with its choices takes the whole column (founder, 2026-11-16). */}
+      <div className={cn("landing-col", !landed && "landing-hero-grid")}>
         <div className="flex min-w-0 flex-col gap-8">
           <div className="flex flex-col gap-5 motion-safe:animate-rise-in">
             <h1 id="hero-title" className="t-landing-h1 text-primary">
@@ -37,8 +50,8 @@ export function LandingHero({ signupOpen, words, example }: LandingHeroProps) {
               </p>
             ) : null}
           </div>
-          <div className="landing-measure w-full motion-safe:animate-rise-in">
-            <IdeaBox onLanded={setLanded} label={words.label} ideas={words.ideas} surpriseOpen={words.surpriseOpen} align="start" />
+          <div className={cn("w-full motion-safe:animate-rise-in", !landed && "landing-measure")}>
+            <IdeaBox onLanded={setLanded} label={words.label} ideas={words.ideas} surpriseOpen={words.surpriseOpen} assurances={assurances} align="start" />
           </div>
           {!signupOpen ? (
             <p className="t-landing-small landing-measure text-secondary" data-testid="hero-door">

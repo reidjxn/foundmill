@@ -40,7 +40,7 @@ test.describe("the tour (/tour)", () => {
       await expect(page.locator(`#${id}`)).toBeInViewport();
     }
 
-    // How it works: four beats, each labeled Example; the fourth is day one as it runs (drafting → two sign-offs →
+    // How it works: four beats, each labeled Example; the fourth is day one as it runs (drafting → the plan note →
     // Continue), drawn with the product's parts.
     const how = page.locator("#how");
     await how.scrollIntoViewIfNeeded();
@@ -50,8 +50,8 @@ test.describe("the tour (/tour)", () => {
     await expect(firstDay).toContainText("Drafting your vision, specification and roadmap…");
     await expect(firstDay).toContainText("Iris, Product lead, writes it from your idea and your profile. Orla, Chief of Staff, plans the first cycle from the roadmap.");
     const signoffs = how.getByRole("list", { name: "Inbox" }).getByRole("listitem");
-    await expect(signoffs).toHaveText([/Sign off the product specification/, /Sign off the product roadmap/]);
-    await expect(how.getByRole("list", { name: "Inbox" }).getByText("Needs you", { exact: true })).toHaveCount(2);
+    await expect(signoffs).toHaveText([/Your plan is ready/]);
+    await expect(how.getByRole("list", { name: "Inbox" }).getByText("Needs you", { exact: true })).toHaveCount(1);
     await expect(how.getByText("Building starts: 11 tasks planned")).toBeVisible();
     await expect(how.getByText("The team drafts; you sign off; then they build. Your project's money is never spent without your approval; agent work uses your monthly allowance.")).toBeVisible();
 
@@ -98,25 +98,13 @@ test.describe("the tour (/tour)", () => {
     await expect(page).toHaveURL(/\/login$/);
   });
 
-  test("the hero deck runs a cycle: a decision comes back, then a customer", async ({ page }) => {
+  test("the hero deck runs a cycle: the first press ends in a customer, the next brings a decision", async ({ page }) => {
     await page.goto("/tour");
     const deck = page.getByTestId("cycle-deck");
-    // The first cycle runs on its own and comes back with a decision; Continue waits for the founder.
-    await expect(deck).toHaveAttribute("data-phase", "decision", { timeout: 15_000 });
-    await expect(deck.getByRole("button", { name: /1 thing needs you/ })).toBeVisible();
-    await page.getByTestId("deck-decision").getByRole("button", { name: "Merge" }).click();
-    await expect(deck.getByText("Photo grading merged", { exact: true })).toBeVisible();
-    // The callout under Continue teaches the loop in the app's own words, until the visitor presses it. It is the
-    // design system's Callout: a popover portaled to <body>, anchored to the deck's Continue (data-coachmark-active).
-    const callout = page.locator("[data-coachmark][data-tour='deck-continue']");
-    await expect(callout).toContainText("One press and your team works until nothing is left to do. Anything that needs you shows in Needs you.");
-    await expect(page.locator("[data-testid='deck-continue'][data-coachmark-active]")).toHaveCount(1);
-
-    // Pressing Continue runs the next cycle, which brings a customer; the gold card opens the Journey.
-    await deck.getByRole("button", { name: "Continue" }).click();
-    await expect(deck).toHaveAttribute("data-phase", "processing");
-    await expect(callout).toHaveCount(0);
+    await expect(page.getByText("Tutorlane is an example business. Press Continue and see what your team would do this week.")).toBeVisible();
+    // The first cycle runs on its own and ends in a win (WP-14 T10): Continue turns gold and the gold card opens the Journey.
     await expect(page.getByTestId("deck-win")).toBeVisible({ timeout: 15_000 });
+    await expect(deck).toHaveAttribute("data-phase", "win");
     await expect(deck.getByRole("button", { name: /Go to Journey/ })).toBeVisible();
     await page.getByTestId("deck-win").getByRole("button", { name: /See the Customer Update/ }).click();
     await expect(page.locator("#journey")).toBeInViewport();
@@ -124,6 +112,28 @@ test.describe("the tour (/tour)", () => {
     await expect(deck).toHaveAttribute("data-phase", "idle");
     // The update it opens is about the same customer.
     await expect(page.getByRole("region", { name: "Customer Update" }).getByText("Okafor Math Tutoring").first()).toBeVisible();
+
+    // The callout under Continue points at a button now out of view and takes focus when it opens, so it waits: focus
+    // stays on the Journey heading (a keyboard or screen-reader visitor is told where they are) until the deck is back.
+    const callout = page.locator("[data-coachmark][data-tour='deck-continue']");
+    await page.waitForTimeout(1200);
+    await expect(callout).toHaveCount(0);
+    await expect(page.locator("#journey-title")).toBeFocused();
+
+    // Back at the deck, the callout teaches the loop in the app's own words, until the visitor presses Continue. It is the
+    // design system's Callout: a popover portaled to <body>, anchored to the deck's Continue (data-coachmark-active).
+    await deck.scrollIntoViewIfNeeded();
+    await expect(callout).toContainText("One press and your team works until nothing is left to do. Anything that needs you shows in Needs you.");
+    await expect(page.locator("[data-testid='deck-continue'][data-coachmark-active]")).toHaveCount(1);
+
+    // Pressing Continue runs the next cycle, which comes back with a decision; Continue waits for the founder.
+    await deck.getByRole("button", { name: "Continue" }).click();
+    await expect(deck).toHaveAttribute("data-phase", "processing");
+    await expect(callout).toHaveCount(0);
+    await expect(deck).toHaveAttribute("data-phase", "decision", { timeout: 15_000 });
+    await expect(deck.getByRole("button", { name: /1 thing needs you/ })).toBeVisible();
+    await page.getByTestId("deck-decision").getByRole("button", { name: "Merge" }).click();
+    await expect(deck.getByText("Photo grading merged", { exact: true })).toBeVisible();
   });
 
   test("the picker switches the whole page between the three example businesses", async ({ page }) => {

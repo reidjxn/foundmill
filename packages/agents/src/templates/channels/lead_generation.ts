@@ -29,6 +29,5 @@ export const channelLeadGeneration = defineChannelTemplate({
   ],
   craftSkills: ["icp_definition", "lead_sourcing", "lead_scoring", "marketing_compliance"],
   spendCapMinor: 50_000,
-  triggers: ["lead.created", "lead.replied", "customer.converted"],
   neverDoes: ["cold-email EU or UK consumers", "contact anyone on the suppression list", "buy lists without a lawful basis", "overwrite founder-entered CRM data"],
 });

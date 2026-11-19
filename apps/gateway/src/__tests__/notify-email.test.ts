@@ -16,7 +16,7 @@
  *     project on staging or production.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { createPlatformNotifyMock, readNotifyOffToken } from "@foundmill/connectors";
+import { createPlatformNotifyMock, readNotifyOffToken, suppressionHashOfEmail } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import * as s from "@foundmill/db";
 import { APP_NAME, APP_POSTAL_ADDRESS } from "@foundmill/config";
@@ -66,6 +66,13 @@ describe("email from Foundmill to a person (gateway)", () => {
   }
   const about = (p: { userId: string; itemId: string }) => ({ userId: p.userId, kind: "decision_waiting", businessId: g.businessId, data: { inboxItemId: p.itemId } });
   const sentTo = (email: string) => mock.sentFor(g.businessId).filter((m) => m.to === email);
+
+  it("sends nothing of any kind to an address suppressed platform-wide (WP-04, founder Nov 17, 2026)", async () => {
+    const p = await person();
+    await repos.channels.suppressEverywhere(g.db, { emailHash: suppressionHashOfEmail(p.email), reason: "bounce", source: "test" });
+    expect((await ask(about(p))).body).toMatchObject({ sent: false, reason: "hard_suppressed" });
+    expect(sentTo(p.email)).toHaveLength(0);
+  });
 
   it("sends one email from Foundmill's own address, to the account's address, with the link into the app and the way out", async () => {
     const p = await person();
@@ -341,9 +348,18 @@ describe("email from Foundmill to a person (gateway)", () => {
       { businessId: g.businessId, type: "payment.received", occurredAt: at, actor: simulate, payload: { conversionId: ref(), amount: { amountMinor: 77_700, currency: "USD" }, firstPayment: true } },
       { businessId: g.businessId, type: "payment.received", occurredAt: at, actor: stripe, payload: { conversionId: ref(), amount: { amountMinor: 4_900, currency: "USD" }, firstPayment: true } },
     ]);
+    // The team's effort in the window (WP-14 T5): two real design checks and a source read; a simulated check is not one.
+    await g.h.db.insert(s.events).values([
+      ...[1, 2].map(() => ({ businessId: g.businessId, type: "task.design_checked", occurredAt: at, actor: agent, payload: { taskId: ref(), result: { status: "reviewed" } } })),
+      { businessId: g.businessId, type: "task.design_checked", occurredAt: at, actor: agent, payload: { taskId: ref(), result: { status: "simulated" } } },
+      { businessId: g.businessId, type: "source.scored", occurredAt: at, actor: agent, payload: { sourceId: ref(), status: "scored" } },
+    ]);
     const day = new Date().toISOString().slice(0, 10);
     expect((await ask({ userId: p.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body).toMatchObject({ sent: true });
     const [sent] = sentTo(p.email);
+    // Effort beside the results, from counted records: the two checks that looked at real screenshots, and no zero.
+    expect(sent!.text).toContain("Your team ran 2 quality checks and read 1 source.");
+    expect(sent!.text).not.toMatch(/\b0 (quality|source|post|change|release)/);
     // The earlier test's real payment is in the window too: two real payments, never the simulated third.
     expect(sent!.subject).toBe("Gateway Test Club: 2 payments came in");
     const text = sent!.text;

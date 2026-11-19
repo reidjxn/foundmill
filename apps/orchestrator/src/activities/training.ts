@@ -17,7 +17,7 @@
  * stopped, and a skill whose next test would start while it is, end the run canceled with the reason; the tests already
  * run are booked. A run that ended stays ended: its remaining skills run no test, even after the agents resume.
  */
-import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, isCustomSkillKey, ratingFromTested, runDeterministicChecks, skillDisplayName, skillTestFromStored, type AgentTemplate, type SkillTest } from "@foundmill/agents";
+import { AgentInstructions, NO_TOOL_LOOP_PRELOAD_BODIES, attachedSkills, buildSystemPrompt, detectClubRuleViolation, getPrompt, selectSkills, getSkillDefinition, getSkillTests, isCustomSkillKey, ratingFromTested, runDeterministicChecks, skillDisplayName, skillTestFromStored, type AgentTemplate, type SkillTest } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { ACTIVE_TRAINING_STATUSES, MICRO_PER_MINOR, microToMinor, repos, type TrainingRun } from "@foundmill/db";
 import { SkillGradeOutput, resolveModel } from "@foundmill/models";
@@ -39,7 +39,7 @@ const cannotStart = (message: string) => ApplicationFailure.create({ message, ty
 /** A run starts from queued; running too, when `loadTrainingRun` itself is retried after it moved the run. */
 const STARTABLE = ["queued", "running"] as const;
 
-const MODEL_NAMES: Record<ModelKey, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
+const MODEL_NAMES: Record<ModelKey, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku", glm: "GLM-5.3 Flash" };
 
 const STOP_WORDS: Record<AgentStopReason, string> = { kill_switch: "Stop all agents", key_revoked: "the Anthropic key was revoked", credits_exhausted: "the credits ran out" };
 
@@ -178,7 +178,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
      * run has ended (canceled by the founder or by a stop lifted since) no further test starts either. The tests already
      * run are booked.
      */
-    async runSkillTests(input: TrainingRunInput & { agentId: string; draftVersionId: string; skillKey: string; modelKey: "opus" | "sonnet" | "haiku" }): Promise<SkillTestsOutcome> {
+    async runSkillTests(input: TrainingRunInput & { agentId: string; draftVersionId: string; skillKey: string; modelKey: ModelKey }): Promise<SkillTestsOutcome> {
       const { db } = deps;
       const [agent, draft, business] = await Promise.all([repos.agents.get(db, input.businessId, input.agentId), repos.agents.getVersion(db, input.businessId, input.draftVersionId), repos.businesses.get(db, input.businessId)]);
       const template = templateForAgent(agent);
@@ -205,8 +205,10 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
         return { skillKey: input.skillKey, group, testsRun: 0, meanScore: 0, tested: previousTested ?? template.baselineRating, previousTested, costMinor: 0, costMicroMinor: 0, checksFailed: 0 };
       }
       const instructions = AgentInstructions.safeParse(draft.instructions);
-      // The agent as it works: its added skills (library or files) follow its instructions here as in its sessions.
-      const skills = (await repos.skills.listAddedForAgent(db, input.businessId, agent.id, agent.agentType)).filter((a) => a.instructionsMd.trim()).map((a) => ({ name: a.name, source: a.source, instructionsMd: a.instructionsMd }));
+      // The agent as it works: its added skills (library or files) in the index after its instructions (WP-06 T4). A test
+      // has no tool loop, so the skill under test and those that improve it are loaded; library skills follow the catalog.
+      const added = await repos.skills.listAddedForAgent(db, input.businessId, agent.id, agent.agentType);
+      const skills = selectSkills({ skills: attachedSkills([], added), ratedSkillKey: input.skillKey, maxBodies: NO_TOOL_LOOP_PRELOAD_BODIES });
       const system = buildSystemPrompt({ businessName: business.name, appName: APP_NAME, template: { instructions: instructions.success ? instructions.data : template.instructions, description: template.description }, glossary: business.glossary, skills });
       const route = resolveModel(template.route, input.modelKey);
       const sandboxes = new MockSandboxProvider({ speed: Infinity, autoplay: false, holds: { autoResolveAfterMs: 1 } });
@@ -241,8 +243,15 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
             cacheSystem: true,
             scope: `training:${agent.id}`,
             attribution,
+            // A refusal is the candidate's answer here, scored below, never an error that ends the run (WP-09 T5).
+            allowRefusal: true,
           });
           costMicroMinor += answer.cost.costMicroMinor;
+          // The candidate declined (the whole fallback chain said no): the test scores 0 and the grader is not called.
+          if (answer.stopReason === "refusal") {
+            scores.push(0);
+            continue;
+          }
           // 2. the sandbox runs the task's tests when the skill has any (mock: canned results per recording)
           let testsPassed: boolean | undefined;
           if (test.checks.some((c) => c.kind === "tests_pass")) {

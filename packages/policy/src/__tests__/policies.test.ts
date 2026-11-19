@@ -18,7 +18,7 @@ describe("policy set loading", () => {
 
   it("includes the rules required by BUILD §9.5 and ARCHITECTURE §7", () => {
     for (const id of [
-      "hard-gate", "hard-gate-security-settings", "suppressed-recipient", "untrusted-recipient", "finance-never-spends", "kit-mode-channel",
+      "hard-gate", "hard-gate-security-settings", "suppressed-recipient", "untrusted-recipient", "mail-needs-basis", "mail-recorded-basis-asks", "finance-never-spends", "kit-mode-channel",
       "spend-cap-exceeded", "augmented-ask-external", "augmented-allow-internal",
       "assisted-allow-within-caps", "assisted-ask-above-threshold", "automated-allow-within-caps", "automated-ask-above-threshold",
     ]) expect(set.byId[id], id).toBeDefined();

@@ -5,9 +5,9 @@
  * becomes, so a founder who turned guidance back on keeps it. The same first save turns Builder view on (0073).
  */
 import { eq } from "drizzle-orm";
-import { accountPreferences } from "@foundmill/db";
+import { accountPreferences, repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { guidanceOffByDefault } from "../routers/founder";
+import { guidanceOffByDefault, namedAgentsOnByDefault } from "../routers/founder";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -37,27 +37,40 @@ describe("founder.profile.update and guidance", () => {
     expect(await caller.founder.preferences.guidance()).toMatchObject({ guidance: "on" });
     const created = await caller.founder.profile.update({ ...profile("Sam", "exited"), confirmAdult: true });
     expect(created).toMatchObject({ displayName: "Sam", experience: "exited", guidanceTurnedOff: true });
-    // The same save turns Builder view on (founder, Nov 8, 2026).
-    expect(await caller.founder.preferences.guidance()).toMatchObject({ guidance: "off", textSize: "standard", builderView: true });
+    // The same save turns Builder view on (founder, Nov 8, 2026) and the single-key shortcuts on (WP-04 T13).
+    expect(await caller.founder.preferences.guidance()).toMatchObject({ guidance: "off", textSize: "standard", builderView: true, keyboardShortcuts: true });
     // Their own row, written as them (RLS), with the date format untouched.
     const rows = await hz.db.select().from(accountPreferences).where(eq(accountPreferences.userId, user));
-    expect(rows.map((r) => [r.guidance, r.builderView, r.dateFormat, r.timeFormat])).toEqual([["off", true, "us", "12h"]]);
-    // They turn guidance on and Builder view off; a later edit of the profile, even one that keeps "exited", leaves both.
-    await caller.founder.preferences.update({ guidance: "on", builderView: false });
+    expect(rows.map((r) => [r.guidance, r.builderView, r.keyboardShortcuts, r.dateFormat, r.timeFormat])).toEqual([["off", true, true, "us", "12h"]]);
+    // They turn guidance, Builder view and the keys around; a later edit of the profile, even one that keeps "exited", leaves all three.
+    await caller.founder.preferences.update({ guidance: "on", builderView: false, keyboardShortcuts: false });
     expect(await caller.founder.profile.update({ confirmAdult: true, displayName: "Samantha" })).toMatchObject({ displayName: "Samantha", guidanceTurnedOff: false });
     expect(await caller.founder.profile.update({ confirmAdult: true, experience: "operator" })).toMatchObject({ experience: "operator", guidanceTurnedOff: false });
-    expect(await caller.founder.preferences.guidance()).toMatchObject({ guidance: "on", builderView: false });
+    expect(await caller.founder.preferences.guidance()).toMatchObject({ guidance: "on", builderView: false, keyboardShortcuts: false });
   });
 
   it("an operator's first save turns it off too; a first-time founder's keeps it on", async () => {
     const op = await hz.h.createUser("operator-founder@test.local");
     expect(await hz.caller({ userId: op }).founder.profile.update({ ...profile("Ola", "operator"), confirmAdult: true })).toMatchObject({ guidanceTurnedOff: true });
-    expect(await hz.caller({ userId: op }).founder.preferences.guidance()).toMatchObject({ guidance: "off", builderView: true });
+    expect(await hz.caller({ userId: op }).founder.preferences.guidance()).toMatchObject({ guidance: "off", builderView: true, keyboardShortcuts: true });
 
     const first = await hz.h.createUser("first-time-founder@test.local");
     expect(await hz.caller({ userId: first }).founder.profile.update({ ...profile("Fin", "first_time"), confirmAdult: true })).toMatchObject({ guidanceTurnedOff: false });
-    expect(await hz.caller({ userId: first }).founder.preferences.guidance()).toMatchObject({ guidance: "on", builderView: false });
-    expect(await hz.db.select().from(accountPreferences).where(eq(accountPreferences.userId, first))).toHaveLength(0);
+    // A first-time founder's single keys stay off: one stray key never starts work or answers a note (WP-04 T13).
+    expect(await hz.caller({ userId: first }).founder.preferences.guidance()).toMatchObject({ guidance: "on", builderView: false, keyboardShortcuts: false });
+  });
+
+  it("a first-time profile starts on comfortable text; an Operator's does not (WP-10 T5)", async () => {
+    const first = await hz.h.createUser("first-time-text@test.local");
+    await hz.caller({ userId: first }).founder.profile.update({ ...profile("Fay", "first_time"), confirmAdult: true });
+    expect(await hz.caller({ userId: first }).founder.preferences.guidance()).toMatchObject({ guidance: "on", textSize: "comfortable" });
+    const op = await hz.h.createUser("operator-text@test.local");
+    await hz.caller({ userId: op }).founder.profile.update({ ...profile("Oren", "operator"), confirmAdult: true });
+    expect(await hz.caller({ userId: op }).founder.preferences.guidance()).toMatchObject({ guidance: "off", textSize: "standard" });
+    // A later save leaves the size alone, so a founder who picks standard keeps it.
+    await hz.caller({ userId: first }).founder.preferences.update({ textSize: "standard" });
+    await hz.caller({ userId: first }).founder.profile.update({ confirmAdult: true, displayName: "Faye" });
+    expect(await hz.caller({ userId: first }).founder.preferences.guidance()).toMatchObject({ textSize: "standard" });
   });
 
   it("a first save that names no experience keeps guidance on, and the choices made before the profile stay", async () => {
@@ -72,5 +85,50 @@ describe("founder.profile.update and guidance", () => {
     await asExited.founder.preferences.update({ date: "day_first", textSize: "comfortable", explainersSeen: { home: true } });
     expect(await asExited.founder.profile.update({ ...profile("Eli", "exited"), confirmAdult: true })).toMatchObject({ guidanceTurnedOff: true });
     expect(await asExited.founder.preferences.update({ guidance: "off" })).toMatchObject({ date: "day_first", guidance: "off", textSize: "comfortable", explainersSeen: { home: true } });
+  });
+
+  it("namedAgentsOnByDefault: on for a first-time founder and for no answer, off for anyone who has done this before", () => {
+    expect(namedAgentsOnByDefault("first_time")).toBe(true);
+    expect(namedAgentsOnByDefault(null)).toBe(true);
+    expect(namedAgentsOnByDefault(undefined)).toBe(true);
+    expect(namedAgentsOnByDefault("")).toBe(true);
+    for (const experience of ["exited", "operator", "domain_expert", " Operator "]) expect(namedAgentsOnByDefault(experience), experience).toBe(false);
+  });
+
+  it("a new first-time profile sees named agents; an experienced one does not (WP-14 T6)", async () => {
+    // The first profile as the product sends it: a name and no experience answer.
+    const quick = await hz.h.createUser("named-quick@test.local");
+    await hz.caller({ userId: quick }).founder.profile.update({ confirmAdult: true, displayName: "Nell" });
+    expect(await hz.caller({ userId: quick }).founder.preferences.guidance()).toMatchObject({ anthropomorphicAgents: true, agentStyle: "humans", guidance: "on" });
+
+    const first = await hz.h.createUser("named-first@test.local");
+    await hz.caller({ userId: first }).founder.profile.update({ ...profile("Fern", "first_time"), confirmAdult: true });
+    expect(await hz.caller({ userId: first }).founder.preferences.guidance()).toMatchObject({ anthropomorphicAgents: true });
+
+    for (const experience of ["exited", "operator", "domain_expert"]) {
+      const user = await hz.h.createUser(`named-${experience}@test.local`);
+      await hz.caller({ userId: user }).founder.profile.update({ ...profile("Exa", experience), confirmAdult: true });
+      expect((await hz.caller({ userId: user }).founder.preferences.guidance()).anthropomorphicAgents, experience).toBe(false);
+    }
+  });
+
+  it("the switch is the person's after that: a later save never turns it on or off, and an account from before keeps what it had", async () => {
+    const first = await hz.h.createUser("named-own-choice@test.local");
+    const caller = hz.caller({ userId: first });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Odie" });
+    // They turn it off; sharpening the profile later (still first-time, or experienced) leaves it off.
+    await caller.founder.preferences.update({ anthropomorphicAgents: false });
+    await caller.founder.profile.update({ experience: "first_time", skills: { engineering: 12 } });
+    expect((await caller.founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
+    // And one who keeps it on keeps it when they later say they have done this before.
+    await caller.founder.preferences.update({ anthropomorphicAgents: true });
+    await caller.founder.profile.update({ experience: "operator" });
+    expect((await caller.founder.preferences.guidance()).anthropomorphicAgents).toBe(true);
+
+    // A profile that existed before this default (created without the save that sets it) is left as it was: off.
+    const before = await hz.h.createUser("named-from-before@test.local");
+    await repos.founders.upsert(hz.db, before, { displayName: "Bea" });
+    await hz.caller({ userId: before }).founder.profile.update({ displayName: "Bea B" });
+    expect((await hz.caller({ userId: before }).founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
   });
 });

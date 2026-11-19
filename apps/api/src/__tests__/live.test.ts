@@ -10,7 +10,6 @@
 import { communities, communityMembers, repos } from "@foundmill/db";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { liveLimiter } from "../services/live";
 import { internalErrorMessage, pgErrorCode } from "../trpc";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -24,7 +23,6 @@ afterAll(() => hz.close());
 // Each test starts with fresh per-person limits (posts, messages, requests): these cases write far faster than the
 // allowances (services/live.ts, services/live-limits.ts) allow; live-limits.test.ts covers those.
 beforeEach(() => {
-  liveLimiter.reset();
   hz.limits.reset();
 });
 
@@ -368,7 +366,7 @@ describe("public profiles: search and profile pages, \"On Foundmill\" (audit GLS
     const byFounder = await seeker.live.people.search({ q: "Ada Admin" });
     expect(byFounder.hits).toContainEqual(expect.objectContaining({ kind: "founder", userId: hz.A.adminId, businessId: hz.A.businessId, name: "Ada Adminson" }));
     // Only the public card leaves: no email, no id of anything private.
-    expect(Object.keys(byFounder.hits[0]!).sort()).toEqual(["archetype", "businessId", "kind", "kitPrimary", "kitSecondary", "name", "region", "since", "slug", "userId"]);
+    expect(Object.keys(byFounder.hits[0]!).sort()).toEqual(["archetype", "businessId", "handle", "headline", "kind", "kitPrimary", "kitSecondary", "name", "region", "since", "slug", "userId"]);
 
     // The profile page: a founder with the businesses they run, a business with its public founders.
     const founder = await seeker.live.people.profile({ kind: "founder", id: hz.A.adminId });

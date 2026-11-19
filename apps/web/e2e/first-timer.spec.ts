@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { PLACEHOLDER_IDEAS } from "../components/landing/idea-box/typing";
 
 /**
  * The first-timer's page at `/` (DESIGN §9a; docs/holistic-plan/landing/DIRECTION.md): one page for every width from
@@ -8,7 +9,7 @@ import { expect, test, type Page } from "@playwright/test";
  */
 test.use({ storageState: { cookies: [], origins: [] } });
 
-const SECTIONS = ["hero", "result", "ways", "studio", "people", "first-week", "control", "questions", "start"];
+const SECTIONS = ["hero", "result", "ways", "studio", "people", "first-week", "control", "vacation", "questions", "start"];
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
 for (const [width, height] of [
@@ -32,7 +33,7 @@ for (const [width, height] of [
     await expect(button).toBeInViewport();
     expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await expect(page.locator("header .idea-gen-filled, header button")).toHaveCount(0);
-    for (const a of ["Shaping your first idea is free and needs no sign-up", "Your idea stays private until you choose to share it", "Nothing spends money or signs in your name without you"]) {
+    for (const a of ["Your idea stays private until you choose to share it", "Nothing spends, signs or files without you", "Built for a big screen and your full attention"]) {
       await expect(page.getByText(a, { exact: true })).toBeVisible();
     }
 
@@ -60,9 +61,9 @@ test("under reduced motion the placeholder shows its first idea, still", async (
   const context = await browser.newContext({ reducedMotion: "reduce", viewport: { width: 390, height: 844 }, storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
   await page.goto("/");
-  await expect(page.getByTestId("idea-placeholder")).toHaveText("Sneaker cleaning for people at my school");
+  await expect(page.getByTestId("idea-placeholder")).toHaveText(PLACEHOLDER_IDEAS[0]);
   await page.waitForTimeout(1500);
-  await expect(page.getByTestId("idea-placeholder")).toHaveText("Sneaker cleaning for people at my school");
+  await expect(page.getByTestId("idea-placeholder")).toHaveText(PLACEHOLDER_IDEAS[0]);
   await context.close();
 });
 

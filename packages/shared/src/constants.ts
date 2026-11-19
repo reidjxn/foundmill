@@ -232,8 +232,15 @@ export type AgentPauseReason = (typeof AGENT_PAUSE_REASONS)[number];
 export const AGENT_LAYERS = ["assistant", "lead", "worker", "utility"] as const;
 export type AgentLayer = (typeof AGENT_LAYERS)[number];
 
-export const MODEL_KEYS = ["opus", "sonnet", "haiku"] as const;
+export const MODEL_KEYS = ["opus", "sonnet", "haiku", "glm"] as const;
 export type ModelKey = (typeof MODEL_KEYS)[number];
+/**
+ * The models an agent can be set to today (the model dialog, a plan's model change, a draft). GLM joins on the free
+ * plan when WP-13 T7 (the picker by plan) and T4 (sessions on the chosen model) land (founder, Nov 16, 2026: a free
+ * founder chooses Haiku 5.5 or GLM-5.3 Flash per agent); until then an agent cannot be set to it.
+ */
+export const CHOOSABLE_MODEL_KEYS = ["opus", "sonnet", "haiku"] as const satisfies readonly ModelKey[];
+export type ChoosableModelKey = (typeof CHOOSABLE_MODEL_KEYS)[number];
 
 export const SKILL_GROUPS = ["craft", "judgement", "execution"] as const;
 export type SkillGroup = (typeof SKILL_GROUPS)[number];
@@ -241,6 +248,10 @@ export type SkillGroup = (typeof SKILL_GROUPS)[number];
 /** Where a skill the founder added to an agent came from (`skill_definitions.source`, 0061): the skills library or a skill file. */
 export const ADDED_SKILL_SOURCES = ["library", "upload"] as const;
 export type AddedSkillSource = (typeof ADDED_SKILL_SOURCES)[number];
+
+/** Who put an added skill on an agent (`agent_skills.added_by`, 0141): it came with the role, the founder, or the Chief of Staff. */
+export const SKILL_ADDED_BY = ["template", "founder", "chief_of_staff"] as const;
+export type SkillAddedBy = (typeof SKILL_ADDED_BY)[number];
 
 export const AGENT_VERSION_STATES = ["draft", "live", "retired"] as const;
 export type AgentVersionState = (typeof AGENT_VERSION_STATES)[number];
@@ -303,8 +314,8 @@ export const CHANNEL_META: Record<ChannelKey, { label: string; line: ChannelLine
   geo: { label: "GEO", line: "defence", coreMetric: "AI answer share", kitModeByDefault: false },
   content: { label: "Content marketing", line: "defence", coreMetric: "Leads from content", kitModeByDefault: false },
   direct_mail: { label: "Direct mail", line: "wings", coreMetric: "Response rate", kitModeByDefault: false },
-  print: { label: "Print", line: "wings", coreMetric: "Code redemptions", kitModeByDefault: true },
-  broadcast: { label: "Broadcast", line: "wings", coreMetric: "Vanity URL visits, lift", kitModeByDefault: true },
+  print: { label: "Print", line: "wings", coreMetric: "Code redemptions", kitModeByDefault: false },
+  broadcast: { label: "Broadcast", line: "wings", coreMetric: "Vanity URL visits, lift", kitModeByDefault: false },
   outdoor: { label: "Outdoor", line: "wings", coreMetric: "QR scans, geo-lift", kitModeByDefault: false },
 };
 
@@ -467,6 +478,7 @@ export const EVENT_TYPES = [
   "product.research_drafted",
   "goal.proposed", "goal.approved", "goal.change_requested", "goal.achieved",
   "page.published", "page.unpublished", "page.followed",
+  "site.release_created", "site.published", "site.unpublished",
   "guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off",
   "push.sent",
   "mail.sent",
@@ -480,6 +492,8 @@ export const EVENT_TYPES = [
   "referral.arrived",
   "post.drafted",
   "quiz.approved", "quiz.published", "quiz.unpublished",
+  "positioning.approved",
+  "update.drafted", "update.sent",
   "invitation.sent", "invitation.accepted", "invitation.declined",
   "showcase.requested", "showcase.approved", "showcase.withdrawn", "showcase.asked", "showcase.settled",
   "visit.attributed", "post.outcome_attributed",
@@ -618,18 +632,27 @@ export const DEFAULT_NOTIFICATION_PREFS: Readonly<NotificationPrefs> = Object.fr
  * docs/THESIS_REVIEW.md packages 1.5 and 5.1; the retention plan's kinds joined it, founder 2026-11-12: one sender, one
  * preference): a note that needs their answer, a customer won, a milestone, a run they started and left finishing,
  * used-up credits, and the morning brief and the Monday weekly review. Every kind is on until the person turns it off
- * (Settings › Preferences, or the link in the email).
+ * (Settings › Preferences, or the link in the email). WP-04 T11 and T12 add the lifecycle kinds (`LIFECYCLE_EMAIL_KINDS`).
  */
-export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review", "invitation_accepted"] as const;
+export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review", "invitation_accepted", "getting_started", "checkin"] as const;
 export type EmailNotificationKind = (typeof EMAIL_NOTIFICATION_KINDS)[number];
 export type EmailNotificationPrefs = Record<EmailNotificationKind, boolean>;
-export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true, invitation_accepted: true });
+export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true, invitation_accepted: true, getting_started: true, checkin: true });
 /**
  * The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder,
  * 2026-11-12), and the note that someone a person invited joined is the answer to something they did, so it never uses up
  * the three a day their own project's news has.
  */
-export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits"];
+export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits", "getting_started", "checkin"];
+/**
+ * The lifecycle kinds (WP-04 T11, T12, T16): `getting_started` in a project's first week (its page is ready to check,
+ * then five people and one question) and, with no project yet, for a saved card; `checkin` after 14, 30 and 60 days
+ * away, and the held win-back letters for projects that went quiet before these emails existed. Both count toward the
+ * three a day, and each may only be one of the first two of a person's day, so a decision that holds up work always has
+ * room (`LIFECYCLE_PER_PERSON_PER_DAY`).
+ */
+export const LIFECYCLE_EMAIL_KINDS = ["getting_started", "checkin"] as const satisfies readonly EmailNotificationKind[];
+export const LIFECYCLE_PER_PERSON_PER_DAY = 2;
 /**
  * What Foundmill may email to an address rather than to an account (`POST /v1/notify/email`, the same sender): an
  * invitation to a project, sent to the address the inviter typed. Nobody holds a preference for it: it is one message

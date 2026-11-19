@@ -165,6 +165,12 @@ test.describe("agent profile", () => {
     } else {
       await expect(explainer).toHaveCount(0);
     }
+    // Focus: the instruction edits come from fixed code, so they are "Suggested edits", never a Coach's (WP-06 T12).
+    const sections = page.getByRole("tablist", { name: "Training sections" });
+    await sections.getByRole("tab", { name: /^Focus/ }).click();
+    await expect(page.getByTestId("coach-proposals")).toContainText("Suggested edits");
+    await expect(page.getByTestId("agent-training")).not.toContainText(/Coach proposals|The Coach proposes/);
+    await sections.getByRole("tab", { name: "Instructions" }).click();
     const liveChip = page.getByText(/^Live v\d+$/);
     const before = (await liveChip.count()) ? await liveChip.first().textContent() : null;
     const goals = page.locator("[data-instructions-editor]").getByRole("region", { name: "Goals" });
@@ -204,7 +210,7 @@ test.describe("agent profile", () => {
     const craft = skills.locator("[data-skill=component_craft]");
     const releaseNotes = skills.locator("[data-skill=library_release_notes]");
     await expect(craft).toBeVisible({ timeout: LONG });
-    await expect(releaseNotes).toContainText("Untested");
+    await expect(releaseNotes).toContainText("Not tested yet");
     const before = Number((await craft.locator("[data-rating-figure]").first().textContent())?.trim());
     expect(before, "the seed rates the skill at the template's baseline").toBeGreaterThan(0);
 
@@ -217,7 +223,7 @@ test.describe("agent profile", () => {
       await expect(results).toBeVisible({ timeout: LONG });
       const untested = results.locator("[data-skill=library_release_notes]");
       await expect(untested).toContainText("Release notes");
-      await expect(untested).toContainText("No tests yet");
+      await expect(untested).toContainText("Not tested yet");
       await expect(results.locator("[data-skill=component_craft]")).toContainText("up 3");
       expect(await results.innerText(), "skills read as words, never keys").not.toMatch(/library_|_craft/);
       await results.getByRole("button", { name: /^Promote v\d+$/ }).click();
@@ -230,7 +236,7 @@ test.describe("agent profile", () => {
     await expect(craft).toBeVisible({ timeout: LONG });
     await expect(craft.locator("[data-rating-figure]").first()).toHaveText(String(before + 3), { timeout: LONG });
     await expect(craft.locator("[data-skill-delta]")).toContainText("3");
-    await expect(releaseNotes).toContainText("Untested");
+    await expect(releaseNotes).toContainText("Not tested yet");
     await expect(releaseNotes.locator("[data-rating-figure]").first()).toHaveText(String(before));
   });
 
@@ -387,5 +393,41 @@ test.describe("agent profile", () => {
     await page.keyboard.press("Escape");
     await expect(desk).toBeHidden();
     await expect(page.getByTestId("agent-profile")).toBeVisible();
+  });
+
+  test("the skills say what their ratings are from, show the figure out of 20 and carry the rating key (WP-10 T9)", async ({ page }) => {
+    await openSquadAgent(page);
+    const grid = page.locator("[data-skill-grid-legend]");
+    await expect(grid).toBeVisible({ timeout: LONG });
+    await expect(grid.locator("[data-skill-source]")).toHaveText(/^(Starting estimate\. Not tested yet\.|From practice tests on [A-Z][a-z]{2} \d{1,2}\.|From \d+ tasks? of real work\.)$/);
+    await expect(grid.locator("[data-rating-key]")).toHaveCount(1);
+    // Founder decision 5: each skill shows its figure beside its band word, with Builder view on or off.
+    const first = grid.locator("[data-skill]").first();
+    await expect(first.locator("[data-rating-figure]")).toHaveText(/^\d{1,2}$/);
+    await expect(first.locator("[data-skill-band]")).toHaveAttribute("data-skill-band", /^(Poor|Average|Good|Excellent)$/);
+  });
+  test("from Overview, a library skill is added in at most three presses (WP-10 T8)", async ({ page }) => {
+    await openSquadAgent(page);
+    const added = page.getByTestId("added-skills");
+    await expect(added).toContainText(/Skills .+ has learned/, { timeout: LONG });
+    // 1: Add a skill.
+    await added.getByTestId("add-library-skill").click();
+    const library = page.getByTestId("skill-library-dialog");
+    await expect(library.locator("[data-skill-count]")).toHaveText(/^\d+ skills?$/, { timeout: LONG });
+    // 2: tick one that can be added.
+    const box = library.locator("[data-skill-card][data-state=available] [role=checkbox]").first();
+    const key = await box.locator("xpath=ancestor::*[@data-skill-card][1]").getAttribute("data-skill-card");
+    await box.click();
+    // 3: Add 1 skill.
+    await library.getByTestId("skill-library-add").click();
+    await expect(library).toBeHidden({ timeout: LONG });
+    // The added row itself, not a total: the agent also lists the skills its role came with (WP-06 T6), which can
+    // load after the heading.
+    const row = added.locator(`[data-chosen-skill="library_${key}"]`);
+    await expect(row).toBeVisible({ timeout: LONG });
+    await expect(page.getByText(/will use it from the next task\. Not tested yet\./).first()).toBeVisible();
+    // Put it back, so the seeded agent stays as the other tests expect.
+    await row.getByRole("button", { name: /^Remove / }).click();
+    await expect(row).toHaveCount(0, { timeout: LONG });
   });
 });

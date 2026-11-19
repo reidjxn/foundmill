@@ -294,7 +294,7 @@ describe("invitations give no more than the inviter's own access", () => {
     expect(await rowOf(newcomer)).toBeNull();
     await repos.memberships.setSectionPermissions(hz.db, businessId, admin, { finance: "none" });
     expect(await hz.caller(null).invitation.byToken({ token: tokenOf(link) })).toMatchObject({ state: "pending" });
-    expect(await as(newcomer).invitation.accept({ confirmAdult: true, token: tokenOf(link) })).toEqual({ businessId, already: false });
+    expect(await as(newcomer).invitation.accept({ confirmAdult: true, token: tokenOf(link) })).toMatchObject({ businessId, already: false });
     expect(await rowOf(newcomer)).toMatchObject({ role: "collaborator", sectionPermissions: {} });
   });
 

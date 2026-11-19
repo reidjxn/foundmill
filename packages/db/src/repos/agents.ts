@@ -93,6 +93,12 @@ export const EndSessionInput = z.object({
   costMinor: MinorAmount.optional(),
   outcome: z.string().max(80).nullable().optional(),
   recordingRef: z.string().max(2048).nullable().optional(),
+  /** 0138 (WP-09 T1): what the session ran on and did, for the cost report. */
+  route: z.string().max(80).nullable().optional(),
+  effort: z.string().max(20).nullable().optional(),
+  numTurns: z.number().int().min(0).nullable().optional(),
+  cacheReadTokens: z.number().int().min(0).optional(),
+  cacheWriteTokens: z.number().int().min(0).optional(),
 });
 export type EndSessionInput = z.input<typeof EndSessionInput>;
 
@@ -257,6 +263,45 @@ export const agentsRepo = {
 
   async get(db: Executor, businessId: string, agentId: string): Promise<Agent> {
     return one(await db.select().from(agents).where(scoped(businessId, agentId)).limit(1), "agent", agentId);
+  },
+
+  /**
+   * The agent's row, locked until the caller's transaction ends (`SELECT … FOR UPDATE`): a check over the agent's
+   * other rows (its skills' limits) then sees every write made before it, and a second writer waits. 404 outside the business.
+   */
+  async lockForUpdate(tx: Executor, businessId: string, agentId: string): Promise<Agent> {
+    return one(await tx.select().from(agents).where(scoped(businessId, agentId)).limit(1).for("update"), "agent", agentId);
+  },
+
+  /** Records the release of role defaults these agents were given (0141); never lowers it. */
+  async setDefaultSkillsVersion(db: Executor, businessId: string, agentIds: readonly string[], version: number): Promise<void> {
+    if (agentIds.length === 0) return;
+    await db
+      .update(agents)
+      .set({ defaultSkillsVersion: version })
+      .where(and(eq(agents.businessId, businessId), inArray(agents.id, [...agentIds]), sql`${agents.defaultSkillsVersion} < ${version}`));
+  },
+
+  /** Businesses with a live agent on an older release of role defaults than `version` (the boot backfill, 0141). */
+  async businessesBehindOnDefaults(db: Executor, version: number): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ businessId: agents.businessId })
+      .from(agents)
+      .where(and(isNull(agents.archivedAt), sql`${agents.defaultSkillsVersion} < ${version}`))
+      .orderBy(asc(agents.businessId));
+    return rows.map((r) => r.businessId);
+  },
+
+  /** Locks and returns the business's live agents on an older release of role defaults than `version` (0141). */
+  async lockBehindOnDefaults(tx: Executor, businessId: string, version: number): Promise<Pick<Agent, "id" | "agentType" | "defaultSkillsVersion">[]> {
+    // A boot job: never wait long on a lock another transaction holds (that business is tried again next boot).
+    await tx.execute(sql`set local lock_timeout = '5s'`);
+    return tx
+      .select({ id: agents.id, agentType: agents.agentType, defaultSkillsVersion: agents.defaultSkillsVersion })
+      .from(agents)
+      .where(and(eq(agents.businessId, businessId), isNull(agents.archivedAt), sql`${agents.defaultSkillsVersion} < ${version}`))
+      .orderBy(asc(agents.createdAt))
+      .for("update");
   },
 
   /** Agents by ids (only those in the business). */

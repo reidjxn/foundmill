@@ -73,6 +73,17 @@ describe("AttributeBar", () => {
 });
 
 describe("ConceptCard", () => {
+  it("says under Founder fit what it rests on while that is the quick profile (WP-14 T2)", () => {
+    const c = concepts[0]!;
+    const fit = c.attributes.find((a) => a.key === "founder_fit")!.value;
+    const { rerender } = render(<ConceptCard concept={c} fitBasis="quick" />);
+    expect(document.querySelector("[data-concept-fit-basis=quick]")!.textContent).toBe(`Fit: ${fit} (quick profile)`);
+    rerender(<ConceptCard concept={c} fitBasis="full" />);
+    expect(document.querySelector("[data-concept-fit-basis]")).toBeNull();
+    rerender(<ConceptCard concept={c} />);
+    expect(document.querySelector("[data-concept-fit-basis]")).toBeNull();
+  });
+
   it("renders logo, stars, ten attributes and fires every action", async () => {
     const user = userEvent.setup();
     const onAction = vi.fn();

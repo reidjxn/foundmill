@@ -1,0 +1,107 @@
+{
+  "$comment": "Accessibility violations in the stories, story id to axe rule ids, re-seeded on Nov 16, 2026 when the run came to main (WP-10 T7): the Nov 15 list, less what has been fixed since. Each is owed a fix; a11y/stories.spec.ts fails on any violation not listed here and on a listed one that no longer occurs. Never add an entry to make a change pass.",
+  "stories": {
+    "agents-agenttile--preview": [
+      "scrollable-region-focusable"
+    ],
+    "agents-agenttile--specialist": [
+      "color-contrast"
+    ],
+    "agents-taskgraph--formation": [
+      "nested-interactive"
+    ],
+    "agents-tilegrid--focused-tile": [
+      "aria-required-children"
+    ],
+    "agents-training--instructions-diff-mode": [
+      "color-contrast"
+    ],
+    "conversation-deskpresence--column": [
+      "landmark-unique"
+    ],
+    "data-codeviewer--source-file": [
+      "color-contrast"
+    ],
+    "data-codeviewer--truncated": [
+      "color-contrast"
+    ],
+    "data-datatable--defined-column-heads": [
+      "target-size"
+    ],
+    "data-diffview--mixed-decisions": [
+      "color-contrast"
+    ],
+    "data-diffview--read-only": [
+      "color-contrast"
+    ],
+    "data-diffview--side-by-side": [
+      "color-contrast"
+    ],
+    "data-widgetgrid--edit-mode": [
+      "landmark-unique"
+    ],
+    "data-widgetgrid--founders-view": [
+      "landmark-unique"
+    ],
+    "foundation-dropdownmenu--open": [
+      "aria-hidden-focus"
+    ],
+    "foundation-scrollarea--horizontal": [
+      "scrollable-region-focusable"
+    ],
+    "foundation-scrollarea--log": [
+      "scrollable-region-focusable"
+    ],
+    "guidance-builderonly--off-and-on": [
+      "aria-prohibited-attr"
+    ],
+    "guidance-overview--comfortable-text": [
+      "landmark-unique"
+    ],
+    "journey-conceptcard--compare-four": [
+      "aria-allowed-role",
+      "aria-required-children",
+      "aria-required-parent",
+      "list"
+    ],
+    "journey-conceptcard--compare-three": [
+      "aria-allowed-role",
+      "aria-required-children",
+      "aria-required-parent",
+      "list"
+    ],
+    "journey-conceptcard--compare-two": [
+      "aria-allowed-role",
+      "aria-required-children",
+      "aria-required-parent",
+      "list"
+    ],
+    "journey-conceptcard--deck": [
+      "aria-allowed-role",
+      "aria-required-children",
+      "aria-required-parent",
+      "list"
+    ],
+    "journey-home-widgets--guided-metric": [
+      "landmark-unique"
+    ],
+    "journey-home-widgets--quiet-cards": [
+      "landmark-unique"
+    ],
+    "shell-autopilotchip--as-button": [
+      "nested-interactive"
+    ],
+    "shell-autopilotchip--with-guide": [
+      "nested-interactive"
+    ],
+    "shell-chips-and-breadcrumbs--trail": [
+      "landmark-unique"
+    ],
+    "shell-panel--spans": [
+      "landmark-unique"
+    ],
+    "shell-sidebar--side-by-side": [
+      "landmark-unique"
+    ]
+  }
+}

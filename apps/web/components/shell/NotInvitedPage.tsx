@@ -17,7 +17,7 @@ import { joinWaitlist, type WaitlistJoinState } from "./waitlist-actions";
 import { BrandFrame } from "./BrandFrame";
 import { SignOutButton } from "./SignOutButton";
 
-export function NotInvitedPage({ message, email, unconfirmed = false, emails = false }: { message: string; email?: string | null; unconfirmed?: boolean; emails?: boolean }) {
+export function NotInvitedPage({ message, email, unconfirmed = false, emails = false, keepThen = null }: { message: string; email?: string | null; unconfirmed?: boolean; emails?: boolean; keepThen?: "studio" | null }) {
   const title = unconfirmed ? (email ? `Confirm ${email} first` : "Confirm your address first") : email ? `${email} has a place in line` : "This address has a place in line";
   return (
     <BrandFrame smallScreen title="A few people at a time" footer={<span>{APP_NAME} lets new people in a few at a time.</span>}>
@@ -26,7 +26,7 @@ export function NotInvitedPage({ message, email, unconfirmed = false, emails = f
         <EmptyState icon={MailX} title={title}>
           {message}
         </EmptyState>
-        {!unconfirmed ? <WaitlistJoin email={email ?? null} emails={emails} /> : null}
+        {!unconfirmed ? <WaitlistJoin email={email ?? null} emails={emails} keepThen={keepThen} /> : null}
         <div className="mt-3 flex justify-end">
           <SignOutButton variant="default" className="min-h-tap" />
         </div>
@@ -43,9 +43,11 @@ export function NotInvitedPage({ message, email, unconfirmed = false, emails = f
 export const WAITLIST_WORDS = {
   offer: "We are saving your place.",
   join: "Save my place",
-  joinedWithCard: "Your place is saved, and your card is kept for 90 days. Come back to check; we cannot email you yet.",
+  // The Studio clause (founder, 2026-11-16) holds: on admission the kept card is offered at /new/card/keep and, once
+  // kept, is in the deck the Ideation Studio lists (api test "someone not on the invite list joins the waitlist…").
+  joinedWithCard: "Your place is saved, and your idea is kept for 90 days. As soon as you are off the waitlist, you can shape it further in the Ideation Studio. Come back to check; we cannot email you yet.",
   joined: "Your place is saved. Come back to check; we cannot email you yet.",
-  joinedWithCardEmail: (email: string | null) => `Your place is saved, and your card is kept for 90 days. We email ${email ?? "you"} the day your place opens.`,
+  joinedWithCardEmail: (email: string | null) => `Your place is saved, and your idea is kept for 90 days. We email ${email ?? "you"} the day your place opens, and from then you can shape it further in the Ideation Studio.`,
   joinedEmail: (email: string | null) => `Your place is saved. We email ${email ?? "you"} the day it opens.`,
   error: "That did not go through. Try again in a minute.",
   /** The person's own link (WP-03 T10): an offer, with no place number and no count ("No public counts"). */
@@ -64,9 +66,10 @@ export function waitlistJoinedLine({ cardKept, email, emails }: { cardKept: bool
 /**
  * The person's place on the waitlist (docs/IDEA_BOX.md): a Server Action keeps the idea box's card with the entry. It
  * runs once on arrival; "Save my place" is shown only to try again after it failed. `emails`: see `waitlistJoinedLine`.
+ * `keepThen`: the Studio choice, kept with the card so the first sign-in after admission opens the Studio on it (0127).
  */
-export function WaitlistJoin({ email = null, emails = false }: { email?: string | null; emails?: boolean }) {
-  const [state, action, pending] = useActionState<WaitlistJoinState, FormData>((prev) => joinWaitlist(prev), { status: "idle" });
+export function WaitlistJoin({ email = null, emails = false, keepThen = null }: { email?: string | null; emails?: boolean; keepThen?: "studio" | null }) {
+  const [state, action, pending] = useActionState<WaitlistJoinState, FormData>((prev) => joinWaitlist(prev, keepThen), { status: "idle" });
   const started = useRef(false);
   useEffect(() => {
     if (started.current) return;

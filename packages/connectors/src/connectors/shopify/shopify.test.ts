@@ -43,6 +43,17 @@ describeConnectorContract("shopify (mock)", {
 });
 
 describe("shopify normalisation, hard gate and state", () => {
+  it("marks an order Shopify flags `test` simulated (a test or bogus gateway: no money moved), and any other order not", async () => {
+    const webhook = shopifyMock.webhooks![0]!;
+    for (const topic of ["orders/create", "orders/paid"] as const) {
+      const [test] = await webhook.normalise(signedShopifyRequest(TEST_BUSINESS_ID, topic, { ...SH_ORDERS[0]!, test: true }, { webhookId: wid() }));
+      expect(test!.payload, `${topic} test order`).toMatchObject({ provider: "shopify", simulated: true });
+      const [real] = await webhook.normalise(signedShopifyRequest(TEST_BUSINESS_ID, topic, { ...SH_ORDERS[0]!, test: false }, { webhookId: wid() }));
+      expect(real!.payload, `${topic} order`).toMatchObject({ simulated: false });
+    }
+    const [unflagged] = await webhook.normalise(signedShopifyRequest(TEST_BUSINESS_ID, "orders/paid", SH_ORDERS[0], { webhookId: wid() }));
+    expect(unflagged!.payload).toMatchObject({ simulated: false });
+  });
   it("maps orders into payment.received with first-payment from orders_count", async () => {
     const webhook = shopifyMock.webhooks![0]!;
     const [first] = await webhook.normalise(signedShopifyRequest(TEST_BUSINESS_ID, "orders/create", SH_ORDERS[0]));

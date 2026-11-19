@@ -27,7 +27,7 @@ const code = async (p: Promise<unknown>) => {
 };
 
 /** The guided layer's defaults, until the person chooses. */
-const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false };
+const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, keyboardShortcuts: false };
 /** The mobile app's notification defaults (0075): every kind on, amounts shown. */
 const NOTIFICATIONS_ON = { decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true };
 /** With the email channel beside push (packages 1.5 and 5.1): every kind of email on, too. */
@@ -156,6 +156,23 @@ describe("founder.preferences", () => {
     expect(rows.map((r) => r.builderView)).toEqual([true]);
     expect(await me.founder.preferences.update({ builderView: false })).toMatchObject({ builderView: false });
     expect(await code(me.founder.preferences.update({ builderView: "on" } as never))).toBe("BAD_REQUEST");
+  });
+
+  it("single-key shortcuts (0114, WP-04 T13): off until chosen, round-trip through update and guidance, kept by a reset, the account's own", async () => {
+    const fresh = await hz.h.createUser("keyboard-shortcuts-preferences@test.local");
+    const me = hz.caller({ userId: fresh });
+    expect((await me.founder.preferences.guidance()).keyboardShortcuts).toBe(false);
+    expect(await me.founder.preferences.update({ keyboardShortcuts: true })).toMatchObject({ guidance: "on", keyboardShortcuts: true });
+    expect(await me.founder.preferences.guidance()).toEqual({ ...GUIDED, keyboardShortcuts: true });
+    // Turning guidance on or off, and a reset, leave the keys as chosen: they are their own switch.
+    expect(await me.founder.preferences.update({ guidance: "off" })).toMatchObject({ keyboardShortcuts: true });
+    expect(await me.founder.preferences.update({ reset: true })).toMatchObject({ keyboardShortcuts: true });
+    const other = hz.caller({ userId: hz.B.memberId });
+    expect((await other.founder.preferences.guidance()).keyboardShortcuts).toBe(false);
+    expect(await code(other.founder.preferences.update({ keyboardShortcuts: false, userId: fresh } as never))).toBe("BAD_REQUEST");
+    expect((await me.founder.preferences.guidance()).keyboardShortcuts).toBe(true);
+    expect(await me.founder.preferences.update({ keyboardShortcuts: false })).toMatchObject({ keyboardShortcuts: false });
+    expect(await code(me.founder.preferences.update({ keyboardShortcuts: "on" } as never))).toBe("BAD_REQUEST");
   });
 
   it("agent style (0069): humans until chosen, each style round-trips with or without the switch, is kept by a reset, and an unknown one is refused", async () => {
