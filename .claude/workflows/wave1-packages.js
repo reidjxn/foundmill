@@ -12,7 +12,7 @@ const ROOT = (typeof args === 'object' && args && args.root) || '/Users/reidjack
 
 const PRE = `You are one of many parallel build agents constructing Foundmill (working title in docs/BUILD.md: "Founder Manager"; the product name is always APP_NAME from packages/config; the package scope is still @foundmill/* for this wave — do not rename it), a large TypeScript monorepo at ${ROOT}. Work ONLY inside the directory you are assigned. Other agents are editing other packages at the same time.
 
-READ FIRST (in this order, all of it): ${ROOT}/docs/ARCHITECTURE.md, ${ROOT}/docs/DECISIONS.md, ${ROOT}/CLAUDE.md, your package's rows in ${ROOT}/docs/PROGRESS.md, and the sections of ${ROOT}/docs/BUILD.md named in your assignment (use sed -n to read line ranges; BUILD.md is 1,560 lines). If your work is UI, also read ${ROOT}/docs/DESIGN.md in full.
+READ FIRST (in this order, all of it): ${ROOT}/docs/ARCHITECTURE.md, ${ROOT}/docs/DECISIONS.md, ${ROOT}/FOUNDMILL.md, your package's rows in ${ROOT}/docs/PROGRESS.md, and the sections of ${ROOT}/docs/BUILD.md named in your assignment (use sed -n to read line ranges; BUILD.md is 1,560 lines). If your work is UI, also read ${ROOT}/docs/DESIGN.md in full.
 
 THIS IS A CONTINUATION. An earlier run already wrote part (sometimes most) of your package: list and read every file that exists in your assigned directory before writing anything, keep what is correct, and complete what is missing or incomplete against the assignment below. Never start over, never delete working code, never rename existing exports other packages may already import (grep the repo for usages first). Run the package's typecheck/lint/test first to see where it stands.
 

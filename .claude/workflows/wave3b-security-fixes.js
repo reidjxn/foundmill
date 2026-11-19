@@ -7,9 +7,9 @@ export const meta = {
 const ROOT = (typeof args === 'object' && args && args.root) || '/home/user/foundmill'
 const RUN = (typeof args === 'object' && args && args.runMarker) || 'r1'
 
-const PRE = `You are a fix-up agent on Foundmill (product name always APP_NAME from @foundmill/config; package scope @foundmill/*), a TypeScript monorepo at ${ROOT}. Read ${ROOT}/docs/SECURITY_REVIEW.md (your finding in full, plus "Verified controls"), ${ROOT}/docs/ARCHITECTURE.md §7-§10, and ${ROOT}/CLAUDE.md. Other agents edit other directories at the same time.
+const PRE = `You are a fix-up agent on Foundmill (product name always APP_NAME from @foundmill/config; package scope @foundmill/*), a TypeScript monorepo at ${ROOT}. Read ${ROOT}/docs/SECURITY_REVIEW.md (your finding in full, plus "Verified controls"), ${ROOT}/docs/ARCHITECTURE.md §7-§10, and ${ROOT}/FOUNDMILL.md. Other agents edit other directories at the same time.
 
-HARD RULES: edit only the directories your assignment names (+ append to docs/PROGRESS.md and docs/DECISIONS.md; mark your finding fixed in docs/SECURITY_REVIEW.md with a one-line "Fixed:" note under it). NEVER run pnpm install/add/remove. Small machine (4 CPUs, 15 GB shared): never whole-repo turbo tasks; vitest with --maxWorkers=2 for your packages only; no servers on fixed ports (ephemeral ports in tests). Mock-first; no network in tests. Do not commit. Real fixes with tests that prove the attack is closed; never loosen or skip a test. Apply the CLAUDE.md vocabulary rule to any copy you touch.
+HARD RULES: edit only the directories your assignment names (+ append to docs/PROGRESS.md and docs/DECISIONS.md; mark your finding fixed in docs/SECURITY_REVIEW.md with a one-line "Fixed:" note under it). NEVER run pnpm install/add/remove. Small machine (4 CPUs, 15 GB shared): never whole-repo turbo tasks; vitest with --maxWorkers=2 for your packages only; no servers on fixed ports (ephemeral ports in tests). Mock-first; no network in tests. Do not commit. Real fixes with tests that prove the attack is closed; never loosen or skip a test. Apply the FOUNDMILL.md vocabulary rule to any copy you touch.
 
 FINISH by running typecheck, lint and test for every package you edited and fixing every error. Return the structured report.`
 

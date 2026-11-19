@@ -1,6 +1,6 @@
 # The network: what to build so Foundmill spreads
 
-Written Nov 12, 2026. A specification of the network and community side of Foundmill, written around one question: **how does Foundmill go viral?** The founder answered its questions the same day (section 14, recorded in `docs/DECISIONS.md`), and the text is revised to match: this is now the plan. Nothing in it changes a rule in CLAUDE.md. It gives the detail for phases 3, 4 and 5 of `docs/THESIS_REVIEW.md` §13 and adds to them; where a feature here matches a roadmap package, the package number is named.
+Written Nov 12, 2026. A specification of the network and community side of Foundmill, written around one question: **how does Foundmill go viral?** The founder answered its questions the same day (section 14, recorded in `docs/DECISIONS.md`), and the text is revised to match: this is now the plan. Nothing in it changes a rule in FOUNDMILL.md. It gives the detail for phases 3, 4 and 5 of `docs/THESIS_REVIEW.md` §13 and adds to them; where a feature here matches a roadmap package, the package number is named.
 
 What already exists and is built on here: a public page for every project (`/p/<slug>`) with a Follow form, a person's public profile (`/u/<handle>`) with a "looking for" answer that defaults to building alone, connections, direct and group messages, communities with moderation, push to the native app, email from Foundmill to a person, milestones, and the gateway's record of which outcomes were real. The daily streak is decided (founder, Nov 11) and counted by the server when the retention work ships; this document adds no other.
 
@@ -201,7 +201,7 @@ Twenty-one features in six groups. Each has: what it is, why it matters for spre
 
 ### Group C: The room
 
-The Network item in the sidebar, and a tab in the native app. Tabs: **Latest**, **Asks**, **Find people**, **Communities**, **Messages**. Open to every member (founder, Nov 12). Works from 390 px (CLAUDE.md, small screens).
+The Network item in the sidebar, and a tab in the native app. Tabs: **Latest**, **Asks**, **Find people**, **Communities**, **Messages**. Open to every member (founder, Nov 12). Works from 390 px (FOUNDMILL.md, small screens).
 
 **F7. Latest.** The feed.
 
@@ -429,7 +429,7 @@ Every figure above is an assumption to be replaced by the first month of events.
 
 ## 13. Build order
 
-Four waves. Each feature also carries the standing definition of done from CLAUDE.md. The first wave spreads with no network at all, which is what a small member base needs.
+Four waves. Each feature also carries the standing definition of done from FOUNDMILL.md. The first wave spreads with no network at all, which is what a small member base needs.
 
 **Wave 1: things that travel.** Needs only project pages, which exist.
 
@@ -495,7 +495,7 @@ All answered; the text above follows them. Also recorded in `docs/DECISIONS.md`.
 
 Readings this session made of the answers, to be corrected if wrong:
 
-- **The mark's words.** The answer was typed "Build on Foundmill"; the founder has since confirmed "Built on Foundmill" (relayed Nov 12). The words live in one constant. Removing the mark on paid plans is the one exception to "plans differ by agent work only", written into CLAUDE.md.
+- **The mark's words.** The answer was typed "Build on Foundmill"; the founder has since confirmed "Built on Foundmill" (relayed Nov 12). The words live in one constant. Removing the mark on paid plans is the one exception to "plans differ by agent work only", written into FOUNDMILL.md.
 - **No public counts is read widely.** Beyond follower counts: no count on a post, no totals on the record (dated lines only), and "N projects started from this" is told to the publisher privately. A founder still sees their own numbers.
 - **Cohorts stay** (they are in the alongside layer the founder opened); only their use as the waitlist's admission groups is dropped.
 - **Latest keeps a quiet line** where "since you were last here" stops, and continues past it.
