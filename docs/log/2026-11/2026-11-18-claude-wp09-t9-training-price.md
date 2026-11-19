@@ -70,3 +70,8 @@ right.
 (about $8.31, Estimate), so the new refusal fired and the "1 retest queued" text never appeared. The spec now expects
 the refusal. A retest held for the resume stays covered by `business-controls.test.ts`. The estimate being above a new
 project's whole balance is worth a look when the effort per route lands (WP-09 T6).
+
+## Founder decision (Nov 19)
+The affordability check stays as built. A new project with $5 of credits is refused a retest estimated at $8.31
+(Estimate). The refusal says plainly why and offers adding credits or the founder's own key. Revisit once WP-09 T6
+(effort per route) lands and real costs show whether the estimate holds.
