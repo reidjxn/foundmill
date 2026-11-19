@@ -30,7 +30,7 @@ beforeEach(async () => {
 });
 
 describe("repos.autopilot.set", () => {
-  it("is off by default, with the brief's defaults (every 4 hours, 6 cycles a day, pause after 3, no ceiling)", async () => {
+  it("is off by default, with the brief's defaults (every 4 hours, 6 rounds of work a day, pause after 3, no ceiling)", async () => {
     const fresh = await row(B());
     expect(fresh).toMatchObject({ autopilotEnabled: false, autopilotCadence: "every_4h", autopilotDailyHour: 9, autopilotMaxCyclesPerDay: 6, autopilotSpendCeilingMinor: null, autopilotMaxIdleCycles: 3, autopilotPausedReason: null, autopilotChangedAt: null, autopilotNextAt: null });
   });
@@ -144,7 +144,7 @@ describe("summarizeCycleEvents", () => {
   const now = at("2026-10-13T12:00:00.000Z").getTime();
   const opts = { now, since: at("2026-10-13T00:00:00.000Z").getTime(), dayStart: at("2026-10-13T00:00:00.000Z").getTime() };
 
-  it("finds the open cycle, the last start and end, today's Autopilot starts and the cycles since it was turned on", () => {
+  it("finds the open round of work, the last start and end, today's Autopilot starts and the rounds of work since it was turned on", () => {
     const events = [started("c3", "2026-10-13T11:00:00Z", "autopilot"), completed("c2", "2026-10-13T09:00:00Z", "failed", 1, 0), started("c2", "2026-10-13T08:00:00Z", "autopilot"), completed("c1", "2026-10-12T20:00:00Z"), started("c1", "2026-10-12T18:00:00Z")];
     const s = summarizeCycleEvents(events, opts);
     expect(s).toMatchObject({ open: true, cappedStartsToday: 2 });
@@ -154,7 +154,7 @@ describe("summarizeCycleEvents", () => {
     expect(s.finished).toEqual([{ outcome: "failed", tasksDispatched: 1, tasksCompleted: 0 }]);
   });
 
-  it("a cycle that completed is not open, and one that began more than 36 hours ago and never completed is a crashed one, not a running one", () => {
+  it("a round of work that completed is not open, and one that began more than 36 hours ago and never completed is a crashed one, not a running one", () => {
     expect(summarizeCycleEvents([completed("c1", "2026-10-13T10:00:00Z"), started("c1", "2026-10-13T09:00:00Z")], opts).open).toBe(false);
     const old = new Date(now - STALE_CYCLE_MS - 60_000).toISOString();
     expect(summarizeCycleEvents([started("c1", old)], opts).open).toBe(false);
@@ -162,7 +162,7 @@ describe("summarizeCycleEvents", () => {
     expect(summarizeCycleEvents([], opts)).toMatchObject({ open: false, lastStartedAt: null, lastEndedAt: null, cappedStartsToday: 0, finished: [] });
   });
 
-  it("the daily cap counts Autopilot's cycles and Continue's (a press and its rounds), never a vacation's or a wake-up's (Nov 7, 2026)", () => {
+  it("the daily cap counts Autopilot's rounds of work and Continue's (a press and its rounds), never a vacation's or a wake-up's (Nov 7, 2026)", () => {
     const events = [started("c5", "2026-10-13T11:30:00Z", "wake"), started("c4", "2026-10-13T11:00:00Z", "holiday"), started("c3", "2026-10-13T10:00:00Z", "autopilot"), started("c2", "2026-10-13T09:00:00Z", "continue"), started("c1", "2026-10-12T23:00:00Z", "continue")];
     expect(summarizeCycleEvents(events, opts).cappedStartsToday).toBe(2);
   });
@@ -189,7 +189,7 @@ describe("the run one press of Continue starts (cycle.run_started / cycle.run_en
     expect(openRunOf([runStarted("r1", new Date(now - 37 * 60 * 60 * 1000).toISOString())], now)).toBeNull();
   });
 
-  it("its rounds are the cycles completed since it began: count, the newest one, and their cost", () => {
+  it("its rounds are the rounds of work completed since it began: count, the newest one, and their cost", () => {
     const events = [completed("2026-10-13T11:50:00Z", "completed", 0, 0, 5), completed("2026-10-13T11:20:00Z", "time_box", 3, 1, 40), completed("2026-10-13T10:00:00Z")];
     expect(runRoundsOf(events, at("2026-10-13T11:00:00Z").getTime())).toEqual({ rounds: 2, lastRound: { outcome: "completed", tasksDispatched: 0, tasksCompleted: 0 }, cost: { amountMinor: 45, currency: "USD" } });
     expect(runRoundsOf(events, now)).toEqual({ rounds: 0, lastRound: null, cost: { amountMinor: 0, currency: "USD" } });
@@ -197,7 +197,7 @@ describe("the run one press of Continue starts (cycle.run_started / cycle.run_en
 });
 
 describe("loadAutopilotFacts feeds the same decision the workflow makes", () => {
-  it("reads the stop flag, credits, vacation, Inbox, cycles and spend of one business", async () => {
+  it("reads the stop flag, credits, vacation, Inbox, rounds of work and spend of one business", async () => {
     const now = new Date("2026-10-13T12:00:00.000Z");
     await repos.autopilot.set(r.db, A(), { enabled: true }, new Date("2026-10-13T06:00:00.000Z"));
     const base = await loadAutopilotFacts(r.db, await row(A()), now);

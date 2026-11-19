@@ -177,7 +177,7 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
           <section aria-label="Not started yet" className={tiles.length || quiet.length ? "border-t border-line" : undefined} data-testid="specialists-waiting">
             <div className="flex min-w-0 flex-col gap-0.5 px-panel-pad pb-2 pt-3">
               <p className="text-body-strong">{waiting.length === 1 ? "1 specialist task has not started yet" : `${waiting.length} specialist tasks have not started yet`}</p>
-              <p className="text-small text-secondary">They are queued for the next <Term id="cycle">cycle</Term>. A tile appears here as soon as one starts.</p>
+              <p className="text-small text-secondary">They are queued for the next <Term id="cycle">round of work</Term>. A tile appears here as soon as one starts.</p>
             </div>
             <MiniTable<SpecialistItem>
               aria-label="Specialist tasks not started"

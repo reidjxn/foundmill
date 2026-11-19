@@ -51,7 +51,7 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
     expect((await repos.agents.get(hz.db, A(), hz.A.agent2Id)).status).toBe("paused");
 
     await expect(member().distribution.channels.enable({ businessId: A(), channelKey: "seo" })).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(owner().business.continue({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/next cycle/) });
+    await expect(owner().business.continue({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/next round of work/) });
     // Resuming a cycle would set the tasks the stop paused back to running.
     await expect(member().business.resumeCycle({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repos.tasks.get(hz.db, A(), task.id)).status).not.toBe("running");
@@ -133,7 +133,7 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
     expect(started.workflow.workflowId).toBe(`session:${started.session.id}`);
   });
 
-  it("a member's Pause, Nudge and Stop reach a session opened by a cycle before 0023 (stored placeholder): the id is computed", async () => {
+  it("a member's Pause, Nudge and Stop reach a session opened by a round of work before 0023 (stored placeholder): the id is computed", async () => {
     const task = await readyTask();
     await repos.tasks.setStatus(hz.db, A(), task.id, "running", { force: true });
     const session = await repos.agents.createSession(hz.db, A(), { agentId: hz.A.agent2Id, taskId: task.id });
@@ -252,7 +252,7 @@ describe("dev.tasks.start guards (RA-05, api-services-14)", () => {
     }
   });
 
-  it("a task nobody is assigned to gets an agent that does its kind of work, the way the cycle picks one, written on the task (lead, 2026-10-24)", async () => {
+  it("a task nobody is assigned to gets an agent that does its kind of work, the way the round of work picks one, written on the task (lead, 2026-10-24)", async () => {
     for (const open of (await repos.agents.listSessions(hz.db, A(), { openOnly: true, limit: 100 })).items) await repos.agents.endSession(hz.db, A(), open.id, { outcome: "done" });
     const engineer = await repos.agents.create(hz.db, A(), { name: "Auto Backend", agentType: "backend_engineer", layer: "worker", departmentIds: [hz.A.departmentId] });
     const t = await repos.tasks.create(hz.db, A(), { kind: "code", title: "Unassigned code task", status: "planned", departmentId: hz.A.departmentId });

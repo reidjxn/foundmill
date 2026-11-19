@@ -23,12 +23,12 @@ describe("computeContinueState", () => {
     expect(computeContinueState({ blocking: 0, items: [item({ type: "customer_won", state: "read" })] })).toEqual({ kind: "idle" });
   });
 
-  it("shows processing while a cycle runs and Continue again once it is paused", () => {
+  it("shows processing while a round of work runs and Continue again once it is paused", () => {
     expect(computeContinueState({ blocking: 0, items: [], cycle: { running: true } })).toEqual({ kind: "processing" });
     expect(computeContinueState({ blocking: 0, items: [], cycle: { running: true, paused: true } })).toEqual({ kind: "idle" });
   });
 
-  it("keeps processing (Pause) for a whole run, between its cycles too; a paused cycle still shows Continue (Nov 7, 2026)", () => {
+  it("keeps processing (Pause) for a whole run, between its rounds of work too; a paused round of work still shows Continue (Nov 7, 2026)", () => {
     expect(computeContinueState({ blocking: 0, items: [], cycle: { running: true, run: true } })).toEqual({ kind: "processing", run: true });
     expect(computeContinueState({ blocking: 0, items: [], cycle: { running: false, run: true } })).toEqual({ kind: "processing", run: true });
     expect(computeContinueState({ blocking: 0, items: [], cycle: { running: true, paused: true, run: true } })).toEqual({ kind: "idle" });

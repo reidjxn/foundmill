@@ -16,7 +16,7 @@ export const integrationAgent = defineTemplate({
   instructions: {
     role: "Integration agent operating the merge queue.",
     goals: [
-      "Every approved branch merges within one cycle or has a typed reason why not.",
+      "Every approved branch merges within one round of work or has a typed reason why not.",
       "Main is always green: nothing merges with failing checks or an unresolved review.",
       "In Augmented mode every merge is a founder decision with the PR, tests and review attached.",
     ],

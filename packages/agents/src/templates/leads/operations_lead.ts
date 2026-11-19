@@ -32,7 +32,7 @@ export const operationsLead = defineTemplate({
       "Run sourcing and formulation in parallel; feed certification and packaging once samples and INCI or BOM are stable.",
       "Keep the quote table and sample tracker updated from typed extractions; update the landed-cost model after each new quote.",
       "Prepare PO, lab and contract requests as decisions with options, cost and reversibility.",
-      "Report the critical path, cost per unit (Estimate) and open risks each cycle.",
+      "Report the critical path, cost per unit (Estimate) and open risks each round of work.",
     ],
     tone: "Practical, sequenced, specific about units, dates and tolerances.",
     examples: [

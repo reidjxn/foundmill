@@ -118,7 +118,7 @@ describe("#107 a member cannot widen what an agent does on its own", () => {
   it("new tool grants are an owner's or admin's; a member may still save instructions and remove tools", async () => {
     const { businessId, memberId, adminId, agentId } = hz.A;
     const live = await repos.agents.get(hz.db, businessId, agentId);
-    const instructions = { role: "Plans the cycle", goals: ["Keep the team moving"], rules: ["Ask before spending"], playbook: ["Read the brief"], tone: "Plain", examples: [] };
+    const instructions = { role: "Plans the round of work", goals: ["Keep the team moving"], rules: ["Ask before spending"], playbook: ["Read the brief"], tone: "Plain", examples: [] };
     // Adding a tool: refused for the member.
     const widen = as(memberId).agent.training.saveDraft({ businessId, agentId, instructions, tools: [{ connectorKey: "stripe", tools: ["create_coupon"] }] });
     expect(await code(widen)).toBe("FORBIDDEN");

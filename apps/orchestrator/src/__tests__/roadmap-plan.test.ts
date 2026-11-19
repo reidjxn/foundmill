@@ -40,7 +40,7 @@ async function drain(): Promise<void> {
   }
 }
 
-describe("planRoadmap: the cycle plans Now roadmap items into tasks", () => {
+describe("planRoadmap: the round of work plans Now roadmap items into tasks", () => {
   it("writes the Planner's tasks as planned, with edges and the owner department, audits it, and never plans the same item twice", async () => {
     const item = await nowItem("Repository context for code sessions");
     const b = await brief();
@@ -79,7 +79,7 @@ describe("planRoadmap: the cycle plans Now roadmap items into tasks", () => {
     expect(await tasksOf(item.id)).toHaveLength(tasks.length);
   });
 
-  it("plans at most LIMITS.cyclePlanRoadmapItems items a cycle, Now first, and the rest wait for the next cycle", async () => {
+  it("plans at most LIMITS.cyclePlanRoadmapItems items a round of work, Now first, and the rest wait for the next round of work", async () => {
     await drain();
     const items = await Promise.all(["Cap item one", "Cap item two", "Cap item three"].map((title) => nowItem(title)));
     const first = await roadmapActs.planRoadmap({ businessId: B(), cycleNumber: 3, brief: await brief() });
@@ -119,7 +119,7 @@ describe("planRoadmap: the cycle plans Now roadmap items into tasks", () => {
     expect((await roadmapActs.planRoadmap({ businessId: B(), cycleNumber: 8, brief: await brief() })).planned.map((p) => p.roadmapItemId)).toEqual([item.id]);
   });
 
-  it("a Planner that fails for one item never fails the activity: the item is named as failed and tried again next cycle", async () => {
+  it("a Planner that fails for one item never fails the activity: the item is named as failed and tried again next round of work", async () => {
     await drain();
     const item = await nowItem("Flaky item");
     const complete = t.deps.models.complete.bind(t.deps.models);
@@ -134,7 +134,7 @@ describe("planRoadmap: the cycle plans Now roadmap items into tasks", () => {
     }
     expect(failed.planned).toEqual([]);
     expect(failed.failed).toEqual([{ roadmapItemId: item.id, title: item.title, reason: "the Planner did not answer" }]);
-    expect(roadmapPlanNote(failed)).toBe(`Could not plan ${item.title} (the Planner did not answer); the team tries again next cycle.`);
+    expect(roadmapPlanNote(failed)).toBe(`Could not plan ${item.title} (the Planner did not answer); the team tries again next round of work.`);
     // The plan's summary carries it, and no plumbing word reaches the founder.
     const plan = await cycleActs.planCycle({ businessId: B(), cycleNumber: 9, trigger: "continue", brief: await brief(), roadmapPlanned: failed });
     expect(plan.summary.startsWith(`Could not plan ${item.title}`)).toBe(true);
@@ -249,8 +249,8 @@ describe("planCycle: the planner orders, it never gates", () => {
   });
 });
 
-describe("followUpStarts: a cycle keeps going when a session finishes (decision 8)", () => {
-  it("hands back the tasks a finished session unblocked, with an agent, and never one the cycle already holds", async () => {
+describe("followUpStarts: a round of work keeps going when a session finishes (decision 8)", () => {
+  it("hands back the tasks a finished session unblocked, with an agent, and never one the round of work already holds", async () => {
     const earlier = await repos.tasks.create(t.db, B(), { kind: "code", title: "Follow-up: earlier work", status: "ready", departmentId: t.fixture.departmentId });
     const dependent = await repos.tasks.create(t.db, B(), { kind: "code", title: "Follow-up: dependent work", status: "planned", departmentId: t.fixture.departmentId, dependsOn: [earlier.id] });
     const others = (await repos.tasks.planningCandidates(t.db, B())).items.map((x) => x.id).filter((id) => id !== dependent.id);

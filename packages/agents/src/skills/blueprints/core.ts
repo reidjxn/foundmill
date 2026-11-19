@@ -90,7 +90,7 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Sort out a noisy morning at {business}",
-      "At 9:00 AM {business} has: a failing nightly job alert, a reply from {entity} asking for a proposal by Friday, a 429 rate-limit storm on the {integration} connector, and {founder} asking for a summary of yesterday. You have two hours before the cycle ends. Say what you do in which order and what you explicitly leave for the next cycle.",
+      "At 9:00 AM {business} has: a failing nightly job alert, a reply from {entity} asking for a proposal by Friday, a 429 rate-limit storm on the {integration} connector, and {founder} asking for a summary of yesterday. You have two hours before the round of work ends. Say what you do in which order and what you explicitly leave for the next round of work.",
       [
         "Addresses the rate-limit storm and the customer-facing reply before the summary.",
         "Explicitly defers something with a reason instead of claiming to do everything.",

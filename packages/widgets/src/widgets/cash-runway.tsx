@@ -119,7 +119,7 @@ function CashRunwayWidget({ settings }: WidgetProps<CashRunwaySettings>) {
             ) : (
               <p className="text-small text-secondary">{settings.chart === "forecast" ? (
                   <>
-                    No forecast yet. The Finance lead drafts one after the first <Term id="cycle">cycle</Term>.
+                    No forecast yet. The Finance lead drafts one after the first <Term id="cycle">round of work</Term>.
                   </>
                 ) : (
                   "Monthly cash flow appears after two months of transactions."

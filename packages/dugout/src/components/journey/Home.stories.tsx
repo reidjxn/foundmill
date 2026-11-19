@@ -63,7 +63,7 @@ export const QuietCards: Story = {
     <div className="flex w-[1200px] flex-col gap-gutter">
       <div className="grid h-[368px] grid-cols-3 gap-gutter">
         <DepartmentCard department={busy} entityKinds={ENTITY_KINDS} className="h-full" onOpen={() => {}} />
-        <DepartmentCard department={{ ...quietBase, id: "q-respond", name: "Team", dept: "dept-6", quiet: { kind: "respond", label: "Needs your answer", text: "Set the focus for the next cycle", detail: "2 more in the Inbox" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
+        <DepartmentCard department={{ ...quietBase, id: "q-respond", name: "Team", dept: "dept-6", quiet: { kind: "respond", label: "Needs your answer", text: "Set the focus for the next round of work", detail: "2 more in the Inbox" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
         <DepartmentCard department={{ ...quietBase, id: "q-inbox", name: "Finance", dept: "dept-4", quiet: { kind: "inbox", label: "New in your Inbox", text: "VAT return due in nine days" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
       </div>
       <div className="grid h-[368px] grid-cols-3 gap-gutter">

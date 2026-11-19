@@ -11,7 +11,7 @@ import { periodOf, repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
-const instructions = (role: string) => ({ role, goals: ["Plan every cycle"], rules: ["Ask before spending"], playbook: ["Read the inbox first"], tone: "Plain", examples: [] });
+const instructions = (role: string) => ({ role, goals: ["Plan every round of work"], rules: ["Ask before spending"], playbook: ["Read the inbox first"], tone: "Plain", examples: [] });
 
 describe("agent profile and training (W19)", () => {
   let hz: ApiHarness;
@@ -82,7 +82,7 @@ describe("agent profile and training (W19)", () => {
     expect((await hz.caller({ userId: ownerId }).agent.model.compare({ businessId, agentId: fresh.id })).basis).toBe("this_month");
   });
 
-  it("profile.update takes only profile fields, refuses an empty patch, a cycle and a released agent (BILL-23, TPD-27, TPD-28)", async () => {
+  it("profile.update takes only profile fields, refuses an empty patch, a round of work and a released agent (BILL-23, TPD-27, TPD-28)", async () => {
     const { businessId, ownerId, agentId } = hz.A;
     const owner = hz.caller({ userId: ownerId });
     const a = await repos.agents.create(hz.db, businessId, { name: "Editable", agentType: "engineer" });

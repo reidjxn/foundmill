@@ -376,7 +376,7 @@ export async function decidePlanNote(ctx: BusinessContext, item: InboxItem, inpu
  */
 export function changesRequestedBody(voiceName: string, words: { the: string; tab: string }, notes: string, revision: SignoffResult["revision"]): string {
   const quoted = `Noted: “${clipWords(notes, 40)}”.`;
-  const now = revision?.started ? `${voiceName} is revising ${words.the} now; you are asked to sign off the new version when it is ready, and nothing else is built until you approve it.` : `${voiceName} revises ${words.the} first thing next cycle${revision?.reason ? ` (it could not start right away: ${revision.reason.replace(/\.$/, "")})` : ""}; press Continue to start it now. You are asked to sign off the new version when it is ready, and nothing else is built until you approve it.`;
+  const now = revision?.started ? `${voiceName} is revising ${words.the} now; you are asked to sign off the new version when it is ready, and nothing else is built until you approve it.` : `${voiceName} revises ${words.the} first thing next round of work${revision?.reason ? ` (it could not start right away: ${revision.reason.replace(/\.$/, "")})` : ""}; press Continue to start it now. You are asked to sign off the new version when it is ready, and nothing else is built until you approve it.`;
   return `${quoted} ${now} You can also edit it yourself on the ${words.tab} tab and approve it there.`;
 }
 
@@ -423,7 +423,7 @@ export async function startBuilding(ctx: BusinessContext): Promise<BuildStart> {
   let cycle: BuildStart["cycle"];
   try {
     const started: StartCycleResult = await startCycle(ctx);
-    cycle = { started: started.action !== "already_running" || started.status.running, mode: started.mode, workflowId: started.status.workflowId ?? started.workflow?.workflowId ?? null, reason: started.action === "already_running" ? "a cycle is already running" : null };
+    cycle = { started: started.action !== "already_running" || started.status.running, mode: started.mode, workflowId: started.status.workflowId ?? started.workflow?.workflowId ?? null, reason: started.action === "already_running" ? "a round of work is already running" : null };
   } catch (err) {
     if (!(err instanceof AppError)) throw err;
     cycle = { started: false, mode: null, workflowId: null, reason: err.message };

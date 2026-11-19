@@ -125,7 +125,7 @@ export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, appro
     // The session's wait ran out before the answer: the task runs again, and its gated call goes on under this approval.
     if (task.status === "blocked") task = await repos.tasks.setStatus(tx, ctx.businessId, task.id, "ready", { force: true });
     wantsCycle = task.status === "ready";
-    next = stop.stopped ? `${quoted(task.title)} runs again once the agents are resumed.` : `${quoted(task.title)} runs again on the next cycle.`;
+    next = stop.stopped ? `${quoted(task.title)} runs again once the agents are resumed.` : `${quoted(task.title)} runs again on the next round of work.`;
   } else if (task && outcome === "rejected") {
     task = await repos.tasks.setStatus(tx, ctx.businessId, task.id, "blocked", { force: true });
     followUp = await rejectionNote(tx, ctx, approval, task, agent, action, note);
@@ -153,7 +153,7 @@ async function rejectionNote(tx: DbTx, ctx: BusinessContext, approval: Approval,
   const body = [
     // The agent as markup with its stored name: each reader sees it under their own preference (One name everywhere).
     `You rejected the request${agent && agentMention(agent) ? ` from ${agentMention(agent)}` : ""} to run **${action}**${reason ? `, saying: “${reason}”` : ""}.`,
-    `${quoted(task.title)} stays blocked: the next cycles leave it alone, and nothing runs in its place. Start it again from the Plan when it should try another way.`,
+    `${quoted(task.title)} stays blocked: the next rounds of work leave it alone, and nothing runs in its place. Start it again from the Plan when it should try another way.`,
   ].join("\n\n");
   const item = await repos.inbox.createItem(tx, ctx.businessId, { type: "update", from_agent_id: chief.id, subject: `${task.title} stays blocked`.slice(0, 80), body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: eventId ? [eventId] : [], entity_ids: [] });
   if (eventId) await repos.events.markNarrated(tx, ctx.businessId, [eventId]);
@@ -247,7 +247,7 @@ export async function deliverApprovalAnswer(ctx: BusinessContext, recorded: Reco
   if (approval.planActionId || !approval.sessionId || !recorded.sessionWaiting) signalled.push(await ctx.temporal.signal(workflowIds.approval(approval.id), SIGNALS.decision, decision));
   const cycle = recorded.wantsCycle ? await cycleForApprovedTask(ctx, recorded.stopped) : null;
   // The answer is stored either way; do not claim the session carries on when it could not be told.
-  const summary = toSession && !toSession.queued ? `${recorded.summary} The team could not be told right now: the answer is saved and the task goes on at the next cycle.` : recorded.summary;
+  const summary = toSession && !toSession.queued ? `${recorded.summary} The team could not be told right now: the answer is saved and the task goes on at the next round of work.` : recorded.summary;
   return { approvalId: approval.id, outcome, summary, signalled, sessionWaiting: recorded.sessionWaiting, task: recorded.task, cycle, note: recorded.followUp };
 }
 
@@ -261,10 +261,10 @@ async function cycleForApprovedTask(ctx: BusinessContext, stopped: boolean): Pro
   if (stopped) return { started: false, workflowId: null, reason: "agents are stopped; the task runs once they are resumed" };
   if (!(await entryPlanOpen(ctx.db, ctx.env, ctx.businessId))) return { started: false, workflowId: null, reason: "the team starts working once you subscribe in Settings › Billing" };
   const status = await cycleStatus(ctx);
-  if (status.running) return { started: false, workflowId: status.workflowId, reason: "a cycle is running; the next one picks the task up" };
+  if (status.running) return { started: false, workflowId: status.workflowId, reason: "a round of work is running; the next one picks the task up" };
   const state = await continueStateFor(ctx, status);
-  if (state.kind === "holiday") return { started: false, workflowId: null, reason: "the Chief of Staff runs the cycles while you are on vacation" };
-  if (state.kind === "blocked") return { started: false, workflowId: null, reason: `${state.count} other Inbox item${state.count === 1 ? "" : "s"} wait for you before the next cycle` };
+  if (state.kind === "holiday") return { started: false, workflowId: null, reason: "the Chief of Staff runs the rounds of work while you are on vacation" };
+  if (state.kind === "blocked") return { started: false, workflowId: null, reason: `${state.count} other Inbox item${state.count === 1 ? "" : "s"} wait for you before the next round of work` };
   const cycleNumber = status.nextCycleNumber;
   const workflowId = workflowIds.cycle(ctx.businessId, cycleNumber);
   // Round 1 of a free project on credits is capped wherever it starts (WP-09 T11).

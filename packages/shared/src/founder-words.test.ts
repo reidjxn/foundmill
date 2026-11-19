@@ -82,7 +82,7 @@ describe("founderPhrase and founderTitleFallback", () => {
 });
 
 describe("the engine's numbers (Builder view, Nov 8, 2026)", () => {
-  it("founderJargonHits catches cycle and round numbers, test tallies, tokens, PR numbers and ETA", () => {
+  it("founderJargonHits catches round of work and round numbers, test tallies, tokens, PR numbers and ETA", () => {
     const hits = (text: string) => founderJargonHits(text).map((h) => h.term);
     expect(hits("Cycle 3 completed")).toEqual(["Cycle 3"]);
     expect(hits("Round 2 · waiting for you")).toEqual(["Round 2"]);
@@ -112,9 +112,9 @@ describe("the engine's numbers (Builder view, Nov 8, 2026)", () => {
 });
 
 describe("roundWords and ventureNoun (WP-02 T8)", () => {
-  it("a round of work for the founder, the cycle in Builder view", () => {
+  it("a round of work for the founder, the round of work in Builder view", () => {
     expect(roundWords(false)).toEqual({ one: "round of work", a: "a round of work", idle: "The team is idle" });
-    expect(roundWords(true)).toEqual({ one: "cycle", a: "a cycle", idle: "No cycle running" });
+    expect(roundWords(true)).toEqual({ one: "round of work", a: "a round of work", idle: "No round of work running" });
   });
   it("project until the first sale", () => {
     expect(ventureNoun()).toBe("project");

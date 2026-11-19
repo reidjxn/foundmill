@@ -192,8 +192,8 @@ describe("ProcessingStrip", () => {
     expect(processingStatusText(NORTHWIND_SEGMENTS, false)).toBe("The team is idle");
     expect(processingStatusText(NORTHWIND_SEGMENTS, true)).toBe("Product, Formulation Lab, Distribution and Operations are working");
     // Builder view keeps the engine's word (WP-02 T8).
-    expect(processingStatusText(NORTHWIND_SEGMENTS, false, 3, true)).toBe("No cycle running");
-    expect(processingStatusText(NORTHWIND_SEGMENTS.map((s) => ({ ...s, active: false })), true, 3, true)).toBe("The team is working on cycle 3");
+    expect(processingStatusText(NORTHWIND_SEGMENTS, false, 3, true)).toBe("No round of work running");
+    expect(processingStatusText(NORTHWIND_SEGMENTS.map((s) => ({ ...s, active: false })), true, 3, true)).toBe("The team is working on round of work 3");
     expect(processingStatusText(NORTHWIND_SEGMENTS, true, 3)).toBe("Product, Formulation Lab, Distribution and Operations are working");
     expect(processingStatusText(NORTHWIND_SEGMENTS.slice(0, 1), true, 3)).toBe("Product is working");
     expect(processingStatusText(NORTHWIND_SEGMENTS.map((s) => ({ ...s, active: false })), true, 2)).toBe("The team is working");

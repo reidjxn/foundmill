@@ -40,7 +40,7 @@ export function roadmapItemsToPlan(brief: Pick<BusinessBrief, "untaskedRoadmap">
 export function roadmapPlanNote(planned: RoadmapPlanResult | null | undefined): string | null {
   if (!planned) return null;
   const parts = planned.planned.map((p) => `Planned ${p.taskIds.length} task${p.taskIds.length === 1 ? "" : "s"} for ${p.title}.`);
-  for (const f of planned.failed) parts.push(`Could not plan ${f.title} (${f.reason}); the team tries again next cycle.`);
+  for (const f of planned.failed) parts.push(`Could not plan ${f.title} (${f.reason}); the team tries again next round of work.`);
   return parts.length ? parts.join(" ") : null;
 }
 

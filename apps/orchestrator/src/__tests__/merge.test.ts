@@ -369,7 +369,7 @@ describe("askMerge, awaitChecks and completeMerge", () => {
     expect(notes[0]).toMatchObject({ type: "update", blocksContinue: false });
     expect(notes[0]!.bodyMd).toContain("did not finish in time");
     expect(notes[0]!.bodyMd).toContain("You had already said yes to putting it live.");
-    expect(notes[0]!.bodyMd).toContain("the team tries again on the next cycle; nothing is needed from you");
+    expect(notes[0]!.bodyMd).toContain("the team tries again on the next round of work; nothing is needed from you");
     expect(founderJargonHits(notes[0]!.bodyMd)).toEqual([]);
 
     const rejected = await acts.recordMergeDecision({ ...input, ...pr, approvalId: APPROVAL, outcome: "rejected" });

@@ -65,11 +65,11 @@ describe("prompt templates (BUILD §12)", () => {
     expect(plan).toContain("from this set only: create_task, enable_channel");
     expect(plan).toContain("Return JSON {summary, actions:[{type, params, agent_id}]}.");
     const cos = getPrompt("chief_of_staff_planner").render({ business_name: "Ledgerly", max_agents: 16, budget: "£1,200.00 (Estimate)", capacity: "40 req/min", product_stage: "building" });
-    expect(cos).toContain("Plan the next cycle for Ledgerly.");
+    expect(cos).toContain("Plan the next round of work for Ledgerly.");
     expect(cos).toContain("Respect the limit of 16 agents working at once, budget remaining £1,200.00 (Estimate), and rate-limit capacity 40 req/min.");
     expect(cos).toContain("Start only tasks listed in open_tasks");
     // The cycle plans the roadmap itself (lead, 2026-10-24): the planner never sends the founder to build a task graph.
-    expect(cos).toContain("a roadmap item without tasks is planned into tasks by the cycle itself; say it is being planned");
+    expect(cos).toContain("a roadmap item without tasks is planned into tasks by the round of work itself; say it is being planned");
     expect(cos).not.toMatch(/task graph/);
     expect(cos).toContain("You order the work; you never hold it back.");
     expect(getPrompt("chief_of_staff_planner").version).toBe(5);

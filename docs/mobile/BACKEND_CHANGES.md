@@ -42,7 +42,7 @@ These exist in `apps/api` today and the skill documents their names. Confirm the
 - `team.agents.list`: items carry `presence`, `currentTask.founderTitle`, `currentTask.progress`, `expectedReturnAt` for down agents, and `persona.portraitUrl`.
 - `journey.ribbon`: carries `chapters`, `milestones` (all eight with reached/outlined), `runway` sentence and months, and daily series in minor units with the currency.
 - `journey.get`: carries the staged structure the player needs (`stages`, `commentary` per stage, `debrief.agentRatings`, `standoutAgentId`, `leadChannelKey`).
-- `cycle.continueState`: a single discriminated value the Continue pill can render (`idle | blocked(n) | processing(cycle) | customer_update(journeyId) | vacation(until)`).
+- `cycle.continueState`: a single discriminated value the Continue pill can render (`idle | blocked(n) | processing(round of work) | customer_update(journeyId) | vacation(until)`).
 - `agent.profile.get`: carries `nudgePresets` for the agent's type.
 - `distribution.channels.list`: carries `line`, `fit`, `enabled`, `costTrend` (five weeks), `costToWin`.
 

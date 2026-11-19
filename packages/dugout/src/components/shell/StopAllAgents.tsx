@@ -236,7 +236,7 @@ function ResumeAgents({ stopped, open, onOpenChange, disabled, className, varian
               The team stopped{since ? ` on ${since}` : ""} because {stopped.reason}. Nothing starts work until it is resumed.{" "}
               {stopped.canResume ? (
                 <>
-                  Resuming puts every agent the stop paused back to work; the next <Term id="cycle">cycle</Term> picks up the paused tasks. Campaigns the stop paused stay paused until you resume them in Distribution.
+                  Resuming puts every agent the stop paused back to work; the next <Term id="cycle">round of work</Term> picks up the paused tasks. Campaigns the stop paused stay paused until you resume them in Distribution.
                 </>
               ) : (
                 "An owner or admin resumes the agents."

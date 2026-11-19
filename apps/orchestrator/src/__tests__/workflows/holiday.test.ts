@@ -102,7 +102,7 @@ function mockActivities(clock: FakeClock, untilAt: string | null, passes: string
 }
 
 describe("holiday workflow", () => {
-  it("runs cycles on the cadence and ends on the wake signal with the While-you-were-away report", async () => {
+  it("runs rounds of work on the cadence and ends on the wake signal with the While-you-were-away report", async () => {
     const clock = new FakeClock("2026-10-05T08:00:00.000Z");
     const m = mockActivities(clock, null);
     const result = await rig.run(m.acts, async (client, taskQueue) => {
@@ -162,7 +162,7 @@ describe("holiday workflow", () => {
     expect(m.calls.end).toMatchObject({ reason: "founder_returned" });
   });
 
-  it("a vacation that has run its safety limit of cycles ends as cycle_cap and says so", async () => {
+  it("a vacation that has run its safety limit of rounds of work ends as cycle_cap and says so", async () => {
     const clock = new FakeClock("2026-10-05T08:00:00.000Z");
     const m = mockActivities(clock, null);
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(holiday, { workflowId: `holiday:${H}-cap`, taskQueue, args: [{ businessId: B, holidayId: H, cyclesRun: MAX_HOLIDAY_CYCLES - 1 }] }));
@@ -172,7 +172,7 @@ describe("holiday workflow", () => {
     expect(m.calls.end).toMatchObject({ reason: "cycle_cap", cyclesRun: MAX_HOLIDAY_CYCLES });
   });
 
-  it("continues as new after a run of cycles and keeps the count, so a long vacation keeps a short history (audit SOAK-10)", async () => {
+  it("continues as new after a run of rounds of work and keeps the count, so a long vacation keeps a short history (audit SOAK-10)", async () => {
     const clock = new FakeClock("2026-10-05T08:00:00.000Z");
     const m = mockActivities(clock, null);
     const total = HOLIDAY_CYCLES_PER_RUN + 2;

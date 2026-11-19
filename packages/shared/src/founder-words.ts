@@ -115,7 +115,7 @@ const TECHNICAL_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = FOUNDER_WOR
  */
 type EngineRewrite = string | ((match: string, ...groups: string[]) => string);
 const ENGINE_PATTERNS: ReadonlyArray<readonly [RegExp, EngineRewrite]> = [
-  [/(?<![A-Za-z0-9_])(?:cycle|round)\s+#?\d+(?![A-Za-z0-9_])/gi, "a round of work"],
+  [/(?<![A-Za-z0-9_])(?:cycle|round(?: of work)?)\s+#?\d+(?![A-Za-z0-9_])/gi, "a round of work"],
   [/(?<![A-Za-z0-9_])PRs?\s*#\d+(?![A-Za-z0-9_])/gi, "a finished change"],
   [
     /(?<![A-Za-z0-9_.,])\d[\d,]*\s+(?:of\s+\d[\d,]*\s+)?(?:acceptance\s+|automatic\s+|unit\s+)?tests?\s+(passed|passing|failing|failed)(?![A-Za-z0-9_])/gi,
@@ -284,9 +284,9 @@ export function founderTitleFallback(technical: string): string | null {
   return phrase && isFounderTitle(phrase) ? phrase : null;
 }
 
-/** The founder's word for a cycle (WP-02 T8). Builder view keeps the engine's word. */
+/** The founder's word for a cycle (WP-02 T8). Both views now say "round of work" (founder, 2026-11-17); Builder view differs only in the idle line. */
 export function roundWords(builder: boolean): { one: string; a: string; idle: string } {
-  return builder ? { one: "cycle", a: "a cycle", idle: "No cycle running" } : { one: "round of work", a: "a round of work", idle: "The team is idle" };
+  return builder ? { one: "round of work", a: "a round of work", idle: "No round of work running" } : { one: "round of work", a: "a round of work", idle: "The team is idle" };
 }
 
 /**

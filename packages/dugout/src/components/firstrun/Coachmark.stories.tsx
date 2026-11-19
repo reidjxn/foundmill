@@ -12,7 +12,7 @@ const steps: CoachmarkStep[] = [
   { targetId: "story-status", title: "Six numbers that matter", body: "Cash, runway, revenue, customers, team health and your position. Each one says where it comes from." },
   // No such target on the page: the tour skips this step and the count still says 4 on the last one.
   { targetId: "story-nowhere", title: "A step with no target", body: "Never shown: nothing on this page carries its id." },
-  { targetId: "story-continue", title: "This is how you move forward", body: "Press Continue when you have answered what needs you; the team works a cycle and reports back.", side: "left" },
+  { targetId: "story-continue", title: "This is how you move forward", body: "Press Continue when you have answered what needs you; the team works a round of work and reports back.", side: "left" },
 ];
 
 /** A stand-in for Home: three targets a tour can point at. */
