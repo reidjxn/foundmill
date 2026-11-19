@@ -2,7 +2,7 @@
 import { ConflictError, MODEL_KEYS, ValidationError } from "@foundmill/shared";
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { TRAINING_DECISIONS, TRAINING_STATUSES, agentVersions, trainingRuns, type AgentVersion, type TrainingRun, type TrainingRunSkillResult } from "../schema";
+import { TRAINING_DECISIONS, TRAINING_KINDS, TRAINING_STATUSES, agentVersions, trainingRuns, type AgentVersion, type TrainingRun, type TrainingRunSkillResult } from "../schema";
 import { agentsRepo, type CreateAgentVersionInput } from "./agents";
 import { skillsRepo, type AppliedSkillRating, type TestedRatingInput } from "./skills";
 import { Currency, changes, defined, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
@@ -16,6 +16,10 @@ export const CreateTrainingRunInput = z.object({
   /** The run's cost is model spend in US cents: left out, the column's USD default applies (0024). */
   currency: Currency.optional(),
   requestedBy: Id.nullable().optional(),
+  /** A skill check scores the live version with and without one skill (0165); the others score a draft. */
+  kind: z.enum(TRAINING_KINDS).default("training"),
+  skillKeys: z.array(z.string().min(1)).min(1).max(3).nullable().optional(),
+  measuredSkillKey: z.string().min(1).nullable().optional(),
 });
 export type CreateTrainingRunInput = z.input<typeof CreateTrainingRunInput>;
 
@@ -108,6 +112,9 @@ export const trainingRepo = {
           costMinor: v.costMinor,
           ...(v.currency ? { currency: v.currency } : {}),
           requestedBy: v.requestedBy ?? null,
+          kind: v.kind,
+          skillKeys: v.skillKeys ?? null,
+          measuredSkillKey: v.measuredSkillKey ?? null,
         })
         .returning(),
       "training run",
@@ -193,7 +200,7 @@ export const trainingRepo = {
       const live = await agentsRepo.getVersion(tx, businessId, agent.currentVersionId);
       if (live.modelKey === v.modelKey) return { retest: null, superseded };
       const draft = await agentsRepo.createVersion(tx, businessId, agent.id, { instructions: live.instructions as CreateAgentVersionInput["instructions"], tools: live.tools, modelKey: v.modelKey, state: "draft", createdByKind: "system", createdBy: v.requestedBy ?? null });
-      const run = await trainingRepo.create(tx, businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id, status: "queued", requestedBy: v.requestedBy ?? null });
+      const run = await trainingRepo.create(tx, businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id, status: "queued", requestedBy: v.requestedBy ?? null, kind: "model_retest" });
       return { retest: { run, draft }, superseded };
     });
   },
@@ -219,7 +226,7 @@ export const trainingRepo = {
       const run = await trainingRepo.get(tx, businessId, runId);
       if (run.decision) throw new ValidationError("Training run already decided", { runId, decision: run.decision });
       if (run.status !== "awaiting_decision" && run.status !== "done") throw new ValidationError(`Training run is ${run.status}, not awaiting a decision`, { runId });
-      if (d === "promoted" && !run.toVersionId) throw new ValidationError("Training run produced no candidate version", { runId });
+      if (d === "promoted" && !run.toVersionId && run.kind !== "skill_check") throw new ValidationError("Training run produced no candidate version", { runId });
       // The decision is claimed with one conditional update before anything else changes: of two at once (a double
       // click, two tabs) the second waits on the row, then finds it decided and is refused, so a run is promoted once.
       const claimed = await tx
@@ -230,8 +237,11 @@ export const trainingRepo = {
       const decided = claimed[0];
       if (!decided) throw new ValidationError("Training run already decided", { runId });
       if (d !== "promoted") return { ...decided, ratings: [] };
-      const candidate = await agentsRepo.getVersion(tx, businessId, run.toVersionId!);
-      await agentsRepo.promoteVersion(tx, businessId, run.agentId, candidate.id, { keepAgentModel: !isModelRetestVersion(candidate) });
+      // A skill check has no candidate: accepting it only writes the ratings.
+      if (run.toVersionId) {
+        const candidate = await agentsRepo.getVersion(tx, businessId, run.toVersionId);
+        await agentsRepo.promoteVersion(tx, businessId, run.agentId, candidate.id, { keepAgentModel: !isModelRetestVersion(candidate) });
+      }
       const scored = Object.entries(decided.results).filter(([, r]) => scoredOnRun(r));
       if (scored.length === 0) return { ...decided, ratings: [] };
       const best = await trainingRepo.bestTestedInWindow(tx, businessId, run.agentId);
