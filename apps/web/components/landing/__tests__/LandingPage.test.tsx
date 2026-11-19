@@ -4,9 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET_THE_APP_WORDS } from "@foundmill/dugout";
 import { LandingPage } from "../LandingPage";
 import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "../flags";
-import { LANDING_VARIANTS, type LandingVariant } from "@/lib/landing-variant";
+import { LANDING_VARIANTS, PROFILE_VARIANTS, type LandingVariant } from "@/lib/landing-variant";
 import { LANDING_WORDS as W, VARIANT_WORDS } from "../words";
 import { STUDIO_SETS } from "../first-timer-examples";
+import { EXAMPLE_STORIES } from "../stories";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 
@@ -246,6 +247,24 @@ describe("LandingPage variants (lib/landing-variant.ts)", () => {
     expect(studio).toContain(W.studio.brief(STUDIO_SETS.games.brief));
     expect(studio).toContain("Patchnote");
     expect(studio).not.toContain("Lace Lab");
+  });
+
+  it("a profile page shows its own founder, project page and first week; the student's keeps Sole Revival", () => {
+    const { container, unmount } = renderVariant("trades");
+    const s = EXAMPLE_STORIES.trades!;
+    expect(container.querySelector("#people")!.textContent).toContain(s.person.name);
+    const week = container.querySelector("#first-week")!.textContent!;
+    expect(week).toContain(s.project.pitch);
+    expect(week).toContain(s.days.d7);
+    expect(week).not.toContain(W.firstWeek.days.d7);
+    unmount();
+    expect(renderVariant("student").container.querySelector("#first-week")!.textContent).toContain(W.firstWeek.days.d7);
+  });
+
+  it("every profile page but the student's has its own story", () => {
+    for (const v of PROFILE_VARIANTS) if (v !== "student") expect(EXAMPLE_STORIES[v], v).toBeDefined();
+    const names = Object.values(EXAMPLE_STORIES).map((s) => s!.name);
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it("every Studio set has three ideas, and not every page shows the sneakers set", () => {

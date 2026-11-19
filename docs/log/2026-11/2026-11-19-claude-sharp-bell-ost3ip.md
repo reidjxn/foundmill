@@ -33,6 +33,13 @@ Three sets start from a hero example (Northwind, Tutorlane, Glitchwick) with two
 three new ideas. All are labeled examples and none is real. Each new card uses the one-reason `rated` helper, the same
 as Lace Lab and Kick Swap.
 
+### Each profile has its own example founder (founder, later the same day)
+The founder asked for the first week, the example person page and the example project page to follow the profile too,
+especially for older founders, with cost and the questions shared. components/landing/stories.ts holds one story per
+profile page: a person, their project's page and a first week. The student's page keeps Sole Revival, which was
+written for that reader. Every week uses only what Sole Revival's does (shape and rate, draft and publish the page,
+share the link, a drafted post, the first milestone, one decision, $0 spent); the profiles that bring something use
+the Markdown import or the read-only website report, which work inside today. "See another example" stays shared.
+
 ## Not done
-The first-week example (Sole Revival), the person page and the project page under it are still the same on every
-variant. No analytics yet tie a visit to its number; `fm_lp` carries the variant name.
+No analytics yet tie a visit to its number; `fm_lp` carries the variant name.

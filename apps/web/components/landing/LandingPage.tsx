@@ -22,7 +22,8 @@ import { Chip, DayList, GetTheApp, Icon, IdeaCard, LandingSection, PersonPage, P
 import { LEGAL_ROUTES } from "@/content/legal/facts";
 import { publicEnv } from "@/lib/env";
 import { DEFAULT_LANDING_VARIANT, type LandingVariant } from "@/lib/landing-variant";
-import { EXAMPLE_PERSON, EXAMPLE_PROJECT, STUDIO_SETS, exampleIdeasInOrder, type StudioSet } from "./first-timer-examples";
+import { STUDIO_SETS, exampleIdeasInOrder, type StudioSet } from "./first-timer-examples";
+import { exampleStory, storyDays, type ExampleStory } from "./stories";
 import { ExampleIdeas } from "./ExampleIdeas";
 import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "./flags";
 import { LandingHero } from "./LandingHero";
@@ -48,6 +49,7 @@ export interface LandingPageProps {
 export function LandingPage({ variant = DEFAULT_LANDING_VARIANT, switches = SWITCHES_OFF, renderDay, storeLinks = publicEnv().storeLinks }: LandingPageProps) {
   const year = (renderDay ?? new Date().toISOString()).slice(0, 4);
   const V = VARIANT_WORDS[variant];
+  const story = exampleStory(variant);
   return (
     <div className="landing-page" data-testid="landing" data-landing="" data-variant={variant} data-people={switches.peopleOpen ? "open" : "closed"}>
       <HomeJsonLd />
@@ -65,8 +67,8 @@ export function LandingPage({ variant = DEFAULT_LANDING_VARIANT, switches = SWIT
         <ResultSection />
         <WaysSection order={V.ways} signupOpen={switches.signupOpen} />
         <StudioSection set={STUDIO_SETS[V.studio ?? "sneakers"]} />
-        <PeopleSection peopleOpen={switches.peopleOpen} />
-        <FirstWeekSection platformMail={switches.platformMail} />
+        <PeopleSection peopleOpen={switches.peopleOpen} story={story} />
+        <FirstWeekSection platformMail={switches.platformMail} story={story} />
         <section id="control" aria-labelledby="control-title" className="landing-section">
           <div className="landing-col landing-pair">
             <div className="flex flex-col gap-5">
@@ -285,7 +287,7 @@ function StudioSection({ set }: { set: StudioSet }) {
 }
 
 /** Solo is complete; people are one step away. The find block exists only with the people layer on. */
-function PeopleSection({ peopleOpen }: { peopleOpen: boolean }) {
+function PeopleSection({ peopleOpen, story }: { peopleOpen: boolean; story: ExampleStory }) {
   return (
     <LandingSection
       id="people"
@@ -293,7 +295,7 @@ function PeopleSection({ peopleOpen }: { peopleOpen: boolean }) {
       lede={W.people.lede}
       screen={
         <ScreenFrame>
-          <PersonPage {...EXAMPLE_PERSON} />
+          <PersonPage {...story.person} />
         </ScreenFrame>
       }
     >
@@ -316,9 +318,8 @@ function PeopleSection({ peopleOpen }: { peopleOpen: boolean }) {
   );
 }
 
-/** An example first week, using only what works today. Kept out of search snippets. */
-function FirstWeekSection({ platformMail }: { platformMail: boolean }) {
-  const d = W.firstWeek.days;
+/** An example first week (the variant's story, stories.ts), using only what works today. Kept out of search snippets. */
+function FirstWeekSection({ platformMail, story }: { platformMail: boolean; story: ExampleStory }) {
   return (
     <LandingSection
       id="first-week"
@@ -327,23 +328,14 @@ function FirstWeekSection({ platformMail }: { platformMail: boolean }) {
       lede={W.firstWeek.lede}
       screen={
         <ScreenFrame label={W.firstWeek.label}>
-          <ProjectPage {...EXAMPLE_PROJECT} />
+          <ProjectPage {...story.project} />
         </ScreenFrame>
       }
     >
       <p className="t-landing-small text-secondary">
-        <span className="font-medium text-primary">{W.firstWeek.label}</span> · {W.firstWeek.project} · {W.firstWeek.pitch}
+        <span className="font-medium text-primary">{W.firstWeek.label}</span> · {story.name} · {story.line}
       </p>
-      <DayList
-        days={[
-          { day: "Day 1", text: d.d1 },
-          { day: "Day 2", text: d.d2 },
-          { day: "Day 3", text: platformMail ? `${d.d3} ${d.d3Follow}` : d.d3 },
-          { day: "Day 4", text: d.d4 },
-          { day: "Day 5", text: d.d5, milestone: true },
-          { day: "Day 7", text: d.d7 },
-        ]}
-      />
+      <DayList days={storyDays(story, platformMail)} />
       <details className="group">
         <summary className="inline-flex min-h-tap cursor-pointer items-center font-medium text-accent">{W.firstWeek.another}</summary>
         <div className="flex flex-col gap-4 pt-3">
