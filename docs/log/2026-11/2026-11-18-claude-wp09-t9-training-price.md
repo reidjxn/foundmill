@@ -47,7 +47,8 @@ supersedes: []
    before. Checking it means refusing an approval, which is a wider change.
 
 ## The first live run of evals-models-live.yml (run 44408226277, Nov 18, 2026, on main before this change)
-- **T5, the fallback call: passed.** Anthropic accepts the fallback beta on an Opus route, so the request shape is right.
+- **T5, the fallback call: passed.** Anthropic accepts the fallback beta on an Opus route, so the request shape is
+right.
 - **Source Watcher: 1 of 3 passed.**
   - `competitor_pricing` scored 0: Pricing was not flagged and no proposal was drafted.
   - `interview_features` scored 0.45: it rewrote an existing line and put the feature in the wrong block.
@@ -65,4 +66,7 @@ supersedes: []
 - T10 (training on the batch path) waits for WP-06 T10.
 
 ## CI fix (Nov 19)
-`stop-resume.spec.ts` changed a model on a freshly committed project, whose $5 of credits cannot finish the retest (about $8.31, Estimate), so the new refusal fired and the "1 retest queued" text never appeared. The spec now expects the refusal. A retest held for the resume stays covered by `business-controls.test.ts`. The estimate being above a new project's whole balance is worth a look when the effort per route lands (WP-09 T6).
+`stop-resume.spec.ts` changed a model on a freshly committed project, whose $5 of credits cannot finish the retest
+(about $8.31, Estimate), so the new refusal fired and the "1 retest queued" text never appeared. The spec now expects
+the refusal. A retest held for the resume stays covered by `business-controls.test.ts`. The estimate being above a new
+project's whole balance is worth a look when the effort per route lands (WP-09 T6).
