@@ -43,6 +43,10 @@
     "count": 1,
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
+  "apps/web/components/landing/stories.ts": {
+    "count": 36,
+    "reason": "Example projects on the landing page: their brand colors are data, not design tokens."
+  },
   "apps/web/components/live/MessagesPanel.tsx": {
     "count": 1,
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."

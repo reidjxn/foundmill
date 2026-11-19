@@ -20,7 +20,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { LAST_BUSINESS_COOKIE } from "@/lib/auth/constants";
 import { decideRedirect } from "@/lib/auth/redirects";
 import { isDevLike } from "@/lib/env";
-import { LANDING_VARIANT_COOKIE, LANDING_VARIANT_MAX_AGE, landingVariantSignal } from "@/lib/landing-variant";
+import { LANDING_VARIANT_COOKIE, LANDING_VARIANT_MAX_AGE, landingVariantSignal, numberedLandingVariant } from "@/lib/landing-variant";
 import { updateSession } from "@/lib/supabase/middleware";
 import { postCookie, postToRemember, viaCookie, viaToRemember } from "@/lib/via";
 
@@ -33,7 +33,8 @@ export async function proxy(request: NextRequest) {
   const post = postToRemember(param);
   if (post) answer.cookies.set(postCookie(post, !isDevLike()));
   // The landing page a link asks for (`?lp=`, or its channel) is kept, so this browser sees one page when it returns.
-  const variant = request.nextUrl.pathname === "/" ? landingVariantSignal(request.nextUrl.search) : null;
+  // A numbered page (`/7`) is kept the same way, so going home from it shows the same words.
+  const variant = request.nextUrl.pathname === "/" ? landingVariantSignal(request.nextUrl.search) : numberedLandingVariant(request.nextUrl.pathname);
   if (variant && variant !== request.cookies.get(LANDING_VARIANT_COOKIE)?.value) {
     answer.cookies.set({ name: LANDING_VARIANT_COOKIE, value: variant, path: "/", maxAge: LANDING_VARIANT_MAX_AGE, sameSite: "lax", secure: !isDevLike() });
   }

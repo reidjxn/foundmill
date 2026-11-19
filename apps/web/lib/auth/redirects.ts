@@ -13,7 +13,7 @@
  *   app/(live)/layout.tsx, because only the API knows whether the profile exists; the proxy only knows who is signed in.
  */
 import { exampleRoute } from "@/components/landing/examples/ids";
-import { landingVariant, landingVariantRoute } from "@/lib/landing-variant";
+import { landingVariant, landingVariantRoute, numberedLandingVariant } from "@/lib/landing-variant";
 import { NEXT_PARAM } from "./constants";
 import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
 
@@ -108,6 +108,9 @@ export function decideRedirect(input: { pathname: string; search?: string; authe
     return { kind: "redirect", to: signedInDestination(safeNextPath(params.get(NEXT_PARAM)), lastBusinessId) };
   }
   if (isPublicPath(pathname)) return { kind: "next" };
+  // `/1` to `/20`: a landing page by its number, for anyone who opens the link (`/1` is `/` itself).
+  const numbered = numberedLandingVariant(pathname);
+  if (numbered) return { kind: "rewrite", to: landingVariantRoute(numbered) ?? "/" };
   if (!authenticated) {
     if (pathname === "/") {
       // The landing page; a deep link to another example business is that business's own prerendered page.
