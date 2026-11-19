@@ -44,4 +44,4 @@ The security review found that an ask routed as `message_customers` is decided a
 - The live Google sign-in records the requested scopes when Google's answer omits `scope` (`_shared/google-auth.ts`); the inbox gate would then trust them. Google returns `scope` in practice; left for Session 5b's scope split.
 - The panel's founder check is `isOwner` on the web; the server's `isProjectFounder` also excludes example memberships and is the one enforced.
 - Reading context before a turn (a digest put into the prompt by the orchestrator): agents read through their tools when the task needs it.
-- A Playwright run in this session; the spec is in `e2e/settings-plain.spec.ts`.
+- Session 5b's scope split: when it lands, the inbox gate follows the granted scopes with no change here.
