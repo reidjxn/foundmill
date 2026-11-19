@@ -32,7 +32,7 @@ const KEPT_KEYS = [
   "privacy_requests", "supplier_comparison", "meeting_notes", "weekly_status_report",
 ];
 
-/** The 64 drafts moved in by WP-06 T3 (docs/holistic-plan/skills on Nov 16, 2026); `pricing_analysis` replaced the old body. */
+/** The 64 drafts moved in by WP-06 T3, and `ponytail` and `caveman` (T13) (docs/holistic-plan/skills on Nov 16, 2026); `pricing_analysis` replaced the old body. */
 const DRAFTED_KEYS = [
   "churn_prevention", "support_desk", "interface_design_principles", "ui_quality_checklist", "acting_on_review",
   "coding_discipline", "finishing_a_branch", "implementation_plans", "proof_before_done", "reviewing_code",
@@ -45,7 +45,7 @@ const DRAFTED_KEYS = [
   "social_post_writing", "social_strategy", "structured_data", "technical_seo", "voice_guide", "founder_notes",
   "founder_tasks", "inbound_triage", "operating_rhythm", "week_one_plan", "cited_market_research", "customer_research",
   "experiments", "first_ten_conversations", "onboarding_design", "signup_flow", "tracking_plan", "cold_email",
-  "first_sale_path", "lead_prospecting",
+  "first_sale_path", "lead_prospecting", "ponytail", "caveman",
 ];
 const ALL_KEYS = [...new Set([...KEPT_KEYS, ...DRAFTED_KEYS])];
 
@@ -122,8 +122,8 @@ describe("the library is generated from packages/agents/skills", () => {
     expect(generator.renderCatalog(SKILLS_DIR)).toBe(readFileSync(CATALOG, "utf8"));
   });
 
-  it("keeps the 20 keys and holds the 64 drafts (83 skills), in category order and then by key", () => {
-    expect(ALL_KEYS).toHaveLength(83);
+  it("keeps the 20 keys and holds the 66 drafts (85 skills), in category order and then by key", () => {
+    expect(ALL_KEYS).toHaveLength(85);
     expect([...SKILL_LIBRARY.map((s) => s.key)].sort()).toEqual([...ALL_KEYS].sort());
     const rank = (s: (typeof SKILL_LIBRARY)[number]) => SKILL_LIBRARY_CATEGORIES.indexOf(s.category);
     const ordered = [...SKILL_LIBRARY].sort((a, b) => rank(a) - rank(b) || a.key.localeCompare(b.key));
@@ -238,9 +238,15 @@ describe("every library skill (WP-06 T3)", () => {
     }
   });
 
-  it("gives coding_discipline by default to every template that writes code", () => {
+  it("gives coding_discipline, ponytail and caveman by default to every template that writes code", () => {
     expect(CODE_TEMPLATES).toHaveLength(11);
-    expect([...SKILL_LIBRARY.find((s) => s.key === "coding_discipline")!.defaultFor].sort()).toEqual([...CODE_TEMPLATES].sort());
+    for (const key of ["coding_discipline", "ponytail", "caveman"]) expect([...SKILL_LIBRARY.find((s) => s.key === key)!.defaultFor].sort(), key).toEqual([...CODE_TEMPLATES].sort());
+  });
+
+  it("caveman keeps everything a person reads in full sentences (T13)", () => {
+    const body = SKILL_LIBRARY.find((s) => s.key === "caveman")!.instructionsMd;
+    expect(body).toContain("Anything a founder or an outside person reads stays in plain, full sentences");
+    for (const w of ["hand-backs", "commit messages", "pull request", "emails", "public page"]) expect(body, w).toContain(w);
   });
 
   it("customer replies sit with the Chief of Staff for now (founder, Nov 16, 2026: D4)", () => {
