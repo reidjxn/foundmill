@@ -4,10 +4,10 @@
  * ("agent" | "type" | "all", BUILD §9.6 ApplyScopeDialog). BUILD §11.10; AC-11.10.1/2/5/6.
  */
 import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, LIBRARY_SKILL_PREFIX, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getLibrarySkill, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
-import { CREDITS_CURRENCY, INPUT_LIMITS, LIMITS } from "@foundmill/config";
-import { UpdateAgentInput, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
-import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
-import { ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, CHOOSABLE_MODEL_KEYS, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
+import { CREDITS_CURRENCY, INPUT_LIMITS, LIMITS, chargedMinor } from "@foundmill/config";
+import { UpdateAgentInput, checkPlatformCredits, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
+import { MODELS, REFERENCE_TEST_USAGE, meter, resolveModel, trainingEstimate, type RouteKey } from "@foundmill/models";
+import { AppError, ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, CHOOSABLE_MODEL_KEYS, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
 import { modelLimited } from "../services/model-limits";
 import { changeAgentModels, routeOf, startModelRetests } from "../services/agent-model";
@@ -77,9 +77,51 @@ function runningGrants(version: Pick<AgentVersion, "version" | "createdByKind" |
   return version.tools;
 }
 
-/** Reference usage per test for the wage estimate: ~4k input / 1.2k output tokens plus an Opus grading pass. */
-const REFERENCE_TEST_USAGE = { inputTokens: 4_000, outputTokens: 1_200, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
-const REFERENCE_GRADE_USAGE = { inputTokens: 2_500, outputTokens: 400, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
+/**
+ * A training run's or retest's price as the project pays it (WP-09 T9): the list-price Estimate, plus the credit markup
+ * unless the project runs on its own key (Anthropic bills the founder then, at cost).
+ */
+function trainingPrice(ctx: BusinessContext, tests: number, agentModel: ModelKey, batch = false): number {
+  const { costMinor } = trainingEstimate({ tests, agentModel, batch });
+  return ctx.business.modelBilling === "byok" ? costMinor : chargedMinor(costMinor);
+}
+
+const dollars = (minor: number) => `$${(minor / 100).toFixed(2)}`;
+
+/**
+ * Refuses (402) a run the credits cannot finish, before anything is queued: never stop a team mid-task because a
+ * balance ran out (CLAUDE.md). A project on its own key is not checked.
+ */
+async function assertTrainingAffordable(ctx: BusinessContext, estimateMinor: number): Promise<void> {
+  if (ctx.business.modelBilling === "byok" || estimateMinor <= 0) return;
+  const { spendableMinor } = await checkPlatformCredits(ctx.db, ctx.businessId, { live: ctx.models.mode === "live" });
+  if (estimateMinor <= spendableMinor) return;
+  throw new AppError("training_unaffordable", `This check costs about ${dollars(estimateMinor)} (Estimate) and ${dollars(spendableMinor)} of credits is left. Check fewer skills, or add credits or your own key.`, 402, { estimateMinor, spendableMinor });
+}
+
+/** Every test the agent's skills have (held-out ones included): what one training run grades. */
+async function agentTestCount(ctx: BusinessContext, agent: Agent): Promise<number> {
+  const skills = await ctx.rls((tx) => repos.skills.listForAgent(tx, ctx.businessId, agent.id));
+  let tests = 0;
+  for (const s of skills) tests += await skillTestCount(ctx.db, ctx.businessId, agent.agentType, s.skillKey);
+  return tests;
+}
+
+/** The retests a model change would queue (as `changeAgentModels` decides): unlocked agents not already on the model. */
+async function retestPlan(ctx: BusinessContext, targets: readonly Agent[], modelKey: ModelKey): Promise<{ agents: number; tests: number; costMinor: number }> {
+  let agents = 0;
+  let costMinor = 0;
+  let tests = 0;
+  for (const agent of targets) {
+    const r = resolveModel(routeOf(agent), modelKey);
+    if ((r.locked && r.modelKey !== modelKey) || agent.modelKey === modelKey) continue;
+    const n = await agentTestCount(ctx, agent);
+    agents += 1;
+    tests += n;
+    costMinor += trainingPrice(ctx, n, modelKey);
+  }
+  return { agents, tests, costMinor };
+}
 /**
  * A typical month of work for an agent with no usage to go on yet (a new hire, the first days of a month): about 60
  * sessions of ~40k input and ~6k output tokens. Only ever shown as an Estimate, so model options still differ.
@@ -275,8 +317,7 @@ export const agentRouter = router({
       const modelKey = input.modelKey ?? agent.modelKey;
       let tests = 0;
       for (const s of skills) tests += await skillTestCount(ctx.db, ctx.businessId, agent.agentType, s.skillKey);
-      const perTest = meter(REFERENCE_TEST_USAGE, MODELS[modelKey]).costMicroMinor + meter(REFERENCE_GRADE_USAGE, MODELS.opus).costMicroMinor;
-      return { tests, skills: skills.length, modelKey, costMinor: Math.round((perTest * tests) / 1_000_000), currency: CREDITS_CURRENCY, durationMinutes: Math.max(2, Math.min(5, Math.ceil(tests / 20))), label: "Estimate" as const };
+      return { tests, skills: skills.length, modelKey, costMinor: trainingPrice(ctx, tests, modelKey), batchCostMinor: trainingPrice(ctx, tests, modelKey, true), currency: CREDITS_CURRENCY, durationMinutes: Math.max(2, Math.min(5, Math.ceil(tests / 20))), label: "Estimate" as const };
     }),
 
     /**
@@ -288,6 +329,8 @@ export const agentRouter = router({
       // Paid entry (WP-09 T16): a training run's model calls wait for the entry plan.
       await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
       await assertAgentsRunning(ctx, "a training run");
+      const { trained, draft } = await ctx.rls(async (tx) => ({ trained: await repos.agents.get(tx, ctx.businessId, input.agentId), draft: await repos.agents.getVersion(tx, ctx.businessId, input.versionId) }));
+      await assertTrainingAffordable(ctx, trainingPrice(ctx, await agentTestCount(ctx, trained), draft.modelKey));
       const run = await ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team`);
@@ -601,11 +644,23 @@ export const agentRouter = router({
      * decided are withdrawn (`superseded`), and a change back to the model its live version runs on queues none. While
      * the team is stopped the retests stay queued (`retestsWaitForResume`) and start when the agents resume.
      */
-    set: write.input(z.object({ agentId: Id, modelKey: ChoosableModel, applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
+    /** What the retests a model change would queue cost (WP-09 T9), shown before the founder confirms. */
+    retestEstimate: read.input(z.object({ agentId: Id, modelKey: ChoosableModel, applyScope: ApplyScope.default("agent") })).query(async ({ ctx, input }) => {
+      const plan = await retestPlan(ctx, await scopedAgents(ctx, input.agentId, input.applyScope), input.modelKey as ModelKey);
+      return { ...plan, currency: CREDITS_CURRENCY, label: "Estimate" as const };
+    }),
+
+    /**
+     * `retest`: on by default for one agent; off by default for every agent of its type and for all (TS-03 c), where one
+     * press would otherwise queue a retest per agent. A change whose retests the credits cannot finish is refused (402).
+     */
+    set: write.input(z.object({ agentId: Id, modelKey: ChoosableModel, applyScope: ApplyScope.default("agent"), retest: z.boolean().optional() })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       const targets = await scopedAgents(ctx, input.agentId, input.applyScope);
+      const retest = input.retest ?? input.applyScope === "agent";
+      if (retest) await assertTrainingAffordable(ctx, (await retestPlan(ctx, targets, input.modelKey as ModelKey)).costMinor);
       const change = await ctx.rls(async (tx) => {
-        const c = await changeAgentModels(tx, ctx.businessId, targets, input.modelKey as ModelKey, ctx.userId);
-        await audit(tx, ctx, { action: "agent.model.set", target: { kind: "agent", id: input.agentId }, details: { modelKey: input.modelKey, applyScope: input.applyScope, updated: c.updated, skipped: c.skipped, retests: c.retests, superseded: c.superseded } });
+        const c = await changeAgentModels(tx, ctx.businessId, targets, input.modelKey as ModelKey, ctx.userId, { retest });
+        await audit(tx, ctx, { action: "agent.model.set", target: { kind: "agent", id: input.agentId }, details: { modelKey: input.modelKey, applyScope: input.applyScope, retest, updated: c.updated, skipped: c.skipped, retests: c.retests, superseded: c.superseded } });
         return c;
       });
       // Earlier retests of a model these agents no longer run were canceled above; those still running stop too.

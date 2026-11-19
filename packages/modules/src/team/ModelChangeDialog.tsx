@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { Cpu } from "lucide-react";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { ApplyScopeDialog, Button, useAgentPersona, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, MODEL_LABELS, ModelPicker, SkeletonText, type ApplyScope, type ModelOption } from "@foundmill/dugout";
+import { ApplyScopeDialog, Button, Checkbox, ProvenanceChip, formatMoney, useAgentPersona, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, MODEL_LABELS, ModelPicker, SkeletonText, type ApplyScope, type ModelOption } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { useWidgetQuery } from "@foundmill/widgets/data";
 import { InlineError, agentTypeNoun, errorMessage, useAction } from "./shared";
@@ -65,9 +65,12 @@ export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, on
   const compare = useWidgetQuery<ModelCompareResponse>("agent.model.compare", agent ? { agentId: agent.id } : undefined, { enabled: !!agent });
   const action = useAction();
   const [candidate, setCandidate] = useState<ModelKey | null>(null);
+  // Retests for every agent of the type, or all, run only when chosen (WP-09 T9, TS-03 c).
+  const [retestWide, setRetestWide] = useState(false);
   useEffect(() => {
     if (agent) {
       setCandidate(null);
+      setRetestWide(false);
       action.clearError();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset per agent
@@ -76,7 +79,7 @@ export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, on
   const options = compare.data ? toModelOptions(compare.data) : [];
   const apply = async (scope: ApplyScope) => {
     if (!agent || !candidate) return;
-    const result = await action.run<ModelSetResponse>("agent.model.set", { agentId: agent.id, modelKey: candidate, applyScope: scope }, { key: `model:${agent.id}` });
+    const result = await action.run<ModelSetResponse>("agent.model.set", { agentId: agent.id, modelKey: candidate, applyScope: scope, retest: scope === "agent" || retestWide }, { key: `model:${agent.id}` });
     if (result) {
       onApplied(result, candidate, scope);
       setCandidate(null);
@@ -117,9 +120,27 @@ export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, on
           typeCount={typeCount}
           allCount={allCount}
           settingLabel={`Model: ${candidate ? MODEL_LABELS[candidate] : ""}`}
+          extra={(scope) => (candidate ? <RetestNote agentId={agent.id} modelKey={candidate} scope={scope} wide={retestWide} onWide={setRetestWide} /> : null)}
           onApply={apply}
         />
       ) : null}
     </>
+  );
+}
+
+/** The retests a model change would queue and their price (Estimate), before the founder applies it (WP-09 T9). */
+function RetestNote({ agentId, modelKey, scope, wide, onWide }: { agentId: string; modelKey: ModelKey; scope: ApplyScope; wide: boolean; onWide: (on: boolean) => void }) {
+  const q = useWidgetQuery<{ agents: number; tests: number; costMinor: number }>("agent.model.retestEstimate", { agentId, modelKey, applyScope: scope });
+  if (!q.data) return null;
+  if (q.data.agents === 0) return <p className="text-small text-secondary">No skills to re-test on this model.</p>;
+  const price = <ProvenanceChip kind="estimate">{formatMoney({ amountMinor: q.data.costMinor, currency: CREDITS_CURRENCY })}</ProvenanceChip>;
+  if (scope === "agent") return <p className="text-small text-secondary" data-testid="retest-price">Re-testing its skills on the new model costs about {price}.</p>;
+  return (
+    <label className="flex items-center gap-2 text-small text-secondary">
+      <Checkbox checked={wide} onCheckedChange={(c) => onWide(c === true)} data-testid="retest-wide" />
+      <span>
+        Also re-test {q.data.agents} {q.data.agents === 1 ? "agent" : "agents"}, about {price}
+      </span>
+    </label>
   );
 }

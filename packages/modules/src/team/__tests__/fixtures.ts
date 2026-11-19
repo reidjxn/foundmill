@@ -90,6 +90,7 @@ export const dataResponses: Record<string, unknown> = {
   "department.list": departments,
   "founder.profile.get": me,
   "agent.model.compare": compareJuno,
+  "agent.model.retestEstimate": { agents: 2, tests: 24, costMinor: 184, currency: "USD", label: "Estimate" },
   "team.playbooks.list": { playbooks: [] },
 };
 
