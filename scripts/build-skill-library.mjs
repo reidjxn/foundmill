@@ -87,6 +87,10 @@ export function parseSkillSource(text, where) {
   for (const f of REQUIRED) if (!fields[f]) throw new Error(`${where}: missing field ${f}`);
   for (const f of MAY_BE_EMPTY) if (!(f in fields)) throw new Error(`${where}: missing field ${f}`);
   if (!/^[1-9]\d*$/.test(fields.version)) throw new Error(`${where}: version is not a whole number: ${fields.version}`);
+  // Optional (WP-06 T13): the release a default arrives in (1 when absent), and `load: always` for a body that every
+  // code task loads up front when the preload switch is on for it.
+  if ("default_since" in fields && !/^[1-9]\d*$/.test(fields.default_since)) throw new Error(`${where}: default_since is not a whole number: ${fields.default_since}`);
+  if ("load" in fields && fields.load !== "always") throw new Error(`${where}: load is not "always": ${fields.load}`);
   const body = text.slice(end + 5).replace(/\n$/, "");
   if (!body.trim()) throw new Error(`${where}: empty body`);
   return { fields, body };
@@ -121,7 +125,8 @@ function mapSkill(f, body, where) {
     whenToUse: f.when_to_use,
     roles: list(f.roles),
     defaultFor: list(f.default_for),
-    defaultSince: 1,
+    defaultSince: f.default_since ? Number(f.default_since) : 1,
+    loadAlways: f.load === "always",
     stages: PRODUCT_STAGES.filter((p) => stageSet.has(p)),
     requires,
     notYetOnFoundmill: notYet,
@@ -185,6 +190,7 @@ export function renderCatalog(skillsDir, categories = categoriesFrom()) {
       `    roles: ${s(k.roles)},`,
       `    defaultFor: ${s(k.defaultFor)},`,
       `    defaultSince: ${k.defaultSince},`,
+      ...(k.loadAlways ? ["    loadAlways: true,"] : []),
       `    stages: ${s(k.stages)},`,
       `    requires: [${k.requires.map((c) => `{ connectorKey: ${s(c)}, mode: "better_with" }`).join(", ")}],`,
       `    notYetOnFoundmill: ${s(k.notYetOnFoundmill)},`,

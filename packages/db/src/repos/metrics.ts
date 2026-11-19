@@ -542,6 +542,34 @@ export const metricsRepo = {
       .onConflictDoUpdate({ target: platformMetricDays.day, set: { facts: facts as Record<string, unknown>, updatedAt: new Date() } });
   },
 
+  /**
+   * The skills preload test (WP-06 T13; founder, Nov 18, 2026): code sessions on real projects whose token rows carry
+   * `skills_preload`, from `from` (inclusive) to `to` (exclusive), by half: how many, and their average input tokens,
+   * output tokens and cost (USD cents, an Estimate) per code task. A session's cost is every token row booked for it.
+   */
+  async skillsPreloadComparison(db: Executor, from: Date, to: Date): Promise<Record<"on" | "off", { sessions: number; avgTokensIn: number; avgTokensOut: number; avgCostMinor: number }>> {
+    const rows = rowsOf<{ half: "on" | "off"; sessions: number; avg_in: number | null; avg_out: number | null; avg_cost: number | null }>(
+      await db.execute(sql`
+        with tagged as (
+          select distinct u.session_id, u.details ->> 'skills_preload' as half
+            from usage_ledger u join businesses b on b.id = u.business_id
+           where u.kind = 'tokens' and u.details ? 'skills_preload' and u.session_id is not null
+             and u.occurred_at >= ${from} and u.occurred_at < ${to} and ${sql.raw(REAL_OUTSIDE)}
+        ), cost as (
+          select u.session_id, sum(coalesce(u.cost_micro_minor, u.cost_minor * 1000000)) / 1000000.0 as cost_minor
+            from usage_ledger u where u.kind = 'tokens' and u.session_id in (select session_id from tagged) group by u.session_id
+        )
+        select t.half, count(*)::int as sessions, avg(s.tokens_in)::float as avg_in, avg(s.tokens_out)::float as avg_out, avg(c.cost_minor)::float as avg_cost
+          from tagged t join agent_sessions s on s.id = t.session_id join cost c on c.session_id = t.session_id
+         group by t.half`),
+    );
+    const of = (half: "on" | "off") => {
+      const r = rows.find((x) => x.half === half);
+      return { sessions: r?.sessions ?? 0, avgTokensIn: Math.round(r?.avg_in ?? 0), avgTokensOut: Math.round(r?.avg_out ?? 0), avgCostMinor: Math.round((r?.avg_cost ?? 0) * 100) / 100 };
+    };
+    return { on: of("on"), off: of("off") };
+  },
+
   /** The last `limit` recorded days, newest first (the CLI's `--history`). */
   async history(db: Executor, limit: number): Promise<{ day: string; facts: Record<string, unknown> }[]> {
     const rows = await db.select({ day: platformMetricDays.day, facts: platformMetricDays.facts }).from(platformMetricDays).orderBy(sql`${platformMetricDays.day} desc`).limit(limit);

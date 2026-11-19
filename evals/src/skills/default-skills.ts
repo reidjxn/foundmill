@@ -45,12 +45,12 @@ export interface StoredDefault {
 }
 
 /** The session-shaped request for a case, from the skills the hired agent carries. No body is loaded up front. */
-export function defaultSkillsRequest(c: DefaultSkillCase, stored: readonly StoredDefault[]) {
+export function defaultSkillsRequest(c: DefaultSkillCase, stored: readonly StoredDefault[], preloadAlways = false) {
   const template = getTemplate(c.templateKey);
   const toolRefs = resolveGrants(template.tools).toolRefs;
   const canRead = toolRefs.includes("platform:read_skill");
   const attached: AttachedSkill[] = attachedSkills(template.skills, stored);
-  const skills = selectSkills({ skills: attached, task: { kind: template.taskKinds[0] ?? "ops", ...c.task }, maxBodies: 0 });
+  const skills = selectSkills({ skills: attached, task: { kind: template.taskKinds[0] ?? "ops", ...c.task }, maxBodies: 0, preloadAlways });
   const system = buildSystemPrompt({ businessName: BUSINESS, appName: APP_NAME, template, skills, skillsCanRead: canRead });
   const user = [
     `# Task: ${c.task.title}`,

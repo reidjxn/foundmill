@@ -31,7 +31,7 @@
 import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
-import { AgentInstructions, attachedSkills, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, NO_TOOL_LOOP_PRELOAD_BODIES, restoredWorkspaceNote, selectSkills, SESSION_PRELOAD_BODIES, ToolGrant, type AgentTemplate, type AttachedSkill } from "@foundmill/agents";
+import { AgentInstructions, attachedSkills, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, NO_TOOL_LOOP_PRELOAD_BODIES, restoredWorkspaceNote, selectSkills, SESSION_PRELOAD_BODIES, skillsPreloadFor, ToolGrant, type AgentTemplate, type AttachedSkill } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, modelFundingFor, sandboxCostMicroMinor } from "@foundmill/config";
 import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
 import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, freeCapCheck, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
@@ -1059,7 +1059,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         // Booked as it ran on the platform key (./session-credits): only the rest is booked here, at its exact cost (0039).
         const rest = await unbookedTokens(deps, input.businessId, input.sessionId, { tokens: result.tokensIn + result.tokensOut, costMinor: result.costMinor });
         const restMicro = Math.max(0, (result.costMicroMinor ?? Math.round(result.costMinor) * MICRO_PER_MINOR) - (Math.round(result.costMinor) - rest.costMinor) * MICRO_PER_MINOR);
-        if (rest.tokens > 0 || restMicro > 0) await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "tokens", idempotencyKey: `session:${input.sessionId}:tokens`, modelKey: result.modelKey ?? launch.modelKey, quantity: rest.tokens, unit: "tokens", costMicroMinor: restMicro, currency: "USD", billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
+        if (rest.tokens > 0 || restMicro > 0) await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "tokens", idempotencyKey: `session:${input.sessionId}:tokens`, modelKey: result.modelKey ?? launch.modelKey, quantity: rest.tokens, unit: "tokens", costMicroMinor: restMicro, currency: "USD", billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate", ...preloadDetail(deps, input.businessId, task.kind) } });
       }
       // Read the agent after booking: the last credit may just have paused the team, and the founder's pause or Stop
       // all agents may have landed while the session ran. Nothing a session does un-pauses an agent.
@@ -1459,14 +1459,20 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 
 const READ_SKILL_REF = "platform:read_skill";
 
+/** The skills preload test's mark on a code session's token row (WP-06 T13): `skills_preload` "on" or "off", or nothing. */
+function preloadDetail(deps: OrchestratorDeps, businessId: string, taskKind: Task["kind"]): { skills_preload?: "on" | "off" } {
+  const half = skillsPreloadFor({ mode: deps.env.SKILLS_PRELOAD, businessId, taskKind });
+  return half ? { skills_preload: half } : {};
+}
+
 /**
  * A live session's system prompt (WP-06 T4). Every skill gets an index line; a session that holds `read_skill` (its
  * resolved tool refs) loads one body up front and is told to read the rest, and one without it loads two and is told
  * only those are loaded. The prefix through the Skills index does not depend on the task (`buildSystemPrompt`).
  */
-export function sessionSystemPrompt(input: { business: { name: string; glossary: Record<string, string> }; instructions: AgentInstructions; description: string; briefText: string | null; skills: readonly AttachedSkill[]; task: Pick<Task, "kind" | "title" | "goalMd">; toolRefs: readonly string[] }): string {
+export function sessionSystemPrompt(input: { business: { name: string; glossary: Record<string, string> }; instructions: AgentInstructions; description: string; briefText: string | null; skills: readonly AttachedSkill[]; task: Pick<Task, "kind" | "title" | "goalMd">; toolRefs: readonly string[]; preloadAlways?: boolean }): string {
   const canRead = input.toolRefs.includes(READ_SKILL_REF) || input.toolRefs.includes("platform:*");
-  const skills = selectSkills({ skills: input.skills, task: { kind: input.task.kind, title: input.task.title, goal: input.task.goalMd ?? "" }, maxBodies: canRead ? SESSION_PRELOAD_BODIES : NO_TOOL_LOOP_PRELOAD_BODIES });
+  const skills = selectSkills({ skills: input.skills, task: { kind: input.task.kind, title: input.task.title, goal: input.task.goalMd ?? "" }, maxBodies: canRead ? SESSION_PRELOAD_BODIES : NO_TOOL_LOOP_PRELOAD_BODIES, preloadAlways: input.preloadAlways });
   return buildSystemPrompt({ businessName: input.business.name, appName: APP_NAME, template: { instructions: input.instructions, description: input.description }, brief: input.briefText ?? undefined, glossary: input.business.glossary, skills, skillsCanRead: canRead });
 }
 
@@ -1611,7 +1617,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // call, is capped at what is spendable, books as it goes and ends when the credits are used up.
   let credits: SessionCredits | null = null;
   if (key.source === "platform") {
-    const opened = await SessionCredits.open(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, modelKey: launch.modelKey });
+    const opened = await SessionCredits.open(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, modelKey: launch.modelKey, skillsPreload: skillsPreloadFor({ mode: deps.env.SKILLS_PRELOAD, businessId: input.businessId, taskKind: task.kind }) });
     if (!opened.ok) return { outcome: "blocked", reason: `model budget exhausted: ${opened.reason}`, blockedReason: "budget", approvalId: null, summary: CREDITS_USED_UP_SUMMARY, providerSessionId: null };
     credits = opened.credits;
   }
@@ -1644,7 +1650,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // A share of a capped cycle under the floor pays for nothing that finishes (WP-05 T15): it does not start.
   if (typeof input.spendCapMinor === "number" && input.spendCapMinor < MIN_SESSION_CAP_MINOR) return { outcome: "blocked", reason: "model budget exhausted: what is left of Autopilot's own spend for today is too little for a session", blockedReason: "budget", approvalId: null, summary: UNDER_FLOOR_SUMMARY, providerSessionId: null };
   // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).
-  const systemPrompt = sessionSystemPrompt({ business: live.business, instructions: instructionsFor(live.version, live.template), description: live.template.description, briefText: live.briefText, skills: live.skills, task, toolRefs: grants.toolRefs });
+  const systemPrompt = sessionSystemPrompt({ business: live.business, instructions: instructionsFor(live.version, live.template), description: live.template.description, briefText: live.briefText, skills: live.skills, task, toolRefs: grants.toolRefs, preloadAlways: skillsPreloadFor({ mode: deps.env.SKILLS_PRELOAD, businessId: live.business.id, taskKind: task.kind }) === "on" });
   if (!hasClubRulesPrefix(systemPrompt)) throw new Error("house rules missing from the system prompt");
   const policy = sdkToolPolicyFor(task.kind, grants.mcpTools);
   const sdk = await import("@anthropic-ai/claude-agent-sdk");

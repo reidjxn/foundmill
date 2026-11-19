@@ -687,6 +687,24 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     }
   });
 
+  it("sessionSystemPrompt: with the preload on, a code task loads both coding skills up front; off, or on other work, it does not (WP-06 T13)", () => {
+    const template = listTemplates().find((t) => t.taskKinds.includes("code"))!;
+    const row = (key: string) => ({ skillKey: `library_${key}`, name: getLibrarySkill(key)!.attribute.name, source: "library" as const, description: getLibrarySkill(key)!.description, instructionsMd: "stored" });
+    const skills = attachedSkills([], ["coding_discipline", "smallest_change", "terse_working_notes"].map(row));
+    const code = { kind: "code" as const, title: "Fix the signup form", goalMd: "The email check rejects valid addresses." };
+    const prompt = (task: { kind: "code" | "ops"; title: string; goalMd: string }, preloadAlways: boolean) => sessionSystemPrompt({ business: { name: "Acme", glossary: {} }, instructions: template.instructions, description: template.description, briefText: "Brief.", skills, task, toolRefs: ["platform:read_skill"], preloadAlways });
+    const head = (key: string) => getLibrarySkill(key)!.instructionsMd.split("\n")[0]!;
+    const on = prompt(code, true);
+    for (const key of ["smallest_change", "terse_working_notes"]) expect(on.slice(on.indexOf(LOADED_SKILLS_HEADER)), key).toContain(head(key));
+    for (const key of ["smallest_change", "terse_working_notes"]) expect(on.includes(`<skill name="${getLibrarySkill(key)!.attribute.name}"`), key).toBe(true);
+    const off = prompt(code, false);
+    const ops = prompt({ ...code, kind: "ops" }, true);
+    for (const p of [off, ops]) for (const key of ["smallest_change", "terse_working_notes"]) expect(p.includes(`<skill name="${getLibrarySkill(key)!.attribute.name}"`), key).toBe(false);
+    // The cached prefix through the Skills index is the same with the preload on or off.
+    const prefix = (p: string) => p.slice(0, p.indexOf("## Business brief"));
+    expect(prefix(on)).toBe(prefix(off));
+  });
+
   it("sessionSystemPrompt: index mode when the read_skill grant is present, the loaded-bodies form when it is not (WP-06 T4)", () => {
     const template = listTemplates()[0]!;
     const skills = attachedSkills([], [
