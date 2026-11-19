@@ -6,7 +6,7 @@
  */
 import { ACTIVATION, addDaysToKey, dayKeyIn, founderActivation, founderHabit, startsNewSession, type ActivationResult, type FounderReturnVia, type HabitResult } from "@foundmill/shared";
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, min, sql } from "drizzle-orm";
-import { businesses, events, founderPresence, founderVisitDays, memberships, productSignoffs } from "../schema";
+import { businesses, events, founderPresence, founderVisitDays, memberships, productSignoffs, realBusinesses } from "../schema";
 import { maybeOne, rowsOf, type Executor } from "./_shared";
 
 export interface PresenceView {
@@ -121,8 +121,9 @@ export const presenceRepo = {
     const committed = await db
       .select({ id: businesses.id, name: businesses.name, committedAt: businesses.committedAt, timeZone: businesses.timeZone, ownerUserId: memberships.userId })
       .from(businesses)
+      .innerJoin(realBusinesses, eq(realBusinesses.id, businesses.id))
       .innerJoin(memberships, and(eq(memberships.businessId, businesses.id), eq(memberships.role, "owner")))
-      .where(and(isNotNull(businesses.committedAt), gte(businesses.committedAt, range.from), sql`${businesses.committedAt} < ${range.to}`, eq(businesses.isDemo, false), isNull(businesses.archivedAt)))
+      .where(and(isNotNull(businesses.committedAt), gte(businesses.committedAt, range.from), sql`${businesses.committedAt} < ${range.to}`, isNull(businesses.archivedAt)))
       .orderBy(asc(businesses.committedAt));
     const rows: RetentionRow[] = [];
     for (const b of committed) {
