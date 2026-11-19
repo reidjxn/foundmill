@@ -51,7 +51,7 @@ export async function trainingRun(input: TrainingRunInput): Promise<TrainingRunR
       const skillKey = queue.shift();
       if (!skillKey || cancelled || error) return;
       try {
-        outcomes.push(await tests.runSkillTests({ ...input, agentId: loaded.agentId, draftVersionId: loaded.draftVersionId, skillKey, modelKey: loaded.modelKey }));
+        outcomes.push(await tests.runSkillTests({ ...input, agentId: loaded.agentId, draftVersionId: loaded.draftVersionId, skillKey, modelKey: loaded.modelKey, ...(loaded.measuredSkillKey ? { measuredSkillKey: loaded.measuredSkillKey } : {}) }));
       } catch (err) {
         error = `${skillKey}: ${(err as Error).message}`.slice(0, 400);
       }
@@ -60,7 +60,7 @@ export async function trainingRun(input: TrainingRunInput): Promise<TrainingRunR
   await Promise.all(Array.from({ length: Math.min(TRAINING_PARALLELISM, Math.max(1, queue.length)) }, worker));
   let result: TrainingRunResult;
   try {
-    result = await acts.finalizeTrainingRun({ ...input, agentId: loaded.agentId, draftVersionId: loaded.draftVersionId, liveVersionId: loaded.liveVersionId, outcomes, clubRuleFlags: loaded.clubRuleFlags, retest: loaded.retest ?? null, startedAt, ...(cancelled ? { status: "cancelled" as const } : error ? { status: "failed" as const, error } : {}) });
+    result = await acts.finalizeTrainingRun({ ...input, agentId: loaded.agentId, draftVersionId: loaded.draftVersionId, liveVersionId: loaded.liveVersionId, outcomes, clubRuleFlags: loaded.clubRuleFlags, retest: loaded.retest ?? null, check: !!loaded.measuredSkillKey, startedAt, ...(cancelled ? { status: "cancelled" as const } : error ? { status: "failed" as const, error } : {}) });
   } catch {
     result = await acts.failTrainingRun({ ...input, error: TRAINING_FINISH_FAILED });
   }

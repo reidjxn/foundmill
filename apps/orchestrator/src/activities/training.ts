@@ -118,13 +118,19 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
         await cancelForStop(input, stopped);
         throw cannotStart(stopped);
       }
-      if (!run.toVersionId) throw cannotStart("The run has no draft version to test.");
-      const [agent, draft] = await permanent(Promise.all([repos.agents.get(db, input.businessId, run.agentId), repos.agents.getVersion(db, input.businessId, run.toVersionId)]));
-      if (draft.state !== "draft") throw cannotStart(draft.state === "live" ? "The candidate is the live version; training only ever scores a draft." : "The candidate is no longer a draft.");
+      // A skill check has no draft: it scores the live version with and without one skill.
+      const check = run.kind === "skill_check";
+      if (!run.toVersionId && !check) throw cannotStart("The run has no draft version to test.");
+      const agentRow = await permanent(repos.agents.get(db, input.businessId, run.agentId));
+      const candidateId = check ? agentRow.currentVersionId : run.toVersionId;
+      if (!candidateId) throw cannotStart("The agent has no live version to check.");
+      const [agent, draft] = [agentRow, await permanent(repos.agents.getVersion(db, input.businessId, candidateId))];
+      if (check && !run.measuredSkillKey) throw cannotStart("The check names no skill to measure.");
+      if (!check && draft.state !== "draft") throw cannotStart(draft.state === "live" ? "The candidate is the live version; training only ever scores a draft." : "The candidate is no longer a draft.");
       const live = run.fromVersionId ? await permanent(repos.agents.getVersion(db, input.businessId, run.fromVersionId)) : agent.currentVersionId ? await permanent(repos.agents.getVersion(db, input.businessId, agent.currentVersionId)) : null;
       const template = templateForAgent(agent);
       const existing = await repos.skills.listForAgent(db, input.businessId, agent.id);
-      const skillKeys = existing.length > 0 ? existing.map((s) => s.skillKey) : template.skills;
+      const skillKeys = run.skillKeys?.length ? run.skillKeys : existing.length > 0 ? existing.map((s) => s.skillKey) : template.skills;
       // Only from queued (or running, on a retry of this activity): a cancel that landed meanwhile stands.
       const started = await repos.training.transition(db, input.businessId, run.id, STARTABLE, { status: "running", startedAt: run.startedAt ?? deps.clock.now() });
       if (!started) throw cannotStart("The run had already ended before it started.");
@@ -138,7 +144,8 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
         modelKey: draft.modelKey,
         clubRuleFlags: flagsFor((live?.instructions as Record<string, unknown> | null) ?? null, draft.instructions as Record<string, unknown>, template),
         // A model change's retest (agent.model.set): the system's copy of the live version on another model.
-        retest: live && draft.createdByKind === "system" && draft.modelKey !== live.modelKey ? { fromModelKey: live.modelKey, toModelKey: draft.modelKey } : null,
+        measuredSkillKey: check ? run.measuredSkillKey : null,
+        retest: !check && live && draft.createdByKind === "system" && draft.modelKey !== live.modelKey ? { fromModelKey: live.modelKey, toModelKey: draft.modelKey } : null,
       };
     },
 
@@ -178,7 +185,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
      * run has ended (canceled by the founder or by a stop lifted since) no further test starts either. The tests already
      * run are booked.
      */
-    async runSkillTests(input: TrainingRunInput & { agentId: string; draftVersionId: string; skillKey: string; modelKey: ModelKey }): Promise<SkillTestsOutcome> {
+    async runSkillTests(input: TrainingRunInput & { agentId: string; draftVersionId: string; skillKey: string; modelKey: ModelKey; measuredSkillKey?: string }): Promise<SkillTestsOutcome> {
       const { db } = deps;
       const [agent, draft, business] = await Promise.all([repos.agents.get(db, input.businessId, input.agentId), repos.agents.getVersion(db, input.businessId, input.draftVersionId), repos.businesses.get(db, input.businessId)]);
       const template = templateForAgent(agent);
@@ -208,21 +215,24 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       // The agent as it works: its added skills (library or files) in the index after its instructions (WP-06 T4). A test
       // has no tool loop, so the skill under test and those that improve it are loaded; library skills follow the catalog.
       const added = await repos.skills.listAddedForAgent(db, input.businessId, agent.id, agent.agentType);
-      const skills = selectSkills({ skills: attachedSkills([], added), ratedSkillKey: input.skillKey, maxBodies: NO_TOOL_LOOP_PRELOAD_BODIES });
-      const system = buildSystemPrompt({ businessName: business.name, appName: APP_NAME, template: { instructions: instructions.success ? instructions.data : template.instructions, description: template.description }, glossary: business.glossary, skills });
+      const systemFor = (rows: typeof added) => {
+        const skills = selectSkills({ skills: attachedSkills([], rows), ratedSkillKey: input.skillKey, maxBodies: NO_TOOL_LOOP_PRELOAD_BODIES });
+        return buildSystemPrompt({ businessName: business.name, appName: APP_NAME, template: { instructions: instructions.success ? instructions.data : template.instructions, description: template.description }, glossary: business.glossary, skills });
+      };
       const route = resolveModel(template.route, input.modelKey);
       const sandboxes = new MockSandboxProvider({ speed: Infinity, autoplay: false, holds: { autoResolveAfterMs: 1 } });
       const recording = RECORDINGS.find((r) => r.taskKind === (template.taskKinds[0] ?? "code")) ?? RECORDINGS[0]!;
 
       // Exact costs (millionths of a cent) are summed and rounded once, so the run's total is not the sum of roundings.
+      let halted: { cancelWith: string | null } | null = null;
+      /** One pass over the test set with one system prompt: a skill check makes two (with and without the measured skill). */
+      const runArm = async (system: string) => {
       let costMicroMinor = 0;
       let checksFailed = 0;
       const scores: number[] = [];
       const attribution = { businessId: input.businessId, agentId: agent.id, kind: "training" };
       const CONCURRENCY = 4;
       const queue = [...tests];
-      /** Set once the team stopped or the run ended mid-skill: no further test starts. */
-      let halted: { cancelWith: string | null } | null = null;
       const worker = async () => {
         for (;;) {
           if (halted) return;
@@ -284,6 +294,13 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
         }
       };
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tests.length) }, worker));
+      return { scores, costMicroMinor, checksFailed };
+      };
+      const withArm = await runArm(systemFor(added));
+      const withoutArm = input.measuredSkillKey && !halted ? await runArm(systemFor(added.filter((r) => r.skillKey !== input.measuredSkillKey))) : null;
+      const { scores } = withArm;
+      const costMicroMinor = withArm.costMicroMinor + (withoutArm?.costMicroMinor ?? 0);
+      const checksFailed = withArm.checksFailed + (withoutArm?.checksFailed ?? 0);
       const stoppedWith = (halted as { cancelWith: string | null } | null)?.cancelWith;
       if (stoppedWith) await cancelForStop(input, stoppedWith);
       const testsRun = scores.length;
@@ -293,11 +310,14 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       // Every answer and every grader call was booked when it ran (`usageSink`, kind `tokens`): this row only says how many
       // tests the skill had, so it carries no cost (the run's total lives on `training_runs.cost_minor`, audit O-19).
       if (testsRun > 0) await repos.usage.record(db, input.businessId, { agentId: agent.id, kind: "training", quantity: testsRun, unit: "tests", costMinor: 0, currency: CREDITS_CURRENCY, billedTo: business.modelBilling, occurredAt: deps.clock.now(), details: { trainingRunId: input.trainingRunId, skillKey: input.skillKey, label: "Estimate", costBookedPerCall: true } });
-      return { skillKey: input.skillKey, group, testsRun, meanScore: Math.round(meanScore * 1000) / 1000, tested, previousTested, costMinor: microToMinor(costMicroMinor), costMicroMinor, checksFailed };
+      // A skill check also rates the arm without the measured skill: the run's "old" figure, so a rating moves only when
+      // the skill made the difference (WP-06 T10).
+      const baselineTested = withoutArm && withoutArm.scores.length > 0 ? ratingFromTested(withoutArm.scores.reduce((a, b) => a + b, 0) / withoutArm.scores.length) : undefined;
+      return { skillKey: input.skillKey, group, testsRun, meanScore: Math.round(meanScore * 1000) / 1000, tested, previousTested, costMinor: microToMinor(costMicroMinor), costMicroMinor, checksFailed, ...(baselineTested === undefined ? {} : { baselineTested }) };
     },
 
     /** Persist results on the run (never on the live version) and narrate through `training.completed`. */
-    async finalizeTrainingRun(input: TrainingRunInput & { agentId: string; draftVersionId: string; liveVersionId: string | null; outcomes: SkillTestsOutcome[]; clubRuleFlags: LoadedTrainingRun["clubRuleFlags"]; startedAt: string; status?: "failed" | "cancelled"; error?: string; retest?: LoadedTrainingRun["retest"] }): Promise<TrainingRunResult> {
+    async finalizeTrainingRun(input: TrainingRunInput & { agentId: string; draftVersionId: string; liveVersionId: string | null; outcomes: SkillTestsOutcome[]; clubRuleFlags: LoadedTrainingRun["clubRuleFlags"]; startedAt: string; status?: "failed" | "cancelled"; error?: string; retest?: LoadedTrainingRun["retest"]; check?: boolean }): Promise<TrainingRunResult> {
       const { db } = deps;
       const run = await repos.training.get(db, input.businessId, input.trainingRunId);
       const results: TrainingRun["results"] = {};
@@ -306,7 +326,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       const noTests: string[] = [];
       const costMinor = Math.max(0, microToMinor(input.outcomes.reduce((a, o) => a + (o.costMicroMinor ?? o.costMinor * MICRO_PER_MINOR), 0)));
       for (const o of input.outcomes) {
-        const before = Math.max(1, Math.min(20, Math.round(o.previousTested ?? o.tested)));
+        const before = Math.max(1, Math.min(20, Math.round(o.baselineTested ?? o.previousTested ?? o.tested)));
         if (o.testsRun === 0) {
           results[o.skillKey] = { old: before, new: before, tests: 0 };
           noTests.push(o.skillKey);
@@ -321,7 +341,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       // A retest has nothing to gain by itself: the new model is kept unless skills drop.
       const recommendation = drops.length === 0 && (gains.length > 0 || retest) ? "promote" : "discard";
       const flagNote = input.clubRuleFlags.length ? ` The draft tried to change ${input.clubRuleFlags.length} house rule${input.clubRuleFlags.length > 1 ? "s" : ""} (${input.clubRuleFlags.map((f) => f.ruleId).join(", ")}); those lines were ignored and the rules still apply.` : "";
-      const intro = retest ? `Retest on ${MODEL_NAMES[retest.toModelKey]} after the model change from ${MODEL_NAMES[retest.fromModelKey]}: ` : "";
+      const intro = input.check ? "Skill check, with and without the skill: " : retest ? `Retest on ${MODEL_NAMES[retest.toModelKey]} after the model change from ${MODEL_NAMES[retest.fromModelKey]}: ` : "";
       const advice = !retest ? recommendation : recommendation === "promote" ? `promote, so the live version runs on ${MODEL_NAMES[retest.toModelKey]} too` : `discard, and change the model back to ${MODEL_NAMES[retest.fromModelKey]} (the agent works on ${MODEL_NAMES[retest.toModelKey]} until you do)`;
       // Skills by their display names ("Prioritization", "Test automation"), never the stored keys; a skill the
       // business added (custom, from the library or a file) reads under the name the founder gave or chose.

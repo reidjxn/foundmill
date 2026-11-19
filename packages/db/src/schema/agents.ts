@@ -13,6 +13,7 @@ import { roadmapItems } from "./product";
 export const CREATED_BY_KINDS = ["user", "agent", "system"] as const;
 export const MEMBER_KINDS = ["agent", "human"] as const;
 export const TRAINING_STATUSES = ["queued", "running", "grading", "awaiting_decision", "done", "failed", "cancelled"] as const;
+export const TRAINING_KINDS = ["training", "model_retest", "skill_check"] as const;
 export const TRAINING_DECISIONS = ["promoted", "discarded"] as const;
 
 export const agents = pgTable(
@@ -287,6 +288,11 @@ export const trainingRuns = pgTable(
     results: jsonb("results").$type<Record<string, TrainingRunSkillResult>>().notNull().default(emptyObject),
     coachSummaryMd: text("coach_summary_md").notNull().default(""),
     decision: text("decision", { enum: TRAINING_DECISIONS }),
+    /** A skill check has no draft: it scores the live version with and without `measuredSkillKey` (0146). */
+    kind: text("kind", { enum: TRAINING_KINDS }).notNull().default("training"),
+    /** Limits the run to these skills; null tests every skill the agent carries. */
+    skillKeys: text("skill_keys").array(),
+    measuredSkillKey: text("measured_skill_key"),
     watchUntil: tstz("watch_until"),
     requestedBy: uuid("requested_by"),
     startedAt: tstz("started_at"),
