@@ -74,7 +74,11 @@ describe("the api rolls the sample forward with the calendar", () => {
     await repos.audit.append(db, hz.A.businessId, { actorKind: "system", actorId: null, action: DEMO_SEED_AUDIT_ACTION, target: { kind: "business", id: hz.A.businessId }, details: { anchor: anchor.toISOString() } });
     const own = await repos.journeys.recordConversion(db, hz.A.businessId, { entityId: null, kind: "payment", amountMinor: 4900, occurredAt: anchor });
 
-    const moved = await rollDemoBusinesses({ db, log: silent }, now);
+    const logged: { fields: Record<string, unknown>; message: string }[] = [];
+    const capture = { info: (fields: Record<string, unknown>, message: string) => logged.push({ fields, message }), warn: () => {} } as unknown as Parameters<typeof rollDemoBusinesses>[0]["log"];
+    const moved = await rollDemoBusinesses({ db, log: capture }, now);
+    // The roll's duration is logged so the three-day figure for DEPLOY §6 can be read (WP-11 T9).
+    expect(typeof logged.find((l) => l.message === "sample businesses rolled forward with the calendar")?.fields.ms).toBe("number");
     // A seed written before the sample list (0074) gets one from the rows created before its entry.
     expect(moved).toEqual([{ businessId: NORTHWIND_BUSINESS_ID, days: 3, from: anchor.toISOString(), to: new Date(anchor.getTime() + 3 * DAY).toISOString(), released: 0, dropped: 0, skipped: [], backfilled: true }]);
     expect((await repos.journeys.getConversion(db, demo.id, paid.id)).occurredAt.getTime()).toBe(anchor.getTime() + 3 * DAY);
