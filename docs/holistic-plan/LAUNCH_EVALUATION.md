@@ -49,7 +49,7 @@ Gmail stays on the connector that already exists (`packages/connectors/src/conne
 
 Going through the API does not avoid Google's review: the scope sets it, not the protocol. `gmail.send` and `gmail.compose` are "sensitive" (Google's app verification, usually days). `gmail.readonly` is "restricted" (the same verification plus a yearly outside security assessment, usually weeks). Until verification passes, the app stays in Google's testing mode: at most 100 named test users, and their sign-in lasts seven days.
 
-Recommended, for the founder to confirm: launch with `gmail.send` and `gmail.compose` only, and add `gmail.readonly` once the assessment is done. Session 5b splits the scopes (reading asks for its scope only when the founder turns it on); Session 11 submits the verification on the founder's Google Cloud account. Start that submission now: it is the longest wait in this plan.
+Decided (founder, Nov 19): while sign-up is invite-only, the Google app stays in testing mode, so invited people (up to 100, named) get every scope, reading included, and sign in again every seven days. The founder submits Google's verification now for `gmail.send`, `gmail.compose` (drafts) and `calendar.events` (sensitive: review only), and starts the security assessment for `gmail.readonly` alongside; reading is turned on for everyone when it passes. Session 5b splits the scopes so reading asks for its own scope. Google Workspace admins can trust the app for their own domain before then.
 
 ## 3. The sessions
 
@@ -103,10 +103,24 @@ Files that two sessions could both touch have one owner each: `packages/models/s
 - **Cloud sessions** run on Opus 5.5 (the founder's default), never Fable.
 - **WP-00 S9:** `foundmill.app` is bought, its DNS and the `*.foundmill.app` wildcard certificate are on the Railway `sites` service (DEPLOY.md). Still listed as open there: the `sites_reader` password and `DATABASE_URL` on `sites`, and `SITES_DOMAIN=foundmill.app` on api, orchestrator and sites. Session 11 checks them on production and sets what is missing.
 - **WP-11 T3, T8 and T10 have the go-ahead.** A cloud session writes the backup runbook, the schema check and the load-test script; any step on the production database (T8's backup table) runs in Session 11, with the founder watching.
-- **Open:** WP-06 T11 (make a skill edit live without a run), keep or drop.
+- **WP-06 T11 is kept:** "Make it live without testing" (built on `claude/sharp-shannon-0a434k`, Session 4) ships. The ratings stay as they were and are marked "not tested since the change".
 
 ### Sessions added on Nov 19
 
 **Session 12: the streak shows the days opened.** WP-10 decision 6 as answered above: `StreakStrip` and what feeds it, its stories and tests. Touches nothing else in Today.
 
 **Session 13: WP-11 T3, T8 and T10.** The backup and restore runbook, the production schema check (read-only against production; the backup table is dropped only in Session 11), and the load test for 100 Today loads. Waits for #238 to merge before its migrations.
+
+### The founder's answers of Nov 19, 2026 (night)
+
+- **Mail.** Sending stays on SendGrid, from `mail.foundmill.com` and later a founder's own domain. Receiving stays in Foundmill: mail to a project's address arrives through SendGrid Inbound Parse into `apps/ingest` and is kept in the product. For a domain registered through Foundmill, MX points there too. No mailboxes and no mail server: a founder's own name@ forwards to their own inbox (the Nov 17 answer stands). S15 stays: DMARC on `foundmill.com` moves from `p=none` to `p=quarantine` after a clean week of reports, and `privacy@foundmill.com` is read.
+- **Domains** (docs/log/2026-11/2026-11-17-claude-wp08-domain-plan.md) join this plan as Session 14: Path B (a domain the founder already owns) first, then Path A (registered through Foundmill on OpenSRS, the founder always the registrant, cost plus about $3, an Estimate), after Stripe is live and the OpenSRS reseller account exists.
+- **Gmail and Google Calendar as context.** With the founder's yes per project, agents read the founder's own Gmail (drafts, then the inbox once `gmail.readonly` is verified) and Google Calendar for context, and write drafts and events. Everything read is untrusted content (the quarantined reader); sending and inviting ask first. Session 15.
+- **Watching production (S12):** first `scripts/check-production.mjs` nightly in GitHub Actions; once there are users, the founder creates a Sentry project and an OTLP endpoint and Session 11 sets `SENTRY_DSN` and the OTLP address on the six services.
+- **Hosting (S14):** the Vercel team is on Pro. Done.
+- **Z.ai (Z3):** the founder is getting the DPA, the written no-training confirmation and the SCCs. The free plan's switch (WP-13 T10) still waits on them.
+- **Stop rules:** the waitlist measures of WP-14 T15 (docs/holistic-plan/WP-14-T15-measures.md) win where they overlap the plan's experiments 2, 4 and 6; docs/foundmill-plan/foundmill-plan.md is changed to match.
+
+**Session 14: domains.** Path B, then Path A on OpenSRS, as above: SendGrid's records, the Sites record, MX to Foundmill's inbound and forwarding to the founder's inbox, DMARC `p=none` at first. Mock-first; the live OpenSRS calls wait for the reseller account (founder) and run through the gateway.
+
+**Session 15: Gmail and Google Calendar as context.** On the existing `gmail` and `google_calendar` connectors, after Session 5b's scope split: the per-project opt-in, reads through the quarantined reader into the agents' context, drafts and events written, sends and invitations asking first. Evals for prompt injection through a mail body.

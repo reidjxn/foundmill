@@ -31,7 +31,12 @@ with the founder watching.
 The founder says the Sites domain is done. DEPLOY.md still lists the `sites_reader` password, `DATABASE_URL` on
 `sites` and `SITES_DOMAIN` as open, so Session 11 checks production and sets what is missing.
 
+### The night answers
+WP-06 T11 is kept. Gmail stays in Google's testing mode while sign-up is invite-only; the founder submits
+verification for the sensitive scopes and starts the assessment for `gmail.readonly`. Sending stays on SendGrid,
+receiving stays in Foundmill, and a founder's name@ only forwards (no mailboxes). Domains (OpenSRS) and Gmail and
+Calendar as context are Sessions 14 and 15. Vercel is on Pro. The WP-14 T15 measures win in the plan's stop rules.
+
 ## Not done
-- WP-06 T11 (make a skill edit live without a run): built on `claude/sharp-shannon-0a434k`; keep or drop is open.
-- Mailboxes on domains registered through OpenSRS, Gmail's verification path and the stop-rule numbers are open with
-  the founder.
+- Sessions 12 to 15 are not started.
+- The spending limits (S13) have no amounts yet; Z.ai's DPA and SCCs are with the founder.
