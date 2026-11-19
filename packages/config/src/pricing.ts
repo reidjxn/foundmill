@@ -14,8 +14,9 @@
  * - `businesses`: how many projects an owner may hold, archived ones not counted (A14): Try 1, Founder up to 5, Studio
  *   any number. Checked when a new one is committed (packages/db `assertBusinessAllowance`); an owner over the limit
  *   keeps what they have.
- * - `includedCreditsMinor`: the month's team budget (A15): $5.00, $10.00, $50.00. It goes to one project a month
- *   (`includedCreditBusinesses`), so a plan with more projects never hands out more than its budget.
+ * - `includedCreditsMinor`: the month's team budget (A15): $5.00, $10.00, $50.00, granted to as many projects a month as
+ *   `includedCreditBusinesses` says (1, 3, any number: unchanged, so an owner keeps what they have today). One budget
+ *   shared across an owner's projects (A15 read strictly) needs a per-owner balance, which is not built.
  * - `claudeModels`: Founder and Studio reach Opus and Sonnet on Foundmill's key without a credit pack; Try reaches them
  *   by a credit pack of `CREDIT_PACK_UNLOCK_MIN_MINOR` or more (from `open`), or on the founder's own Anthropic key,
  *   which works on every plan and is always offered (A3, A16).
@@ -36,8 +37,8 @@ export const EARLY_ACCESS_STAGE: EarlyAccessStage = "invite_only";
 
 export const TIERS = {
   free: { name: "Try", modelBilling: "credits_or_byok", businesses: 1, includedCreditBusinesses: 1, maxConcurrentAgents: 4, channels: "all", seats: "unlimited", includedCreditsMinor: 500, claudeModels: false },
-  pro: { name: "Founder", modelBilling: "credits_or_byok", businesses: 5, includedCreditBusinesses: 1, maxConcurrentAgents: 4, channels: "all", seats: "unlimited", includedCreditsMinor: 1000, claudeModels: true },
-  scale: { name: "Studio", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: 1, maxConcurrentAgents: 64, channels: "all", seats: "unlimited", includedCreditsMinor: 5000, claudeModels: true, prioritySupport: true },
+  pro: { name: "Founder", modelBilling: "credits_or_byok", businesses: 5, includedCreditBusinesses: 3, maxConcurrentAgents: 4, channels: "all", seats: "unlimited", includedCreditsMinor: 1000, claudeModels: true },
+  scale: { name: "Studio", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: "unlimited", maxConcurrentAgents: 64, channels: "all", seats: "unlimited", includedCreditsMinor: 5000, claudeModels: true, prioritySupport: true },
 } as const;
 export type TierKey = keyof typeof TIERS;
 /** Lowest to highest: an owner's allowance follows the highest tier any business they own is on. */

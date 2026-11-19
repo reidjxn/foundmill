@@ -52,10 +52,13 @@ the founder is paying for their use under the $600 cap.
 The brief says Studio adds more agents at once and lists nothing of the kind for Founder, so `pro.maxConcurrentAgents`
 went from 16 to 4. Studio keeps 64. The seeded Northwind (on `pro`) now runs 4 at once.
 
-### The month's budget goes to one project on every plan
-`includedCreditBusinesses` was 1, 3 and unlimited. With Founder at $10.00 and Studio at $50.00 that would have granted
-$30.00 and an unbounded amount a month. It is 1 on every plan. A Founder with five projects therefore has one that
-starts the month with credits. Sharing one budget across an owner's projects needs a per-owner balance: not built.
+### The pool of projects a month's budget goes to is unchanged (1, 3, any number)
+This branch first set `includedCreditBusinesses` to 1 on every plan, so that Founder at $10.00 and Studio at $50.00
+could not grant $30.00 and an unbounded amount a month. CI showed the cost: the seeded owner holds projects on `pro`,
+and with a pool of 1 a fresh project started its month with nothing included (`today.spec.ts`, "a fresh business"). It
+is back to 1, 3 and unlimited. That keeps what every owner has today, but it reads A15 loosely: a Founder's $10.00
+goes to up to three projects. One budget shared across an owner's projects needs a per-owner balance: not built, and
+for the founder to decide before opening. Nobody can buy Founder or Studio until then.
 
 ### The word is "project", not "company"
 The founder's answers say companies; the vocabulary rule of 2026-11-11 says project until the first sale, with one

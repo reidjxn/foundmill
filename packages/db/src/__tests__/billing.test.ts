@@ -209,9 +209,9 @@ describe("included credits: one pool a month per founder (SEC2 S6)", () => {
     // A month's stop for used-up credits does not hold the next month's calls back.
     await expect(assertPlatformCredits(r.db, second.id, { live: false, now: in2027(20, 5) })).resolves.toMatchObject({ ok: true });
 
-    // On Studio too the month's budget goes to one project (WP-14 T14): more projects never mean more included credits.
+    // On Studio every project gets its included credits.
     await repos.businesses.update(r.db, second.id, { planTier: "scale" });
-    expect(await includedCreditsFor(r.db, { ...first, planTier: "scale" }, "2027-06")).toBe(0);
+    expect(await includedCreditsFor(r.db, { ...first, planTier: "scale" }, "2027-06")).toBe(includedCreditsMinor("scale"));
   });
 });
 

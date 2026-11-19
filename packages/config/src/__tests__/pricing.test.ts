@@ -23,8 +23,8 @@ describe("pricing tiers (BUILD §10.5)", () => {
     expect(planWithRoomFor("free", 5)).toBe("scale");
     expect(planWithRoomFor("pro", 5)).toBe("scale");
     expect(planWithRoomFor("scale", 40)).toBeNull();
-    // The month's budget goes to one project on every plan, so more projects never mean more included credits.
-    expect(TIER_ORDER.map(tierIncludedCreditPlaces)).toEqual([1, 1, 1]);
+    // How many projects a month's budget is granted to is unchanged from before the plans (1, 3, any number).
+    expect(TIER_ORDER.map(tierIncludedCreditPlaces)).toEqual([1, 3, null]);
   });
 
   it("Studio adds more agents at once; Try and Founder run four; people are free on every plan", () => {

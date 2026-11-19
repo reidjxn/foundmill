@@ -76,7 +76,7 @@ describe("businesses per owner", () => {
     // Another founder's grants are theirs alone.
     expect(await includedCreditPool(r.db, r.B.ownerId, period)).toMatchObject({ taken: 0 });
     await repos.businesses.update(r.db, first.id, { planTier: "scale" });
-    expect(await includedCreditPool(r.db, founder, period)).toMatchObject({ tier: "scale", places: 1, taken: 1 });
+    expect(await includedCreditPool(r.db, founder, period)).toMatchObject({ tier: "scale", places: null, taken: 1 });
   });
 });
 
