@@ -253,6 +253,8 @@ export const agentRouter = router({
           metrics,
           recent,
           trainingRuns: runs.items,
+          /** The live version is a later one that no promoted run scored: its ratings are from before the change. */
+          untestedSinceChange: !!current && current.version > 1 && !runs.items.some((r) => r.decision === "promoted" && r.toVersionId === current.id),
           sessions: sessions.items.map((s) => {
             const task = s.taskId ? tasks.find((t) => t.id === s.taskId) : undefined;
             return { ...s, task: task ? { id: task.id, title: task.title, status: task.status } : null };
@@ -384,6 +386,37 @@ export const agentRouter = router({
         await emit(tx, ctx, { type: "agent.promoted", payload: { agentId: run.agentId, trainingRunId: run.id, fromVersionId: run.fromVersionId, toVersionId: version.id, version: version.version, watchUntil: watchUntil.toISOString(), rollback: false } });
         await audit(tx, ctx, { action: "agent.training.promote", target: { kind: "training_run", id: run.id }, details: { agentId: run.agentId, versionId: version.id, ratings: run.ratings.map((r) => ({ skillKey: r.skillKey, from: r.previousTested, to: r.tested, potential: r.potential })) } });
         return run;
+      }),
+    ),
+
+    /**
+     * Make a draft live without a run (WP-06 T11): an edit of one line should not cost a full run. The ratings stay as
+     * they were and the profile marks them not tested since the change (`untestedSinceChange`). Refused when the version is
+     * not a draft, when it breaks a house rule, or while a run for it is active; a draft that widens the live tools is
+     * an owner's or admin's. On the service connection after the membership check, as `promote` is.
+     */
+    promoteDraft: write.input(z.object({ agentId: Id, versionId: Id })).mutation(({ ctx, input }) =>
+      ctx.db.transaction(async (tx) => {
+        await repos.memberships.get(tx, ctx.businessId, ctx.userId);
+        const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
+        if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team; its profile is kept as a record`);
+        const draft = await repos.agents.getVersion(tx, ctx.businessId, input.versionId);
+        if (draft.agentId !== agent.id || draft.state !== "draft") throw new ValidationError("Only a draft can be made live");
+        const live = agent.currentVersionId ? await repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null;
+        const before = live ? AgentInstructions.safeParse(live.instructions) : null;
+        const after = AgentInstructions.parse(draft.instructions);
+        const detection = detectClubRuleViolation(before?.success ? { before: before.data, after } : { before: after, after });
+        if (detection.flagged) throw new ValidationError(`This version breaks a house rule (${detection.violations.map((v) => v.ruleId).join(", ")}) and cannot go live`);
+        if (await repos.training.activeForVersion(tx, ctx.businessId, draft.id)) throw new ConflictError("A run for this version is still going; wait for it or cancel it first");
+        if (!isAdminRole(ctx)) {
+          const templateTools = getTemplateByAgentType(agent.agentType)?.tools;
+          if (widensGrants(runningGrants(live ?? undefined, templateTools), runningGrants(draft, templateTools))) throw new ForbiddenError("This version gives the agent new tools; an owner or admin makes it live");
+        }
+        const promoted = await repos.agents.promoteVersion(tx, ctx.businessId, agent.id, draft.id, { keepAgentModel: true });
+        const watchUntil = new Date(Date.now() + LIMITS.rollbackWatchDays * 86_400_000);
+        await emit(tx, ctx, { type: "agent.promoted", payload: { agentId: agent.id, trainingRunId: null, fromVersionId: agent.currentVersionId, toVersionId: draft.id, version: draft.version, watchUntil: watchUntil.toISOString(), rollback: false } });
+        await audit(tx, ctx, { action: "agent.version.promote_untested", target: { kind: "agent_version", id: draft.id }, details: { agentId: agent.id, from: agent.currentVersionId, to: draft.id } });
+        return promoted;
       }),
     ),
 
