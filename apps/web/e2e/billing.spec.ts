@@ -68,6 +68,33 @@ test.describe("billing", () => {
     await expect(screen.getByTestId("checkout-panel")).toHaveCount(0);
   });
 
+  test("A team out of budget reads Resting with the date its budget resets, never paused or used up (WP-14 T1)", async ({ page }) => {
+    // Which team rests is the server's answer (billing.plan.resting: tested in the api and db suites, where the budget
+    // can be spent). This reads what the screen does with that answer, so the answer is set here, not left to how
+    // many projects the dev owner took charge of this month.
+    const until = new Date(Date.UTC(2026, 11, 1));
+    await page.route("**/trpc/**", async (route) => {
+      const response = await route.fetch();
+      const paths = new URL(route.request().url()).pathname.split("/trpc/")[1]?.split(",") ?? [];
+      const at = paths.indexOf("billing.plan");
+      if (at < 0) return route.fulfill({ response });
+      const body = (await response.json()) as Array<{ result: { data: { json: Record<string, unknown>; meta?: { values?: Record<string, unknown> } } } }>;
+      const data = body[at]!.result.data;
+      data.json.resting = { until: until.toISOString() };
+      data.meta = { ...data.meta, values: { ...data.meta?.values, "resting.until": ["Date"] } };
+      return route.fulfill({ response, json: body });
+    });
+    const screen = await openSettings(page, "billing", NORTHWIND_BUSINESS_ID);
+    const resting = screen.getByTestId("resting");
+    await expect(resting).toBeVisible({ timeout: LONG });
+    await expect(resting).toHaveText("Resting until Dec 1, 2026");
+    // The word is defined where the founder first meets it.
+    await expect(resting.locator('[data-term="resting"]')).toBeVisible();
+    await expect(screen).toContainText("Paused is a choice. Resting is a team out of budget until the date shown");
+    await expect(screen).toContainText("when your budget resets");
+    await expect(screen).not.toContainText(/Used up|team paused/);
+  });
+
   test("Top up opens a mock checkout; completing it adds the credits once, labeled", async ({ page }) => {
     const screen = await openSettings(page, "billing");
     const topUp = screen.getByTestId("top-up");

@@ -581,8 +581,8 @@ describe("a paused agent stays paused (O-06)", () => {
     await vi.waitFor(async () => {
       if ((await readSessionEvents(t.redis, sessionId)).length < 2) throw new Error("not started");
     }, { timeout: 5_000, interval: 25 });
-    // A credits stop (or a revoked key) signals nothing: only the flag changes.
-    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "credits_exhausted" });
+    // A revoked key signals nothing: only the flag changes.
+    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "key_revoked" });
     try {
       await clock.advance(STOP_CHECK_MS);
       await wait(600); // two control polls: the check is due
@@ -593,6 +593,39 @@ describe("a paused agent stays paused (O-06)", () => {
       await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "running", { force: true });
       const finish = await localActs.finishSession(input, launch, result);
       expect(finish.taskStatus).toBe("paused");
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+      await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "ready", { force: true });
+    }
+  });
+
+  it("a team that starts resting while a session runs does not stop it: the last task finishes (WP-14 T1)", async () => {
+    const clock = new FakeClock();
+    const deps = { ...t.deps, clock, sandbox: async () => ({ provider: clockedProvider(clock), mode: "mock" as const, fellBackFrom: null }) };
+    const localActs = createSessionActivities(deps);
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = { ...(await localActs.prepareSession(input)), recordingKey: "ledgerly-webhook-retry" };
+    const recording = findRecording("ledgerly-webhook-retry")!;
+    const run = localActs.runAgentSession(input, launch);
+    await vi.waitFor(async () => {
+      if ((await readSessionEvents(t.redis, sessionId)).length < 2) throw new Error("not started");
+    }, { timeout: 5_000, interval: 25 });
+    // The month's budget ran out elsewhere: the team rests (the stop flag, reason credits_exhausted).
+    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "credits_exhausted" });
+    try {
+      await clock.advance(STOP_CHECK_MS);
+      await wait(600); // two control polls: the check was due and read the flag
+      const result = await drive(clock, run);
+      expect(result.outcome).not.toBe("stopped");
+      expect(result.reason).not.toBe(AGENTS_STOPPED_REASON);
+      // The whole recording played.
+      expect(result.eventsEmitted).toBeGreaterThanOrEqual(recording.events.length);
+      // Nothing new starts while the team rests.
+      const next = await openSessionRow(t, t.workerId, t.codeTaskId);
+      await expect(localActs.prepareSession({ ...input, sessionId: next })).rejects.toThrow(/Agents are stopped/);
+      await repos.agents.endSession(t.db, t.businessId, next, { outcome: "stopped" });
+      await localActs.finishSession(input, launch, result);
     } finally {
       await resumeBusinessAgents(t.db, t.businessId);
       await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "ready", { force: true });

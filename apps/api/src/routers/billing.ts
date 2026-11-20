@@ -15,7 +15,7 @@
  * booked in another currency apart, and a top-up is in US dollars only.
  */
 import { CREDIT_PACKS_MINOR, creditPackCreditsMinor, CREDITS_CURRENCY, EARLY_ACCESS_STAGE, ENTRY_PLAN, PARTNER_PLAN, planName, TIERS } from "@foundmill/config";
-import { CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, MOCK_TOP_UP_LABEL, periodRange, platformCredits, repos, settleCreditCheckout, waysToContinue } from "@foundmill/db";
+import { CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, MOCK_TOP_UP_LABEL, periodOf, periodRange, platformCredits, repos, settleCreditCheckout, waysToContinue } from "@foundmill/db";
 import { AppError, PLAN_TIERS, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { costByDepartment } from "../services/billing-usage";
@@ -62,6 +62,12 @@ export const billingRouter = router({
         modelBilling: ctx.business.modelBilling,
         /** `invite_only` or `open`: what the plans' labels and checks follow (packages/config `EARLY_ACCESS_STAGE`). */
         stage: EARLY_ACCESS_STAGE,
+        /**
+         * Resting (WP-14 T1): the month's budget is used, or what is left is too little for another task, so nothing
+         * new starts until `until` (the day the budget resets), a top-up or the founder's own key. Null otherwise. A
+         * team waiting at the platform's monthly cap is not resting.
+         */
+        resting: credits.exhausted || (ctx.business.agentsStoppedReason === "credits_exhausted" && ctx.business.agentsStoppedAt !== null && periodOf(ctx.business.agentsStoppedAt) === period) ? { until: periodRange(period).to } : null,
         /** Whether the caller is on this project's Partner waitlist (an owner or admin reads it; anyone else sees null). */
         partner: { joinedAt: partner?.createdAt ?? null },
         period,

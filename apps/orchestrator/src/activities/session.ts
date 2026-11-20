@@ -374,8 +374,8 @@ function withPrefetched(first: SessionCommand[], pull: () => Promise<SessionComm
 /**
  * The business's stop flag as a control command: every STOP_CHECK_MS the feed re-reads it and, once the team is
  * stopped, adds one `stop`. A session opened while Stop all agents was being pulled, one its signal never reached
- * (Temporal slow or down) and one running when the credits ran out or the key was revoked (no signal at all) all stop
- * within seconds. A failed read is logged and retried on the next check.
+ * (Temporal slow or down) and one running when the key was revoked (no signal at all) all stop within seconds. A session
+ * running when the month's budget ran out is not stopped: it finishes (./session-credits). A failed read is logged and retried on the next check.
  */
 function withStopWatch(deps: OrchestratorDeps, businessId: string, pull: () => Promise<SessionCommand[]>): () => Promise<SessionCommand[]> {
   let nextCheckMs = deps.clock.nowMs() + STOP_CHECK_MS;
@@ -385,7 +385,10 @@ function withStopWatch(deps: OrchestratorDeps, businessId: string, pull: () => P
     if (stopped || deps.clock.nowMs() < nextCheckMs) return commands;
     nextCheckMs = deps.clock.nowMs() + STOP_CHECK_MS;
     try {
-      stopped = await repos.businesses.agentsStopped(deps.db, businessId);
+      // A team that is resting (the month's budget is used) starts nothing new, but the task that is running finishes
+      // (founder, Nov 17, 2026; WP-14 T1): only Stop all agents, a revoked key or an archived business stops it here.
+      const state = await repos.businesses.stopState(deps.db, businessId);
+      stopped = state.stopped && (state.archived || state.reason !== "credits_exhausted");
     } catch (err) {
       deps.log.warn({ err: (err as Error).message, businessId }, "stop flag read failed; retrying on the next check");
     }
@@ -1612,8 +1615,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // call, is capped at what is spendable, books as it goes and ends when the credits are used up.
   let credits: SessionCredits | null = null;
   if (key.source === "platform") {
-    const opened = await SessionCredits.open(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, modelKey: launch.modelKey });
-    if (!opened.ok) return { outcome: "blocked", reason: `model budget exhausted: ${opened.reason}`, blockedReason: "budget", approvalId: null, summary: CREDITS_USED_UP_SUMMARY, providerSessionId: null };
+    const opened = await SessionCredits.open(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, modelKey: launch.modelKey, agentType: agent.agentType });
+    if (!opened.ok) return { outcome: "blocked", reason: `model budget exhausted: ${opened.reason}`, blockedReason: "budget", approvalId: null, summary: opened.summary, providerSessionId: null };
     credits = opened.credits;
   }
   // The month's free-plan cap (WP-13 T6): while Foundmill's platform-wide spend is held, a free session does not start; the
@@ -1871,7 +1874,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   };
   const endForCredits = async () => {
     if (ending) return;
-    await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "This month's credits are used up, so the session stops here. What it spent is booked as an Estimate." });
+    await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "This month's team budget is used and this task needed more than the amount set aside to let it finish, so the session stops here. What it spent is booked as an Estimate." });
     await end("budget");
   };
 
