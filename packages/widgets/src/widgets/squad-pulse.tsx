@@ -100,7 +100,7 @@ function SquadPulseWidget({ settings }: WidgetProps<SquadPulseSettings>) {
       title="Team pulse"
       data-widget="squad_pulse"
       queries={[departments, sessions]}
-      empty={empty ? { icon: Activity, text: <>Hours of team work by hour and department appear after the first <Term id="cycle">cycle</Term> runs.</> } : null}
+      empty={empty ? { icon: Activity, text: <>Hours of team work by hour and department appear after the first <Term id="cycle">round of work</Term> runs.</> } : null}
       footer={<span>Last 7 days · hours of team work from session logs</span>}
     >
       <SquadPulse departments={toRibbonDepartments(depts)} days={days} cells={cells} />

@@ -30,7 +30,7 @@ export const EXECUTION_SKILLS: Record<string, CatalogueEntry> = {
 
 export const CRAFT_SKILLS: Record<string, CatalogueEntry> = {
   // Chief of Staff
-  cycle_planning: { name: "Cycle planning", description: "Plans each round of work within the limit on agents working at once, the budget and the rate limits, preferring work that unblocks customers." },
+  cycle_planning: { name: "Round of work planning", description: "Plans each round of work within the limit on agents working at once, the budget and the rate limits, preferring work that unblocks customers." },
   delegation: { name: "Delegation", description: "Assigns tasks to the right lead or agent with clear goals, a clear test of done and time limits." },
   plan_compilation: { name: "Plan compilation", description: "Turns the founder's replies into a plan of actions, and hands anything only the founder may do back to them." },
   decision_framing: { name: "Decision framing", description: "Presents 2-4 options with one recommended, each with consequence, cost and reversibility." },

@@ -22,7 +22,7 @@ async function blockingItem(hz: ApiHarness, subject: string) {
   });
 }
 
-describe("business.continue without an orchestrator (BUILD §9.4 in-process cycle step)", () => {
+describe("business.continue without an orchestrator (BUILD §9.4 in-process round of work step)", () => {
   let hz: ApiHarness;
   beforeAll(async () => {
     hz = await createApiHarness({ prefix: "cycle" });
@@ -102,11 +102,11 @@ describe("business.continue without an orchestrator (BUILD §9.4 in-process cycl
     expect((await owner.cycle.continueState({ businessId: hz.A.businessId })).kind).toBe("idle");
   });
 
-  it("pauseCycle without a running cycle says so; viewers cannot press Continue", async () => {
+  it("pauseCycle without a running round of work says so; viewers cannot press Continue", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const paused = await owner.business.pauseCycle({ businessId: hz.A.businessId });
     expect(paused.paused).toBe(false);
-    expect(paused.reason).toMatch(/no cycle/);
+    expect(paused.reason).toMatch(/no round of work/);
     await expect(hz.caller({ userId: hz.A.viewerId }).business.continue({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(hz.caller({ userId: hz.B.ownerId }).cycle.status({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
@@ -120,7 +120,7 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
   }, 120_000);
   afterAll(() => hz.close());
 
-  it("starts a run on the business's autopilot workflow (signal-with-start) with the deterministic cycle number, then pauses and resumes the cycle the orchestrator reports", async () => {
+  it("starts a run on the business's autopilot workflow (signal-with-start) with the deterministic round of work number, then pauses and resumes the round of work the orchestrator reports", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const { businessId } = hz.A;
     const result = await owner.business.continue({ businessId });
@@ -131,8 +131,8 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     expect(result.continueState).toEqual({ kind: "processing", run: true });
     // The sentence names the cycle and what it has to build, and says the run keeps going.
     expect(result.summary).toMatchObject({ kind: expect.stringMatching(/^(started|nothing_ready)$/), orchestrator: true });
-    expect(result.summary.headline).toMatch(/^Cycle 1 started: (\d+ tasks? ready to build|nothing is ready to build yet)$/);
-    expect(result.summary.detail).toContain("New cycles start on their own");
+    expect(result.summary.headline).toMatch(/^Round of work 1 started: (\d+ tasks? ready to build|nothing is ready to build yet)$/);
+    expect(result.summary.detail).toContain("New rounds of work start on their own");
     // Once connected, business.get reports the orchestrator reachable.
     expect((await owner.business.get({ businessId })).orchestrator).toEqual({ reachable: true });
     // Continue runs until done (Nov 7, 2026): the workflow starts cycle 1 and the rounds after it; the API starts no cycle itself.
@@ -209,7 +209,7 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     expect(press.signalArgs).toEqual([{ runId: result.run!.id, cycleNumber: 1, by: hz.B.ownerId }]);
   });
 
-  it("a pause pressed while the orchestrator is still planning is still the open cycle's once cycle.started lands (Nov 9, 2026)", async () => {
+  it("a pause pressed while the orchestrator is still planning is still the open round of work's once cycle.started lands (Nov 9, 2026)", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const { businessId } = hz.A;
     const press = await owner.business.continue({ businessId });
@@ -251,7 +251,7 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
   });
 });
 
-describe("business.continue reads the cycle status once (audit realtime-bg F2)", () => {
+describe("business.continue reads the round of work status once (audit realtime-bg F2)", () => {
   let hz: ApiHarness;
   let wire: WireDb;
   const temporal = fakeTemporalClient();
@@ -308,7 +308,7 @@ describe("Continue runs until done (Nov 7, 2026): between rounds, Pause, Stop al
     await repos.events.write(hz.db, businessId, { type: "cycle.completed", actor: { kind: "system", id: "orchestrator" }, payload: { cycleId, cycleNumber, workflowId, outcome: "completed", tasksDispatched: 1, tasksCompleted: 1, tasksBlocked: 0, agentHours: 1, cost: { amountMinor: 30, currency: "USD" }, inboxItemIds: [], durationMs: 1000 } });
   }
 
-  it("between rounds Continue stays on processing; Pause there ends the run (no cycle to pause) and Continue starts a new run", async () => {
+  it("between rounds Continue stays on processing; Pause there ends the run (no round of work to pause) and Continue starts a new run", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const { businessId } = hz.A;
     const press = await owner.business.continue({ businessId });
@@ -326,7 +326,7 @@ describe("Continue runs until done (Nov 7, 2026): between rounds, Pause, Stop al
     expect((await repos.audit.list(hz.db, businessId, { action: "cycle.run_end" })).items[0]!.details).toMatchObject({ runId: press.run!.id, reason: "paused", rounds: 1 });
     expect((await owner.cycle.continueState({ businessId })).kind).toBe("idle");
     // A second Pause has nothing left to end.
-    expect(await owner.business.pauseCycle({ businessId })).toMatchObject({ paused: false, runEnded: false, reason: "no cycle is running" });
+    expect(await owner.business.pauseCycle({ businessId })).toMatchObject({ paused: false, runEnded: false, reason: "no round of work is running" });
 
     const again = await owner.business.continue({ businessId });
     expect(again.action).toBe("started");
@@ -375,7 +375,7 @@ describe("Continue runs until done (Nov 7, 2026): between rounds, Pause, Stop al
 });
 
 describe("cycle.status lastFailure (Home's blocker banner)", () => {
-  it("carries the failed cycle's kind and message, and general words for a cycle recorded before the field existed", () => {
+  it("carries the failed round of work's kind and message, and general words for a round of work recorded before the field existed", () => {
     const at = new Date("2026-11-01T10:00:00Z");
     expect(failureOf({ kind: "billing", message: "The model account is out of credit." }, at)).toEqual({ kind: "billing", message: "The model account is out of credit.", at: at.toISOString() });
     expect(failureOf({ kind: "credential", message: "No key." }, at)!.kind).toBe("credential");

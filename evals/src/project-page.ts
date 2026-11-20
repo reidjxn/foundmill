@@ -130,3 +130,12 @@ export async function runProjectPageCase(client: ModelClient, c: ProjectPageCase
     return { caseId: c.id, draft: null, problems: ["no answer"], passed: false, costMinor: 0, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/**
+ * WP-08 T7 (audit s3 §5.4 item 2): the first sentence of "about" stands alone when quoted, so it names the project.
+ * Checked on the live route only: the mock page keeps the founder's words as written and names nothing.
+ */
+export function projectPageFirstSentenceProblem(c: ProjectPageCase, draft: ProjectPageContent): string | null {
+  const first = (draft.about.split(/(?<=[.!?])\s/)[0] ?? "").toLowerCase();
+  return first.includes(c.businessName.toLowerCase()) ? null : "the first sentence of about does not name the project";
+}

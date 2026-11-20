@@ -66,7 +66,7 @@ describe("business.autopilot", () => {
     expect((await owner().business.autopilot.get({ businessId: A() })).state).toBe("off");
   });
 
-  it("settings are validated (1 to 24 cycles a day, 1 to 10 idle cycles), saved, audited once, and nudge the workflow", async () => {
+  it("settings are validated (1 to 24 rounds of work a day, 1 to 10 idle rounds of work), saved, audited once, and nudge the workflow", async () => {
     await expect(owner().business.autopilot.set({ businessId: A(), maxCyclesPerDay: 25 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(owner().business.autopilot.set({ businessId: A(), maxCyclesPerDay: 0 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(owner().business.autopilot.set({ businessId: A(), maxIdleCycles: 11 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -148,7 +148,7 @@ describe("business.autopilot", () => {
     await expect(hz.caller({ userId: hz.A.viewerId }).business.autopilot.ensure({ businessId: A() })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("Autopilot cycles carry the autopilot trigger in the event log (cycle.started accepts it)", async () => {
+  it("Autopilot rounds of work carry the autopilot trigger in the event log (cycle.started accepts it)", async () => {
     const ev = await repos.events.write(hz.db, A(), { type: "cycle.started", actor: { kind: "system", id: "orchestrator" }, payload: { cycleId: crypto.randomUUID(), cycleNumber: 91, workflowId: `cycle:${A()}:91`, trigger: "autopilot", timeBoxAgentHours: 4, plannedTaskIds: [], budget: null } });
     expect(ev.type).toBe("cycle.started");
   });

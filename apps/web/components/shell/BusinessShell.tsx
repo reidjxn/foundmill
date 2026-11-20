@@ -213,7 +213,7 @@ type ContinueResult = RouterOutputs["business"]["continue"];
 export { RUN_UNTIL_DONE };
 
 /** What the strip says the instant Continue is pressed, before the answer lands (first-time founder report, Nov 8, 2026). */
-export const CONTINUE_PRESSED_NOTICE = "Starting the next cycle…";
+export const CONTINUE_PRESSED_NOTICE = "Starting the next round of work…";
 /** The same with Builder view off, in the founder's words ("round of work", as the live feed and the team's notes say). */
 export const CONTINUE_PRESSED_NOTICE_PLAIN = "Starting the next round of work…";
 /**

@@ -45,7 +45,7 @@ test.describe("keyboard and screen readers", () => {
     expect(stop.calls()).toBe(0);
   });
 
-  test("Space toggles the focused switch and never starts a cycle", async ({ page }) => {
+  test("Space toggles the focused switch and never starts a round of work", async ({ page }) => {
     await openBusiness(page, "settings/departments");
     const cycle = await intercept(page, "business.continue");
     await intercept(page, "department.update");

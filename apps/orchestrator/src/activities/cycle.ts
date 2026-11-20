@@ -44,9 +44,9 @@ export function lacksTool(detail: string): boolean {
 /** Why a task the planner left out starts anyway (lead, 2026-10-24: the planner orders, it never gates). */
 export const SLOT_FREE_REASON = "ready, and an agent slot was free";
 /** Why a task left out when every slot was taken waits (the planner's own reason wins when it gave one). */
-export const SLOTS_TAKEN_REASON = "every agent slot of this cycle is taken";
+export const SLOTS_TAKEN_REASON = "every agent slot of this round of work is taken";
 /** Why a task starts mid-cycle (`followUpStarts`): what it waited on finished while the cycle ran. */
-export const FOLLOW_UP_REASON = "its earlier work finished during this cycle";
+export const FOLLOW_UP_REASON = "its earlier work finished during this round of work";
 /** Follow-up starts sort after every start of the plan (the planner's priorities are 1–5). */
 export const FOLLOW_UP_PRIORITY = 6;
 
@@ -129,7 +129,7 @@ export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[])
   if (byDeps > 0) parts.push(`${byDeps} task${byDeps === 1 ? " waits" : "s wait"} on earlier tasks`);
   if (held > 0) parts.push(`${held} channel task${held === 1 ? " waits" : "s wait"} until you start distribution from Customers › Board`);
   const reason = parts.length > 0 ? `${parts.join("; ")}.` : "The board is clear.";
-  return `Nothing is ready to start for ${brief.businessName}, so no cycle was planned. ${reason}`;
+  return `Nothing is ready to start for ${brief.businessName}, so no round of work was planned. ${reason}`;
 }
 
 /** "N roadmap items have no tasks yet (…); the team plans them in the next rounds of work", or null before the sign-off or with none. */
@@ -214,7 +214,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     const item = await repos.inbox.createItem(deps.db, input.businessId, {
       type: "update",
       from_agent_id: chief.id,
-      subject: (input.fallbackSubject ?? "Cycle finished").slice(0, 80),
+      subject: (input.fallbackSubject ?? "Round of work finished").slice(0, 80),
       body_md: notice ? `${input.summary.trim()}\n\n${notice}` : input.summary.trim(),
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },

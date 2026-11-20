@@ -104,7 +104,7 @@ describe("TourPage (signed-out /)", () => {
     expect(panel.textContent).toContain("Vision, specification and roadmap");
     expect(within(panel).getByText("Drafting")).toBeTruthy();
     expect(within(panel).getByText("Drafting your vision, specification and roadmap…")).toBeTruthy();
-    expect(within(panel).getByText(/^Iris, Product lead, writes it from your idea and your profile\. Orla, Chief of Staff, plans the first cycle from the roadmap\.$/)).toBeTruthy();
+    expect(within(panel).getByText(/^Iris, Product lead, writes it from your idea and your profile\. Orla, Chief of Staff, plans the first round of work from the roadmap\.$/)).toBeTruthy();
     // Then the one plan note in the Inbox (WP-04 T5), tagged Respond, then Continue.
     const inbox = within(how).getByRole("list", { name: "Inbox" });
     // Each row: the Product lead's portrait (its name is text too), the subject, the Needs you tag.
@@ -149,7 +149,7 @@ describe("TourPage (signed-out /)", () => {
     expect(screen.getAllByRole("img", { name: /Your team: you at the center/ })).toHaveLength(1);
   });
 
-  it("runs a cycle in the hero deck: the first press ends in a customer, the next brings a decision (WP-14 T10)", async () => {
+  it("runs a round of work in the hero deck: the first press ends in a customer, the next brings a decision (WP-14 T10)", async () => {
     vi.useFakeTimers();
     renderPage();
     const deck = screen.getByTestId("cycle-deck");
@@ -326,7 +326,7 @@ describe("TourPage (signed-out /)", () => {
     const note = screen.getByRole("article", { name: "Example Inbox note" });
     expect(note.querySelector('[data-value="$480.00"]')).toBeTruthy();
     expect(within(note).getByText(/^It costs \$480, above the \$250 cap/)).toBeTruthy();
-    expect(within(note).getByText(/^Mon, Oct 12 · /).textContent).toBe("Mon, Oct 12 · cycle 215");
+    expect(within(note).getByText(/^Mon, Oct 12 · /).textContent).toBe("Mon, Oct 12 · round of work 215");
     expect(screen.getByText("$10K MRR")).toBeTruthy();
     // Nothing of the earlier sterling, UK-schooled example is left.
     const text = container.textContent ?? "";
@@ -375,7 +375,7 @@ describe("TourPage (signed-out /)", () => {
     expect(deck.getAttribute("data-example")).toBe("glitchwick");
     expect(deck.getAttribute("data-phase")).toBe("idle");
     expect(within(deck).getByText("Glitchwick")).toBeTruthy();
-    expect(within(deck).getByText(/Cycle 197 · Chapter 9/)).toBeTruthy();
+    expect(within(deck).getByText(/Round of work 197 · Chapter 9/)).toBeTruthy();
     expect(screen.getByText(/^Glitchwick is an example business\./)).toBeTruthy();
     // The ticker, the team, the Journey, the Customer Update, the milestones, the board and the Inbox note follow.
     expect(screen.getByRole("region", { name: "What the Glitchwick team did this week" })).toBeTruthy();
@@ -414,7 +414,7 @@ describe("TourPage (signed-out /)", () => {
     vi.setSystemTime(new Date("2026-10-15T12:00:00Z"));
     renderPage();
     expect(within(screen.getByTestId("cycle-deck")).getByTestId("kitbar-date").textContent).toBe("Oct 15, 2026");
-    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText(/^Thu, Oct 15 · /).textContent).toBe("Thu, Oct 15 · cycle 215");
+    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText(/^Thu, Oct 15 · /).textContent).toBe("Thu, Oct 15 · round of work 215");
     // The Customer Update moves with the story: first seen on Sunday, Sep 20 on its calendar, eight days later today.
     expect(within(screen.getByRole("region", { name: "Customer Update" })).getByText(/to the site on a Monday evening\.$/)).toBeTruthy();
   });

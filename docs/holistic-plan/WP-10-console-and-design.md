@@ -373,7 +373,7 @@ It renders, in reading type above the note body: "<Agent> suggests: <option>. <c
 | A2-23 fifteen missing stories, moving `PeopleList` | Cut: a story is owed when a component is next changed (the Definition of done already says so). |
 | s1 §4.3 `Sheet`, `Note`, `Stepper`, `Checklist`, `IdeaAnswers` | Not console pieces: WP-03 and WP-04 build what their screens need. |
 | s1 P1-11 (console scrolls sideways between 640 and 1279 px) | Founder question 3; not built until answered. |
-| A2-26, s1 §3.9 (streak without "Not opened") | Founder decision 6; not built until answered. |
+| A2-26, s1 §3.9 (streak without "Not opened") | Founder decision 6, answered Nov 19, 2026: only the days opened. Built in WP-04 T7; the at-risk words left `streakWords` with the answer. |
 
 ## Corrections to the audits
 

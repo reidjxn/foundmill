@@ -30,8 +30,8 @@ type Case = {
 const CASES: Case[] = [
   { key: "journey_ribbon", expectData: /^Forecast$/, expectEmpty: /journey starts on day one/ },
   { key: "department_card", expectData: /Beacon/, expectEmpty: /No department in this slot/, settings: { slot: 0 } },
-  { key: "squad_pulse", expectData: /hours of team work over the last 7 days/, expectEmpty: /appear after the first cycle/ },
-  { key: "inbox_preview", expectData: /Approve the schema change/, expectEmpty: /land here after each cycle/ },
+  { key: "squad_pulse", expectData: /hours of team work over the last 7 days/, expectEmpty: /appear after the first round of work/ },
+  { key: "inbox_preview", expectData: /Approve the schema change/, expectEmpty: /land here after each round of work/ },
   { key: "live_feed", expectData: /Done: Usage index/, expectEmpty: /Events appear here/ },
   { key: "status_strip", expectData: /Customers this week/, expectEmpty: /Finance figures appear once/ },
   { key: "cash_runway", expectData: /Net burn \/ month/, expectEmpty: /Connect a bank account/ },
@@ -187,7 +187,7 @@ describe("empty widgets in guided mode (UX plan §7.8)", () => {
     expect(empty.className).toContain("flex-row");
     expect(empty.className).not.toContain("flex-col");
     expect(empty.className).not.toContain("py-8");
-    expect(screen.getByText(/land here after each cycle/)).toBeTruthy();
+    expect(screen.getByText(/land here after each round of work/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open inbox" })).toBeTruthy();
   });
   it("keep the tall centred empty state when guidance is off", () => {
@@ -395,7 +395,7 @@ describe("status strip in guided mode", () => {
 describe("first-week checklist widget", () => {
   const def = () => getWidget("first_week_checklist")!;
 
-  it("lists the seven items with the done ones ticked, Go links to the product tabs and a Go button for running a cycle", () => {
+  it("lists the seven items with the done ones ticked, Go links to the product tabs and a Go button for running a round of work", () => {
     const { container } = mountGuided(def(), dataResponses());
     expect(screen.getByRole("region", { name: "Your first week" })).toBeTruthy();
     expect(screen.getByText("2 of 7 done")).toBeTruthy();

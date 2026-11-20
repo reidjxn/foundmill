@@ -5,7 +5,7 @@ const DEV = "dept-dev";
 const FIN = "dept-fin";
 const agent = (id: string, agentType: string, over: Partial<AssignableAgent> = {}): AssignableAgent => ({ id, agentType, status: "idle", layer: "worker", departmentIds: [DEV], ...over });
 
-describe("pickAssignee (lead, 2026-10-24: the cycle and Start by hand choose the same agent)", () => {
+describe("pickAssignee (lead, 2026-10-24: the round of work and Start by hand choose the same agent)", () => {
   const backend = agent("backend", "backend_engineer");
   const frontend = agent("frontend", "frontend_engineer");
   const researcher = agent("researcher", "researcher", { departmentIds: [FIN] });
@@ -50,7 +50,7 @@ describe("pickAssignee (lead, 2026-10-24: the cycle and Start by hand choose the
     expect(pickAssignee({ kind: "legal", departmentId: "dept-empty" }, [chief, writer])).toBeNull();
   });
 
-  it("avoids an agent already chosen this cycle when another usable agent fits, and takes it when nobody else does", () => {
+  it("avoids an agent already chosen this round of work when another usable agent fits, and takes it when nobody else does", () => {
     expect(pickAssignee(code, [backend, frontend], { exclude: new Set(["backend"]) })?.id).toBe("frontend");
     expect(pickAssignee(code, [backend, frontend], { exclude: ["backend", "frontend"] })?.id).toBe("backend");
     // The requested agent is busy and another fits: the other runs it.

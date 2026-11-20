@@ -27,6 +27,7 @@ import { pageQuizzesRepo } from "./page-quizzes";
 import { positioningRepo } from "./positioning";
 import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
+import { projectDomainsRepo } from "./project-domains";
 import { postalAddressRepo } from "./postal-address";
 import { repliesRepo } from "./replies";
 import { updatesRepo } from "./updates";
@@ -84,7 +85,9 @@ import { taskReportsRepo } from "./task-reports";
 import { reportsRepo } from "./reports";
 import { sitesRepo } from "./sites";
 export { AddPayLinkInput } from "./pay-links";
+export { OwnDomainTakenError, projectDomainsStore, type ProjectDomainView } from "./project-domains";
 import { payLinksRepo } from "./pay-links";
+import { ownerPlansRepo, partnerWaitlistRepo } from "./owner-plans";
 
 export const repos = {
   businesses: businessesRepo,
@@ -104,6 +107,7 @@ export const repos = {
   positioning: positioningRepo,
   personProfiles: personProfilesRepo,
   projectMail: mailRepo,
+  projectDomains: projectDomainsRepo,
   postalAddress: postalAddressRepo,
   replies: repliesRepo,
   updates: updatesRepo,
@@ -172,6 +176,8 @@ export const repos = {
   reports: reportsRepo,
   sites: sitesRepo,
   payLinks: payLinksRepo,
+  ownerPlans: ownerPlansRepo,
+  partnerWaitlist: partnerWaitlistRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;

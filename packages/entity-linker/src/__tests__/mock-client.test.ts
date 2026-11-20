@@ -44,7 +44,7 @@ const EVENT_SHAPES: ReadonlyArray<(i: number) => Record<string, unknown>> = [
   (i) => ({ id: EVENT(i), type: "message.received", payload: { entity_id: FIXTURE_IDS.saraLindqvist, subject: "Wholesale terms" } }),
   (i) => ({ id: EVENT(i), type: "signup.created", payload: { customer_name: "Helios Energy GmbH", channel_key: "seo" } }),
   (i) => ({ id: EVENT(i), type: "contract.signed", payload: { title: "Supply agreement with Meridian Labs", entity_id: FIXTURE_IDS.meridian } }),
-  (i) => ({ id: EVENT(i), type: "cycle.completed", payload: { title: `Cycle ${i}` } }),
+  (i) => ({ id: EVENT(i), type: "cycle.completed", payload: { title: `Round of work ${i}` } }),
   // The invisible entity named in an event: the composer may not link it (it is not in the manifest it sees).
   (i) => ({ id: EVENT(i), type: "message.received", payload: { entity_id: FIXTURE_IDS.hiddenInvestor, subject: "Term sheet" } }),
 ];

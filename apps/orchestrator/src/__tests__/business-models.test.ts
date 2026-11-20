@@ -107,7 +107,7 @@ describe("createBusinessModelClient", () => {
     try {
       const refused = await client.complete(ask(t.businessId)).catch((e: unknown) => e);
       expect(refused).toBeInstanceOf(ModelRequestError);
-      expect(refused).toMatchObject({ code: "request", status: 402, apiErrorType: "credits_exhausted", message: expect.stringMatching(/credits are used up/) });
+      expect(refused).toMatchObject({ code: "request", status: 402, apiErrorType: "credits_exhausted", message: expect.stringMatching(/^The team is resting: this month's team budget is used/) });
       expect(events).toHaveLength(0);
       // A call with no business has nothing to charge; a business on its own key runs on its key, credits or not.
       await client.complete(ask(undefined));

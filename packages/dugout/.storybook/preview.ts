@@ -15,7 +15,7 @@ const preview: Preview = {
   decorators: [withBuilderView],
   globalTypes: {
     builderView: {
-      description: "Builder view: show how the platform runs the team (cycle numbers, tokens, technical columns)",
+      description: "Builder view: show how the platform runs the team (round of work numbers, tokens, technical columns)",
       toolbar: {
         title: "Builder view",
         icon: "wrench",

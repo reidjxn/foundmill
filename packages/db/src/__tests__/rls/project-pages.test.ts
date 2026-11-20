@@ -282,16 +282,20 @@ describe("project_pages: when a page went live is the database's to record (0090
 
   it("the migration puts right the dates that cannot be real on rows written before it, and leaves the rest", async () => {
     const all = readMigrations();
-    const before = await createTestDb({ migrations: all.filter((m) => m.tag !== "0090_page_dates_recorded") });
+    // The world before 0090: 0119 rewrites 0090's guard, so later migrations are left out too.
+    const before = await createTestDb({ migrations: all.filter((m) => m.tag < "0090") });
     try {
       const page = async (slug: string, set: Partial<typeof s.projectPages.$inferInsert>) => {
         const f = await createBusinessFixture(before, slug);
         // As an owner could write it under 0077's guard, which checked who wrote and not the dates.
-        await before.asUser(f.ownerId).run((tx) => tx.insert(s.projectPages).values({ businessId: f.businessId, slug, draft: content(), ...set }));
+        // By named columns, so the columns later migrations add are not needed here.
+        await before.asUser(f.ownerId).run((tx) =>
+          tx.execute(sql`insert into project_pages (business_id, slug, draft, published, published_at, unpublished_at) values (${f.businessId}, ${slug}, ${JSON.stringify(content())}::jsonb, ${set.published ? JSON.stringify(set.published) : null}::jsonb, ${set.publishedAt?.toISOString() ?? null}::timestamptz, ${set.unpublishedAt?.toISOString() ?? null}::timestamptz)`),
+        );
         return f.businessId;
       };
       const read = async (businessId: string) => {
-        const row = (await before.db.select().from(s.projectPages).where(eq(s.projectPages.businessId, businessId)))[0]!;
+        const row = (await before.db.select({ publishedAt: s.projectPages.publishedAt, unpublishedAt: s.projectPages.unpublishedAt }).from(s.projectPages).where(eq(s.projectPages.businessId, businessId)))[0]!;
         return { publishedAt: row.publishedAt?.toISOString() ?? null, unpublishedAt: row.unpublishedAt?.toISOString() ?? null };
       };
       const neverLive = await page("old-never", { publishedAt: PAST });
@@ -386,10 +390,10 @@ describe("project_pages: what the database itself refuses", () => {
 });
 
 describe("public_project_pages: what anyone may read", () => {
-  it("exposes exactly its eight columns and nothing else", async () => {
+  it("exposes exactly its nine columns and nothing else", async () => {
     const columns = (await rows<{ column_name: string }>(sql`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'public_project_pages' order by ordinal_position`)).map((r) => r.column_name);
     expect(columns).toEqual([...PUBLIC_PROJECT_PAGE_COLUMNS]);
-    expect(columns).toEqual(["slug", "published", "published_at", "name", "logo_version", "kit_primary", "kit_secondary", "founder_names"]);
+    expect(columns).toEqual(["slug", "published", "published_at", "name", "logo_version", "kit_primary", "kit_secondary", "founder_names", "content_published_at"]);
     const row = (await h.service().execute<Record<string, unknown>>(sql`select * from public_project_pages where slug = 'bravo-page'`))[0]!;
     expect(Object.keys(row).sort()).toEqual([...PUBLIC_PROJECT_PAGE_COLUMNS].sort());
     // Nothing that identifies the row, the business or a person travels with it.
@@ -532,5 +536,28 @@ describe("the starter draft's inputs", () => {
     await h.db.update(s.ideas).set({ currentVersionId: version!.id }).where(eq(s.ideas.id, idea!.id));
     expect(await h.asUser(A.memberId).run((tx) => repos.pages.starterInputs(tx, A.businessId))).toEqual({ founderWords: "Candles that smell like a forest walk. Sold online.", visionStatement: "Bring the outdoors inside.", visionForWhom: "People in small apartments" });
     expect(await h.asUser(A.memberId).run((tx) => repos.pages.starterInputs(tx, B.businessId))).toEqual({ founderWords: null, visionStatement: null, visionForWhom: null });
+  });
+});
+
+describe("project_pages.content_published_at: when the public copy last changed (0119)", () => {
+  it("is the database's clock for a client, unchanged by a republish of the same copy, moved by a changed one; listed follows the rule", async () => {
+    const f = await createBusinessFixture(h, "seo");
+    await commit(f.businessId);
+    const long = "We bake sourdough every weekend and leave it on porches in West Asheville. ".repeat(7);
+    const first = await h.asUser(f.ownerId).run((tx) => repos.pages.publish(tx, f.businessId, { content: content({ about: long }), slug: "seo-loaf", userId: f.ownerId, at: new Date("2020-01-01T00:00:00Z") }));
+    expectRecordedNow(first.page.contentPublishedAt);
+    await h.service().execute(sql`update project_pages set content_published_at = '2026-10-07T12:00:00Z' where business_id = ${f.businessId}`);
+    // A client cannot move it on its own.
+    await h.asUser(f.ownerId).run((tx) => tx.update(s.projectPages).set({ contentPublishedAt: new Date("2030-01-01T00:00:00Z") }).where(eq(s.projectPages.businessId, f.businessId)));
+    const same = await h.asUser(f.ownerId).run((tx) => repos.pages.publish(tx, f.businessId, { content: content({ about: long }), slug: "unused", userId: f.ownerId }));
+    expect(same.page.contentPublishedAt?.toISOString()).toBe("2026-10-07T12:00:00.000Z");
+    const changed = await h.asUser(f.ownerId).run((tx) => repos.pages.publish(tx, f.businessId, { content: content({ about: `${long} Order by Thursday.` }), slug: "unused", userId: f.ownerId }));
+    expectRecordedNow(changed.page.contentPublishedAt);
+    const pub = await h.service().run((tx) => repos.pages.public.bySlug(tx, "seo-loaf"));
+    expect(pub?.updatedAt.getTime()).toBe(changed.page.contentPublishedAt!.getTime());
+    const listed = await h.service().run((tx) => repos.pages.public.listed(tx, { limit: 5000 }));
+    expect(listed.items.find((i) => i.slug === "seo-loaf")).toMatchObject({ story: false });
+    // A short page is public and not listed.
+    expect(listed.items.map((i) => i.slug)).not.toContain("alpha-candles");
   });
 });

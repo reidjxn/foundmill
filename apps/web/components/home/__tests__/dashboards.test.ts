@@ -108,7 +108,7 @@ describe("day one", () => {
 });
 
 describe("day one after commit (audit FR-19, IAE-19, OL-23)", () => {
-  it("ends with the first finished cycle, even before any customer", () => {
+  it("ends with the first finished round of work, even before any customer", () => {
     expect(isDayOne({ conversions: 0, milestones: 0, cyclesCompleted: 0 })).toBe(true);
     expect(isDayOne({ conversions: 0, milestones: 0, cyclesCompleted: 1 })).toBe(false);
   });
@@ -133,7 +133,7 @@ describe("the next-step strip's facts (UX plan §6.2 NextStep, §7.8)", () => {
     expect(unreadNotes([{ state: "unread", fromAgentId: "a" }, { state: "read", fromAgentId: "a" }, { state: "unread", fromAgentId: null }, { state: "unread" }])).toBe(1);
   });
 
-  it("turns the shell's reads into facts: day one, then a running cycle with its agents, then after the first cycle", () => {
+  it("turns the shell's reads into facts: day one, then a running round of work with its agents, then after the first round of work", () => {
     expect(nextStepFacts({ foundationsStatus: "ready", blocking: 2, unread: 2, cycle, distributionStartedAt: null })).toEqual({ foundationsStatus: "ready", blockingNotes: 2, unreadNotes: 2, cycleRunning: false, cycleNumber: 1, agentsWorking: 0, distributionStarted: false, firstCycleDone: false });
     const running = nextStepFacts({ foundationsStatus: "ready", blocking: 0, unread: 0, cycle: { ...cycle, running: true, cycleNumber: 3, activeAgentIds: ["a", "b", "c", "d"], completedCount: 2 }, distributionStartedAt: "2026-10-01T00:00:00.000Z" });
     expect(running).toMatchObject({ cycleRunning: true, cycleNumber: 3, agentsWorking: 4, distributionStarted: true, firstCycleDone: true });
@@ -145,7 +145,7 @@ describe("the next-step strip's facts (UX plan §6.2 NextStep, §7.8)", () => {
 
   it("gives Press Continue its action and leaves every other row as it is", () => {
     const onGo = () => {};
-    const steps = withContinueAction([{ id: "read-draft", label: "Read", href: "/v" }, { id: "press-continue", label: "Press Continue" }, { id: "press-continue", label: "Cycle 1 is running", done: true }], onGo);
+    const steps = withContinueAction([{ id: "read-draft", label: "Read", href: "/v" }, { id: "press-continue", label: "Press Continue" }, { id: "press-continue", label: "Round of work 1 is running", done: true }], onGo);
     expect(steps[0]).toEqual({ id: "read-draft", label: "Read", href: "/v" });
     expect(steps[1]).toEqual({ id: "press-continue", label: "Press Continue", onGo });
     expect(steps[2]!.onGo).toBeUndefined();

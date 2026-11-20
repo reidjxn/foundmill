@@ -115,7 +115,7 @@ describe("narrate — AC-11.3.1", () => {
     expect(founderJargonOf("Pull request merged", "The [[ent:00000000-0000-4000-8000-000000000001|Deploy pipeline]] ran.")).toEqual(expect.arrayContaining(["pull request", "pipeline"]));
     expect(founderJargonOf("Pricing page is live", "Customers can now see the new prices.")).toEqual([]);
     // The engine's numbers re-ask too (Builder view, Nov 8, 2026): a cycle number, a test tally, tokens, a PR number, an ETA.
-    expect(founderJargonOf("Cycle 3 completed", "105 tests passed on PR #41; ETA 3:45 PM after 12,400 tokens.")).toEqual(["cycle 3", "105 tests passed", "pr #41", "eta", "12,400 tokens"]);
+    expect(founderJargonOf("Round of work 3 completed", "105 tests passed on PR #41; ETA 3:45 PM after 12,400 tokens.")).toEqual(["round of work 3", "105 tests passed", "pr #41", "eta", "12,400 tokens"]);
     expect(jargonReask(["pull request"])).toContain('"pull request"');
     const base = MOCK_ROUTES.inboxComposer.generate;
     const prompts: string[] = [];

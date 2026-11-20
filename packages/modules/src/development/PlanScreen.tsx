@@ -3,7 +3,7 @@
  * Development › Plan (BUILD §6.3, §11.6): the tasks as a DataTable with saved views, a Run column (running, run now,
  * runs after another task) and right-click verbs, a dependency view (TaskGraph) for the selected task, and the optional
  * "plan something sooner" trigger (`dev.tasks.plan` from a roadmap item or a goal). The team plans the roadmap's Now
- * items into tasks on its own, cycle by cycle; nobody has to build a task graph.
+ * items into tasks on its own, round of work by round of work; nobody has to build a task graph.
  */
 import { useId, useMemo, useRef, useState } from "react";
 import { ArrowUpCircle, Bot, ChevronRight, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
@@ -311,7 +311,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   return (
     <Screen name="development/plan">
       {startsBlocked ? (
-        <Panel span={12} title="Tasks cannot start right now" help="The orchestrator is the service that runs the team's work: every cycle and every task session goes through it." data-testid="plan-orchestrator-banner">
+        <Panel span={12} title="Tasks cannot start right now" help="The orchestrator is the service that runs the team's work: every round of work and every task session goes through it." data-testid="plan-orchestrator-banner">
           <p className="text-body text-secondary">
             The orchestrator is not reachable from this server, so no task can start and a press of Continue writes one note in its place. Start comes back by itself once it is reachable again. If you run this server yourself, start the orchestrator; otherwise, whoever runs it has to.
           </p>
@@ -357,7 +357,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
               icon: ListTree,
               children: (
                 <>
-                  No tasks yet. The team plans the roadmap into tasks on its own, cycle by cycle. To plan something sooner, use the panel on the right.
+                  No tasks yet. The team plans the roadmap into tasks on its own, round of work by round of work. To plan something sooner, use the panel on the right.
                 </>
               ),
             }}
@@ -378,7 +378,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
       >
         <div className="flex flex-col gap-3">
           <p className="text-small text-secondary" data-testid="plan-sooner-hint">
-            The team plans the roadmap&apos;s Now items into tasks on its own, cycle by cycle. Use this to plan one item or an objective ahead of that.
+            The team plans the roadmap&apos;s Now items into tasks on its own, round of work by round of work. Use this to plan one item or an objective ahead of that.
           </p>
           <Field htmlFor={`${id}-roadmap`} label="Roadmap item" help={roadmapTerm?.short} helpLearn={roadmapTerm?.learn}>
             <SimpleSelect id={`${id}-roadmap`} aria-label="Roadmap item" options={roadmapOptions} value={roadmapItemId || undefined} onValueChange={setRoadmapItemId} placeholder={roadmap.isLoading ? "Loading roadmap…" : roadmapOptions.length ? "Choose an item" : "No roadmap items yet"} disabled={!roadmapOptions.length} />

@@ -5,7 +5,7 @@ const SAVED = { cadence: "every_4h" as const, dailyHour: 9, maxCyclesPerDay: 6, 
 
 describe("Autopilot settings draft", () => {
   it("offers the five cadences the brief names, every third day (the overnight shift, WP-09 T12), and 24 UTC hours", () => {
-    expect(CADENCE_OPTIONS.map((o) => o.label)).toEqual(["As soon as the last cycle ends", "Every hour", "Every 4 hours", "Every 12 hours", "Daily", "Every third day"]);
+    expect(CADENCE_OPTIONS.map((o) => o.label)).toEqual(["As soon as the last round of work ends", "Every hour", "Every 4 hours", "Every 12 hours", "Daily", "Every third day"]);
     expect(HOUR_OPTIONS).toHaveLength(24);
     expect(hourLabel(0)).toBe("12:00 AM UTC");
     expect(hourLabel(9)).toBe("9:00 AM UTC");
@@ -20,7 +20,7 @@ describe("Autopilot settings draft", () => {
     expect(draftChanged(d, { ...SAVED, spendCeilingMinor: 1250 })).toBe(false);
   });
 
-  it("limits cycles per day to 1 to 24 and idle cycles to 1 to 10", () => {
+  it("limits rounds of work per day to 1 to 24 and idle rounds of work to 1 to 10", () => {
     const base = draftOf(SAVED);
     for (const bad of ["0", "25", "-1", "2.5", "six", ""]) expect(parseDraft({ ...base, maxCyclesPerDay: bad })).toMatchObject({ ok: false, errors: { maxCyclesPerDay: expect.stringContaining("1 to 24") } });
     for (const good of ["1", "24"]) expect(parseDraft({ ...base, maxCyclesPerDay: good }).ok).toBe(true);
@@ -43,14 +43,14 @@ describe("Autopilot settings draft", () => {
     expect(draftChanged({ ...d, maxCyclesPerDay: "99" }, SAVED)).toBe(true);
   });
 
-  it("says how many cycles ran today", () => {
-    expect(cyclesTodayLine(2, 6)).toBe("2 of 6 cycles today");
-    expect(cyclesTodayLine(0, 1)).toBe("0 of 1 cycle today");
+  it("says how many rounds of work ran today", () => {
+    expect(cyclesTodayLine(2, 6)).toBe("2 of 6 rounds of work today");
+    expect(cyclesTodayLine(0, 1)).toBe("0 of 1 round of work today");
   });
 });
 
 describe("Autopilot's own limits in the draft (0084)", () => {
-  it("reads and parses its own cycles and dollars, empty meaning none", () => {
+  it("reads and parses its own rounds of work and dollars, empty meaning none", () => {
     const d = draftOf({ ...SAVED, ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15 });
     expect(d).toMatchObject({ ownMaxCyclesPerDay: "1", ownSpendCeiling: "0.15" });
     expect(parseDraft(d)).toMatchObject({ ok: true, change: { ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15 } });

@@ -7,8 +7,8 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
   // ------------------------------------------------------------------------------------------------ Chief of Staff
   cycle_planning: [
     bp(
-      "Plan a cycle for {business} under capacity limits",
-      "Plan the next cycle for {business} ({product}). Open tasks: 9 ready (3 code, 2 channel, 2 research, 1 legal, 1 finance), 4 blocked. Agents that can work at once: 6, budget remaining {currency} 420 for the cycle, rate capacity 'requests 30/min, input 60k tok/min'. Business mode assisted. Two approvals waiting (a {currency} 300 {channel} spend; a contract with {entity}). Output per department: tasks to start with assignee types, priorities, time limit; and what you leave for next cycle.",
+      "Plan a round of work for {business} under capacity limits",
+      "Plan the next round of work for {business} ({product}). Open tasks: 9 ready (3 code, 2 channel, 2 research, 1 legal, 1 finance), 4 blocked. Agents that can work at once: 6, budget remaining {currency} 420 for the round of work, rate capacity 'requests 30/min, input 60k tok/min'. Business mode assisted. Two approvals waiting (a {currency} 300 {channel} spend; a contract with {entity}). Output per department: tasks to start with assignee types, priorities, time limit; and what you leave for next round of work.",
       [
         "Starts at most 6 tasks and explains the choice by customer impact and readiness.",
         "Does not start work that depends on the waiting approvals; lists them as blocked on the founder.",
@@ -27,8 +27,8 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       { checks: [CHECK.words(30, 160)] },
     ),
     bp(
-      "Close the cycle honestly for {business}",
-      "The cycle at {business} hit its time limit. Started 6 tasks: 3 done (tests passing), 1 in review, 1 blocked on {integration} credentials, 1 failed (loop detected after 3 identical tool calls). Write the cycle.completed summary for the Composer: what started, finished, blocked, failed, cost {currency} 388, and the single decision the founder should take next.",
+      "Close the round of work honestly for {business}",
+      "The round of work at {business} hit its time limit. Started 6 tasks: 3 done (tests passing), 1 in review, 1 blocked on {integration} credentials, 1 failed (loop detected after 3 identical tool calls). Write the cycle.completed summary for the Composer: what started, finished, blocked, failed, cost {currency} 388, and the single decision the founder should take next.",
       [
         "Reports every task's state accurately, including the failure and its cause.",
         "States cost and the one next decision clearly.",
@@ -112,7 +112,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Frame a people decision for {business}",
-      "The Engineering lead at {business} proposes hiring a second backend engineer agent because 5 code tasks have waited more than a cycle. Wage cap would rise by {currency} 150/month (Estimate). Frame it as an Inbox decision with options including a time-boxed trial.",
+      "The Engineering lead at {business} proposes hiring a second backend engineer agent because 5 code tasks have waited more than a round of work. Wage cap would rise by {currency} 150/month (Estimate). Frame it as an Inbox decision with options including a time-boxed trial.",
       [
         "Options include hire, time-boxed trial and do nothing, with one recommended.",
         "Costs labeled Estimate; reversibility stated (an agent can be released).",

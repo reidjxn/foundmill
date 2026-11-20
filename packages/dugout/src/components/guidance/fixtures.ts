@@ -14,8 +14,8 @@ export const FIXTURE_TERMS: Record<string, TermDefinition> = {
   },
   cycle: {
     id: "cycle",
-    word: "Cycle",
-    short: "One round of work: the team works for a while, then reports back in the Inbox.",
+    word: "Round of work",
+    short: "A stretch where the team works for a while, then reports back in the Inbox.",
     long: "Press Continue to run one. What the team needs from you comes back as notes.",
   },
   estimate: {

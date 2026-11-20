@@ -138,7 +138,7 @@ export function tilesWithTerms(tiles: readonly MetricTileProps[]): MetricTilePro
 
 /** What the header's status word means, in one sentence, and the term whose "Learn more" explains it. */
 export function statusWordTip(word: string): { termId: string; text: string } | null {
-  if (word === "Needs your answer") return { termId: "cycle", text: "The team cannot carry on with this until you answer; the next cycle waits for it." };
+  if (word === "Needs your answer") return { termId: "cycle", text: "The team cannot carry on with this until you answer; the next round of work waits for it." };
   if (word === "Needs your go-ahead") return { termId: "hard_gate", text: "You chose; the plan is written and nothing in it runs until you say go." };
   return null;
 }

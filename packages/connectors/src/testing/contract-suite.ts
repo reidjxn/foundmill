@@ -79,6 +79,7 @@ export interface ContractWebhookCase {
  */
 export const INTERNAL_WRITE_TOOLS: ReadonlyMap<string, string> = new Map([
   ["stripe:create_billing_portal_session", "a link to Stripe's page for the platform's own subscriber; refused on any business's account"],
+  ["sending_domain:authenticate_domain", "starts a project's own domain authentication at the platform's SendGrid; service-only, removed with delete_domain"],
   ["e2b:pause_sandbox", "pauses the project's own sandbox; resume undoes it"],
   ["github:create_branch", "a branch in the project's repository; deleting it undoes it"],
   ["github:commit_files", "a commit on an agent's working branch, never the default branch; merging is a hard stop"],
@@ -86,6 +87,7 @@ export const INTERNAL_WRITE_TOOLS: ReadonlyMap<string, string> = new Map([
   ["github:open_pr", "a pull request in the project's repository; merging is a hard stop"],
   ["github:update_branch", "brings an agent's working branch up to date with the default branch"],
   ["gmail:create_draft", "a draft in the founder's mailbox; nothing is sent until the founder sends it"],
+  ["google_calendar:add_event", "an event on the founder's own calendar with no attendees; nobody is invited or notified"],
   ["google_drive:create_doc", "a document in the founder's Drive"],
   ["google_drive:append_to_doc", "text appended to a document in the founder's Drive; the document's history undoes it"],
   ["notion:create_page", "a page in the founder's workspace"],
