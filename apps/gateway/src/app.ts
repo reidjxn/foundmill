@@ -15,6 +15,7 @@
  *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
  *   POST /v1/billing/portal-sessions  service JWT (api) → Stripe's customer portal for an entry-plan subscriber (billing.ts)
  *   POST /v1/domains/check         service JWT (api) → registry answers for up to 8 domain names (domains.ts)
+ *   POST /v1/domains/own           service JWT (api) → add, check or remove a project's own domain (sending-domain.ts)
  *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key in one character style (portraits.ts)
  *   POST /v1/speech/synthesize     service JWT (api) → one agent turn spoken in a speech accent, for Team call (speech.ts)
  *   POST /v1/speech/transcribe     service JWT (api) → one recording of the founder transcribed, for Team call (speech.ts)
@@ -44,6 +45,7 @@ import { MAX_OWN_KEY_MODELS_BODY_BYTES, OWN_KEY_MODELS_ROUTE, proxyOwnKeyMessage
 import { lookupRegistry, REGISTRY_LOOKUP_ROUTE, RegistryLookupRequest } from "./registry-lookup";
 import { CreateCheckoutRequest, CreatePortalRequest, createPlatformCheckout, createPlatformPortal } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
+import { handleOwnDomain, OWN_DOMAIN_ROUTE, OwnDomainRequest } from "./sending-domain";
 import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
 import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, streamSpeech, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
@@ -359,6 +361,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   });
 
   app.post("/v1/domains/check", async (c) => c.json(await checkDomains(deps, CheckDomainsRequest.parse(await c.req.json()))));
+  app.post(OWN_DOMAIN_ROUTE, async (c) => c.json(await handleOwnDomain(deps, OwnDomainRequest.parse(await c.req.json()))));
 
   app.post("/v1/billing/checkout-sessions", async (c) => {
     const input = CreateCheckoutRequest.parse(await c.req.json());

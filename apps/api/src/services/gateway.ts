@@ -15,7 +15,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { ELEVENLABS_SPEECH_TIMEOUT_MS, ELEVENLABS_TRANSCRIPTION_TIMEOUT_MS, OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
-import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type ReplyNotSent, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
+import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type OwnDomainRecord, type ReplyNotSent, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
 export const TOKEN_ISSUER = "foundmill-gateway";
@@ -99,6 +99,18 @@ export interface GatewayCheckout {
 }
 
 /** One domain's answer, as the `domains` connector gives it (packages/connectors `DomainAnswer`). */
+/** A project's own domain as the gateway wrote it (`project_domains`), after an add, a check or a remove. */
+export interface GatewayOwnDomain {
+  mode: "mock" | "live";
+  simulated: boolean;
+  domain: { domain: string; senderLocalPart: string; records: OwnDomainRecord[]; status: "pending" | "verified"; checkedAt: string | null; verifiedAt: string | null } | null;
+}
+
+export type GatewayOwnDomainRequest =
+  | { action: "add"; businessId: string; userId: string; domain: string; senderLocalPart: string; siteHost: string | null }
+  | { action: "check"; businessId: string; siteHost: string | null }
+  | { action: "remove"; businessId: string };
+
 export interface GatewayDomainAnswer {
   domain: string;
   status: "available" | "taken" | "unknown";
@@ -337,6 +349,8 @@ export interface ApiGatewayClient {
   createPortal?(input: { businessId: string; customerId: string; returnUrl: string }): Promise<{ mode: "mock" | "live"; url: string }>;
   /** Registry answers for up to eight domain names, on behalf of one founder (the gateway's rate-limit scope). */
   checkDomains(ownerKey: string, domains: string[]): Promise<GatewayDomainAnswer[]>;
+  /** Add, check or remove a project's own domain (SendGrid's domain authentication and DNS, in the gateway). */
+  ownDomain?(input: GatewayOwnDomainRequest): Promise<GatewayOwnDomain>;
   /**
    * The AI-generated face for one persona catalog key in one character style (humans when not given). The gateway builds
    * the prompt from the style and the key (a key outside the catalog is a 400 `unknown_persona`, a style outside
@@ -459,6 +473,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     createCheckout: (input) => post<GatewayCheckout>("/v1/billing/checkout-sessions", input),
     createPortal: (input) => post<{ mode: "mock" | "live"; url: string }>("/v1/billing/portal-sessions", input),
     checkDomains: async (ownerKey, domains) => (await post<{ results: GatewayDomainAnswer[] }>("/v1/domains/check", { ownerKey, domains })).results,
+    ownDomain: (input) => post<GatewayOwnDomain>("/v1/domains/own", input),
     generatePortrait: (personaKey, businessId, style) => post<GatewayPortrait>("/v1/personas/portrait", { personaKey, ...(style ? { style } : {}), ...(businessId ? { businessId } : {}) }, Math.max(timeoutMs, PORTRAIT_TIMEOUT_MS)),
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),

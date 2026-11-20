@@ -42,6 +42,7 @@ import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/she
 import { GitHubRepositoryPanel } from "./GitHubRepositoryPanel";
 import { GoogleContextPanel } from "./GoogleContextPanel";
 import { OAuthFinish } from "./OAuthFinish";
+import { OwnDomainSection } from "./OwnDomainSection";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -539,6 +540,7 @@ export function IntegrationsTab() {
         </SettingsSection>
       ) : null}
       <PlatformMailSection data={platformMail.data} businessId={businessId} />
+      {platformMail.data ? <OwnDomainSection businessId={businessId} /> : null}
       <OAuthFinish businessId={businessId} connectors={rows} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
       {stripeRow ? (
         <SettingsSection wide title="Accept payments with Stripe" data-testid="stripe-payments" loading={list.isLoading}>

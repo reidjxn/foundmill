@@ -79,6 +79,7 @@ export interface ContractWebhookCase {
  */
 export const INTERNAL_WRITE_TOOLS: ReadonlyMap<string, string> = new Map([
   ["stripe:create_billing_portal_session", "a link to Stripe's page for the platform's own subscriber; refused on any business's account"],
+  ["sending_domain:authenticate_domain", "starts a project's own domain authentication at the platform's SendGrid; service-only, removed with delete_domain"],
   ["e2b:pause_sandbox", "pauses the project's own sandbox; resume undoes it"],
   ["github:create_branch", "a branch in the project's repository; deleting it undoes it"],
   ["github:commit_files", "a commit on an agent's working branch, never the default branch; merging is a hard stop"],
