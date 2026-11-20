@@ -108,16 +108,15 @@ describe("Settings › Integrations: finishing the GitHub connection", () => {
 });
 
 describe("Settings › Integrations on a person's project where connectors are not live (WP-02 T3)", () => {
-  it("a connector that cannot be connected here shows Not available yet and no Connect button, and the section drops Test mode", async () => {
+  it("a connector that cannot be connected here is hidden (LAUNCH_EVALUATION §2, MCP 6) and the section drops Test mode", async () => {
     catalogue = [
       { key: "sendgrid", displayName: "SendGrid", phase: 1, auth: { kind: "api_key" }, tools: [], simulations: [], live: false, available: false, integration: null },
       { key: "github", displayName: "GitHub", phase: 1, auth: { kind: "app" }, tools: [], simulations: [], live: true, available: true, integration: null },
     ];
     renderTab();
-    const row = await screen.findByText("SendGrid");
-    const item = row.closest("li")!;
-    expect(item.textContent).toContain("Not available yet");
-    expect(item.querySelector("button")).toBeNull();
+    await screen.findByText("GitHub");
+    expect(screen.queryByText("SendGrid")).toBeNull();
+    expect(screen.queryByText("Not available yet")).toBeNull();
     expect(screen.queryByText(/Test mode/)).toBeNull();
     expect(showsModeChip("mock", [{ live: false, available: true }])).toBe(true);
     expect(showsModeChip("mock", [{ live: false }])).toBe(true);
