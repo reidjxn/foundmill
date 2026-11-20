@@ -12,6 +12,8 @@ describe("agent.model.set retests (AC-11.10.5)", () => {
   const temporal = fakeTemporalClient();
   beforeAll(async () => {
     hz = await createApiHarness({ prefix: "agentretest", temporalClient: temporal });
+    // Opus and Sonnet are a paid plan's to choose (WP-13 T7); these tests are about retests, not the plan.
+    await repos.businesses.update(hz.db, hz.A.businessId, { planTier: "pro" });
   }, 120_000);
   afterAll(() => hz.close());
 
@@ -209,6 +211,8 @@ describe("agent.training.cancel without Temporal", () => {
   let hz: ApiHarness;
   beforeAll(async () => {
     hz = await createApiHarness({ prefix: "agentcancel" });
+    // Opus and Sonnet are a paid plan's to choose (WP-13 T7); these tests are about retests, not the plan.
+    await repos.businesses.update(hz.db, hz.A.businessId, { planTier: "pro" });
   }, 120_000);
   afterAll(() => hz.close());
 

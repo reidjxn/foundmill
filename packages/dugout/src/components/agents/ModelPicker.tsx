@@ -40,7 +40,7 @@ export function ModelPicker({ options, value, inUse, onChange, disabled, classNa
             data-checked={checked || undefined}
             data-state={checked ? "checked" : "unchecked"}
             data-disabled={locked || disabled ? "" : undefined}
-            className={cn("radio-card flex cursor-pointer items-start gap-3 rounded-md p-3 focus-within-ring", (locked || disabled) && "cursor-not-allowed opacity-60", o.gated && !checked && "opacity-75")}
+            className={cn("radio-card flex cursor-pointer items-start gap-3 rounded-md p-3 focus-within-ring", (locked || disabled) && "cursor-not-allowed opacity-60")}
             data-gated={o.gated || undefined}
           >
             <input
@@ -57,7 +57,7 @@ export function ModelPicker({ options, value, inUse, onChange, disabled, classNa
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <ModelChip model={o.key} locked={locked} />
-                <span className="font-medium text-primary">{o.label}</span>
+                <span className={cn("font-medium", o.gated && !checked ? "text-secondary" : "text-primary")}>{o.label}</span>
                 {checked ? <span className="rounded-pill bg-accent/12 px-1.5 text-small font-medium text-accent">{keptForLater ? "After you upgrade" : "Current"}</span> : null}
                 {inUse === o.key && inUse !== value ? <span className="rounded-pill bg-accent/12 px-1.5 text-small font-medium text-accent">In use</span> : null}
               </div>
