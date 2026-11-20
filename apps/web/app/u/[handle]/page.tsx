@@ -11,6 +11,7 @@ import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
 import { PersonPage } from "@foundmill/dugout";
 import { personDescription, personTitle } from "@foundmill/shared/person-profile";
+import { PublicAppPrompt } from "@/components/shell/PublicAppPrompt";
 import { ProfileReportControl } from "@/components/safety/ProfileReportControl";
 import { getServerAuth } from "@/lib/auth/server";
 import { publicPerson } from "@/lib/public-person.server";
@@ -55,6 +56,7 @@ export default async function PublicPersonRoute({ params }: Props) {
         place={person.place}
         projects={person.projects.map((p) => ({ slug: p.slug, name: p.name, pitch: p.pitch, href: p.path }))}
       />
+      <PublicAppPrompt />
       {signedIn ? <ProfileReportControl handle={handle} name={person.displayName} /> : null}
     </>
   );

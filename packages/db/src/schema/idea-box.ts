@@ -4,7 +4,7 @@
  * sign in and claim it into their deck; and the waitlist that keeps it for someone not yet admitted. The api's alone:
  * RLS on, no policy, no client grant.
  */
-import { bigint, index, jsonb, pgTable, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, date, index, integer, jsonb, pgTable, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { sql } from "drizzle-orm";
 import { id, timestamps, tstz } from "./_common";
@@ -46,6 +46,23 @@ export const ideaDrafts = pgTable(
 );
 export type IdeaDraftRow = typeof ideaDrafts.$inferSelect;
 
+/**
+ * 0145 — a batch the waitlist opens in (founder, 2026-11-17; WP-14 T15): its number, the UTC day it opens and its places.
+ * The operator writes the rows (docs/DEPLOY.md §4); the orchestrator's sweep admits from it, the public page shows it.
+ * Service only: RLS on, no policy.
+ */
+export const waitlistBatches = pgTable("waitlist_batches", {
+  id: id(),
+  number: integer("number").notNull().unique("waitlist_batches_number_key"),
+  /** The UTC day the batch opens, `YYYY-MM-DD`. */
+  opensOn: date("opens_on", { mode: "string" }).notNull(),
+  places: integer("places").notNull(),
+  /** New accounts the batch admitted; only ever goes up, so a closed account gives no place back. */
+  taken: integer("taken").notNull().default(0),
+  ...timestamps(),
+});
+export type WaitlistBatchRow = typeof waitlistBatches.$inferSelect;
+
 export const waitlistEntries = pgTable(
   "waitlist_entries",
   {
@@ -70,6 +87,10 @@ export const waitlistEntries = pgTable(
      * after admission opens the Studio on it. Null: the card's own page.
      */
     cardThen: text("card_then", { enum: WAITLIST_CARD_THEN }),
+    /** 0145 — the batch this entry was admitted in; null when admitted by the daily number, by hand, or not yet. */
+    batchId: uuid("batch_id").references(() => waitlistBatches.id, { onDelete: "set null" }),
+    /** 0145 — when the founder's own personal note to this person was sent (WP-14 T15 step 5); the operator records it. */
+    personalNoteAt: tstz("personal_note_at"),
     ...timestamps(),
   },
   (t) => [
@@ -80,6 +101,9 @@ export const waitlistEntries = pgTable(
     index("waitlist_entries_to_notify_idx")
       .on(t.admittedAt)
       .where(sql`${t.notifiedAt} is null`),
+    index("waitlist_entries_batch_id_idx")
+      .on(t.batchId)
+      .where(sql`${t.batchId} is not null`),
     index("waitlist_entries_referred_by_idx")
       .on(t.referredByEntryId)
       .where(sql`${t.userId} is not null`),

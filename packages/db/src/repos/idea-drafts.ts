@@ -8,8 +8,8 @@
  * again gets the same idea back, anyone else gets nothing. The sweep deletes every draft past its time, claimed or not
  * (a claimed card lives on as the idea).
  */
-import { and, count, eq, gt, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { accountAdmissions, ideaDrafts, waitlistEntries, type IdeaDraftRow, type WaitlistEntryRow } from "../schema";
+import { and, asc, count, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { accountAdmissions, ideaDrafts, waitlistBatches, waitlistEntries, type IdeaDraftRow, type WaitlistEntryRow } from "../schema";
 import { ideasRepo, type CreateIdeaInput } from "./ideas";
 import { admissionsRepo } from "./people";
 import { newPostCode } from "./post-attributions";
@@ -298,9 +298,10 @@ export const waitlistRepo = {
    * admission is recorded as `waitlist` (`repos.admissions.record`) and `admitted_at` is set. An account that already
    * had an admission keeps it (`newAdmission` false): its entry is closed as told (`notified_at` set), so it gets no
    * "Your place is open" email and takes none of the day's number (`admittedSince` counts new admissions only). Run it
-   * inside the transaction that holds `lockOpenCount`.
+   * inside the transaction that holds `lockOpenCount`. `batchId` (0145): the batch these places belong to; it is written
+   * on new admissions only, so an account that was already in takes none of a batch's places either.
    */
-  async admitNext(tx: Executor, input: { limit: number; now?: Date }): Promise<WaitlistAdmitted[]> {
+  async admitNext(tx: Executor, input: { limit: number; now?: Date; batchId?: string | null }): Promise<WaitlistAdmitted[]> {
     const limit = Math.max(0, Math.min(Math.floor(input.limit), 1_000));
     if (limit === 0) return [];
     const now = input.now ?? new Date();
@@ -316,12 +317,31 @@ export const waitlistRepo = {
       const recorded = await admissionsRepo.record(tx, { userId: entry.userId!, how: "waitlist", at: now });
       const [row] = await tx
         .update(waitlistEntries)
-        .set({ admittedAt: now, updatedAt: now, ...(recorded === null ? { notifiedAt: now } : {}) })
+        .set({ admittedAt: now, updatedAt: now, ...(recorded === null ? { notifiedAt: now } : input.batchId ? { batchId: input.batchId } : {}) })
         .where(and(eq(waitlistEntries.id, entry.id), isNull(waitlistEntries.admittedAt)))
         .returning();
       if (row) out.push({ ...row, newAdmission: recorded !== null });
     }
+    const took = out.filter((row) => row.newAdmission).length;
+    // The database refuses `taken` above `places`, so a batch can never admit more than it published.
+    if (input.batchId && took > 0) await tx.update(waitlistBatches).set({ taken: sql`${waitlistBatches.taken} + ${took}`, updatedAt: now }).where(eq(waitlistBatches.id, input.batchId));
     return out;
+  },
+
+  /**
+   * The batches that still have places (0145; WP-14 T15), lowest number first, each with the places it has left: its
+   * `places` less `taken`, the new accounts it admitted (a count that only goes up, so a closed account gives no place back). `openOnly`: only those whose day has come (`opens_on <= day`, a UTC day
+   * as `YYYY-MM-DD`), which is what the sweep admits from; without it, the next ones to open too, which is what the
+   * public page shows. A real count, never an estimate.
+   */
+  async batchesWithPlaces(db: Executor, input: { day: string; openOnly?: boolean; limit?: number }): Promise<WaitlistBatchWithPlaces[]> {
+    const rows = await db
+      .select({ id: waitlistBatches.id, number: waitlistBatches.number, opensOn: waitlistBatches.opensOn, places: waitlistBatches.places, taken: waitlistBatches.taken })
+      .from(waitlistBatches)
+      .where(and(gt(waitlistBatches.places, waitlistBatches.taken), input.openOnly ? lte(waitlistBatches.opensOn, input.day) : undefined))
+      .orderBy(asc(waitlistBatches.number))
+      .limit(Math.max(1, Math.min(input.limit ?? 20, 100)));
+    return rows.map((r) => ({ id: r.id, number: r.number, opensOn: r.opensOn, places: r.places, placesLeft: r.places - r.taken, open: r.opensOn <= input.day }));
   },
 
   /**
@@ -396,6 +416,16 @@ export const waitlistRepo = {
 export const WAITLIST_ORDER = sql`exists (select 1 from waitlist_entries brought where brought.referred_by_entry_id = ${waitlistEntries.id} and brought.user_id is not null) desc, ${waitlistEntries.createdAt} asc, ${waitlistEntries.id} asc`;
 
 /** An entry `admitNext` admitted; `newAdmission` is false when the account already had an admission row. */
+/** A batch that still has places: `placesLeft` is real, `open` says whether its day has come. */
+export interface WaitlistBatchWithPlaces {
+  id: string;
+  number: number;
+  opensOn: string;
+  places: number;
+  placesLeft: number;
+  open: boolean;
+}
+
 export type WaitlistAdmitted = WaitlistEntryRow & { newAdmission: boolean };
 
 export interface WaitlistEntryForEmail {

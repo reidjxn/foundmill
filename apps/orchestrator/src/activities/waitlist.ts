@@ -1,6 +1,10 @@
 /**
  * The waitlist's sweep (WP-03 T2; schedule `waitlist-admissions`, every 15 minutes). Two steps:
- *   (a) admit today's number. In one transaction, under open sign-up's advisory lock (`repos.admissions.lockOpenCount`,
+ *   (a) admit the open batches' places, then today's number. A batch (0145; WP-14 T15; the operator's row in
+ *       `waitlist_batches`) is open from its UTC day until its places are taken: each sweep admits into it, in the
+ *       waitlist's order, as many as it has left, so someone who joins while places remain is let in by the next sweep.
+ *       A batch's admissions count in the day's `waitlist` admissions, so they come off today's number too; the number
+ *       alone (no batch) works as before. In one transaction, under open sign-up's advisory lock (`repos.admissions.lockOpenCount`,
  *       the same lock apps/api counts under): room = WAITLIST_ADMIT_PER_DAY less the new `waitlist` admissions since the
  *       start of the UTC day (the sweep's and the operator's alike); under SIGNUP_OPEN also at most what is left of
  *       SIGNUP_DAILY_CEILING, which counts them too. SIGNUP_OPEN and SIGNUP_DAILY_CEILING are read here, so they carry
@@ -51,27 +55,34 @@ export function createWaitlistActivities(deps: OrchestratorDeps) {
       const since = utcDayStart(now);
       const perDay = deps.env.WAITLIST_ADMIT_PER_DAY ?? 0;
       const result: ScheduleResult = { businesses: 0, touched: 0, eventIds: [], notes: [] };
-      let admittedCount = 0;
 
-      // (a) Today's number.
-      if (perDay > 0) {
-        const admitted = await deps.db.transaction(async (tx) => {
-          await repos.admissions.lockOpenCount(tx);
-          let room = perDay - (await repos.waitlist.admittedSince(tx, since));
-          if (signupMode(deps.env) === "open") room = Math.min(room, (deps.env.SIGNUP_DAILY_CEILING ?? 200) - (await repos.admissions.openSince(tx, since)));
-          if (room <= 0) return [];
-          const rows = await repos.waitlist.admitNext(tx, { limit: room, now });
-          for (const row of rows) {
-            if (!row.newAdmission || !row.userId) continue;
-            const eventId = await writeAccountEvent(tx as unknown as Parameters<typeof writeAccountEvent>[0], { userId: row.userId, type: "account.admitted", actor: { kind: "system", id: "waitlist" }, payload: { how: "waitlist" }, idempotencyKey: "account.admitted" });
-            if (eventId) result.eventIds.push(eventId);
-          }
-          return rows;
-        });
-        admittedCount = admitted.length;
-        if (admittedCount) result.notes.push(`${admittedCount} admitted from the waitlist`);
-        result.touched += admittedCount;
-      }
+      // (a) The open batches, then today's number: one transaction, one lock, one ceiling.
+      const admitted = await deps.db.transaction(async (tx) => {
+        await repos.admissions.lockOpenCount(tx);
+        const batches = await repos.waitlist.batchesWithPlaces(tx, { day: since.toISOString().slice(0, 10), openOnly: true });
+        if (perDay <= 0 && batches.length === 0) return [];
+        let ceilingRoom = signupMode(deps.env) === "open" ? (deps.env.SIGNUP_DAILY_CEILING ?? 200) - (await repos.admissions.openSince(tx, since)) : Number.POSITIVE_INFINITY;
+        const rows: Awaited<ReturnType<typeof repos.waitlist.admitNext>> = [];
+        const admit = async (limit: number, batchId: string | null) => {
+          if (limit <= 0) return;
+          const took = await repos.waitlist.admitNext(tx, { limit, now, batchId });
+          ceilingRoom -= took.filter((row) => row.newAdmission).length;
+          rows.push(...took);
+        };
+        // The same caution as `waitlistEnvWarning`, for a batch: without SIGNUP_OPEN here nothing bounds it but its places.
+        if (batches.length > 0 && signupMode(deps.env) !== "open") deps.log.warn({ batches: batches.map((b) => b.number), places: batches.reduce((sum, b) => sum + b.placesLeft, 0) }, "waitlist batch open and SIGNUP_OPEN is not on the orchestrator: the batch admits without SIGNUP_DAILY_CEILING. If the api has SIGNUP_OPEN on, set SIGNUP_OPEN and SIGNUP_DAILY_CEILING here to the api's values (docs/DEPLOY.md §4)");
+        for (const batch of batches) await admit(Math.min(batch.placesLeft, ceilingRoom), batch.id);
+        if (perDay > 0) await admit(Math.min(perDay - (await repos.waitlist.admittedSince(tx, since)), ceilingRoom), null);
+        for (const row of rows) {
+          if (!row.newAdmission || !row.userId) continue;
+          const eventId = await writeAccountEvent(tx as unknown as Parameters<typeof writeAccountEvent>[0], { userId: row.userId, type: "account.admitted", actor: { kind: "system", id: "waitlist" }, payload: { how: "waitlist" }, idempotencyKey: "account.admitted" });
+          if (eventId) result.eventIds.push(eventId);
+        }
+        return rows;
+      });
+      const admittedCount = admitted.length;
+      if (admittedCount) result.notes.push(`${admittedCount} admitted from the waitlist`);
+      result.touched += admittedCount;
 
       // (b) The email, for everyone admitted and not told.
       const due = await repos.waitlist.toNotify(deps.db, { since: new Date(now.getTime() - WAITLIST_NOTIFY_LOOKBACK_MS), limit: WAITLIST_NOTIFY_BATCH });

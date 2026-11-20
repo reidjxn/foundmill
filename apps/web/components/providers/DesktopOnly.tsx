@@ -57,6 +57,8 @@ export const SMALL_SCREEN_PREFIXES: readonly string[] = [
   // The signed-in index (WP-03 T1): it redirects, or renders in place the landing page or the gate's pages (not
   // invited, on the waitlist, the server unreachable), each of which works from 390 px.
   "/start",
+  // The public waitlist page (WP-14 T15).
+  "/waitlist",
 ];
 
 /**
