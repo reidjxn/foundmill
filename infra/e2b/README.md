@@ -33,5 +33,23 @@ Rebuild when the repository changes its Node or pnpm pin (root `Dockerfile`, `pa
 Playwright version (`pnpm-workspace.yaml` catalog). `--cpu-count` and `--memory-mb` are the sandbox's size; raise them
 if dependency installs are still killed. Hobby plans cap sandbox sizes lower than Pro (e2b.dev/pricing).
 
+## CLI-Anything programs
+
+The template also holds [HKUDS/CLI-Anything](https://github.com/HKUDS/CLI-Anything) packages and the programs they drive,
+so the team can make real files (a logo, a document, a clip): `packages/connectors` `cli_inkscape`, `cli_libreoffice`,
+`cli_ffmpeg` and `cli_gimp`, run through `packages/sandbox` `runCliAnything` with egress closed.
+
+| Item | Value |
+| --- | --- |
+| Source | https://github.com/HKUDS/CLI-Anything |
+| Pinned commit | `34f519533bc175d2fe287ab8316b0dd99bb9cc43` (Dockerfile `CLI_ANYTHING_COMMIT`) |
+| License | Apache-2.0 (the repository's `LICENSE`); each package's `setup.py` classifier says MIT, so both are recorded |
+| Packages | `cli-anything-inkscape` 1.0.1, `cli-anything-libreoffice` 1.0.1, `cli-anything-gimp` 1.0.0, installed from the commit's `<program>/agent-harness` folders |
+| Programs | `inkscape` (GPL-2.0-or-later), `libreoffice` (MPL-2.0), `ffmpeg` (LGPL-2.1+/GPL, Debian build), `gimp` (GPL-3.0-or-later): Debian packages, run as separate programs, not linked |
+
+CLI-Hub has no FFmpeg package at this commit (the registry holds `shotcut`, `kdenlive` and `openscreen`, which use it), so
+FFmpeg is installed alone and `cli_ffmpeg` is Foundmill's own typed wrapper. Founder's choice: no evaluation step.
+To upgrade, change `CLI_ANYTHING_COMMIT`, update the table, and rebuild the template.
+
 Nothing in this folder holds a secret. The key is read from the repository secret in the workflow and from Railway by
 the orchestrator; it is never written to a log.

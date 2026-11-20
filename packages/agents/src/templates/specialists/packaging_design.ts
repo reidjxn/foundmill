@@ -1,3 +1,4 @@
+import { grant } from "../../connectors";
 import { defineSpecialistTemplate } from "./_specialist";
 
 export const packagingDesign = defineSpecialistTemplate({
@@ -31,7 +32,7 @@ export const packagingDesign = defineSpecialistTemplate({
       output: "Options: PP airless (recyclable, €0.43), PCR-PP airless (+€0.06, 50% recycled), glass with pump (+€0.31, heavier freight). Recommend PCR-PP. Label checklist EU/UK: 11 items; PAO symbol 12M; responsible person address pending (blocks artwork). Dieline v1 attached.",
     },
   ],
-  connectors: [],
+  connectors: [grant("cli_inkscape", ["vector.make", "files.release"]), grant("cli_gimp", ["images.make", "files.release"])],
   craftSkills: ["structural_design", "artwork_specification", "material_selection", "print_production"],
   neverDoes: ["approve artwork with missing mandatory content", "order packaging or proofs", "assume material compatibility", "use brand assets from other products"],
 });
