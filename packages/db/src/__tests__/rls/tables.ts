@@ -150,6 +150,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("credit_lots", s.creditLots, "service", () => ({ amountMinor: 2500, remainingMinor: 2500, purchasedAt: new Date("2026-11-13T00:00:00Z"), expiresAt: new Date("2027-11-13T00:00:00Z") })),
   // 0033 credit top-ups through Stripe Checkout (written by the api and the ingest webhook with the service role)
   spec("billing_checkouts", s.billingCheckouts, "service", () => ({ mode: "mock", amountMinor: 5000, currency: "USD" })),
+  // 0144: a project's place on the Partner waitlist; services write, owners and admins read (WP-14 T14).
+  spec("partner_waitlist", s.partnerWaitlist, "service", (f) => ({ userId: [f.ownerId, f.adminId, f.memberId, f.viewerId][counter() % 4], consentedAt: new Date("2026-11-17T00:00:00Z") })),
   // 0053 saved session recordings (the orchestrator writes them with the service role when a session finishes)
   spec("session_recordings", s.sessionRecordings, "service", (f) => ({ sessionId: f.sessionId, events: [{ id: "1-0", event: { kind: "note", at: "2026-10-12T09:00:00.000Z", level: "info", source: "agent", text: "Started" } }], eventCount: 1, bytes: 90 })),
   // 0010 legal
@@ -189,7 +191,7 @@ export const TENANT_TABLES: TenantTableSpec[] = [
  * generic suite checks a collaborator reads none of their rows and everyone else reads them as before. 0110 adds
  * `task_reports`: what an agent found, which the event walls hide from a collaborator in `task.completed.summary`.
  */
-export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations", "task_reports"];
+export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "partner_waitlist", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations", "task_reports"];
 /**
  * Admin- or service-written tables a collaborator still reads, each for a screen of theirs (0094's header gives the
  * reasons). Named so a change to the list is a decision.
@@ -293,6 +295,8 @@ export const NON_TENANT_TABLES = [
   // anonymous counts, written by services only; covered by rls/page-quizzes.test.ts.
   "page_quizzes",
   "page_quiz_counts",
+  // 0144: what a plan knows about its owner (account-scoped, service role only); covered by rls/owner-plans.test.ts.
+  "owner_plans",
   // 0091: admissions (user-owned, service role only) and invitations (business-scoped, but its token hash and address
   // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
   "account_admissions",

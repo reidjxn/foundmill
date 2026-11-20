@@ -124,3 +124,12 @@ Files that two sessions could both touch have one owner each: `packages/models/s
 **Session 14: domains.** Path B, then Path A on OpenSRS, as above: SendGrid's records, the Sites record, MX to Foundmill's inbound and forwarding to the founder's inbox, DMARC `p=none` at first. Mock-first; the live OpenSRS calls wait for the reseller account (founder) and run through the gateway.
 
 **Session 15: Gmail and Google Calendar as context.** On the existing `gmail` and `google_calendar` connectors, after Session 5b's scope split: the per-project opt-in, reads through the quarantined reader into the agents' context, drafts and events written, sends and invitations asking first. Evals for prompt injection through a mail body.
+
+### The founder's answers of Nov 19, 2026 (late)
+
+- **Resting's numbers are approved:** safety factor 1.5, and a backstop of 50 cents per session past an empty balance (at most $2.00 a month per Try founder, which Foundmill pays). Session 3, WP-14 T1.
+- **One budget per owner, before launch:** a plan's included budget (Founder $10.00, Studio $50.00 a month) is one balance for the owner, shared across all their projects, not one per project. Session 3 builds it with #300.
+- **Project limits per plan are enforced:** Try 1, Founder up to 5, Studio any number, deleted ones not counted (FOUNDMILL.md). One more is refused with a way on (change plan). People are never limited. Session 3.
+- **The morning email drops its streak line** ("Open Today to make it N"), to match the Today streak. Session 12, #336.
+- **The phone app is paused.** Foundmill launches publicly on the web first; the Newly app resumes once launch feedback has shaped the product. Phone-only work (Sign in with Apple, prompt 13B, WP-00 S17) waits until then. The web keeps working from 390 px as FOUNDMILL.md says, and the store-links value stays unset.
+- **OpenSRS:** the founder opens the reseller account on Sunday, Nov 22. Session 14's live calls wait for it.
