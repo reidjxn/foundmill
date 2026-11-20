@@ -23,7 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readMigrations } from "../../migrations";
 import { repos } from "../../repos";
 import * as s from "../../schema";
-import { PUBLIC_PROJECT_PAGE_COLUMNS } from "../../schema";
+import { PUBLIC_EXPLORE_PROJECT_COLUMNS, PUBLIC_PROJECT_PAGE_COLUMNS } from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
 import { createBusinessFixture, RLS_DENIED, type BusinessFixture } from "./fixtures";
 
@@ -559,5 +559,44 @@ describe("project_pages.content_published_at: when the public copy last changed 
     expect(listed.items.find((i) => i.slug === "seo-loaf")).toMatchObject({ story: false });
     // A short page is public and not listed.
     expect(listed.items.map((i) => i.slug)).not.toContain("alpha-candles");
+  });
+});
+
+describe("public_explore_projects: the opt-in gallery (0149)", () => {
+  it("lists a live page only after an owner or an admin opted in, and drops it when it is taken down or opted out", async () => {
+    const D = await createBusinessFixture(h, "page-explore");
+    await commit(D.businessId);
+    await h.service().run((tx) => repos.pages.publish(tx, D.businessId, { content: content({ pitch: "Gallery pitch" }), slug: "explore-page", userId: D.ownerId }));
+    const listed = async () => (await h.service().run((tx) => repos.pages.public.explore(tx, 60))).map((p) => p.slug);
+    // Public is not listed: nothing is in the gallery by default.
+    expect(await listed()).not.toContain("explore-page");
+    // A member and a viewer cannot opt in, on their own page or by writing the column directly.
+    for (const userId of [D.memberId, D.viewerId]) await expectNoEffect(h.asUser(userId).run((tx) => repos.pages.setExplore(tx, D.businessId, true)));
+    expect(await listed()).not.toContain("explore-page");
+    await h.asUser(D.adminId).run((tx) => repos.pages.setExplore(tx, D.businessId, true));
+    const card = (await h.service().run((tx) => repos.pages.public.explore(tx, 60))).find((p) => p.slug === "explore-page");
+    expect(card).toMatchObject({ slug: "explore-page", name: "PAGE-EXPLORE", pitch: "Gallery pitch", stage: "building" });
+    // The opt-in counts only while the page is live; it comes back with the page.
+    await h.asUser(D.ownerId).run((tx) => repos.pages.unpublish(tx, D.businessId, { userId: D.ownerId }));
+    expect(await listed()).not.toContain("explore-page");
+    await h.asUser(D.ownerId).run((tx) => repos.pages.publish(tx, D.businessId, { content: content(), slug: "explore-page", userId: D.ownerId }));
+    expect(await listed()).toContain("explore-page");
+    await h.asUser(D.ownerId).run((tx) => repos.pages.setExplore(tx, D.businessId, false));
+    expect(await listed()).not.toContain("explore-page");
+  });
+
+  it("another business's owner cannot opt a page in, and a page row can't be inserted already listed by a member", async () => {
+    await expectNoEffect(h.asUser(A.ownerId).run((tx) => repos.pages.setExplore(tx, B.businessId, true)));
+    expect(await h.service().run((tx) => repos.pages.public.explore(tx, 60))).not.toContainEqual(expect.objectContaining({ slug: "bravo-page" }));
+    const E = await createBusinessFixture(h, "page-explore-insert");
+    await expect(h.asUser(E.memberId).run((tx) => tx.insert(s.projectPages).values({ businessId: E.businessId, slug: "explore-insert", draft: content(), exploreListed: true }))).rejects.toThrow(/permission denied/);
+  });
+
+  it("exposes exactly the card's seven columns, to the service connection only", async () => {
+    const columns = (await rows<{ column_name: string }>(sql`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'public_explore_projects' order by ordinal_position`)).map((r) => r.column_name);
+    expect(columns).toEqual([...PUBLIC_EXPLORE_PROJECT_COLUMNS]);
+    for (const runner of [h.anon(), h.asUser(outsiderId), h.asUser(B.ownerId)]) await expect(runner.execute(sql`select slug from public_explore_projects`)).rejects.toThrow(/permission denied/);
+    const grants = await rows<{ grantee: string; privilege_type: string }>(sql`select grantee, privilege_type from information_schema.role_table_grants where table_schema = 'public' and table_name = 'public_explore_projects' and grantee <> 'postgres'`);
+    expect(grants).toEqual([{ grantee: "service_role", privilege_type: "SELECT" }]);
   });
 });

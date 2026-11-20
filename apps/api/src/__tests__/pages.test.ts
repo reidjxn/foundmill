@@ -202,6 +202,26 @@ describe("writing and publishing", () => {
   });
 });
 
+describe("the gallery (publicPage.explore; 0149)", () => {
+  it("lists a live page only after an owner or an admin opts in, and a member, a viewer and a sample business cannot", async () => {
+    const b = await project("Gallery Candles");
+    const gallery = async () => (await hz.caller(null).publicPage.explore()).projects.map((p) => p.slug);
+    expect(await code(b.owner.page.setExplore({ businessId: b.id, listed: true }))).toBe("BAD_REQUEST"); // no page saved yet
+    await b.owner.page.publish({ businessId: b.id, content: page() });
+    const slug = (await b.owner.page.get({ businessId: b.id })).slug;
+    expect(await gallery()).not.toContain(slug);
+    for (const who of [b.member, b.viewer]) expect(await code(who.page.setExplore({ businessId: b.id, listed: true }))).toBe("FORBIDDEN");
+    expect((await b.admin.page.setExplore({ businessId: b.id, listed: true })).explore).toBe(true);
+    expect((await hz.caller(null).publicPage.explore()).projects.find((p) => p.slug === slug)).toEqual({
+      slug, name: b.name, pitch: page().pitch, stage: "building", brandPrimary: expect.any(String), brandSecondary: expect.any(String), publishedAt: expect.any(Date),
+    });
+    await b.owner.page.unpublish({ businessId: b.id });
+    expect(await gallery()).not.toContain(slug);
+    const demo = await project("Gallery Sample", { demo: true });
+    expect(await code(demo.owner.page.setExplore({ businessId: demo.id, listed: true }))).toBe("CONFLICT");
+  });
+});
+
 describe("the address", () => {
   it("checks the rule, the reserved words and other projects' addresses, in the founder's words", async () => {
     const a = await project("Address A");
