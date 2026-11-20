@@ -33,5 +33,4 @@ supersedes: []
 - "Share progress card" on Today (needs #303's card and its share control).
 - The `/explore` address is not in the sitemap (the sitemap is Session 5's, and waits on #244's `publicPage.listed`).
 - Cards show no paging: the newest 48 (`shortcut`, in the repo, add a cursor when more are listed).
-- Migration numbers: this takes 0143. #303's 0136 and #244's 0125 need renumbering when they merge, and the view count in
-  `migrations.test.ts` (now 9) goes up by one for #303.
+- Migration number: 0145 (main took 0143 and 0144 while this waited). The view count in `migrations.test.ts` is now 9; #303 adds one.
