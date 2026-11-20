@@ -554,8 +554,11 @@ $$;
 -- Pattern for every business-scoped table T:
 alter table T enable row level security;
 create policy T_select on T for select using (is_member(business_id));
-create policy T_write  on T for all    using (has_role(business_id, array['owner','admin','member']))
+-- One policy per write command, not `for all` (which also answers select; split in 0146):
+create policy T_insert on T for insert with check (has_role(business_id, array['owner','admin','member']));
+create policy T_update on T for update using (has_role(business_id, array['owner','admin','member']))
                                        with check (has_role(business_id, array['owner','admin','member']));
+create policy T_delete on T for delete using (has_role(business_id, array['owner','admin','member']));
 ```
 
 Server-side workers use the service role and MUST go through repository functions in `packages/db/src/repos/*` that take `businessId` as a required first argument and add it to every query. Add a lint rule that forbids raw `db.select()` outside `repos/`.
