@@ -6,8 +6,8 @@
  *
  * Quiet by the founder's decision (WP-04 D5, 2026-11-16): "Hide on day one, the streak appears from the second day. Also
  * make the streak less prominent on the page in general." So it is one small line, not a panel; it shows only the days
- * the founder came (never a day missed) and never warns that the streak is about to end. Today draws it from the
- * project's second day, under the goal, the week and Since you were last here.
+ * the founder came (never a day missed) and never warns that the streak is about to end (confirmed by the founder, Nov 19,
+ * 2026, WP-10 decision 6). Today draws it from the project's second day, under the goal, the week and Since you were last here.
  */
 import { Flame } from "lucide-react";
 import { cn } from "../../lib/cn";

@@ -101,7 +101,7 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
     expect(departmentTabs({ moduleKeys: ["development"], tabSlugs: ["plan", "nope"] }).map((t) => t.slug)).toEqual(["plan"]);
   });
 
-  it("every seed has the base outline; the first cycle starts groundwork only (open questions, finance, legal), never a channel or code task (founder, 2026-10-18)", () => {
+  it("every seed has the base outline; the first round of work starts groundwork only (open questions, finance, legal), never a channel or code task (founder, 2026-10-18)", () => {
     for (const seed of ARCHETYPE_SEED_LIST) {
       for (const s of ["Problem", "Customers", "Value proposition", "Pricing", "Metrics", "Risks"]) expect(seed.specOutline, seed.archetype).toContain(s);
       const kinds = seed.firstCycleTasks.map((t) => t.kind);

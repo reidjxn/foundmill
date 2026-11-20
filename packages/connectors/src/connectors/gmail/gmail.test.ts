@@ -20,6 +20,9 @@ describeConnectorContract("gmail (mock)", {
     { tool: "send_message", args: { to: ["not-an-email"], subject: "Hi", text: "x" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
     { tool: "create_draft", args: { to: ["someone@example.com"], subject: "Draft", text: "For review" } },
     { tool: "list_labels", args: {} },
+    { tool: "list_drafts", args: {}, check: (r) => expect(isUntrusted(r.data) && (r.data.content as { items: { draftId: string }[] }).items.map((i) => i.draftId)).toContain("r18f1a0005") },
+    { tool: "get_draft", args: { draftId: "r18f1a0005" }, check: (r) => expect(isUntrusted(r.data) && r.data.content).toMatchObject({ draftId: "r18f1a0005", subject: "Call on Thursday?" }) },
+    { tool: "get_draft", args: { draftId: "r18f1a0001" }, expectOk: false },
   ],
 });
 

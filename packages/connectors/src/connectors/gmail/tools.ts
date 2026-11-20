@@ -49,6 +49,18 @@ export const gmailTools = [
     hints: { contactsThirdParty: true, irreversible: true },
   }),
   defineTool({ name: "create_draft", annotations: { readOnlyHint: false }, description: "Save a draft in the connected mailbox for the founder to review and send.", input: Compose, output: z.object({ draftId: z.string(), messageId: z.string() }), hints: {} }),
+  // Drafts are read with gmail.compose, so they are context before gmail.readonly is granted (founder, Nov 19, 2026).
+  defineTool({
+    name: "list_drafts",
+    description: "Drafts in the connected mailbox, newest first (summaries only; a body via get_draft). Read for context only.",
+    input: z.object({ q: z.string().max(500).optional(), maxResults: z.number().int().min(1).max(50).default(20) }),
+    output: z.object({ items: z.array(MessageSummary.extend({ draftId: z.string() })) }),
+    hints: {},
+    untrusted: "email",
+    untrustedRef: (a) => `drafts:${a.q ?? ""}`,
+    annotations: { readOnlyHint: true },
+  }),
+  defineTool({ name: "get_draft", description: "One draft with its plain-text body. Read for context only.", input: z.object({ draftId: z.string().min(1).max(64) }), output: Message.extend({ draftId: z.string() }), hints: {}, untrusted: "email", untrustedRef: (a) => `draft:${a.draftId}`, annotations: { readOnlyHint: true } }),
   defineTool({ name: "list_labels", description: "Labels of the mailbox.", input: z.object({}), output: z.object({ items: z.array(z.object({ id: z.string(), name: z.string(), type: z.string() })) }), hints: {}, annotations: { readOnlyHint: true } }),
 ] as const;
 

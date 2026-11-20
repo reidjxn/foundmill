@@ -162,8 +162,13 @@ export interface ToolContext {
 
 /** What the gateway hands `platform_mail.send_mail` (see `ToolContext.platformMail`). */
 export interface PlatformMailEnvelope {
-  /** `<local part>@<PLATFORM_MAIL_DOMAIN>` and `<project name> via <APP_NAME>`. Also the Reply-To: replies come back into Foundmill. */
+  /** `<local part>@<PLATFORM_MAIL_DOMAIN>` (or the project's own verified domain) and `<project name> via <APP_NAME>`. Also the Reply-To unless `replyTo` is set. */
   from: { email: string; name: string };
+  /**
+   * Where replies go when `from` is the project's own domain (`project_domains`, verified): the project's Foundmill
+   * address, so replies still come back into Foundmill. Absent: replies go to `from`.
+   */
+  replyTo?: { email: string; name: string };
   /** The project's name as the footer says it ("Sent by <it> with <APP_NAME>"); never one containing APP_NAME. */
   projectName: string;
   /** The gateway's id for this message (uuid), signed into `customArgs`. */

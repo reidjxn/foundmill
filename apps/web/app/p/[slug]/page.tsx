@@ -24,10 +24,12 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
 import { ProjectPage } from "@foundmill/dugout";
-import { builtOnWords, pageDescription, pageTitle } from "@foundmill/shared/project-page";
+import { projectPageJsonLd } from "@foundmill/shared/page-structured-data";
+import { builtOnWords, pageDescription, pagePath, pageTitle } from "@foundmill/shared/project-page";
 import { storyPath } from "@foundmill/shared/project-story";
 import { withVia } from "@foundmill/shared/via";
 import { FollowProjectForm } from "@/components/public/FollowProjectForm";
+import { JsonLd } from "@/components/public/JsonLd";
 import { PostVisitBeacon } from "@/components/public/PostVisitBeacon";
 import { PageQuizForm } from "@/components/public/PageQuizForm";
 import { getServerAuth } from "@/lib/auth/server";
@@ -47,10 +49,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: { absolute: title },
     description,
-    alternates: { canonical: page.url },
-    openGraph: { title, description, url: page.url, siteName: APP_NAME, type: "website" },
+    alternates: { canonical: page.url, types: { "text/markdown": `${pagePath(page.slug)}/index.md` } },
+    openGraph: { title, description, url: page.url, siteName: APP_NAME, type: "website", locale: "en_US" },
     twitter: { card: "summary_large_image", title, description },
-    robots: { index: true, follow: true },
+    // Public to anyone with the link; listed for search engines only once it says enough (`pageIsListed`, WP-08 T7).
+    robots: { index: page.listed, follow: true, googleBot: { index: page.listed, follow: true, "max-image-preview": "large", "max-snippet": -1 } },
   };
 }
 
@@ -69,6 +72,7 @@ export default async function PublicProjectPageRoute({ params }: Props) {
   });
   return (
     <>
+      <JsonLd data={projectPageJsonLd(page, { origin: new URL(page.url).origin, appName: APP_NAME })} />
       <PostVisitBeacon />
       <ProjectPage
         name={page.name}

@@ -166,7 +166,7 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
   } catch (err) {
     // A failed planning call or a database outage mid-dispatch: close the cycle as failed and tell the founder, instead
     // of leaving Continue stuck on "processing" with nothing in the Inbox (audit O-07).
-    const reason = isCancellation(err) ? "the cycle was canceled" : failureMessage(err);
+    const reason = isCancellation(err) ? "the round of work was canceled" : failureMessage(err);
     await CancellationScope.nonCancellable(() =>
       acts.failCycle({
         businessId: input.businessId,
@@ -250,7 +250,7 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         const s = pending[i]!;
         const blocker = canStart(s);
         if (blocker === "budget") {
-          skipped.push({ taskId: s.taskId, reason: "budget exhausted for this cycle" });
+          skipped.push({ taskId: s.taskId, reason: "budget exhausted for this round of work" });
           pending.splice(i, 1);
           continue;
         }

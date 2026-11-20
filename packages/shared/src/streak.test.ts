@@ -27,9 +27,9 @@ describe("dailyStreak", () => {
 });
 
 describe("streakWords", () => {
-  it("says what to do, in US English", () => {
+  it("says what to do, in US English, and never warns that the streak may end (Nov 19, 2026)", () => {
     const cases = [dailyStreak(facts([])), dailyStreak(facts(["2026-11-11"])), dailyStreak(facts(["2026-11-10", "2026-11-11", "2026-11-12"])), dailyStreak(facts(["2026-11-12"]))];
-    expect(streakWords(cases[1]!)).toEqual({ headline: "1 day in a row", line: "Open your business today to make it 2 days." });
+    expect(streakWords(cases[1]!)).toEqual({ headline: "1 day in a row", line: "Your best yet. Come back tomorrow to keep it going." });
     expect(streakWords(cases[2]!).line).toBe("You reached 3 days today. Your best yet.");
     for (const c of cases) {
       const w = streakWords(c);

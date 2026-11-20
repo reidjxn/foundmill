@@ -53,7 +53,7 @@ export function startedSummary(f: ContinueSummaryFacts): ContinueSummary {
   if (f.readyTasks > 0) {
     return {
       kind: "started",
-      headline: `Cycle ${f.cycleNumber} started: ${tasks(f.readyTasks)} ready to build`,
+      headline: `Round of work ${f.cycleNumber} started: ${tasks(f.readyTasks)} ready to build`,
       plainHeadline: `The next round of work started: ${tasks(f.readyTasks)} ready to build`,
       detail: `The team is at work. What they finish and what they need from you come back as notes in the Inbox.${after}`,
       readyTasks: f.readyTasks,
@@ -63,7 +63,7 @@ export function startedSummary(f: ContinueSummaryFacts): ContinueSummary {
   }
   return {
     kind: "nothing_ready",
-    headline: `Cycle ${f.cycleNumber} started: nothing is ready to build yet`,
+    headline: `Round of work ${f.cycleNumber} started: nothing is ready to build yet`,
     plainHeadline: "The next round of work started: nothing is ready to build yet",
     detail: `${nothingReadyDetail(f.stage)}${after}`,
     readyTasks: 0,
@@ -89,7 +89,7 @@ export function resumedSummary(f: ContinueSummaryFacts & { resumedTasks: number 
   const after = f.run ? ` ${RUN_UNTIL_DONE}` : "";
   return {
     kind: "resumed",
-    headline: `Cycle ${f.cycleNumber} resumed`,
+    headline: `Round of work ${f.cycleNumber} resumed`,
     plainHeadline: "The round of work resumed",
     detail: `${f.resumedTasks > 0 ? `${tasks(f.resumedTasks)} pick${f.resumedTasks === 1 ? "s" : ""} up where ${f.resumedTasks === 1 ? "it" : "they"} stopped.` : "Paused tasks pick up where they stopped."}${after}`,
     readyTasks: f.readyTasks,
@@ -101,7 +101,7 @@ export function resumedSummary(f: ContinueSummaryFacts & { resumedTasks: number 
 export function alreadyRunningSummary(f: ContinueSummaryFacts): ContinueSummary {
   return {
     kind: "already_running",
-    headline: `Cycle ${f.cycleNumber} is already running`,
+    headline: `Round of work ${f.cycleNumber} is already running`,
     plainHeadline: "A round of work is already running",
     detail: f.run ? `The team is still working. ${RUN_UNTIL_DONE}` : "The team is still working; the strip under the top bar shows where.",
     readyTasks: f.readyTasks,

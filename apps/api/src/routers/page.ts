@@ -27,7 +27,7 @@ import { FOLLOW_EMAIL_MAX, PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PA
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { z } from "zod";
 import { publicCardById, publicStoryBySlug } from "../services/milestones";
-import { followPage, pageView, siteFollowConsent, publicIndexNowKeyFile, publicPageBySlug, publishPage, savePageDraft, setPageSlug, unpublishPage } from "../services/pages";
+import { followPage, pageView, siteFollowConsent, publicIndexNowKeyFile, publicListedPages, publicPageBySlug, publishPage, savePageDraft, setPageSlug, unpublishPage } from "../services/pages";
 import { recordPostVisit } from "../services/post-attribution";
 import { publicProcedure, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
 
@@ -56,6 +56,8 @@ export const pageRouter = router({
 export const publicPageRouter = router({
   bySlug: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => publicPageBySlug(ctx, input.slug)),
   storyBySlug: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => publicStoryBySlug(ctx, input.slug)),
+  /** Listed pages for the sitemap (WP-08 T7): address, last change, story; paged by address. */
+  listed: publicProcedure.input(z.object({ cursor: z.string().max(PAGE_SLUG_MAX).nullish(), limit: z.number().int().min(1).max(5_000).default(5_000) })).query(({ ctx, input }) => publicListedPages(ctx, input)),
   cardById: publicProcedure.input(z.object({ id: z.string().max(80) })).query(({ ctx, input }) => publicCardById(ctx, input.id)),
   indexNowKeyFile: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2), key: z.string().max(128) })).query(({ ctx, input }) => publicIndexNowKeyFile(ctx, input)),
   follow: publicProcedure

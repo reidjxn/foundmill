@@ -48,6 +48,16 @@ export function createGmailConnector(options: LiveConnectorOptions = {}): Connec
           const res = await (await client(ctx)).json<{ id: string; message: { id: string } }>("POST", "/users/me/drafts", { body: { message: { raw: raw(ctx, args), threadId: args.threadId } } });
           return { draftId: res.id, messageId: res.message.id };
         },
+        list_drafts: async ({ q, maxResults }, ctx) => {
+          const http = await client(ctx);
+          const list = await http.json<{ drafts?: { id: string; message: { id: string } }[] }>("GET", "/users/me/drafts", { query: { q, maxResults } });
+          const items = await Promise.all((list.drafts ?? []).map(async (d) => ({ draftId: d.id, ...mapSummary(await http.json<GmailMessage>("GET", `/users/me/messages/${d.message.id}`, { query: { format: "metadata", metadataHeaders: ["From", "To", "Subject", "Date"] } })) })));
+          return { items };
+        },
+        get_draft: async ({ draftId }, ctx) => {
+          const d = await (await client(ctx)).json<{ id: string; message: GmailMessage }>("GET", `/users/me/drafts/${encodeURIComponent(draftId)}`, { query: { format: "full" } });
+          return { draftId: d.id, ...mapMessage(d.message) };
+        },
         list_labels: async (_a, ctx) => ({ items: ((await (await client(ctx)).json<{ labels?: { id: string; name: string; type: string }[] }>("GET", "/users/me/labels")).labels ?? []).map((l) => ({ id: l.id, name: l.name, type: l.type })) }),
       },
       connect: (businessId, input) => googleOAuthConnect(input, deps, { businessId, scopes: (input as { readMail?: unknown } | null)?.readMail === true ? [...GMAIL_SCOPES, GMAIL_READ_SCOPE] : GMAIL_SCOPES, label: "Gmail", newId: uuid, exactScopes: true }),

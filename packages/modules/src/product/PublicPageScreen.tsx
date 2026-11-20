@@ -58,6 +58,8 @@ import {
   pageContentProblems,
   pageSlugProblem,
   pageStateLine,
+  pageIsListed,
+  PAGE_NOT_LISTED_LINE,
   samePageContent,
   type PageFieldErrors,
   type PageHoldReason,
@@ -326,6 +328,8 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
   const founderNames = content?.showFounders ? (data?.preview.founderNames ?? []) : [];
   // "3 people follow this project": a count only, and only once someone does (no nag at zero).
   const followers = followerCountLine(data?.followers ?? 0);
+  // Public and not yet listed for search engines (WP-08 T7): an offer, never a fault.
+  const notListed = Boolean(data?.live && data.published && !pageIsListed({ name: data.preview.name, content: data.published }).listed);
   // Following needs a confirmation email that can really be sent (WP-02 T7); an older api without the field keeps it on.
   const followOpen = data?.followAvailable !== false;
 
@@ -393,6 +397,11 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
                 <span className="t-small text-secondary" data-testid={followOpen ? undefined : "follow-unavailable"}>{followOpen ? PUBLIC_PAGE_WORDS.followFormHint : PUBLIC_PAGE_WORDS.followUnavailable}</span>
               </span>
             </label>
+            {notListed ? (
+              <p className="t-small text-secondary" data-testid="page-not-listed">
+                {PAGE_NOT_LISTED_LINE}
+              </p>
+            ) : null}
             {followers ? (
               <p className="t-body text-primary" data-testid="page-followers">
                 {followers}

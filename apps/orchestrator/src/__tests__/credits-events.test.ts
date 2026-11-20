@@ -28,7 +28,7 @@ describe("credits used up, through the outbox", () => {
     const written = (await repos.events.list(t.db, t.businessId, { limit: 500 })).items.filter((e) => !before.includes(e.id));
     const health = written.filter((e) => e.type === "agent.health_changed");
     expect(health).toHaveLength(booked.credits!.pausedAgents);
-    for (const e of health) expect(e.payload).toMatchObject({ to: "paused", reason: "Credits used up" });
+    for (const e of health) expect(e.payload).toMatchObject({ to: "paused", reason: "Resting: this month's budget is used" });
     const note = written.filter((e) => e.type === "inbox.item_created");
     expect(note).toHaveLength(1);
     expect(note[0]!.payload).toMatchObject({ inboxItemId: booked.credits!.noteId, subject: CREDITS_EXHAUSTED_SUBJECT, blocksContinue: true });

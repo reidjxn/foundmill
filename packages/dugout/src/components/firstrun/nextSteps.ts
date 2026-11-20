@@ -66,18 +66,18 @@ function agents(n: number): string {
 }
 
 /**
- * The line that says a cycle is under way: "Cycle 3 is running · 4 agents at work" (the agents part only when known);
+ * The line that says a round of work is under way: "Round of work 3 is running · 4 agents at work" (the agents part only when known);
  * "The team is working · 4 agents at work" without a number (Builder view off).
  */
 export function cycleRunningLine(cycleNumber: number | null, agentsWorking: number): string {
   // plain-allow: the strip that shows this line (NextStep.tsx StepLabel) renders "Cycle" as a Term.
-  const base = cycleNumber === null ? "The team is working" : `Cycle ${Math.max(1, cycleNumber)} is running`;
+  const base = cycleNumber === null ? "The team is working" : `Round of work ${Math.max(1, cycleNumber)} is running`;
   return agentsWorking > 0 ? `${base} · ${agents(agentsWorking)} at work` : base;
 }
 
 /**
  * The strip's rows for the facts. Day one: three rows that tick off as the facts change (the sign-off notes answered,
- * the first cycle started). Later: one row, the most relevant of "N notes need your answer", "Cycle N is running",
+ * the first cycle started). Later: one row, the most relevant of "N notes need your answer", "Round of work N is running",
  * "N new notes from the team", "Start distribution" and "Nothing waiting · press Continue when ready". A failed first
  * draft outranks everything: the team cannot work without it.
  */

@@ -38,7 +38,7 @@ Write for an engineer agent who has never seen this codebase or this spec. Assum
 3. **Give schema, sign-in and payment changes their own tasks,** each with "ask before changing" in its criteria.
 4. **Write each task in full** (the format is under Output): the goal, the exact files, what it consumes from earlier tasks and what it produces for later ones, the tests by name with the spec's exact values, the worker type and an estimate.
 5. **State interfaces exactly.** Function names, parameters, return types, error values. The agent on Task 3 sees only Task 3, and the "consumes" and "produces" lines are how it learns the names its neighbors use.
-6. **Order the tasks.** Add an edge wherever one task needs another's output. Add an edge between any two tasks that change the same file, so they never run at the same time. Check there is no cycle.
+6. **Order the tasks.** Add an edge wherever one task needs another's output. Add an edge between any two tasks that change the same file, so they never run at the same time. Check there is no round of work.
 7. **Put the test before the code inside every task:** write the failing test, write the code, run the checks, commit.
 8. **Copy the global constraints once, word for word from the spec:** version floors, naming and copy rules, "works at 390 px wide", limits on dependencies. Every task inherits them.
 9. **List what no test covers yet.** Under "Review focus", name up to five inputs or conditions the spec implies but no task's test exercises, most likely first: the same email twice, an empty list, a double click, a slow network. A spec's silence on an input is not permission to break on it. Add a test for each to the task that owns the code.
@@ -125,7 +125,7 @@ Questions for the founder: each thing the spec does not answer
 - Each step lets the assignee write exactly one reasonable thing. No "TBD", no "as needed".
 - Names and types match across tasks. `addEntry` in Task 1 is not `createEntry` in Task 2.
 - Every task has at least one criterion a test can check, and fits in about 4 hours.
-- Tasks that share a file are joined by an edge, and the graph has no cycle.
+- Tasks that share a file are joined by an edge, and the graph has no round of work.
 - Every review-focus line has a test in the task that owns the code.
 - Proportion: if the plan is several times longer than the spec, or is mostly code blocks, replace bodies with signatures and test names.
 - No task contains a requirement the spec does not. Uncertainty is a question, never a hidden choice.

@@ -232,7 +232,7 @@ export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, 
             {taskCount ? (
               <>
                 <span className="tabular-nums">
-                  {taskCount} research task{taskCount === 1 ? "" : "s"} for the next cycles (recruiting, the page, the survey), each ending with your approval before anyone is contacted.
+                  {taskCount} research task{taskCount === 1 ? "" : "s"} for the next rounds of work (recruiting, the page, the survey), each ending with your approval before anyone is contacted.
                 </span>
                 <Button size="sm" variant="ghost" onClick={() => navigate(planHref)}>
                   Open Product › Work list

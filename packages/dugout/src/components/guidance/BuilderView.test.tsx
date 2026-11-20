@@ -187,9 +187,9 @@ describe("engine details with Builder view off", () => {
     expect(scrubberMarkers(events as never, START, true)[0]?.label).toBe("unit, 105 passed, 0 failed");
   });
 
-  it("the first-week checklist says the team is working, without a cycle number", () => {
+  it("the first-week checklist says the team is working, without a round of work number", () => {
     expect(cycleRunningLine(null, 4)).toBe("The team is working · 4 agents at work");
-    expect(cycleRunningLine(3, 0)).toBe("Cycle 3 is running");
+    expect(cycleRunningLine(3, 0)).toBe("Round of work 3 is running");
     const steps = nextStepsFor({ foundationsStatus: "ready", blockingNotes: 0, unreadNotes: 0, cycleRunning: true, cycleNumber: null, agentsWorking: 2, distributionStarted: true, firstCycleDone: true }, { vision: "/v", inboxRespond: "/i", board: "/b" });
     expect(steps[0]?.label).toBe("The team is working · 2 agents at work");
   });

@@ -1,19 +1,21 @@
 /**
- * billing.plan/changeTier/topUp/checkout.status/checkout.completeMock/usage (BUILD §10.5, §11.15). Prices are config
- * (`TIERS`) and may be "TBD"; usage is metered and labeled Estimate. Paying is a hard gate the founder completes
- * personally (services/payments.ts):
+ * billing.plan/changeTier/partner.join/topUp/checkout.status/checkout.completeMock/usage (BUILD §10.5, §11.15). Plans,
+ * prices and what each plan includes are config (`TIERS`, `EARLY_ACCESS_STAGE`: packages/config, WP-14 T14); usage is
+ * metered and labeled Estimate. Paying is a hard gate the founder completes personally (services/payments.ts):
  *   - `topUp` opens a Stripe Checkout session on the platform account through the gateway and returns the page to send
  *     the founder to; credits arrive only when the platform Stripe webhook (apps/ingest) reports the session paid. In
  *     mock mode the page is the Billing tab's simulated checkout, completed with `checkout.completeMock` (labeled; no
  *     money moves), and refused where it would fund live model calls.
- *   - `changeTier` refuses a paid tier while its price is "to be announced" (outside development and test).
+ *   - `changeTier` refuses Founder and Studio while they are not on sale (outside development and test), and never
+ *     opens a checkout: no subscription is charged while sign-up is invite-only.
+ *   - `partner.join` records the owner, the project and consent on the Partner waitlist. Nothing is charged.
  *
  * Credits and platform costs are US dollars (`CREDITS_CURRENCY`, the model price list's currency), whatever the
  * business's own currency: `plan` and `usage` say so (`creditsCurrency`, `usage.currency`), list third-party spend
  * booked in another currency apart, and a top-up is in US dollars only.
  */
-import { CREDIT_PACKS_MINOR, creditPackCreditsMinor, CREDITS_CURRENCY, ENTRY_PLAN, PRICE_TBA_LABEL, TIERS } from "@foundmill/config";
-import { CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, MOCK_TOP_UP_LABEL, periodRange, platformCredits, repos, settleCreditCheckout, waysToContinue } from "@foundmill/db";
+import { CREDIT_PACKS_MINOR, creditPackCreditsMinor, CREDITS_CURRENCY, EARLY_ACCESS_STAGE, ENTRY_PLAN, PARTNER_PLAN, planName, TIERS } from "@foundmill/config";
+import { CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, MOCK_TOP_UP_LABEL, periodOf, periodRange, platformCredits, repos, settleCreditCheckout, waysToContinue } from "@foundmill/db";
 import { AppError, PLAN_TIERS, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { costByDepartment } from "../services/billing-usage";
@@ -54,12 +56,20 @@ export const billingRouter = router({
     const entryFacts = paidEntry(ctx.env) ? { open: await entryPlanOpen(ctx.db, ctx.env, ctx.businessId), mine: await repos.accountPlans.forUser(ctx.db, ctx.userId) } : null;
     return ctx.rls(async (tx) => {
       const period = currentPeriod();
-      const [balance, credits, usage] = await Promise.all([repos.usage.creditBalance(tx, ctx.businessId, period), platformCredits(tx, ctx.business, period), repos.usage.totals(tx, ctx.businessId, periodRange(period))]);
+      const [balance, credits, usage, partner] = await Promise.all([repos.usage.creditBalance(tx, ctx.businessId, period), platformCredits(tx, ctx.business, period), repos.usage.totals(tx, ctx.businessId, periodRange(period)), repos.partnerWaitlist.entry(tx, ctx.businessId, ctx.userId)]);
       return {
         tier: ctx.business.planTier,
         modelBilling: ctx.business.modelBilling,
-        tiers: TIERS,
-        priceLabel: PRICE_TBA_LABEL,
+        /** `invite_only` or `open`: what the plans' labels and checks follow (packages/config `EARLY_ACCESS_STAGE`). */
+        stage: EARLY_ACCESS_STAGE,
+        /**
+         * Resting (WP-14 T1): the month's budget is used, or what is left is too little for another task, so nothing
+         * new starts until `until` (the day the budget resets), a top-up or the founder's own key. Null otherwise. A
+         * team waiting at the platform's monthly cap is not resting.
+         */
+        resting: credits.exhausted || (ctx.business.agentsStoppedReason === "credits_exhausted" && ctx.business.agentsStoppedAt !== null && periodOf(ctx.business.agentsStoppedAt) === period) ? { until: periodRange(period).to } : null,
+        /** Whether the caller is on this project's Partner waitlist (an owner or admin reads it; anyone else sees null). */
+        partner: { joinedAt: partner?.createdAt ?? null },
         period,
         /** Every credits amount below is in this currency (USD). */
         creditsCurrency: CREDITS_CURRENCY,
@@ -104,11 +114,24 @@ export const billingRouter = router({
   changeTier: ownerProcedure.input(z.object({ tier: z.enum(PLAN_TIERS) })).mutation(({ ctx, input }) => {
     assertTierAvailable(ctx.env, input.tier);
     return ctx.rls(async (tx) => {
-      if (input.tier === ctx.business.planTier) throw new ValidationError(`Already on the ${input.tier} tier`);
+      if (input.tier === ctx.business.planTier) throw new ValidationError(`Already on ${planName(input.tier)}`);
       const business = await repos.businesses.update(tx, ctx.businessId, { planTier: input.tier });
       await audit(tx, ctx, { action: "billing.change_tier", target: { kind: "business", id: ctx.businessId }, details: { from: ctx.business.planTier, to: input.tier } });
       return business;
     });
+  }),
+
+  partner: router({
+    /**
+     * "Join the Partner waitlist": records the owner, the project and their consent to be contacted about the plan, once.
+     * Nothing is charged and nothing is promised: reviews begin once the plan opens.
+     */
+    join: ownerProcedure.input(z.object({ consent: z.literal(true) })).mutation(async ({ ctx }) => {
+      // partner_waitlist is service-written; the owner check already ran. The audit row is the founder's own.
+      const { entry, created } = await repos.partnerWaitlist.join(ctx.db, ctx.businessId, { userId: ctx.userId });
+      if (created) await ctx.rls((tx) => audit(tx, ctx, { action: "billing.partner_waitlist_joined", target: { kind: "business", id: ctx.businessId }, details: { plan: PARTNER_PLAN.name } }));
+      return { joinedAt: entry.createdAt, created };
+    }),
   }),
 
   /** Opens a checkout for a credit top-up and returns the page to send the founder to (nothing is granted here). */

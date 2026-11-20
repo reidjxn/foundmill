@@ -40,4 +40,5 @@ export * from "./task-reports";
 export * from "./reports";
 export * from "./sites";
 export * from "./pay-links";
+export * from "./plans";
 export * from "./updates";
