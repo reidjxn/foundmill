@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowLeft, Dices, Fan, Globe, Lock, Medal, Scale, ShieldCheck, Users } from "lucide-react";
 import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
-import { AssuranceList, Button, Icon, IdeaCard, IdeaNextSteps, ProjectPage, ScreenFrame, cn, formatMoney, isViewportTooSmall, useViewportWidth, type Assurance, type IdeaCardData } from "@foundmill/dugout";
+import { AssuranceList, Button, Icon, IdeaCard, IdeaNextSteps, ProjectPage, cn, formatMoney, isViewportTooSmall, useViewportWidth, type Assurance, type IdeaCardData } from "@foundmill/dugout";
 import { IDEA_BUTTON } from "../flags";
 import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_BOX_INTERESTS, IDEA_BOX_PROMPT_MAX, IDEA_BOX_PROMPT_MIN, IDEA_CLAIM_PARAM, type IdeaBoxEvent, type IdeaBoxInterest } from "@foundmill/shared";
 import { KEEP_THEN_PARAM, KEEP_THEN_STUDIO, NEXT_PARAM } from "@/lib/auth/constants";
@@ -391,9 +391,9 @@ export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEH
           {phase === "landed" && card.name && card.pitch ? (
             <div className="mt-6 flex flex-col gap-3" data-testid="idea-page-preview">
               <p className="t-landing-small text-secondary">{IDEA_BOX_WORDS.previewNote}</p>
-              <ScreenFrame label={IDEA_BOX_WORDS.previewLabel} className="mx-auto w-phone max-w-full">
+              <div inert className="mx-auto w-phone max-w-full overflow-hidden rounded-md border border-line-strong" role="group" aria-label={IDEA_BOX_WORDS.previewLabel}>
                 <ProjectPage variant="preview" titleLevel={3} mark="none" stage="idea" name={card.name} pitch={card.pitch} about="" brandPrimary={DEFAULT_KIT.primary} brandSecondary={DEFAULT_KIT.secondary} />
-              </ScreenFrame>
+              </div>
             </div>
           ) : null}
         </div>
