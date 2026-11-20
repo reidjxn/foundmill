@@ -47,7 +47,7 @@ export const operationsLead = defineTemplate({
     grant("platform", [...PLATFORM_LEAD_TOOLS, "crm.entities.search"]),
     grant("quarantine", QUARANTINE_TOOLS),
     grant("google_drive", ["files.list", "files.read", "files.write"]),
-    grant("gmail", ["drafts.create", "threads.read"]),
+    grant("gmail", ["drafts.create", "drafts.read", "threads.read"]),
   ],
   skills: withCoreSkills(["process_design", "vendor_coordination", "quality_oversight", "capacity_planning"]),
   autonomy: AUTONOMY_INHERIT,

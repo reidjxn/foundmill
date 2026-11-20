@@ -16,6 +16,58 @@ test.describe("billing", () => {
     await openBusiness(page);
   });
 
+  test("Billing lists four plans by name with labels true of the stage; choosing a plan and going back are one press each (WP-14 T14)", async ({ page }) => {
+    const screen = await openSettings(page, "billing");
+    const plans = screen.getByTestId("plans");
+    await expect(plans.locator("[data-tier]")).toHaveCount(4, { timeout: LONG });
+    for (const [tier, name] of [["free", "Try"], ["pro", "Founder"], ["scale", "Studio"], ["partner", "Partner"]] as const) await expect(plans.locator(`[data-tier=${tier}]`)).toContainText(name);
+    // While sign-up is invite-only every plan that can be held reads the same, and nothing says it stays free.
+    for (const tier of ["free", "pro", "scale"]) await expect(plans.locator(`[data-tier=${tier}]`).getByTestId("plan-price")).toHaveText("Free while in early access");
+    await expect(screen).toContainText("Free while in early access. Founders invited now keep it free for good.");
+    await expect(screen).not.toContainText(/Price to be announced|to be announced|always free|free forever|\bseats?\b/i);
+    // What each plan holds and adds, from config.
+    await expect(plans.locator("[data-tier=free]")).toContainText("1 project");
+    await expect(plans.locator("[data-tier=pro]")).toContainText("Up to 5 projects");
+    await expect(plans.locator("[data-tier=pro]")).toContainText("$10.00 of credits a month");
+    await expect(plans.locator("[data-tier=pro]")).toContainText("Vacation mode, Card sharing, Named agents, The phone Inbox");
+    await expect(plans.locator("[data-tier=scale]")).toContainText("Any number of projects");
+    await expect(plans.locator("[data-tier=scale]")).toContainText("More agents at once");
+    // Partner: by application, its price shows, and its only action is the waitlist. No checkout opens.
+    const partner = plans.locator("[data-tier=partner]");
+    await expect(partner).toContainText("By application");
+    await expect(partner.getByTestId("plan-price")).toHaveText("$250 / month");
+    await expect(partner).toContainText("experienced venture-backed founders and venture capital investors");
+    await expect(partner.getByRole("button", { name: /Choose/ })).toHaveCount(0);
+
+    // Seeded Northwind is on Founder. Going back to Try (canceling) is one press, and so is choosing Founder again:
+    // canceling takes no more steps than subscribing, and neither opens a checkout on this stack.
+    await expect(screen.getByTestId("current-plan")).toContainText("Founder");
+    await plans.locator("[data-tier=free]").getByRole("button", { name: "Choose Try" }).click();
+    await expect(screen.getByTestId("current-plan")).toContainText("Try", { timeout: LONG });
+    await expect(page).not.toHaveURL(/checkout=/);
+    await plans.locator("[data-tier=pro]").getByRole("button", { name: "Choose Founder" }).click();
+    await expect(screen.getByTestId("current-plan")).toContainText("Founder", { timeout: LONG });
+    await expect(page).not.toHaveURL(/checkout=/);
+  });
+
+  test("Join the Partner waitlist needs consent, records it once and charges nothing (WP-14 T14)", async ({ page }) => {
+    const screen = await openSettings(page, "billing", LEDGERLY_BUSINESS_ID);
+    const partner = screen.locator("[data-tier=partner]");
+    await expect(partner).toBeVisible({ timeout: LONG });
+    const join = partner.getByTestId("partner-join");
+    // A retry finds the project already on the list: joining is once.
+    if (await join.isVisible()) {
+      await expect(join).toHaveText("Join the Partner waitlist");
+      await expect(join).toBeDisabled();
+      await partner.getByRole("checkbox", { name: "Agree to be contacted about the Partner plan" }).click();
+      await join.click();
+    }
+    await expect(partner.getByTestId("partner-joined")).toHaveText("On the Partner waitlist", { timeout: LONG });
+    await expect(join).toHaveCount(0);
+    await expect(page).not.toHaveURL(/checkout=/);
+    await expect(screen.getByTestId("checkout-panel")).toHaveCount(0);
+  });
+
   test("Top up opens a mock checkout; completing it adds the credits once, labeled", async ({ page }) => {
     const screen = await openSettings(page, "billing");
     const topUp = screen.getByTestId("top-up");

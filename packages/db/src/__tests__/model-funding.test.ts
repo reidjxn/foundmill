@@ -37,6 +37,28 @@ describe("modelFundingOf (WP-13)", () => {
     expect(await modelFundingOf(h.db, undefined, { ownKeyServed: false })).toBe("free_plan");
   });
 
+  it("from the day sign-up opens a Try project whose owner bought a credit pack of $20 or more reaches every model; before then, and with a smaller or a simulated one, it does not (A16)", async () => {
+    await set("free", "credits");
+    const of = (stage: "invite_only" | "open") => modelFundingOf(h.db, { businessId: A.businessId }, { ownKeyServed: true, stage });
+    const pack = (amountMinor: number, mode: "live" | "mock") =>
+      h.db.execute(sql`insert into billing_checkouts (business_id, kind, status, mode, amount_minor, currency, paid_at) values (${A.businessId}, 'credits', 'paid', ${mode}, ${amountMinor}, 'USD', now())`);
+    const packBy = (userId: string) => h.db.execute(sql`insert into billing_checkouts (business_id, kind, status, mode, amount_minor, currency, paid_at, created_by) values (${A.businessId}, 'credits', 'paid', 'live', 5000, 'USD', now(), ${userId})`);
+    expect(await of("open")).toBe("free_plan");
+    await pack(1000, "live");
+    await pack(5000, "mock");
+    expect(await of("open")).toBe("free_plan");
+    // Only the purchases of the person who took charge count: one with no buyer recorded, or an admin's, does not.
+    await pack(2000, "live");
+    await packBy(A.adminId);
+    expect(await of("open")).toBe("free_plan");
+    await h.db.execute(sql`update billing_checkouts set created_by = ${A.ownerId} where business_id = ${A.businessId} and amount_minor = 2000`);
+    expect(await of("open")).toBe("paid_plan");
+    expect(await of("invite_only")).toBe("free_plan");
+    // The stage the product is in today.
+    expect(await modelFundingOf(h.db, { businessId: A.businessId }, { ownKeyServed: true })).toBe("free_plan");
+    await h.db.execute(sql`delete from billing_checkouts where business_id = ${A.businessId}`);
+  });
+
   it("caches an answer for its TTL and reads again after it", async () => {
     let t = 0;
     const funding = cachedModelFundingOf(h.db, { ownKeyServed: false, ttlMs: 1_000, now: () => t });

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { LIMITS, PRICE_TBA_LABEL } from "@foundmill/config";
+import { LIMITS } from "@foundmill/config";
 import { consequenceText } from "@foundmill/dugout";
 import { BUSINESS_MODES } from "@foundmill/shared/constants";
 import { SETTINGS_TABS } from "@/lib/search";
 import { BUSINESS_MODE_CARDS } from "@/components/new/commit/naming";
 import { AUTOPILOT_CONTINUE_NOTE, AUTOPILOT_HELP } from "../AutopilotSection";
-import { checkoutNotice, includedCreditsFact, periodLabel, tierFacts, tierPriceLabel } from "../BillingTab";
+import { checkoutNotice, includedCreditsFact, periodLabel, tierAddsLine, tierFacts, tierPriceLabel } from "../BillingTab";
 import { timeZoneOptions } from "../BusinessTab";
 import { glossaryRows, rowsToGlossary } from "../GlossaryTab";
 import { connectorDetail, formatSimulateResult, MANAGED_ON_KEYS_TAB, simulateInput, simulateRefusalMessage, SIMULATIONS } from "../IntegrationsTab";
@@ -16,18 +16,26 @@ import { businessModeExample, VACATION_CONSEQUENCE } from "../TeamCanDoTab";
 import { AGENT_LIMIT_MINOR, amountField, answerHandler, answerState, hasOwnAnswer, parseSpendLineDraft, spendLineDraftOf, spendLineSavedTitle } from "../team-can-do-logic";
 
 describe("settings logic", () => {
-  it("renders Price to be announced for TBD tiers and Free for the free tier", () => {
-    expect(tierPriceLabel("free")).toBe("Free");
-    expect(tierPriceLabel("pro")).toBe(PRICE_TBA_LABEL);
-    expect(tierPriceLabel("scale")).toBe(PRICE_TBA_LABEL);
+  it("every plan reads 'Free while in early access' while sign-up is invite-only, and its price from the day it opens (WP-14 T14)", () => {
+    for (const tier of ["free", "pro", "scale"] as const) expect(tierPriceLabel(tier)).toBe("Free while in early access");
+    expect(tierPriceLabel("free", "open")).toBe("$5 / month");
+    expect(tierPriceLabel("pro", "open")).toMatch(/^\$(15|25) \/ month$/);
   });
 
-  it("states each tier's limits and its monthly model credits in US dollars", () => {
-    // No business limit on any plan for now (founder, 2026-10-16); the included credits still cover the plan's pool.
-    expect(tierFacts("free")).toEqual(["Unlimited businesses", "4 agents at once", "As many people as you like", "$5.00 of model credits a month, for 1 business", "Then credits or your key"]);
-    expect(includedCreditsFact("pro")).toBe("Monthly credits to be announced (at least $5.00), for 3 businesses");
-    expect(includedCreditsFact("scale")).toBe("Monthly credits to be announced (at least $5.00), for every business");
-    expect(tierFacts("scale")[0]).toBe("Unlimited businesses");
+  it("states each plan's projects, agents, people, credits and models; a plan limits projects, never people", () => {
+    expect(tierFacts("free")).toEqual(["1 project", "4 agents at once", "As many people as you like", "$5.00 of credits a month", "Opus and Sonnet on your own Anthropic key"]);
+    expect(tierFacts("pro")).toEqual(["Up to 5 projects", "4 agents at once", "As many people as you like", "$10.00 of credits a month", "Opus and Sonnet included"]);
+    expect(tierFacts("scale")).toEqual(["Any number of projects", "64 agents at once", "As many people as you like", "$50.00 of credits a month", "Opus and Sonnet included"]);
+    // From the day sign-up opens a credit pack of $20 or more is Try's other way to Opus and Sonnet; the own key stays.
+    expect(tierFacts("free", "open")[4]).toBe("Opus and Sonnet with a credit pack of $20 or more, or your own Anthropic key");
+    expect(includedCreditsFact("pro")).toBe("$10.00 of credits a month");
+    for (const tier of ["free", "pro", "scale"] as const) expect(tierFacts(tier).join(" ")).not.toMatch(/seat|to be announced|TBD/i);
+  });
+
+  it("lists what each plan adds from the one table in config", () => {
+    expect(tierAddsLine("free")).toBeNull();
+    expect(tierAddsLine("pro")).toBe("Everything in Try, and: Vacation mode, Card sharing, Named agents, The phone Inbox");
+    expect(tierAddsLine("scale")).toBe("Everything in Founder, and: More agents at once");
   });
 
   it("says where a credit checkout stands, in dollars, and labels a simulated one", () => {

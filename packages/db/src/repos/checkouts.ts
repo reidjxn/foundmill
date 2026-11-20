@@ -9,7 +9,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { BILLING_CHECKOUT_KINDS, BILLING_CHECKOUT_MODES, BILLING_CHECKOUT_RESUME, billingCheckouts, type BillingCheckout } from "../schema";
-import { Id, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
+import { Id, maybeOne, MinorAmount, one, parseInput, rowsOf, type Executor } from "./_shared";
 
 export const CreateCheckoutInput = z.object({
   mode: z.enum(BILLING_CHECKOUT_MODES),
@@ -104,6 +104,22 @@ export const checkoutsRepo = {
       .from(billingCheckouts)
       .where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.mode, "mock"), eq(billingCheckouts.status, "paid"), eq(billingCheckouts.grantedPeriod, period)));
     return Number(row?.total ?? 0);
+  },
+
+  /**
+   * Whether the person who took charge of `businessId` has themselves bought a credit pack of `minMinor` US cents or more
+   * with a real payment, on any project they took charge of (#274, WP-14 A16: from the day sign-up opens such a pack opens
+   * Opus and Sonnet to a Try project). Only that person's own purchases count: a pack a cofounder bought on another of
+   * their projects does not. A simulated payment never counts.
+   */
+  async ownerHasPack(db: Executor, businessId: string, minMinor: number): Promise<boolean> {
+    const result = await db.execute(sql`
+      select 1 from billing_checkouts c join businesses b on b.id = c.business_id
+        join businesses own on own.id = ${businessId}
+       where c.status = 'paid' and c.mode = 'live' and c.amount_minor >= ${minMinor}
+         and own.created_by is not null and b.created_by = own.created_by and c.created_by = own.created_by
+       limit 1`);
+    return rowsOf(result).length > 0;
   },
 
   /** The row, locked until the caller's transaction ends (settlement reads and writes it once). */

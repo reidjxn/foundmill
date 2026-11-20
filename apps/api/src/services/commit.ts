@@ -25,7 +25,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { DEPARTMENT_DEFAULTS, departmentTabs, firstCycleTasksFor, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
-import { CREDITS_CURRENCY, firstCycleInput, initialModelBilling } from "@foundmill/config";
+import { CREDITS_CURRENCY, EARLY_ACCESS_STAGE, firstCycleInput, initialModelBilling } from "@foundmill/config";
 
 /** Wage caps are model credits, counted in the credits' own currency whatever the business counts in. */
 const WAGE_CURRENCY = CREDITS_CURRENCY;
@@ -210,10 +210,14 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Claim the idea before anything is created. Of two concurrent commits only one gets past this line; the other has
     // waited for the winner's row lock, finds the idea committed and creates nothing (answered below).
     if (!(await repos.ideas.claimForCommit(tx, userId, input.ideaId))) return null;
-    // Tier limits (BUILD §10.5): no business limit on any plan for now (founder, 2026-10-16); the check stays so one can
-    // return (TierLimitError past it, which the Commit screen turns into an upgrade prompt). A new business starts on the
-    // free tier; its included credits come from the founder's monthly pool (SEC2 S6, billing.ts `includedCreditsFor`).
+    // Plan limits (WP-14 T14, A14): Try 1 project, Founder up to 5, Studio any number, from the day sign-up opens; none
+    // while it is invite-only (TierLimitError past the limit, which the Commit screen turns into a change-plan prompt).
+    // A new business starts on the entry plan; its included credits come from the founder's monthly pool (SEC2 S6,
+    // billing.ts `includedCreditsFor`).
     await assertBusinessAllowance(tx, userId);
+    // A12: a person who takes charge while sign-up is invite-only is marked, with the day they joined, as never billed
+    // the Founder fee. Kept once set; the opening step marks everyone else from before (docs/DEPLOY.md §4).
+    if (EARLY_ACCESS_STAGE === "invite_only") await repos.ownerPlans.markInvited(tx, userId);
     const planTier = "free" as const;
     const modelBilling = initialModelBilling(planTier);
     const business = await repos.businesses.create(tx, {
