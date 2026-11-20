@@ -16,7 +16,7 @@ begin
                 and x.policyname in (p.tablename || '_insert', p.tablename || '_update', p.tablename || '_delete')) then
       raise exception 'split write policies: % already has a per-command policy', p.tablename;
     end if;
-    if not exists (select 1 from pg_policies x where x.schemaname = 'public' and x.tablename = p.tablename and x.cmd = 'SELECT') then
+    if not exists (select 1 from pg_policies x where x.schemaname = 'public' and x.tablename = p.tablename and x.cmd = 'SELECT' and x.permissive = 'PERMISSIVE' and x.roles && p.roles) then
       raise exception 'split write policies: % has no select policy; writers would lose reads', p.tablename;
     end if;
     r := array_to_string(p.roles, ', ');
