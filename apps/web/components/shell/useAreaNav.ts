@@ -12,9 +12,9 @@ import { useBusiness } from "./business-context";
 
 /** Every area's tabs for the signed-in person (walled departments and a walled CRM left out). */
 export function useAreaNav(): Map<AreaKey, AreaTab[]> {
-  const { businessId, departments, access } = useBusiness();
+  const { businessId, departments, access, data } = useBusiness();
   const builder = useBuilderViewPreference().on;
-  return useMemo(() => areaNav({ businessId, departments, access, builder }), [businessId, departments, access, builder]);
+  return useMemo(() => areaNav({ businessId, departments, access, builder, stage: data.stageFacts }), [businessId, departments, access, builder, data.stageFacts]);
 }
 
 /** The tab bar of a fixed surface inside an area (Milestones in Plan, Contacts in Customers), or undefined without one. */

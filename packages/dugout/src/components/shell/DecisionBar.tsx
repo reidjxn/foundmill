@@ -73,7 +73,7 @@ export interface DecisionBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "
   sticky?: boolean;
   /** Extra content: the expiry beside "Your decision" when `deadline` is not given, otherwise a line after the options. */
   note?: ReactNode;
-  /** The deadline beside "Your decision" ("Expires in 5 days"). */
+  /** The deadline beside "Your decision" ("If you do nothing by Nov 20, Juno waits."). */
   deadline?: ReactNode;
   /** The data label on the left (default "Your decision"). */
   heading?: ReactNode;

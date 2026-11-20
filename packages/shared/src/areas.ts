@@ -113,9 +113,47 @@ export interface AreaTab {
   fixed: AreaFixedTab | null;
 }
 
+/** What a project has done so far; `business.get` reads it, and a tab shows once its moment has arrived (WP-10 T1). */
+export interface StageFacts {
+  pageLive: boolean;
+  distributionStarted: boolean;
+  roundCompleted: boolean;
+  bankConnected: boolean;
+  firstPayment: boolean;
+  entityExists: boolean;
+  /** Active memberships, the example membership excluded. */
+  people: number;
+}
+export type TabReveal = (f: StageFacts) => boolean;
+
+const paidOrTogether: TabReveal = (f) => f.firstPayment || f.people > 1;
+const moneyIn: TabReveal = (f) => f.bankConnected || f.firstPayment;
+const started: TabReveal = (f) => f.distributionStarted;
+const round: TabReveal = (f) => f.roundCompleted;
+const entity: TabReveal = (f) => f.entityExists;
+
+/** When a tab appears for a project that is not in Builder view. A tab with no rule always shows. */
+export const TAB_REVEAL: Partial<Record<ModuleKey, Readonly<Record<string, TabReveal>>>> = {
+  distribution: { formation: (f) => f.pageLive || f.distributionStarted, leads: started, campaigns: started, channels: started, creative: started, attribution: started },
+  finance: { overview: moneyIn, pnl: moneyIn, cash: moneyIn, runway: moneyIn, "wage-bill": round, "cap-table": paidOrTogether },
+  legal: { incorporate: paidOrTogether, entity, compliance: entity, contracts: entity, ip: entity, policies: entity, regulatory: entity },
+  development: { "training-ground": round, plan: round, "pull-requests": round, environments: round, specialists: round },
+};
+
+/** Team call appears after the first round of work. */
+export const TEAM_CALL_REVEAL: TabReveal = (f) => f.roundCompleted;
+
+/** Whether a tab shows at this stage: true with no stage or no rule. */
+export function tabRevealed(moduleKey: ModuleKey | null, slug: string, stage: StageFacts | undefined): boolean {
+  if (!stage || !moduleKey) return true;
+  return TAB_REVEAL[moduleKey]?.[slug]?.(stage) ?? true;
+}
+
 export interface AreaTabsOptions {
   /** Builder view on: every tab inline, Builder view's tabs included. */
   builder: boolean;
+  /** What the project has done; a tab appears when its moment has arrived. Ignored in Builder view. */
+  stage?: StageFacts;
   /** Whether this person may open a department (walled departments are left out). Default: every department. */
   canOpen?: (d: AreaDepartment) => boolean;
   /** Which fixed surfaces this person may open. Default: both. */
@@ -135,7 +173,7 @@ export function areaTabsByArea(departments: readonly AreaDepartment[], opts: Are
   for (const d of ordered(departments)) {
     if (!departmentArea(d.moduleKeys)) continue;
     if (opts.canOpen && !opts.canOpen(d)) continue;
-    const tabs = visibleTabs({ moduleKeys: d.moduleKeys, tabs: d.tabs }, opts.builder);
+    const tabs = visibleTabs({ moduleKeys: d.moduleKeys, tabs: d.tabs }, opts.builder).filter((t) => opts.builder || tabRevealed(tabModule(d.moduleKeys, t.slug), t.slug, opts.stage));
     const rows = tabs.map((t) => {
       const tier = tabTier(d.moduleKeys, t.slug);
       return { t, tier: opts.builder || tier === "default" ? ("default" as const) : ("detail" as const) };

@@ -82,6 +82,8 @@ export interface RunwayChipProps {
   estimate?: boolean;
   onClick?: () => void;
   className?: string;
+  /** Draws the date alone: no runway words, no tag. A project with no bank and no payment has no runway to talk about (WP-10 T2). */
+  dateOnly?: boolean;
 }
 
 const TONE_TEXT: Record<RunwayTone, string> = { neutral: "", warn: "text-status-warn", bad: "text-status-bad" };
@@ -107,7 +109,7 @@ export function runwayTooltipLines(input: { runwayMonths: number | null | undefi
  * the widest top-bar step ("Not known yet · connect a bank") and the whole reason in the tooltip, whose first line says
  * what runway is; never a bare dash.
  */
-export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, onClick, className }: RunwayChipProps) {
+export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, onClick, className, dateOnly = false }: RunwayChipProps) {
   const tone = runwayTone(runwayMonths);
   const runway = formatRunway(runwayMonths);
   const known = isRunwayFigure(runwayMonths);
@@ -130,6 +132,21 @@ export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, o
       ))}
     </span>
   );
+  if (dateOnly) {
+    if (!hasDate) return null;
+    return (
+      <span role="group" aria-label={dateText} data-chip="" className={cn("kitbar-glass", className)}>
+        <span className="kitbar-date">
+          <Icon icon={Calendar} size="inline" />
+          <span className="tabular-nums" data-testid="kitbar-date">
+            {parts?.lead ? <span className="kitbar-year">{parts.lead}</span> : null}
+            {parts?.core}
+            {parts?.tail ? <span className="kitbar-year">{parts.tail}</span> : null}
+          </span>
+        </span>
+      </span>
+    );
+  }
   const runwayLabel = known ? `Runway ${runway}${estimate ? ", estimate" : ""}${tone === "bad" ? ", critical" : tone === "warn" ? ", low" : ""}` : `Runway: ${said.value}. ${said.caption}`;
   const label = hasDate ? `${dateText}. ${runwayLabel}` : runwayLabel;
   const content = (
