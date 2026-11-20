@@ -74,6 +74,7 @@ export const teamCallTurns = pgTable(
   },
   (t) => [
     foreignKey({ name: "team_call_turns_call_fkey", columns: [t.callId, t.businessId], foreignColumns: [teamCalls.id, teamCalls.businessId] }).onDelete("cascade"),
+    index("team_call_turns_call_business_idx").on(t.callId, t.businessId),
     unique("team_call_turns_seq_key").on(t.callId, t.seq),
     uniqueIndex("team_call_turns_client_turn_idx").on(t.callId, t.clientTurnId).where(sql`client_turn_id is not null`),
     index("team_call_turns_business_id_idx").on(t.businessId, t.createdAt.desc()),
@@ -110,6 +111,7 @@ export const teamCallActions = pgTable(
   },
   (t) => [
     foreignKey({ name: "team_call_actions_call_fkey", columns: [t.callId, t.businessId], foreignColumns: [teamCalls.id, teamCalls.businessId] }).onDelete("cascade"),
+    index("team_call_actions_call_business_idx").on(t.callId, t.businessId),
     unique("team_call_actions_position_key").on(t.callId, t.position),
     index("team_call_actions_business_id_idx").on(t.businessId, t.status),
     index("team_call_actions_department_id_idx").on(t.departmentId),

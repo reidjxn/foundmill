@@ -209,6 +209,29 @@ export const COLLABORATOR_CLOSED_MONEY_LEGAL: readonly string[] = ["transactions
  */
 export const COLLABORATOR_READS_THROUGH_VIEW: readonly string[] = ["conversions"];
 
+/**
+ * Tables with RLS on and no policy: only the service role reads or writes them, on purpose (the advisor's lint 0008,
+ * "RLS enabled, no policy"). rls/advisors.test.ts fails when a table joins or leaves this list without an edit here.
+ */
+export const SERVICE_ONLY_TABLES: readonly string[] = [
+  "account_admissions", // 0091
+  "account_usage", // 0138
+  "account_outbox", // 0085
+  "attributions", // 0088
+  "credentials", // 0011
+  "founder_cancel_links", // 0097
+  "idea_drafts", // 0086
+  "waitlist_entries", // 0086
+  "person_handle_releases", // 0080
+  "owner_plans", // 0144
+  "persona_portraits", // 0067
+  "project_update_deliveries", // 0134
+  "reports", // 0136
+  "site_address_holds", // 0130
+  "platform_metric_days", // 0109
+  "retired_mail_local_parts", // 0078
+];
+
 /** Keeps the catalogue honest: every spec must name the table its Drizzle object points at. */
 export const expectedTableNames = () => TENANT_TABLES.map((t) => t.name);
 

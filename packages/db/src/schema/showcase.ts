@@ -103,7 +103,7 @@ export const showcaseConsents = pgTable(
     unique("showcase_consents_request_user_key").on(t.requestId, t.userId),
     index("showcase_consents_business_id_idx").on(t.businessId, t.createdAt.desc()),
     index("showcase_consents_user_id_idx").on(t.userId, t.businessId),
-    index("showcase_consents_inbox_item_id_idx").on(t.inboxItemId),
+    index("showcase_consents_item_business_idx").on(t.inboxItemId, t.businessId),
   ],
 );
 export type ShowcaseConsent = typeof showcaseConsents.$inferSelect;
