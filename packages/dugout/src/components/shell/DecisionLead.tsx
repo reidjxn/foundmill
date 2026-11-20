@@ -10,6 +10,9 @@ import { cn } from "../../lib/cn";
 import { Button } from "../foundation/Button";
 import { costText, type DecisionOption } from "./DecisionBar";
 
+/** Finger-sized on a phone (Needs you works from 390 px), the normal size on the desktop console. */
+const TAP = "in-data-[phone]:min-h-tap";
+
 export interface DecisionLeadProps extends Omit<HTMLAttributes<HTMLElement>, "children"> {
   agentName: string;
   /** The option tagged Recommended; without one the component renders nothing. */
@@ -39,16 +42,16 @@ export function DecisionLead({ agentName, recommended, others, onChoose, onAsk, 
         {decisionLeadSentence(agentName, recommended)}
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="primary" disabled={disabled || recommended.disabled} onClick={() => onChoose(recommended)} data-testid="decision-lead-recommended">
+        <Button variant="primary" className={TAP} disabled={disabled || recommended.disabled} onClick={() => onChoose(recommended)} data-testid="decision-lead-recommended">
           {recommended.label}
         </Button>
         {others.map((o) => (
-          <Button key={o.id} variant="secondary" disabled={disabled || o.disabled} onClick={() => onChoose(o)}>
+          <Button key={o.id} variant="secondary" className={TAP} disabled={disabled || o.disabled} onClick={() => onChoose(o)}>
             {o.label}
           </Button>
         ))}
         {onAsk ? (
-          <Button variant="ghost" onClick={onAsk} data-testid="decision-lead-ask">
+          <Button variant="ghost" className={TAP} onClick={onAsk} data-testid="decision-lead-ask">
             Not sure? Ask {agentName}
           </Button>
         ) : null}

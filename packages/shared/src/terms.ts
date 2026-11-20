@@ -863,6 +863,8 @@ export const DEFINE_TIER_IDS = [
   "playbook",
   // The loop and provenance.
   "cycle",
+  // The founder's word for a cycle (main's plain-language test holds it in the define tier).
+  "round_of_work",
   "chapter",
   "estimate",
   "forecast",
@@ -936,7 +938,6 @@ export const PLAIN_TIER_IDS = [
   // The first words on Today and Needs you (WP-10 T4): ordinary words, defined on hover where they first appear, so
   // the linter does not ask for them again on every screen.
   "goal",
-  "round_of_work",
   "note",
   "needs_you",
   "continue",
