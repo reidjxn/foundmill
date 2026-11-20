@@ -149,7 +149,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   integrations: t(s.integrations, "settings", { pick: ["id", "connectorKey", "status", "authKind", "scopes", "accountLabel", "lastHealthAt", "lastError", "createdAt", "updatedAt"] }),
   project_mail: t(s.projectMail, "settings", { pick: ["id", "localPart", "status", "dailyCap", "createdAt"] }),
   // The project's own domain (0147) and its records; SendGrid's id is Foundmill's, not the business's.
-  project_domains: t(s.projectDomains, "settings", { pick: ["id", "domain", "senderLocalPart", "records", "status", "checkedAt", "verifiedAt", "createdAt"] }),
+  project_domains: t(s.projectDomains, "settings", { pick: ["id", "domain", "senderLocalPart", "records", "status", "checkedAt", "verifiedAt", "createdAt", "source", "registeredAt", "expiresAt", "priceMinor"] }),
   // The founders' postal address for marketing email (0101): the business's own, so it travels with it.
   project_postal_addresses: t(s.projectPostalAddresses, "settings", { pick: ["id", "address", "createdAt", "updatedAt"] }),
   app_installations: t(s.appInstallations, "settings", { pick: ["id", "connectorKey", "accountLabel", "verifiedAt", "createdAt"] }),

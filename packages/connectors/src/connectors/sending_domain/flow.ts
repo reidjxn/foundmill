@@ -30,9 +30,14 @@ export type OwnDomainAction =
 export interface OwnDomainRow {
   domain: string;
   senderLocalPart: string;
-  sendgridDomainId: string;
+  /** Null only while a registered domain's setup has not reached SendGrid yet. */
+  sendgridDomainId: string | null;
   records: OwnDomainRecord[];
   status: string;
+  /** `registered` when Foundmill registered it for the founder (Path A): never replaced or removed here. */
+  source?: string;
+  /** Written from the mocks: never set up or checked on the live vendors. */
+  simulated?: boolean;
 }
 
 export interface OwnDomainStore<R extends OwnDomainRow> {
@@ -74,9 +79,12 @@ export async function runOwnDomain<R extends OwnDomainRow>(deps: OwnDomainFlowDe
   const existing = await store.get(input.businessId);
   const forget = (id: string, msg: string) => deps.call("delete_domain", { sendgridDomainId: id }).catch((e: unknown) => deps.warn({ businessId: input.businessId, reason: e instanceof Error ? e.name : "unknown" }, msg));
 
+  const registered = existing?.source === "registered";
+  if (registered && input.action !== "check") throw new AppError("domain_registered", "This domain was registered for the project and stays with it. It is yours; moving it away is done from its own page.", 409);
+
   if (input.action === "remove") {
     if (!existing) return null;
-    await forget(existing.sendgridDomainId, "own domain left at SendGrid");
+    if (existing.sendgridDomainId) await forget(existing.sendgridDomainId, "own domain left at SendGrid");
     await store.remove(input.businessId);
     return null;
   }
@@ -89,13 +97,13 @@ export async function runOwnDomain<R extends OwnDomainRow>(deps: OwnDomainFlowDe
     if (existing?.domain === domain) return existing.senderLocalPart === sender ? existing : store.setSender(input.businessId, sender);
     if (await store.takenElsewhere(input.businessId, domain)) throw new AppError("domain_taken", "Another project already sends from this domain. If it is yours, remove it there first.", 409);
     const added = await deps.call<{ sendgridDomainId: string; records: { type: OwnDomainRecord["type"]; host: string; value: string }[] }>("authenticate_domain", { domain, subdomain: OWN_DOMAIN_SENDING_SUBDOMAIN });
-    if (existing) await forget(existing.sendgridDomainId, "previous own domain left at SendGrid");
+    if (existing?.sendgridDomainId) await forget(existing.sendgridDomainId, "previous own domain left at SendGrid");
     const records: OwnDomainRecord[] = [ownershipRecord(input.businessId, domain), ...added.records.map((r): OwnDomainRecord => ({ purpose: "sending", type: r.type, host: r.host, value: r.value, found: null })), ...(input.siteHost ? [ownDomainSiteRecord(domain, input.siteHost)] : [])];
     return store.put(input.businessId, { domain, senderLocalPart: sender, sendgridDomainId: added.sendgridDomainId, records, addedBy: input.userId, simulated: deps.simulated });
   }
 
   if (!existing) throw new AppError("not_found", "Add a domain first.", 404);
-  const validation = await deps.call<{ valid: boolean; results: { host: string; found: boolean; reason?: string }[] }>("validate_domain", { sendgridDomainId: existing.sendgridDomainId, domain: existing.domain });
+  const validation = existing.sendgridDomainId ? await deps.call<{ valid: boolean; results: { host: string; found: boolean; reason?: string }[] }>("validate_domain", { sendgridDomainId: existing.sendgridDomainId, domain: existing.domain }) : { valid: false, results: [] };
   // SendGrid's own records come from its validation; the ownership TXT, the site record and the rest from DNS.
   const fromSendgrid = existing.records
     .filter((r) => r.purpose === "sending" && !isOwnership(r))

@@ -31,6 +31,7 @@ import { createElevenlabsConnector } from "./connectors/elevenlabs";
 import { createOnesignalConnector } from "./connectors/onesignal";
 import { createPlatformNotifyConnector } from "./connectors/platform_notify";
 import { createSendingDomainConnector } from "./connectors/sending_domain";
+import { createOpensrsConnector } from "./connectors/opensrs";
 import { createPlatformConnector } from "./connectors/platform";
 import { createQuarantineConnector } from "./connectors/quarantine";
 import { createWebConnector } from "./connectors/web";
@@ -63,6 +64,8 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   platform_notify: createPlatformNotifyConnector,
   // A project's own domain at the platform's SendGrid (WP-08 domain plan): service-only, the gateway's `/v1/domains/own`.
   sending_domain: createSendingDomainConnector,
+  // Domains registered through Foundmill on its OpenSRS reseller account (WP-08 Path A): service-only, `/v1/domains/register`.
+  opensrs: createOpensrsConnector,
   github: createGithubConnector,
   google_drive: createGoogleDriveConnector,
   gmail: createGmailConnector,
