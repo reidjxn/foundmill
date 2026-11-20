@@ -510,6 +510,13 @@ export const TERMS = {
     long: "Every agent session draws down credits by the tokens it used. When the month's budget is used the team finishes the task it is on and rests until the budget resets, you top up or you add your own API key.",
     learn: "settings/billing",
   },
+  team_budget: {
+    id: "team_budget",
+    word: "Team budget",
+    short: "What your team can spend on its work this month, in US dollars.",
+    long: "Your plan includes a team budget every month, and credits you buy add to it. Billing shows it first as the outcomes it is enough for at your current pace, an Estimate, with the dollar balance beneath.",
+    learn: "settings/billing",
+  },
   resting: {
     id: "resting",
     word: "Resting",
@@ -774,6 +781,7 @@ export const DEFINE_TIER_IDS = [
   // AI usage.
   "tokens",
   "credits",
+  "team_budget",
   "resting",
   // Team.
   "chief_of_staff",
