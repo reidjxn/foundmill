@@ -36,7 +36,7 @@ const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
 describe("autopilot: histories from before Continue ran until done", () => {
-  it("the fixtures are the old loop: looks, two cycles, a stop; and no patch marker", () => {
+  it("the fixtures are the old loop: looks, two rounds of work, a stop; and no patch marker", () => {
     const ran = fixture("legacy-autopilot-ran");
     expect(scheduled(ran).filter((a) => a === "autopilotCycleStarted")).toHaveLength(2);
     expect(scheduled(ran).at(-1)).toBe("autopilotPause");

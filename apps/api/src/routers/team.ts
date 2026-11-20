@@ -221,7 +221,7 @@ export const teamRouter = router({
         const before = await repos.agents.get(tx, ctx.businessId, input.agentId);
         if (before.archivedAt) return { agent: before, handedBack: [] as string[], sessionIds: [] as string[] };
         const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
-        if (chief?.id === before.id) throw new ValidationError("The Chief of Staff plans every cycle and cannot be released");
+        if (chief?.id === before.id) throw new ValidationError("The Chief of Staff plans every round of work and cannot be released");
         const open = await repos.agents.listSessions(tx, ctx.businessId, { agentId: before.id, openOnly: true, limit: 100 });
         const tasks = await repos.tasks.handBack(tx, ctx.businessId, before.id);
         const released = await repos.agents.release(tx, ctx.businessId, before.id);

@@ -391,7 +391,7 @@ describe("merge / unmerge (AC-11.12.3)", () => {
     expect(await itemEntities(both.id)).toEqual([x.id, y.id].sort());
   });
 
-  it("serializes opposite and repeated merges of one pair: only the first wins, no merge cycle, one merge log (audit #328)", async () => {
+  it("serializes opposite and repeated merges of one pair: only the first wins, no merge round of work, one merge log (audit #328)", async () => {
     const A = r.A.businessId;
     const a = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Race Org A" });
     const b = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Race Org B" });

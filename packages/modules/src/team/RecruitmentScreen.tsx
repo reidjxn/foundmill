@@ -97,7 +97,7 @@ const FAMILY_ORDER: Record<TemplateRow["family"], number> = { assistant: 0, lead
 export const TEAM_RECRUITMENT_EXPLAINER = {
   screenId: "team-recruitment",
   purpose: "Hire new agents: describe the work to find the closest role, or pick one from the catalog.",
-  action: "Say what the agent should do and press Find the closest role; or use the … on a template and choose Hire…. It joins a department and starts next cycle.",
+  action: "Say what the agent should do and press Find the closest role; or use the … on a template and choose Hire…. It joins a department and starts next round of work.",
   watchFor: (
     <>
       The <Term id="wage_cap">wage cap</Term>: the most an agent may cost per month, in US dollars (Estimate).
@@ -344,7 +344,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
       >
         {/* What the catalog is, in one line under its title (UX plan C10): information, so it stays in both guidance states; the tab's Explainer is on the builder above. */}
         <p className="border-b border-line-faint px-panel-pad py-2 text-small text-secondary" data-testid="catalogue-intro">
-          Ready-made agents. Hire one into a department and it starts next cycle.
+          Ready-made agents. Hire one into a department and it starts next round of work.
         </p>
         <div className="min-w-0">
           <DataTable<CatalogueRow> aria-label="Catalog" data={rows} columns={catalogueColumns} {...catalogueSavedViews} defaultViewId={defaultViewId} rowActions={catalogueActions} onRowOpen={(row) => !readOnly && setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />

@@ -53,7 +53,7 @@ function renderDeck() {
 }
 
 describe("feedTickMs (audit A11Y-14)", () => {
-  it("runs fast during a cycle, slowly between cycles, and never by itself under reduced motion or when paused", () => {
+  it("runs fast during a round of work, slowly between rounds of work, and never by itself under reduced motion or when paused", () => {
     expect(feedTickMs({ working: true, reduced: false, paused: false })).toBe(650);
     expect(feedTickMs({ working: false, reduced: false, paused: false })).toBe(2800);
     expect(feedTickMs({ working: false, reduced: true, paused: false })).toBeNull();
@@ -76,7 +76,7 @@ describe("CycleDeck 'Live now' feed", () => {
     expect(screen.queryByTestId("feed-pause")).toBeNull();
   });
 
-  it("otherwise updates between cycles, and the visitor can pause and resume the updates", () => {
+  it("otherwise updates between rounds of work, and the visitor can pause and resume the updates", () => {
     reduceMotion(false);
     const live = renderDeck();
     const lines = () => [...live.querySelectorAll("li")].map((li) => li.textContent);

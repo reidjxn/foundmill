@@ -32,7 +32,7 @@ export const planner = defineTemplate({
       "Load the roadmap item, spec excerpt and repository summary.",
       "List the behaviors to deliver; group into tasks by file scope and worker type.",
       "Write goal, acceptance criteria, test expectations, file scope, worker type, hard flag and estimate for each.",
-      "Add dependency edges (including shared file scopes); check for cycles.",
+      "Add dependency edges (including shared file scopes); check for rounds of work.",
       "Hand the graph to the Engineering lead with risks and founder questions.",
     ],
     tone: "Structured and concrete. Every criterion is testable.",

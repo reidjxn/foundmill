@@ -30,11 +30,11 @@ beforeAll(async () => {
   await agent("channel_print", 'I run the Print channel engine for this business (wings line). What I do: flyers.');
   await agent("channel_outdoor", 'I run the Outdoor channel engine for this business (wings line). What I do: billboards.');
   await agent("channel_seo", 'I run the SEO channel engine for this business (Organic line). What I do: audits.');
-  const cos = await agent("chief_of_staff", "I plan each business cycle.");
+  const cos = await agent("chief_of_staff", "I plan each business round of work.");
   const version = async (agentId: string, role: string, v: number) =>
     h.pg.query(`insert into agent_versions (business_id, agent_id, version, instructions) values ($1, $2, $3, $4::jsonb)`, [businessId, agentId, v, JSON.stringify({ role, goals: ["x"] })]);
-  await version(cos, "Chief of Staff and Chief of Staff: you run the cycle so the founder only has to read the Inbox and decide.", 1);
-  await version(cos, "Chief of Staff: you run the cycle.", 2);
+  await version(cos, "Chief of Staff and Chief of Staff: you run the round of work so the founder only has to read the Inbox and decide.", 1);
+  await version(cos, "Chief of Staff: you run the round of work.", 2);
   // Live prompts and profiles of agents hired before the switch (the template text 0056 brings up to date).
   const lead = await agent("engineering_lead", "I run the Development department: I take the Planner's task graph. Core metric: merges. Ship through the Development flow.");
   await version(lead, "Engineering lead for this business's Development department.", 1);
@@ -71,8 +71,8 @@ describe("0056 applied over existing rows", () => {
 
   it("the Chief of Staff's role is no longer doubled", async () => {
     const rows = await one<{ version: number; role: string }>(sql`select version, instructions->>'role' as role from agent_versions where instructions->>'role' like 'Chief of Staff%' order by version`);
-    expect(rows[0]?.role).toBe("Chief of Staff: you run the cycle so the founder only has to read the Inbox and decide.");
-    expect(rows[1]?.role).toBe("Chief of Staff: you run the cycle.");
+    expect(rows[0]?.role).toBe("Chief of Staff: you run the round of work so the founder only has to read the Inbox and decide.");
+    expect(rows[1]?.role).toBe("Chief of Staff: you run the round of work.");
     const kept = await one<{ goals: unknown }>(sql`select instructions->'goals' as goals from agent_versions where version = 1 and instructions->>'role' like 'Chief of Staff%'`);
     expect(kept[0]?.goals).toEqual(["x"]);
   });

@@ -40,6 +40,7 @@ import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { GitHubRepositoryPanel } from "./GitHubRepositoryPanel";
+import { GoogleContextPanel } from "./GoogleContextPanel";
 import { OAuthFinish } from "./OAuthFinish";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
@@ -390,7 +391,7 @@ export function PlatformMailSection({ data, businessId }: { data: PlatformMailVi
 
 export function IntegrationsTab() {
   const datePrefs = useDateFormat();
-  const { businessId, data: businessData } = useBusiness();
+  const { businessId, data: businessData, isOwner } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
@@ -552,6 +553,7 @@ export function IntegrationsTab() {
         </ul>
       </SettingsSection>
       {rows.some((r) => r.key === "github" && r.integration && r.integration.status !== "disconnected") ? <GitHubRepositoryPanel /> : null}
+      {rows.some((r) => (r.key === "gmail" || r.key === "google_calendar") && r.integration && r.integration.status !== "disconnected") ? <GoogleContextPanel businessId={businessId} rows={rows} canEdit={isOwner} /> : null}
       <ConnectFieldsDialog
         connector={keyFor}
         pending={connect.isPending}

@@ -12,7 +12,7 @@ import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness
 
 const DAY = 86_400_000;
 
-describe("a cycle exists from the press of Continue (audit SOAK-05, RUI-15, OL-25, O-07)", () => {
+describe("a round of work exists from the press of Continue (audit SOAK-05, RUI-15, OL-25, O-07)", () => {
   let hz: ApiHarness;
   const temporal = fakeTemporalClient({ rejectDuplicates: true });
   beforeAll(async () => {
@@ -43,7 +43,7 @@ describe("a cycle exists from the press of Continue (audit SOAK-05, RUI-15, OL-2
     expect((await owner.cycle.status({ businessId })).nextCycleNumber).toBe(2);
   });
 
-  it("Pause reaches a cycle that is still queued or planning and Continue resumes it", async () => {
+  it("Pause reaches a round of work that is still queued or planning and Continue resumes it", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const { businessId } = hz.A;
     const paused = await owner.business.pauseCycle({ businessId });
@@ -85,7 +85,7 @@ describe("a cycle exists from the press of Continue (audit SOAK-05, RUI-15, OL-2
     expect(temporal.signals.at(-1)!.args[0]).toEqual(expect.objectContaining({ taskIds: expect.not.arrayContaining([byHand.id]) }));
   });
 
-  it("a cycle whose workflow is gone is closed as failed, with one Inbox note, so Continue is not stuck on processing", async () => {
+  it("a round of work whose workflow is gone is closed as failed, with one Inbox note, so Continue is not stuck on processing", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const { businessId } = hz.A;
     // The orchestrator never wrote cycle.started for number 2 and its workflow was terminated.

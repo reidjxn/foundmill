@@ -456,8 +456,8 @@ export const TERMS = {
   autopilot: {
     id: "autopilot",
     word: "Autopilot",
-    short: "The business starts its own cycles on a schedule instead of waiting for you to press Continue.",
-    long: "Set in Settings › What the team can do with a cadence and daily limits. It pauses itself when credits run out, when agents are stopped or after a few empty cycles, and it waits while a note holds Continue.",
+    short: "The business starts its own rounds of work on a schedule instead of waiting for you to press Continue.",
+    long: "Set in Settings › What the team can do with a cadence and daily limits. It pauses itself when credits run out, when agents are stopped or after a few empty rounds of work, and it waits while a note holds Continue.",
     learn: "settings/mode",
   },
   vacation: {
@@ -515,7 +515,7 @@ export const TERMS = {
   chief_of_staff: {
     id: "chief_of_staff",
     word: "Chief of Staff",
-    short: "The agent that plans each cycle, hands work to the department leads and turns your replies into plans.",
+    short: "The agent that plans each round of work, hands work to the department leads and turns your replies into plans.",
     long: "It never spends, signs or acts on a hard gate; those come to you. On vacation it decides inside the authority you gave it and writes down why.",
     learn: "team/agents",
   },
@@ -614,8 +614,8 @@ export const TERMS = {
   // ---- The loop, the journey and provenance --------------------------------------------------------------------
   cycle: {
     id: "cycle",
-    word: "Cycle",
-    short: "One round of work: the team works for a while, then reports back in the Inbox.",
+    word: "Round of work",
+    short: "A stretch where the team works for a while, then reports back in the Inbox.",
     long: "Press Continue to run one. Each agent gets a task and a time limit; what they finished, what they need from you and what went wrong come back as notes.",
     learn: "home",
   },

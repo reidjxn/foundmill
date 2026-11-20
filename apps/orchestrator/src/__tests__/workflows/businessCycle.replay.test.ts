@@ -30,7 +30,7 @@ const patches = (history: unknown): string[] =>
     return data ? [(JSON.parse(Buffer.from(data, "base64").toString("utf8")) as { id: string }).id] : [];
   });
 
-describe("businessCycle: histories from before the floor for a capped cycle", () => {
+describe("businessCycle: histories from before the floor for a capped round of work", () => {
   it("the fixture split 15 cents into four sessions and has no floor marker", () => {
     expect(childCaps(fixture(LEGACY))).toEqual([3, 4, 4, 4]);
     expect(patches(fixture(LEGACY))).toEqual(["merge-sweep", "cycle-budget-reconcile", "cycle-follow-ups"]);

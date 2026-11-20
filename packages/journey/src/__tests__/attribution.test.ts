@@ -332,7 +332,7 @@ describe("data-driven attribution — Markov removal effect", () => {
     expect(paths).toEqual([{ states: ["seo", "direct"], converted: true }]);
   });
 
-  it("handles a cycle (a channel revisited) without diverging", () => {
+  it("handles a round of work (a channel revisited) without diverging", () => {
     const m = buildMarkovModel([
       { states: ["seo", "social", "seo", "email_automation"], converted: true },
       { states: ["social", "seo", "social"], converted: false },

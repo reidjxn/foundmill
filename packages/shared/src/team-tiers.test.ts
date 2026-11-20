@@ -92,7 +92,7 @@ describe("teamTree", () => {
     expect(t.groupOf.get("odd")).toBe("cos");
   });
 
-  it("survives a reporting cycle and a team with no Chief of Staff", () => {
+  it("survives a reporting round of work and a team with no Chief of Staff", () => {
     const t = teamTree(
       [
         { id: "a", layer: "worker", agentType: "x", lineManagerId: "b" },

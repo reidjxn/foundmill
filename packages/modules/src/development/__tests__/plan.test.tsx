@@ -87,7 +87,7 @@ describe("PlanScreen", () => {
     const fake = createFakeSource({ responses: responses(), onMutate: () => ({ tasks: tasks.slice(0, 2), graph: { tasks: tasks.slice(0, 2), edges }, costMinor: 120, costLabel: "Estimate" }) });
     renderScreen(fake, <PlanScreen {...props} />);
     await screen.findByRole("grid", { name: "Tasks" });
-    expect(screen.getByTestId("plan-sooner-hint").textContent).toBe("The team plans the roadmap's Now items into tasks on its own, cycle by cycle. Use this to plan one item or an objective ahead of that.");
+    expect(screen.getByTestId("plan-sooner-hint").textContent).toBe("The team plans the roadmap's Now items into tasks on its own, round of work by round of work. Use this to plan one item or an objective ahead of that.");
     const build = screen.getByRole("button", { name: "Plan the tasks" });
     expect(build).toHaveProperty("disabled", true);
     await user.click(screen.getByRole("combobox", { name: "Roadmap item" }));

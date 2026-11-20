@@ -9,7 +9,7 @@ import { PageExplainProvider } from "./PageExplain";
 const props = {
   screenId: "home",
   purpose: "Your business at a glance: what the team did and what it needs from you.",
-  action: "Read the notes in the Inbox, then press Continue to run a cycle.",
+  action: "Read the notes in the Inbox, then press Continue to run a round of work.",
   watchFor: "The runway tile turning amber.",
 };
 

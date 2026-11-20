@@ -104,7 +104,7 @@ function InboxNote() {
               {note.from.name} · {note.from.role}
             </span>
             <span className="text-small text-secondary">
-              {sentOn} · <Term id="cycle">cycle</Term> {business.deck.startCycle + 1}
+              {sentOn} · <Term id="cycle">round of work</Term> {business.deck.startCycle + 1}
             </span>
           </span>
           <DeptChip dept={note.from.dept}>{note.department}</DeptChip>
