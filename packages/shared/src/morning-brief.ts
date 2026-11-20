@@ -42,14 +42,14 @@ export interface BriefItemLike {
 }
 
 /** Events that can be a real outcome of the project (the north star's list, as the catalog declares them). */
-export const REAL_OUTCOME_EVENT_TYPES = ["page.published", "mail.sent", "page.followed", "payment.received", "lead.replied"] as const;
+export const REAL_OUTCOME_EVENT_TYPES = ["page.published", "mail.sent", "page.followed", "payment.received", "lead.replied", "post.published"] as const;
 /**
- * Whether a post the founder said they posted counts as a real outcome (D1, Nov 16, 2026, not answered yet): "never", or
- * "visited" for a `post.published` whose `visited` is true. Flipping it also means adding the type to
- * REAL_OUTCOME_EVENT_TYPES, a `RealOutcome` kind in `realOutcomes`, and the same rule to the three outcome clauses of
- * packages/db `repos/metrics.ts`.
+ * Whether a post the founder said they posted counts as a real outcome. Founder answer D1 (Nov 16, 2026, docs/log
+ * 2026-11-16-claude-wp08-founder-decisions.md): "visited", a `post.published` whose `visited` is true, that is, the
+ * founder said "I posted it" and a first visit came back through that post's own link. "never" turns it off. The same
+ * rule is in the three outcome clauses of packages/db `repos/metrics.ts`.
  */
-export const REAL_OUTCOME_POST_RULE: "never" | "visited" = "never";
+export const REAL_OUTCOME_POST_RULE: "never" | "visited" = "visited";
 /** Read beside them only for what caused a payment (the journey's lead channel). */
 export const BRIEF_CAUSE_EVENT_TYPES = ["customer.converted"] as const;
 export const BRIEF_EVENT_TYPES: readonly string[] = [...REAL_OUTCOME_EVENT_TYPES, ...BRIEF_CAUSE_EVENT_TYPES];
@@ -107,11 +107,13 @@ export type RealOutcome =
   | { kind: "email_sent"; at: Date; agentId: string | null; channelKey: string | null }
   | { kind: "follower"; at: Date; viaPost?: ViaPost }
   | { kind: "payment"; at: Date; amountMinor: number; currency: string; firstPayment: boolean; channelKey: string | null; viaPost?: ViaPost }
-  | { kind: "reply"; at: Date; channelKey: string | null; requestsMeeting: boolean; viaPost?: ViaPost };
+  | { kind: "reply"; at: Date; channelKey: string | null; requestsMeeting: boolean; viaPost?: ViaPost }
+  /** A post the founder said they posted, with a first visit through its own link (D1). */
+  | { kind: "post_visited"; at: Date };
 export type RealOutcomeKind = RealOutcome["kind"];
 
 /** The section a reader must be able to read to see an outcome of this kind (the gateway applies it). */
-export const OUTCOME_SECTION: Readonly<Record<RealOutcomeKind, Section>> = { page_live: "product", email_sent: "distribution", follower: "crm", payment: "finance", reply: "crm" };
+export const OUTCOME_SECTION: Readonly<Record<RealOutcomeKind, Section>> = { page_live: "product", email_sent: "distribution", follower: "crm", payment: "finance", reply: "crm", post_visited: "distribution" };
 
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
 
@@ -152,6 +154,9 @@ export function realOutcomes(events: readonly BriefEventLike[], since: Date, now
         out.push({ kind: "payment", at: e.occurredAt, amountMinor: typeof amount.amountMinor === "number" ? amount.amountMinor : 0, currency: str(amount.currency) ?? "USD", firstPayment: p.firstPayment === true, channelKey: conversionId ? (leadChannel.get(conversionId) ?? null) : null, ...via(e) });
         break;
       }
+      case "post.published":
+        out.push({ kind: "post_visited", at: e.occurredAt });
+        break;
       case "lead.replied":
         out.push({ kind: "reply", at: e.occurredAt, channelKey: str(p.channelKey), requestsMeeting: p.requestsMeeting === true, ...via(e) });
         break;
@@ -329,6 +334,9 @@ function workedLines(input: MorningBriefInput): BriefLine[] {
     lines.push({ text: followers === 1 ? "A person chose to follow your project" : `${followers.toLocaleString("en-US")} people chose to follow your project`, cause: post ?? "they signed up on your public page and confirmed by email" });
   }
 
+  const posts = o.filter((x) => x.kind === "post_visited").length;
+  if (posts > 0) lines.push({ text: posts === 1 ? "Someone opened a post you shared" : `${posts.toLocaleString("en-US")} people opened posts you shared`, cause: "you shared it" });
+
   const pages = o.filter((x): x is Extract<RealOutcome, { kind: "page_live" }> => x.kind === "page_live");
   if (pages.length > 0) {
     const byYou = input.recipientUserId ? pages.some((p) => p.byUserId === input.recipientUserId) : false;
@@ -393,6 +401,7 @@ function leadOf(input: MorningBriefInput, booked: number): string {
   const followers = count("follower");
   if (followers > 0) return followers === 1 ? "a new follower" : `${followers.toLocaleString("en-US")} new followers`;
   if (count("page_live") > 0) return "your page went live";
+  if (count("post_visited") > 0) return "someone visited your post";
   const emails = count("email_sent");
   if (emails > 0) return `${countOf(emails, "email")} went out`;
   if (input.waiting.length > 0) return input.waiting.length === 1 ? "1 thing needs you" : `${input.waiting.length.toLocaleString("en-US")} things need you`;

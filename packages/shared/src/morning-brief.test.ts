@@ -64,9 +64,16 @@ describe("real outcomes", () => {
     expect(realOutcomes(fake, ago(24), NOW)).toEqual([]);
   });
 
-  it("a post the founder said they posted is not a real outcome while REAL_OUTCOME_POST_RULE is never", () => {
-    expect(REAL_OUTCOME_POST_RULE).toBe("never");
-    expect(isRealOutcome({ type: "post.published", actor: { kind: "user", id: "u1" }, payload: { visited: true } })).toBe(false);
+  it("a post counts only once the founder said they posted it and a first visit came back through its own link (D1)", () => {
+    expect(REAL_OUTCOME_POST_RULE).toBe("visited");
+    const post = (visited: boolean, actor = { kind: "system", id: "public-page" }, extra: Record<string, unknown> = {}) => ({ type: "post.published", actor, payload: { visited, ...extra } });
+    expect(isRealOutcome(post(true))).toBe(true);
+    expect(isRealOutcome(post(true, { kind: "user", id: "u1" }))).toBe(true);
+    expect(isRealOutcome(post(false))).toBe(false);
+    expect(isRealOutcome(post(true, { kind: "agent", id: "a1" }))).toBe(false);
+    expect(isRealOutcome(post(true, { kind: "system", id: "public-page" }, { simulated: true }))).toBe(false);
+    const e = { ...ev("post.published", 1, { visited: true }, { kind: "system", id: "public-page" }) };
+    expect(realOutcomes([e], ago(24), NOW)).toEqual([{ kind: "post_visited", at: e.occurredAt }]);
   });
 
   it("isRealOutcome is the per-event rule realOutcomes applies", () => {

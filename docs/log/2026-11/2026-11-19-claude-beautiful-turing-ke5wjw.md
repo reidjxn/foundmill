@@ -13,7 +13,7 @@ the `channelOnBoard` gate are gone). The founder's own answer is recorded: the n
 Creative, once a share window was opened for a team post its card asks "Did you post it?" with "Yes, I posted it" (an
 optional field "Paste the post's link") and "Not yet", and a confirmed post reads "Posted on X, Nov 16". When a first
 visit comes back through that post's own link, a second `post.published` with `visited: true` is written, once.
-`REAL_OUTCOME_POST_RULE` ships as `"never"`.
+`REAL_OUTCOME_POST_RULE` is `"visited"`, the founder's answer D1 of Nov 16, 2026 (docs/log/2026-11/2026-11-16-claude-wp08-founder-decisions.md): a `post.published` with `visited: true` is a real outcome.
 
 WP-08 T5, the first ten conversations. Distribution gets a first tab, "First ten": ten slots, add a person the founder
 knows, "Copy a message" (written by code from the project's one line, nothing sent), a stage from "To ask" to "Not for
@@ -34,10 +34,11 @@ account, idempotent by key; mock: a labeled simulated `buy.stripe.com/test_simâ€
 The plan adds no column. `repos.teamPosts.published` reads `post.published` events for the Creative list, so no migration
 number was taken. The two events per post are told apart by the idempotency key, which includes `visited`.
 
-### The rule constant is wired in one place only
-`REAL_OUTCOME_POST_RULE = "visited"` makes `isRealOutcome` accept a visited `post.published`. Flipping it also needs the type
-in `REAL_OUTCOME_EVENT_TYPES`, a `RealOutcome` kind and the same clause in three SQL places of `repos.metrics`. That is
-written on the constant; it waits for the founder's answer to D1.
+### D1 is wired everywhere a real outcome is counted
+The coordinating session pointed to the Nov 16 answer, which is on main. The type is in `REAL_OUTCOME_EVENT_TYPES`,
+`realOutcomes` returns a `post_visited` kind (behind the Distribution wall, one line in the brief and the week's headline),
+and the same clause is in the three outcome places of `repos.metrics`. The clause accepts the second event only: the
+one the public page writes when the first visit arrives (or the founder's own, when the visit came first).
 
 ### Removing the board gate removes the founder's "yes, write posts for me"
 The plan says to. Caps (2 a day, 5 a week), one waiting draft per subject and the trigger-once rule still bound it. The

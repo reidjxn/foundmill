@@ -2078,8 +2078,8 @@ const postPublished = declareEvent(
   }),
   {
     // North star (FOUNDMILL.md, founder 2026-11-11) and D1 (Nov 16, 2026): a post counts only after "I posted it" plus a
-    // visit through its own link; until the founder answers D1 it counts as nothing (`REAL_OUTCOME_POST_RULE`).
-    doc: "The founder said they posted a draft the team wrote (or Buffer reported it sent). `visited` is true once a first visit came back through that post's own link. A tap on Share is never this event. Ids, the network and the address the founder pasted only, never the words of the post. Not counted as an outside result while REAL_OUTCOME_POST_RULE is \"never\"; never narrated.",
+    // visit through its own link (D1, answered Nov 16, 2026; `REAL_OUTCOME_POST_RULE`).
+    doc: "The founder said they posted a draft the team wrote (or Buffer reported it sent). `visited` is true once a first visit came back through that post's own link. A tap on Share is never this event. Ids, the network and the address the founder pasted only, never the words of the post. Counts as an outside result only when `visited` is true (the founder said it, and a visitor came through the post's own link); never narrated.",
     consumers: ["stream", "metrics"],
     narratable: false,
   },
