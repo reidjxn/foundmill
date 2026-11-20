@@ -157,7 +157,7 @@ export function createRemoteMcpConnector(server: RemoteServer, options: RemoteOp
       connect: async (businessId, input) => {
         if (!server.live) throw new ConfigError(server.key, `a confirmed ${server.displayName} sign-in`, "this server is recorded but not confirmed against the live vendor yet");
         const id = client();
-        if (!id) throw new ConfigError(server.key, server.clientEnv, `register ${APP_NAME}'s OAuth client at ${server.displayName} and set it`);
+        if (!id) throw new ConfigError(server.key, server.clientEnv, `register ${APP_NAME}'s sign-in app at ${server.displayName} and set it`);
         await guard(server.url);
         const ep = await discoverEndpoints(server.url, fetch);
         if (!hasAuthorizationCode(input)) {

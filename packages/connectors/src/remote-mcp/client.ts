@@ -66,7 +66,7 @@ export async function accessTokenFor(ctx: ToolContext, o: { connectorKey: string
   if (!cred?.secret) throw new ConfigError(o.connectorKey, "sign-in credential", "connect it in Settings → Integrations");
   const expires = cred.expiresAt ? Date.parse(cred.expiresAt) : Number.POSITIVE_INFINITY;
   if (expires - 5 * 60_000 > o.now().getTime() || !cred.refreshToken) return cred.secret;
-  if (!o.client) throw new ConfigError(o.connectorKey, "the OAuth client id", "needed to refresh an expired sign-in");
+  if (!o.client) throw new ConfigError(o.connectorKey, "the sign-in app client id", "needed to refresh an expired sign-in");
   const client = o.client;
   const key = `${ctx.businessId}|${ctx.integration.id}`;
   let pending = refreshing.get(key);

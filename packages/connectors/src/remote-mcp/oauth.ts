@@ -56,7 +56,7 @@ export async function discoverEndpoints(serverUrl: string, fetch: FetchLike): Pr
   const meta = await getJson(fetch, `${issuer}/.well-known/oauth-authorization-server`);
   const authorizationEndpoint = str(meta?.authorization_endpoint);
   const tokenEndpoint = str(meta?.token_endpoint);
-  if (!meta || !authorizationEndpoint || !tokenEndpoint) throw Object.assign(new Error("The server does not publish OAuth sign-in details"), { status: 502 });
+  if (!meta || !authorizationEndpoint || !tokenEndpoint) throw Object.assign(new Error("The server does not publish its sign-in details"), { status: 502 });
   const methods = meta.code_challenge_methods_supported;
   if (Array.isArray(methods) && !methods.includes("S256")) throw Object.assign(new Error("The server does not support PKCE (S256)"), { status: 502 });
   const revocation = str(meta.revocation_endpoint);
