@@ -57,12 +57,13 @@ export interface SettleCheckoutInput {
   /** The entry plan's checkout (0140): the subscription Stripe created, and its customer and paid period. */
   subscription?: { stripeSubscriptionId: string | null; stripeCustomerId: string | null; currentPeriodEnd: Date | null };
   /** The kind the paid session says it was for (its metadata); omitted by the mock completion, which reads the row. */
-  kind?: "credits" | "subscription";
+  kind?: "credits" | "subscription" | "domain";
 }
 
 export type SettleCheckoutResult =
   | { outcome: "granted"; checkout: BillingCheckout; balance: CreditBalance; resumed: Pick<ResumeBusinessResult, "reason" | "agentIds"> | null }
   | { outcome: "subscribed"; checkout: BillingCheckout }
+  | { outcome: "domain_paid"; checkout: BillingCheckout }
   | { outcome: "duplicate"; checkout: BillingCheckout }
   | { outcome: "mismatch"; checkout: BillingCheckout; reason: string }
   | { outcome: "unknown" };
@@ -94,6 +95,18 @@ export async function settleCreditCheckout(db: Executor, input: SettleCheckoutIn
         details: { reason, externalId: input.externalId, eventId: input.eventId, amountMinor: input.amountMinor, currency: input.currency.toUpperCase(), mode: input.mode },
       });
       return { outcome: "mismatch" as const, checkout: row, reason };
+    }
+    // A domain checkout (0149) grants nothing: it lets the domain's one registration run (`claimDomainOrder`).
+    if (row.kind === "domain") {
+      const checkout = await repos.checkouts.markPaid(tx, input.businessId, row.id, { paidAt: input.paidAt, paidEventId: input.eventId, grantedPeriod: null, creditBalanceId: null });
+      await repos.audit.append(tx, input.businessId, {
+        actorKind: input.actor.kind,
+        actorId: input.actor.kind === "user" ? (input.actor.id ?? null) : null,
+        action: "billing.domain_paid",
+        target: { kind: "billing_checkout", id: row.id },
+        details: { domain: row.domainName, amountMinor: Number(row.amountMinor), currency: row.currency, mode: row.mode, externalId: row.externalId, eventId: input.eventId, ...(row.mode === "mock" ? { label: MOCK_TOP_UP_LABEL } : {}) },
+      });
+      return { outcome: "domain_paid" as const, checkout };
     }
     // The entry plan's checkout (0140) grants no credits itself: the account's plan becomes active, and the month's
     // included credits come as they always do. It needs the person who opened it.

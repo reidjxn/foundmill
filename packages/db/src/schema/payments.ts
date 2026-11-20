@@ -3,14 +3,14 @@
  * the api (open) and settled by the platform Stripe webhook in apps/ingest or a simulated payment in mock mode (paid).
  */
 import { sql } from "drizzle-orm";
-import { char, index, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { char, index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { id, minor, timestamps, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { creditBalances } from "./finance";
 
 export const BILLING_CHECKOUT_RESUME = ["continue"] as const;
-export const BILLING_CHECKOUT_KINDS = ["credits", "subscription"] as const;
+export const BILLING_CHECKOUT_KINDS = ["credits", "subscription", "domain"] as const;
 export type BillingCheckoutKind = (typeof BILLING_CHECKOUT_KINDS)[number];
 export const BILLING_CHECKOUT_STATUSES = ["open", "paid", "expired", "failed"] as const;
 export const BILLING_CHECKOUT_MODES = ["mock", "live"] as const;
@@ -43,6 +43,10 @@ export const billingCheckouts = pgTable(
     grantedPeriod: text("granted_period"),
     creditBalanceId: uuid("credit_balance_id").references(() => creditBalances.id, { onDelete: "set null" }),
     failure: text("failure"),
+    /** 0149: the domain a `domain` checkout pays for. */
+    domainName: text("domain_name"),
+    /** 0149: the paid domain checkout's one registration was claimed (given back if the registry refused). */
+    fulfilledAt: tstz("fulfilled_at"),
     ...timestamps(),
   },
   (t) => [
@@ -81,3 +85,21 @@ export const accountPlans = pgTable(
   (t) => [uniqueIndex("account_plans_stripe_subscription_id_key").on(t.stripeSubscriptionId).where(sql`stripe_subscription_id is not null`), index("account_plans_checkout_id_idx").on(t.checkoutId)],
 );
 export type AccountPlan = typeof accountPlans.$inferSelect;
+
+/**
+ * 0149: the founder's registrant details for a domain checkout, between paying and registering. Service role only (no
+ * app-role grant or policy): no founder reads another's address. Deleted once the domain is registered.
+ */
+export const domainRegistrants = pgTable(
+  "domain_registrants",
+  {
+    id: id(),
+    businessId: businessId(),
+    checkoutId: uuid("checkout_id")
+      .notNull()
+      .references(() => billingCheckouts.id, { onDelete: "cascade" }),
+    registrant: jsonb("registrant").$type<Record<string, unknown>>().notNull(),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("domain_registrants_checkout_id_key").on(t.checkoutId), index("domain_registrants_business_id_idx").on(t.businessId)],
+);

@@ -101,9 +101,11 @@ export function tierAddsLine(tier: TierKey): string | null {
 type CheckoutView = RouterOutputs["billing"]["checkout"]["status"]["checkout"];
 
 /** What the checkout panel says about a checkout, in words (the founder came back from Stripe, or is paying in mock mode). */
-export function checkoutNotice(checkout: Pick<CheckoutView, "status" | "mode" | "amountMinor" | "currency" | "failure"> & { kind?: "credits" | "subscription"; creditsMinor?: number | null }, opts: { canceled?: boolean; waitedLong?: boolean } = {}): { tone: StatusTone; word: string; text: string } {
+export function checkoutNotice(checkout: Pick<CheckoutView, "status" | "mode" | "amountMinor" | "currency" | "failure"> & { kind?: "credits" | "subscription" | "domain"; creditsMinor?: number | null }, opts: { canceled?: boolean; waitedLong?: boolean } = {}): { tone: StatusTone; word: string; text: string } {
   const amount = formatMoney({ amountMinor: checkout.amountMinor, currency: checkout.currency });
   if (checkout.kind === "subscription") return subscriptionNotice(checkout, amount, opts);
+  // A domain's payment (0149) finishes in Settings › Integrations, where the domain is registered.
+  if (checkout.kind === "domain") return checkout.status === "paid" ? { tone: "good", word: "Paid", text: `${amount} for a domain, registered in Settings › Integrations.` } : { tone: "neutral", word: "Domain", text: `${amount} for a domain. Its payment and registration are in Settings › Integrations.` };
   const credits = checkout.creditsMinor ? formatMoney({ amountMinor: checkout.creditsMinor, currency: checkout.currency }) : null;
   if (credits && checkout.status === "paid") return { tone: "good", word: "Paid", text: checkout.mode === "mock" ? `${credits} in credits added for ${amount}. Mock top-up: no money moved.` : `${credits} in credits added for ${amount}. Stripe sends the receipt to your email.` };
   switch (checkout.status) {

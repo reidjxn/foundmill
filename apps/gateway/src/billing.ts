@@ -28,7 +28,8 @@ export const CreateCheckoutRequest = z.object({
   /** The api's `billing_checkouts` row: it travels in the session's metadata and comes back on the webhook. */
   checkoutId: z.guid(),
   /** `subscription`: the $5 entry plan (WP-09 T16), on the recurring price `STRIPE_ENTRY_PRICE_ID` names. */
-  kind: z.enum(["credits", "subscription"]),
+  /** `domain` (0149): a one-off payment for a domain registered through Foundmill, at its quoted price. */
+  kind: z.enum(["credits", "subscription", "domain"]),
   amountMinor: z.number().int().min(MIN_TOP_UP_MINOR).max(MAX_TOP_UP_MINOR),
   currency: z.literal("USD"),
   description: z.string().trim().min(1).max(200),
