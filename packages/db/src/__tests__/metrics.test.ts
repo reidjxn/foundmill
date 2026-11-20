@@ -153,4 +153,17 @@ describe("repos.metrics.snapshot", () => {
     expect(hist.map((x) => x.day)).toEqual(["2026-11-14", "2026-11-13"]);
     expect(hist[0]!.facts).toEqual(JSON.parse(JSON.stringify(m)));
   });
+
+  it("a post counts once the founder said they posted it and a first visit came back (D1): the SQL and isRealOutcome agree, and the north star's clause has it", async () => {
+    const [b] = (await h.db.execute(sql`select id from businesses where is_demo = false limit 1`)).rows as { id: string }[];
+    const put = (actor: object, payload: object) => h.db.execute(sql`insert into events (business_id, type, occurred_at, actor, payload) values (${b!.id}, 'post.published', '2026-11-10T10:00:00Z'::timestamptz, ${JSON.stringify(actor)}::jsonb, ${JSON.stringify(payload)}::jsonb)`);
+    await put({ kind: "system", id: "public-page" }, { visited: true });
+    await put({ kind: "user", id: "u1" }, { visited: false });
+    await put({ kind: "agent", id: "a1" }, { visited: true });
+    const rows = (await h.db.execute(sql.raw(`select e.type, e.actor, e.payload, ${REAL_OUTCOME_PREDICATE} as real from events e where e.type = 'post.published'`))).rows as { type: string; actor: { kind: string; id: string }; payload: Record<string, unknown>; real: boolean }[];
+    expect(rows.map((r) => r.real)).toEqual([true, false, false]);
+    for (const r of rows) expect(r.real).toBe(isRealOutcome(r));
+    expect(METRIC_QUERIES.find((q) => q.name === "north_star")!.text).toContain("e.type = 'post.published'");
+    await h.db.execute(sql`delete from events where type = 'post.published'`);
+  });
 });

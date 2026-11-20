@@ -163,6 +163,8 @@ export interface AssetRow {
    * Finance. Null or absent when it led to nothing the reader may see. Visits are never in it.
    */
   postOutcomes?: PostOutcomeCounts | null;
+  /** The founder said they posted it (`post.published`): the network (null for a copied link) and the day. Null or absent until then. */
+  posted?: { network: string | null; at: Iso } | null;
   createdAt?: Iso;
   updatedAt?: Iso;
 }

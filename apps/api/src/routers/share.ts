@@ -5,8 +5,8 @@
  */
 import { SHARE_DESTINATIONS, SHARE_OPEN_TARGETS, SHARE_SUBJECT_KINDS } from "@foundmill/shared";
 import { z } from "zod";
-import { recordShareOpened } from "../services/shares";
-import { Id, businessProcedure, router } from "../trpc";
+import { recordPostPublished, recordShareOpened } from "../services/shares";
+import { Id, businessProcedure, router, sectionWrite } from "../trpc";
 
 export const ShareOpenedInput = z.object({
   kind: z.enum(SHARE_SUBJECT_KINDS),
@@ -16,5 +16,8 @@ export const ShareOpenedInput = z.object({
 });
 
 export const shareRouter = router({
+  posted: sectionWrite("distribution")
+    .input(z.object({ assetId: Id, network: z.enum(SHARE_DESTINATIONS).nullable(), url: z.string().max(500).nullish() }))
+    .mutation(({ ctx, input }) => recordPostPublished(ctx, input)),
   opened: businessProcedure.input(ShareOpenedInput).mutation(({ ctx, input }) => recordShareOpened(ctx, input)),
 });

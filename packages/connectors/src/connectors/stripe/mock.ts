@@ -101,6 +101,11 @@ export function createStripeMock() {
         sessions.set(id, s);
         return mapCheckoutSession(s);
       },
+      // A link that looks like a link and pays nobody: labeled simulated, so no page or agent reports it as made.
+      create_payment_link: async ({ key }, ctx) => {
+        const id = `plink_test_${stableHash(["plink", ctx.businessId, key], 20)}`;
+        return { id, url: `https://buy.stripe.com/test_sim${stableHash(["plink-url", ctx.businessId, key], 14)}`, simulated: true };
+      },
       create_billing_portal_session: async ({ customerId }) => {
         const id = `bps_test_${stableHash(["bps", customerId], 20)}`;
         return { id, url: `https://billing.stripe.com/p/session/${id}` };

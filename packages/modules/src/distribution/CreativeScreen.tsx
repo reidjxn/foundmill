@@ -8,7 +8,9 @@
  * carries "Share", which opens the share panel with the draft's own words and, while the project's page is published,
  * the page's address with `via`. The founder's own press in the network's window is the only approval a post needs
  * there, so Share is offered on any draft that was not rejected. A press is recorded as a share that was opened
- * (`share.opened`), fire-and-forget; nothing here marks a draft as posted.
+ * (`share.opened`), fire-and-forget; that press never marks a draft as posted. After a team post's share was opened its
+ * card asks "Did you post it?" ("Yes, I posted it" with an optional link, or "Not yet"): only the founder's yes writes
+ * `post.published` (`share.posted`), and then the card reads "Posted on X, Nov 16".
  *
  * A post the team wrote to be shared (a team post: no campaign, `sharePost` from the api) is an offer, not a decision:
  * it reads "Written by your team for you to share" where a campaign's name would be, its pill says where it stands
@@ -23,14 +25,15 @@
  * "Video waits for your OK"), and the share panel shows the preview, or why there is none. A simulated video is never
  * called a video that exists.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Check, ExternalLink, FileText, Film, Image, Mail, Mailbox, Megaphone, Newspaper, ScrollText, Share2, X } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
-import { Button, EntityLink, Icon, Panel, SegmentedControl, SharePost, StatusPill, Term, cn, formatRelative, type IconComponent } from "@foundmill/dugout";
+import { Button, EntityLink, Icon, Input, Panel, SegmentedControl, SharePost, StatusPill, Term, cn, formatRelative, type IconComponent } from "@foundmill/dugout";
 import { CHANNELS_SHARED_BY_TAP } from "@foundmill/shared/channel-availability";
 import { APPROVAL_STATES, ASSET_KINDS, type ApprovalState, type AssetKind } from "@foundmill/shared/constants";
 import { SHARE_OPEN_WORDS, writtenPostDraft } from "@foundmill/shared/share-drafts";
 import { postOutcomeLine } from "@foundmill/shared/post-outcomes";
+import { POST_PUBLISHED_WORDS, postedLine } from "@foundmill/shared/post-published";
 import { TEAM_POST_WORDS, isTeamPost, parseTeamPostRef } from "@foundmill/shared/team-posts";
 import { postMediaCardLabel } from "@foundmill/shared/post-media";
 import type { ShareOpened } from "@foundmill/shared/share-targets";
@@ -149,11 +152,14 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
     const live = p && p.live && !p.isSample && p.published ? { origin: new URL(p.url).origin, slug: p.slug, projectName: p.preview.name, pitch: p.published.pitch } : null;
     return writtenPostDraft({ text: sharing.body, page: live });
   }, [sharing, page.data]);
+  // The network of the last share window opened for each post, so "Yes, I posted it" says where.
+  const networks = useRef<Record<string, string | null>>({});
   const recordShare = useCallback(
     (opened: ShareOpened) => {
       // Fire-and-forget: the share has already happened in the browser, and never fails because of this.
       // A team post names itself, so the api can stop it from waiting; any other draft has no id to give.
       const team = sharing && teamPostOf(sharing) ? sharing : null;
+      if (team) networks.current[team.id] = opened.network ?? null;
       void mutate("share.opened", { kind: "draft", ...(team ? { refId: team.id } : {}), ...opened })
         .then(() => (team ? assets.refetch() : undefined))
         .catch(() => undefined);
@@ -191,7 +197,7 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
   const action = useAction();
   const [state, setState] = useState<ApprovalState | null>(null);
   const [highlight] = useState<string | null>(() => searchParam("asset"));
-  useBusinessEvents(() => assets.refetch(), ["approval.resolved", "campaign.launched", "post.drafted", "post.outcome_attributed"]);
+  useBusinessEvents(() => assets.refetch(), ["approval.resolved", "campaign.launched", "post.drafted", "post.published", "post.outcome_attributed"]);
 
   const groups = useMemo(() => groupAssets(assets.data ?? [], state), [assets.data, state]);
   const counts = useMemo(() => {
@@ -205,6 +211,14 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
   const decide = useCallback(
     async (asset: AssetRow, decision: "approve" | "reject") => {
       const ok = await action.run(`distribution.assets.${decision}`, { assetId: asset.id }, { key: `${decision}:${asset.id}` });
+      if (ok !== undefined) assets.refetch();
+    },
+    [action, assets],
+  );
+
+  const posted = useCallback(
+    async (asset: AssetRow, url: string) => {
+      const ok = await action.run("share.posted", { assetId: asset.id, network: networks.current[asset.id] ?? null, ...(url ? { url } : {}) }, { key: `posted:${asset.id}` });
       if (ok !== undefined) assets.refetch();
     },
     [action, assets],
@@ -256,7 +270,7 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
                 <ul className="grid grid-cols-3 gap-3 2xl:grid-cols-4">
                   {g.assets.map((a) => (
                     <li key={a.id}>
-                      <AssetCard asset={a} highlighted={a.id === highlight} campaign={campaignName(a.campaignId)} author={a.authoredByAgentId ? { id: a.authoredByAgentId, name: agentName(a.authoredByAgentId) } : null} businessId={businessId} pending={action.pending} onDecide={decide} onShare={assetSharedByTap(a, campaigns.data?.items ?? [], tapChannelIds) ? (x) => void openShare(x) : undefined} />
+                      <AssetCard asset={a} highlighted={a.id === highlight} campaign={campaignName(a.campaignId)} author={a.authoredByAgentId ? { id: a.authoredByAgentId, name: agentName(a.authoredByAgentId) } : null} businessId={businessId} pending={action.pending} onDecide={decide} onPosted={posted} onShare={assetSharedByTap(a, campaigns.data?.items ?? [], tapChannelIds) ? (x) => void openShare(x) : undefined} />
                     </li>
                   ))}
                 </ul>
@@ -279,7 +293,7 @@ function FilterLabel({ word, count }: { word: string; count: number }) {
   );
 }
 
-function AssetCard({ asset, highlighted, campaign, author, businessId, pending, onDecide, onShare }: { asset: AssetRow; highlighted: boolean; campaign: string | null; author: { id: string; name: string } | null; businessId: string; pending: string | null; onDecide: (a: AssetRow, d: "approve" | "reject") => void; onShare?: (a: AssetRow) => void }) {
+function AssetCard({ asset, highlighted, campaign, author, businessId, pending, onDecide, onPosted, onShare }: { asset: AssetRow; highlighted: boolean; campaign: string | null; author: { id: string; name: string } | null; businessId: string; pending: string | null; onDecide: (a: AssetRow, d: "approve" | "reject") => void; onShare?: (a: AssetRow) => void; onPosted: (a: AssetRow, url: string) => Promise<void> }) {
   const meta = ASSET_KIND_META[asset.kind];
   // A post the team wrote to be shared is an offer: it is shared or set aside, never approved or rejected.
   const team = teamPostOf(asset);
@@ -321,6 +335,13 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
           {outcomes}
         </p>
       ) : null}
+      {asset.posted ? (
+        <p className="text-small text-primary" data-testid="post-posted">
+          {postedLine(asset.posted.network, new Date(asset.posted.at))}
+        </p>
+      ) : team && asset.approvalState === "approved" ? (
+        <DidYouPost pending={pending === `posted:${asset.id}`} onYes={(url) => onPosted(asset, url)} />
+      ) : null}
       {mediaLabel ? (
         <p className="flex items-center gap-1.5 text-small text-secondary" data-asset-media="">
           <Icon icon={Film} size="inline" className="text-tertiary" />
@@ -361,5 +382,26 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
         ) : null}
       </div>
     </article>
+  );
+}
+
+/** "Did you post it?": the founder's own yes, with the post's link if they want to paste it; "Not yet" puts the question away. */
+function DidYouPost({ pending, onYes }: { pending: boolean; onYes: (url: string) => Promise<void> }) {
+  const [url, setUrl] = useState("");
+  const [away, setAway] = useState(false);
+  if (away) return null;
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="did-you-post">
+      <p className="text-small text-primary">{POST_PUBLISHED_WORDS.question}</p>
+      <Input value={url} maxLength={500} onChange={(e) => setUrl(e.target.value)} placeholder={POST_PUBLISHED_WORDS.linkLabel} aria-label={POST_PUBLISHED_WORDS.linkLabel} />
+      <div className="flex gap-1.5">
+        <Button size="sm" variant="primary" loading={pending} onClick={() => void onYes(url.trim())}>
+          {POST_PUBLISHED_WORDS.yes}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setAway(true)}>
+          {POST_PUBLISHED_WORDS.notYet}
+        </Button>
+      </div>
+    </div>
   );
 }
