@@ -10,6 +10,9 @@ import { isUntrusted } from "../../quarantine";
 import { describeConnectorContract, makeToolContext } from "../../testing/contract-suite";
 import { READ_SKILL_NOTICE, createPlatformConnector, createPlatformMock } from "./index";
 import { createMemoryPlatformHost, platformMock } from "./mock";
+import { createAllConnectors } from "../../index";
+import { acceptanceRefusal, SHARED_WITH_OUTSIDE } from "./acceptance";
+import { platformTools } from "./tools";
 
 describeConnectorContract("platform (mock)", {
   connector: platformMock,
@@ -162,5 +165,28 @@ describe("read_skill (WP-06 T4)", () => {
     const connector = createPlatformConnector({ platform: host });
     const r = await connector.callTool("read_skill", { skillKey: "x" }, makeToolContext(connector, { mode: "live", businessId: A, agentId: WORKER, sessionId: null }));
     expect(r.error).toMatchObject({ code: "invalid_state" });
+  });
+});
+
+describe("acceptance: a cited tool inside the project is refused", () => {
+  const lines = ["At least two suppliers recorded in Customers, each with the page it was found on", "An RFQ pack drafted in the report"];
+  const body = "## Suppliers recorded\n\nTwo.\n\n## RFQ pack draft\n\nQuestions.";
+  const rfq = { line: 2, met: true, reportSection: "RFQ pack draft" };
+
+  it("refuses a platform or quarantine tool however it is written, so the agent cites its report in the same turn", () => {
+    for (const tool of ["create_entity", "platform:create_entity", "mcp__platform__create_entity", "save_report", "quarantine:read"])
+      expect(acceptanceRefusal(lines, [{ line: 1, met: true, tool }, rfq], body)).toMatch(new RegExp(`line 1 cites ${tool.replace(/[$]/g, "")}, a tool inside the project.*reportSection`));
+    expect(acceptanceRefusal(lines, [{ line: 1, met: true, reportSection: "Suppliers recorded" }, rfq], body)).toBeNull();
+  });
+
+  it("leaves outside tools, and platform names an outside connector shares, to the session's verdict", () => {
+    for (const tool of ["fetch_page", "web:search_web", "send_message", "gmail:send_message"]) expect(acceptanceRefusal(lines, [{ line: 1, met: true, tool }, rfq], body)).toBeNull();
+    expect(acceptanceRefusal(lines, [{ line: 1, met: false, tool: "create_entity" }, rfq], body)).toBeNull();
+  });
+
+  it("SHARED_WITH_OUTSIDE is exactly the platform tool names another connector also serves", () => {
+    const platform = new Set<string>(platformTools.map((t) => t.name));
+    const shared = new Set(createAllConnectors({ secrets: {} } as never).filter((c) => c.key !== "platform").flatMap((c) => c.tools.map((t) => t.name)).filter((n) => platform.has(n)));
+    expect([...shared].sort()).toEqual([...SHARED_WITH_OUTSIDE].sort());
   });
 });
