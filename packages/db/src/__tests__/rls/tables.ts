@@ -150,7 +150,7 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("credit_lots", s.creditLots, "service", () => ({ amountMinor: 2500, remainingMinor: 2500, purchasedAt: new Date("2026-11-13T00:00:00Z"), expiresAt: new Date("2027-11-13T00:00:00Z") })),
   // 0033 credit top-ups through Stripe Checkout (written by the api and the ingest webhook with the service role)
   spec("billing_checkouts", s.billingCheckouts, "service", () => ({ mode: "mock", amountMinor: 5000, currency: "USD" })),
-  // 0144: a project's place on the Partner waitlist; services write, owners and admins read (WP-14 T14).
+  // 0145: a project's place on the Partner waitlist; services write, owners and admins read (WP-14 T14).
   spec("partner_waitlist", s.partnerWaitlist, "service", (f) => ({ userId: [f.ownerId, f.adminId, f.memberId, f.viewerId][counter() % 4], consentedAt: new Date("2026-11-17T00:00:00Z") })),
   // 0053 saved session recordings (the orchestrator writes them with the service role when a session finishes)
   spec("session_recordings", s.sessionRecordings, "service", (f) => ({ sessionId: f.sessionId, events: [{ id: "1-0", event: { kind: "note", at: "2026-10-12T09:00:00.000Z", level: "info", source: "agent", text: "Started" } }], eventCount: 1, bytes: 90 })),
@@ -243,6 +243,8 @@ export const NON_TENANT_TABLES = [
   // role, RLS on, no policy); covered by rls/idea-drafts.test.ts.
   "idea_drafts",
   "waitlist_entries",
+  // 0145: the batches the waitlist opens in (platform-scoped, no business_id; service only); same test file.
+  "waitlist_batches",
   "ideas",
   "idea_versions",
   "idea_comparisons",
@@ -293,7 +295,7 @@ export const NON_TENANT_TABLES = [
   // anonymous counts, written by services only; covered by rls/page-quizzes.test.ts.
   "page_quizzes",
   "page_quiz_counts",
-  // 0144: what a plan knows about its owner (account-scoped, service role only); covered by rls/owner-plans.test.ts.
+  // 0145: what a plan knows about its owner (account-scoped, service role only); covered by rls/owner-plans.test.ts.
   "owner_plans",
   // 0091: admissions (user-owned, service role only) and invitations (business-scoped, but its token hash and address
   // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
