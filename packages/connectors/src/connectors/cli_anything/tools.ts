@@ -92,7 +92,7 @@ export const CLI_COMMANDS: Record<CliProgramName, CliCommand[]> = { inkscape, li
 /** The one way a file leaves the working folder. It asks the founder first (an outside-facing action), in every program. */
 export const releaseOutputTool = defineTool({
   name: "release_output",
-  description: "Ask the founder to approve putting a finished file from the working folder to use: as the business logo (an SVG or PNG). Nothing changes until they approve.",
+  description: "Ask the founder to approve putting a finished file from the working folder to use: as the business logo (an SVG or PNG). The founder is always asked first.",
   input: z.object({ path: WorkFile, target: ReleaseTarget }),
   output: ReleaseOut,
   hints: { contactsThirdParty: true },

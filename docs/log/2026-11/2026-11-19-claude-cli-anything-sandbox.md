@@ -19,6 +19,12 @@ supersedes: []
 - **Only the logo has a destination.** A document, deck or clip stays in the working copy: there is no project file store to release it into, so `release_output` accepts target `logo` only. Adding a destination is a follow-up, not hidden behind a tool that cannot work.
 - `apps/gateway/src/pipeline.ts` is untouched; the tools reach the pipeline through the connector contract.
 
+## Security review (Nov 20)
+- **Fixed:** `release_output` only asked in augmented mode; assisted and automated allowed it. `packages/policy/src/policies/45-release.cedar` now has `cli-release-asks-founder`, which asks in every mode, with a policy test. The release read in `cli-runner.ts` now refuses a link or a file over the upload limit. The sandbox check refuses joined path flags (`--output=/abs`) and option-looking positional values, and FFmpeg gets a demuxer allow-list. The runner forgets a business's sandbox after 55 minutes.
+- **Open, not mine:** `apps/gateway/src/pipeline.ts` (`decisionTypeFor`, about line 827) sends `release_output` to the `message_customers` decision type, which Team › Responsibilities can hand to an agent. It must return null for the `cli_*` `release_output` tools so only the founder decides. Session 5b owns that file.
+- **Open, judgment:** text from untrusted content is not forced through the quarantined reader before it becomes a program argument. With the founder asked before any release, the damage is limited to the working copy; a later change can add it to the pipeline's untrusted-session rule.
+- **Open, low:** a LibreOffice formula in `set_cell` can link a local file inside the same sandbox; documents cannot be released today.
+
 ## Not done
 - The template was not built and no real program ran: the unit suite uses a stand-in for Inkscape. The live eval needs `E2B_API_KEY` and the rebuilt template.
 - The sandbox's working folder is per business, not per task; it is cleared when the sandbox ends (60 minutes).

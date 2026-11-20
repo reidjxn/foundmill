@@ -35,6 +35,7 @@ export type CliProgram = keyof typeof CLI_PROGRAMS;
 /** Arguments that would make a program read a network address or run code, refused whatever the command. */
 const REFUSED_ARG = /^(?:[a-z][a-z0-9+.-]*:\/\/|-(?:-?(?:script|macro|eval|exec|plugin|python|shell|filter_complex_script)\b)|-i$)/i;
 const PATH_FLAG = /^--?(?:output|o|project|path)$/;
+const JOINED_PATH_FLAG = /^--?(?:output|o|project|path)=(.*)$/;
 
 export class CliCallRefused extends Error {
   constructor(reason: string) {
@@ -63,6 +64,13 @@ export function checkCliCall(program: CliProgram, argv: readonly string[]): void
     if (REFUSED_ARG.test(a)) throw new CliCallRefused(`argument ${a.slice(0, 40)} is not allowed`);
   }
   // A path value (after a path flag, or a bare `export` / `new` output argument) must stay in the working folder.
+  // Past the command words, an argument that starts with `-` must be `--name=value` (the connector joins every value), so a
+  // value such as `--output` cannot be read as an option; and a joined path flag is held to the same folder rule.
+  argv.slice(program === "ffmpeg" ? 1 : 2).forEach((a) => {
+    if (program !== "ffmpeg" && a.startsWith("-") && !/^--(?:[a-z][a-z-]*=|overwrite$|bold$)/.test(a)) throw new CliCallRefused(`argument ${a.slice(0, 40)} is not allowed`);
+    const joined = JOINED_PATH_FLAG.exec(a);
+    if (joined && !isWorkPath(joined[1]!)) throw new CliCallRefused(`path ${joined[1]!.slice(0, 60)} is outside the working folder`);
+  });
   argv.forEach((a, i) => {
     if (PATH_FLAG.test(a) && argv[i + 1] !== undefined && !isWorkPath(argv[i + 1]!)) throw new CliCallRefused(`path ${argv[i + 1]!.slice(0, 60)} is outside the working folder`);
   });
@@ -92,7 +100,7 @@ export interface CliCallResult {
 
 const ffmpegArgv = (argv: readonly string[]): string[] => {
   const v = (k: string) => argv[argv.indexOf(k) + 1]!;
-  const common = ["-hide_banner", "-nostdin", "-protocol_whitelist", "file", "-y", "-i", v("--in")];
+  const common = ["-hide_banner", "-nostdin", "-protocol_whitelist", "file", "-format_whitelist", "mov,mp4,m4a,matroska,webm,mp3,wav,gif,image2,png_pipe,jpeg_pipe", "-y", "-i", v("--in")];
   switch (argv[0]) {
     case "trim": return [...common, "-ss", v("--start"), "-t", v("--seconds"), v("--out")];
     case "extract-audio": return [...common, "-vn", v("--out")];

@@ -14,6 +14,8 @@ describe("checkCliCall", () => {
   it("refuses paths outside the working folder and network addresses", () => {
     for (const out of ["/tmp/x.svg", "../x.svg", "~/x.svg", "https://evil.test/x.svg", "-rf"]) expect(() => checkCliCall("inkscape", ["export", "svg", out]), out).toThrow(CliCallRefused);
     expect(() => checkCliCall("inkscape", ["document", "new", "--output", "../p.json"])).toThrow(CliCallRefused);
+    expect(() => checkCliCall("inkscape", ["document", "new", "--output=/abs/p.json"])).toThrow(CliCallRefused);
+    expect(() => checkCliCall("libreoffice", ["calc", "set-cell", "--sheet=0", "A1", "--output"])).toThrow(CliCallRefused);
     expect(() => checkCliCall("ffmpeg", ["convert", "--in", "http://x/a.mp4", "--out", "b.mp4"])).toThrow(CliCallRefused);
   });
 });

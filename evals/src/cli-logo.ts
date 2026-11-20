@@ -27,7 +27,7 @@ export function standInInkscape(): { sandbox: Sandbox; files: Map<string, string
     closeEgress: async () => {},
     listFiles: async () => [...files].map(([name, text]) => ({ path: `/w/${name}`, name, type: "file" as const, size: text.length, modifiedAt: null })),
     exec: async (line: string) => {
-      const base64 = /^base64 -w0 \S+?([^/\s']+)'?$/.exec(line);
+      const base64 = /base64 -w0 \S*?([^/\s']+)'?$/.exec(line);
       if (base64) {
         const f = files.get(base64[1]!);
         return { code: f ? 0 : 1, stdout: f ? Buffer.from(f).toString("base64") : "", stderr: "", timedOut: false, durationMs: 1 };
