@@ -1,7 +1,7 @@
 import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, stableHash } from "../../mock-utils";
 import { CALENDARS, EVENTS } from "./fixtures/events";
-import { freeSlots, GOOGLE_CALENDAR_KEY, GOOGLE_CALENDAR_RATE_LIMITS, GOOGLE_CALENDAR_SCOPES, googleCalendarTools, mapEvent, type GEvent } from "./tools";
+import { freeSlots, GOOGLE_CALENDAR_KEY, GOOGLE_CALENDAR_RATE_LIMITS, GOOGLE_CALENDAR_SCOPES, eventChanged, googleCalendarTools, mapEvent, type GEvent } from "./tools";
 
 const notFound = (what: string) => Object.assign(new Error(`${what} not found`), { status: 404 });
 
@@ -35,13 +35,19 @@ export function createGoogleCalendarMock() {
         world(ctx.businessId).set(id, e);
         return mapEvent(calendarId, e);
       },
+      add_event: async ({ calendarId, summary, description, location, start, end }, ctx) => {
+        const id = `evt_${stableHash(["own", summary, start], 12)}`;
+        const e: GEvent = { id, status: "confirmed", summary, description, location, start: { dateTime: start }, end: { dateTime: end }, attendees: [], organizer: { email: "reid@northwindskincare.com" }, htmlLink: `https://calendar.google.com/event?eid=${id}` };
+        world(ctx.businessId).set(id, e);
+        return mapEvent(calendarId, e);
+      },
       update_event: async ({ calendarId, eventId, attendees, start, end, ...patch }, ctx) => {
         const events = world(ctx.businessId);
         const e = events.get(eventId);
         if (!e) throw notFound(`event ${eventId}`);
         const updated: GEvent = { ...e, ...Object.fromEntries(Object.entries(patch).filter(([k, v]) => v !== undefined && k !== "sendUpdates")), ...(start ? { start: { dateTime: start } } : {}), ...(end ? { end: { dateTime: end } } : {}), ...(attendees ? { attendees: attendees.map((email) => ({ email, responseStatus: e.attendees?.find((a) => a.email === email)?.responseStatus ?? "needsAction" })) } : {}) };
         events.set(eventId, updated);
-        return mapEvent(calendarId, updated);
+        return eventChanged(mapEvent(calendarId, updated));
       },
       delete_event: async ({ eventId }, ctx) => {
         const events = world(ctx.businessId);

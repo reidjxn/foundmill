@@ -5,11 +5,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // (a rejecting vi.fn leaves a derived promise that vitest reports as an unhandled error).
 const publicIndexNowKeyFile = vi.fn<(slug: string, key: string) => void>();
 let answer: () => Promise<string | null> = async () => null;
+let page: () => Promise<unknown> = async () => null;
 vi.mock("@/lib/public-page.server", () => ({
   publicIndexNowKeyFile: (slug: string, key: string) => {
     publicIndexNowKeyFile(slug, key);
     return answer();
   },
+  publicProjectPage: () => page(),
+  publicProjectStory: async () => ({ milestones: [{ label: "Page live", achievedAt: "2026-10-07T09:00:00Z" }] }),
 }));
 
 import { GET } from "../[keyFile]/route";
@@ -20,6 +23,33 @@ const ask = (keyFile: string, slug = "northwind") => GET(new Request(`http://loc
 beforeEach(() => {
   publicIndexNowKeyFile.mockReset();
   answer = async () => null;
+  page = async () => null;
+});
+
+const PAGE = { slug: "northwind", url: "https://foundmill.com/p/northwind", name: "Northwind", pitch: "Skincare for reactive skin", about: "Made in small batches.", forWhom: "", stage: "idea", publishedAt: "2026-10-07T09:00:00Z", updatedAt: "2026-10-07T09:00:00Z", founderNames: [], story: true };
+
+describe("GET /p/[slug]/index.md and /p/[slug]/llms.txt (WP-08 T7)", () => {
+  it("serves the public page as Markdown, never indexed, with the page as canonical; the IndexNow key is not asked", async () => {
+    page = async () => PAGE;
+    for (const name of ["index.md", "llms.txt"]) {
+      const res = await ask(name);
+      expect(res.status, name).toBe(200);
+      expect(res.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+      expect(res.headers.get("x-robots-tag")).toBe("noindex");
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(res.headers.get("link")).toBe('<https://foundmill.com/p/northwind>; rel="canonical"');
+      const text = await res.text();
+      expect(text.startsWith("# Northwind\n")).toBe(true);
+      expect(text).toContain("- Oct 7, 2026: Page live");
+    }
+    expect(publicIndexNowKeyFile).not.toHaveBeenCalled();
+  });
+
+  it("is the same 404 for a page that is not public, and a 503 when the api cannot be asked", async () => {
+    expect((await ask("index.md")).status).toBe(404);
+    page = () => Promise.reject(new Error("api down"));
+    expect((await ask("llms.txt")).status).toBe(503);
+  });
 });
 
 describe("GET /p/[slug]/[keyFile]", () => {

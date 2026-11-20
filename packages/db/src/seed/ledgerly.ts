@@ -69,7 +69,7 @@ const HISTORY_TITLES = [
   { kind: "research" as const, departmentSlug: "product", assigneeTemplateKey: "researcher", title: "Competitor pricing scan" },
   { kind: "finance" as const, departmentSlug: "finance", assigneeTemplateKey: "finance_lead", title: "Investor update draft" },
   { kind: "legal" as const, departmentSlug: "legal", assigneeTemplateKey: "legal_lead", title: "DPA review" },
-  { kind: "ops" as const, departmentSlug: "team", assigneeTemplateKey: "chief_of_staff", title: "Cycle retrospective" },
+  { kind: "ops" as const, departmentSlug: "team", assigneeTemplateKey: "chief_of_staff", title: "Round of work retrospective" },
 ];
 
 export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {

@@ -29,7 +29,7 @@ describe("when the team stops", () => {
   it("adds Autopilot's own pause only while it is on, with its number", () => {
     expect(ids(loopStops({ mode: "assisted", lineMinor: null, currency: "USD", agentLimitMinor: AGENT, autopilot: { enabled: false, maxIdleCycles: 3 } }))).not.toContain("autopilot_idle");
     const on = loopStops({ mode: "assisted", lineMinor: null, currency: "USD", agentLimitMinor: AGENT, autopilot: { enabled: true, maxIdleCycles: 3 } });
-    expect(on.asks.find((s) => s.id === "autopilot_idle")!.when).toBe("3 cycles in a row fail or get nothing done");
+    expect(on.asks.find((s) => s.id === "autopilot_idle")!.when).toBe("3 rounds of work in a row fail or get nothing done");
   });
 
   it("says what stops on its own, and never uses the words the page avoids", () => {

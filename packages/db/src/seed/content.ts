@@ -97,7 +97,7 @@ export const agentMention = (entities: AgentEntities, a: SeededAgent | Agent): s
 export async function seedSpec(ctx: SeedCtx, businessId: string, outline: readonly string[], text: Record<string, string[]>, authorAgentId: string | null): Promise<{ ids: Map<string, string>; versionId: string }> {
   const ids = new Map<string, string>();
   for (const [position, section] of outline.entries()) {
-    const paragraphs = text[section] ?? [`${section}: to be drafted by the Product lead in the next cycle.`];
+    const paragraphs = text[section] ?? [`${section}: to be drafted by the Product lead in the next round of work.`];
     const block = await repos.product.createBlock(ctx.db, businessId, {
       section,
       position,

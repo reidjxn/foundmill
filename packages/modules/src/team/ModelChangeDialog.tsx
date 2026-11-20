@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import { Cpu } from "lucide-react";
-import { CREDITS_CURRENCY } from "@foundmill/config";
+import { CREDITS_CURRENCY, planName } from "@foundmill/config";
 import { ApplyScopeDialog, Button, useAgentPersona, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, MODEL_LABELS, ModelPicker, SkeletonText, type ApplyScope, type ModelOption } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { useWidgetQuery } from "@foundmill/widgets/data";
@@ -17,7 +17,7 @@ const MODEL_DESCRIPTIONS: Record<ModelKey, string> = {
   opus: "Deepest judgment; the default for the agent that plans the work and for department leads.",
   sonnet: "Fast and capable; the default for workers.",
   haiku: "Cheapest; classification, linking and other utility work.",
-  glm: "The free plan's model: every agent runs on it until the plan is upgraded or your own Anthropic key is connected.",
+  glm: `${planName("free")}'s model: every agent runs on it until the plan is changed or your own Anthropic key is connected.`,
 };
 
 /**

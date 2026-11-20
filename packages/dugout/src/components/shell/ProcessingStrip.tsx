@@ -46,7 +46,7 @@ export function processingStatusText(segments: readonly ProcessingSegment[], act
   const working = segments.filter((s) => s.active).map((s) => s.label);
   const who = working.length ? listWords(working) : "The team";
   const verb = working.length > 1 ? "are" : "is";
-  const on = builder && typeof cycleNumber === "number" && cycleNumber > 0 ? ` on cycle ${cycleNumber}` : "";
+  const on = builder && typeof cycleNumber === "number" && cycleNumber > 0 ? ` on round of work ${cycleNumber}` : "";
   return `${who} ${verb} working${on}`;
 }
 

@@ -1,4 +1,4 @@
--- 0145 — an index under each foreign key that had none led by its own columns (Supabase advisor lint 0001,
+-- 0147 — an index under each foreign key that had none led by its own columns (Supabase advisor lint 0001,
 -- unindexed_foreign_keys; docs/holistic-plan/WP-11 T7). Each table already had an index led by the key's first
 -- column, so no query gets faster: this clears the lint so the next real finding is visible. The six new indexes will
 -- show as "unused index" until the tables grow. No `concurrently`: the migrator runs in one transaction and the tables

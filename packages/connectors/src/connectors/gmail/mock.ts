@@ -61,6 +61,12 @@ export function createGmailMock() {
         const m = outbound(ctx.businessId, args, "DRAFT");
         return { draftId: `r${m.id}`, messageId: m.id };
       },
+      list_drafts: async ({ q, maxResults }, ctx) => ({ items: [...world(ctx.businessId).messages.values()].filter((m) => m.labelIds?.includes("DRAFT")).map((m) => ({ draftId: `r${m.id}`, ...mapSummary(m) })).filter((m) => !q || matchesQuery(m, q)).sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, maxResults) }),
+      get_draft: async ({ draftId }, ctx) => {
+        const m = world(ctx.businessId).messages.get(draftId.replace(/^r/, ""));
+        if (!m || !m.labelIds?.includes("DRAFT")) throw Object.assign(new Error(`draft ${draftId} not found`), { status: 404 });
+        return { draftId, ...mapMessage(m) };
+      },
       list_labels: async () => ({ items: GMAIL_LABELS }),
     },
     connect: async (businessId) => mockIntegrationRecord(GMAIL_KEY, businessId, { accountLabel: `${MOCK_MAILBOX_ADDRESS} (mock)`, scopes: GMAIL_SCOPES, config: { email: MOCK_MAILBOX_ADDRESS } }),

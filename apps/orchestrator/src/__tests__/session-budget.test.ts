@@ -33,7 +33,7 @@ describe("what a session still books at its end (WP-09 T3)", () => {
 const task = { taskBudgetMinor: 2_000, taskSpentMinor: 500 };
 
 describe("boundSpend", () => {
-  it("is the session's share of a capped cycle (Autopilot's own spend, 0077) when that is tighter", () => {
+  it("is the session's share of a capped round of work (Autopilot's own spend, 0077) when that is tighter", () => {
     expect(boundSpend({ ...task, creditsLeftMinor: 9_000, cycleCapMinor: 7 })).toEqual({ remainingMinor: 7, limit: "cycle" });
     expect(boundSpend({ ...task, creditsLeftMinor: 9_000, cycleCapMinor: null })).toEqual({ remainingMinor: 1_500, limit: "task" });
   });

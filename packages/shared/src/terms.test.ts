@@ -223,7 +223,7 @@ describe("PLAIN_LANGUAGE_TIERS", () => {
       "Runway", "Burn", "MRR", "ARR", "Churn", "P&L", "Cash basis", "Ledger", "Cap table", "SAFE", "Vesting", "Funnel",
       "Attribution", "Conversion", "Pipeline", "Playbook", "SKU", "Gross margin", "Payback", "Tokens", "Credits", "API key",
       "Pull request", "Branch", "Repository", "Sandbox", "Task graph", "Acceptance", "Hard gate", "Autonomy", "Wage cap",
-      "Chief of Staff", "Cycle", "Chapter", "Estimate", "Forecast", "Specification", "Proposal", "Sign-off", "Jurisdiction",
+      "Chief of Staff", "Round of work", "Chapter", "Estimate", "Forecast", "Specification", "Proposal", "Sign-off", "Jurisdiction",
       "Lawful basis", "Archetype", "Fit", "Potential", "Cost trend",
     ])
       expect(PLAIN_LANGUAGE_TIERS.define, w).toContain(w);

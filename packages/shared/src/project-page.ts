@@ -434,3 +434,26 @@ export const FOLLOW_CONFIRM_PAGE = {
   done: (name: string) => `You're following ${oneLine(name)}. You can unsubscribe from any email it sends.`,
   invalid: "This link is not valid or has expired, so nothing changed.",
 } as const;
+
+/**
+ * How much "about" a published page needs before search engines may list it (WP-08 T7; s3 §3.3). An Estimate: tune it
+ * with Search Console data once pages are listed.
+ */
+export const PAGE_LISTED_ABOUT_MIN = 400;
+
+export type PageNotListedReason = "short_about" | "pitch_is_name";
+
+/** The founder-facing line when a page is public and not listed: an offer, never a fault. */
+export const PAGE_NOT_LISTED_LINE = "Search engines can show this page once it says a little more about the project.";
+
+/**
+ * Whether a published page may be listed by search engines (its robots meta, the sitemap): "about" has at least
+ * `PAGE_LISTED_ABOUT_MIN` characters and the pitch is more than the project's name. A page that is not listed is still
+ * public to anyone with the link.
+ */
+export function pageIsListed(input: { name: string; content: Pick<ProjectPageContent, "pitch" | "about"> }): { listed: boolean; reason: PageNotListedReason | null } {
+  const squash = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  if (!input.content.pitch.trim() || squash(input.content.pitch) === squash(input.name)) return { listed: false, reason: "pitch_is_name" };
+  if (input.content.about.trim().length < PAGE_LISTED_ABOUT_MIN) return { listed: false, reason: "short_about" };
+  return { listed: true, reason: null };
+}

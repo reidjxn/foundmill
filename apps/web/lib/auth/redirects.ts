@@ -13,7 +13,7 @@
  *   app/(live)/layout.tsx, because only the API knows whether the profile exists; the proxy only knows who is signed in.
  */
 import { exampleRoute } from "@/components/landing/examples/ids";
-import { landingVariant, landingVariantRoute } from "@/lib/landing-variant";
+import { landingVariant, landingVariantRoute, numberedLandingVariant } from "@/lib/landing-variant";
 import { NEXT_PARAM } from "./constants";
 import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
 
@@ -108,6 +108,13 @@ export function decideRedirect(input: { pathname: string; search?: string; authe
     return { kind: "redirect", to: signedInDestination(safeNextPath(params.get(NEXT_PARAM)), lastBusinessId) };
   }
   if (isPublicPath(pathname)) return { kind: "next" };
+  // `/1` to `/20`: a landing page by its number (`/1` is `/` itself). A signed-out visitor is sent to `/`, which serves the
+  // page from the `fm_lp` cookie proxy.ts sets on this redirect, so the address bar shows only the domain (founder, Nov 19,
+  // 2026). The link's query is dropped: `via` is already kept in its cookie by proxy.ts, and nothing reads `utm_*` yet.
+  // shortcut: an ad pixel added later would lose `gclid`/`fbclid` here; keep those params on the redirect when one lands.
+  // A signed-in person still sees the page in place, since `/` would send them to their project.
+  const numbered = numberedLandingVariant(pathname);
+  if (numbered) return authenticated ? { kind: "rewrite", to: landingVariantRoute(numbered) ?? "/" } : { kind: "redirect", to: "/" };
   if (!authenticated) {
     if (pathname === "/") {
       // The landing page; a deep link to another example business is that business's own prerendered page.

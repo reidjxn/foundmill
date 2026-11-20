@@ -1,9 +1,10 @@
 "use client";
 /**
  * Your businesses › Active (founder, 2026-10-16): one row per business the founder belongs to (`founder.businesses.list`),
- * with its 32 px logo, name, role, Demo and Last opened chips, a facts line ("Pro plan · Assisted · Personal · Created
+ * with its 32 px logo, name, role, Demo and Last opened chips, a facts line ("Founder plan · Assisted · Personal · Created
  * Oct 7, 2026"), Agents stopped while the team is stopped, Settings for owners and admins, and Open. Presentational.
  */
+import { planName } from "@foundmill/config";
 import { isAdminRole } from "@foundmill/shared/constants";
 import { ArrowRight, Building2, Plus, Settings } from "lucide-react";
 import { BUSINESS_MODE_INFO, BusinessLogo, Chip, Panel, StatusPill, type DateFormatPrefs } from "@foundmill/dugout";
@@ -27,11 +28,9 @@ export interface BusinessesListProps {
   onCreate: () => void;
 }
 
-const tierWord = (tier: string) => tier.charAt(0).toUpperCase() + tier.slice(1);
-
-/** "Pro plan · Assisted · Personal · Created Oct 7, 2026". */
+/** "Founder plan · Assisted · Personal · Created Oct 7, 2026" (the plan's name is config: packages/config `planName`). */
 export function businessFacts(b: Pick<FounderBusiness, "planTier" | "businessMode" | "gameMode" | "createdAt">, prefs?: DateFormatPrefs | null): string {
-  return `${tierWord(b.planTier)} plan · ${BUSINESS_MODE_INFO[b.businessMode].word} · ${b.gameMode === "live" ? "LIVE" : "Personal"} · Created ${formatDate(b.createdAt, prefs)}`;
+  return `${planName(b.planTier)} plan · ${BUSINESS_MODE_INFO[b.businessMode].word} · ${b.gameMode === "live" ? "LIVE" : "Personal"} · Created ${formatDate(b.createdAt, prefs)}`;
 }
 
 export function BusinessesList({ rows, logos, lastBusinessId, prefs, loading, error, onRetry, onCreate }: BusinessesListProps) {

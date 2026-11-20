@@ -211,8 +211,8 @@ export const TERMS: LegalDocument = {
       id: "credits-payment",
       heading: "Plans, credits and payment",
       blocks: [
-        { kind: "p", text: `${N} has a free plan. People are free on every plan: there is no charge for cofounders or collaborators. Plans differ only in how much agent work they include.` },
-        { kind: "p", text: "Agent work is paid for with credits. The free plan includes credits for one project each month. Included credits are renewed at the start of each calendar month, do not carry over and have no cash value." },
+        { kind: "p", text: `${N}'s plans are listed with their prices in Settings › Billing. While sign-up is by invitation, no plan is charged. People are free on every plan: there is no charge for cofounders or collaborators. Plans differ in how many projects they hold, how much agent work they include and the features listed for each plan.` },
+        { kind: "p", text: "Agent work is paid for with credits. Each plan includes credits for one project each month. Included credits are renewed at the start of each calendar month, do not carry over and have no cash value." },
         { kind: "p", text: "You can buy more credits. Prices are shown in US dollars before you pay, and payments are handled by Stripe; we never see your full card number. Credits you buy are added to the project you buy them for and last 12 months from the day you buy them. Each month's included credits are used first, then the credits you bought, oldest first. Prices include taxes where we are required to collect them." },
         { kind: "p", text: "Credits you buy and have not used can be refunded within 14 days of purchase: write to us. Credits that have been used, and included credits, are not refunded. This does not limit any right to a refund you have under the law." },
         { kind: "p", text: "If you are a consumer in the European Union, you have a right to withdraw from a purchase within 14 days. Credits are used as soon as your team works, so by buying credits and starting work you ask us to begin at once; you keep the right to a refund of the credits you have not used in those 14 days." },

@@ -15,7 +15,7 @@ const status = (patch: Record<string, unknown> = {}) => ({
   enabled: false,
   state: "off",
   label: "Off",
-  detail: "Cycles start when you press Continue.",
+  detail: "Rounds of work start when you press Continue.",
   pausedReason: null,
   waitingFor: null,
   nextAt: null,
@@ -87,7 +87,7 @@ describe("Autopilot section", () => {
     expect(screen.getByTestId("autopilot-detail").textContent).toContain("2 notes in the Inbox need your answer. Autopilot never answers them for you.");
     // The next cycle is a forecast and says so.
     expect(chip.querySelector("[data-provenance='estimate']")).toBeTruthy();
-    expect(screen.getByTestId("autopilot-today").textContent).toContain("2 of 6 cycles today");
+    expect(screen.getByTestId("autopilot-today").textContent).toContain("2 of 6 rounds of work today");
     expect(screen.getByTestId("autopilot-today").textContent).toContain("Estimate");
   });
 
@@ -129,7 +129,7 @@ describe("Autopilot section", () => {
 
   it("validates the limits, then saves them as typed (dollars become cents)", async () => {
     renderSection();
-    const cycles = (await screen.findByLabelText(/Most cycles per day/)) as HTMLInputElement;
+    const cycles = (await screen.findByLabelText(/Most rounds of work per day/)) as HTMLInputElement;
     const save = screen.getByTestId("autopilot-save") as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     fireEvent.change(cycles, { target: { value: "25" } });
@@ -137,7 +137,7 @@ describe("Autopilot section", () => {
     expect(save.disabled).toBe(true);
     fireEvent.change(cycles, { target: { value: "8" } });
     fireEvent.change(screen.getByLabelText(/Spend ceiling per day/), { target: { value: "12.50" } });
-    fireEvent.change(screen.getByLabelText(/Pause after failed or empty cycles/), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText(/Pause after failed or empty rounds of work/), { target: { value: "2" } });
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
     await waitFor(() => expect(set).toHaveBeenCalledTimes(1));

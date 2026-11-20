@@ -33,7 +33,7 @@ import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, attachedSkills, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, NO_TOOL_LOOP_PRELOAD_BODIES, restoredWorkspaceNote, selectSkills, SESSION_PRELOAD_BODIES, ToolGrant, type AgentTemplate, type AttachedSkill } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, modelFundingFor, sandboxCostMicroMinor } from "@foundmill/config";
-import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
+import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, withContextReads, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
 import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, freeCapCheck, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, readSessionEvents, type SessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_ENDPOINTS, MODEL_PRICING, MODEL_PROVIDER, MODELS, resolveModel, type ModelId, type ModelKey as RoutedModelKey, type RouteKey } from "@foundmill/models";
@@ -880,8 +880,9 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       // session `stopped` and the agent stays paused; retrying would not change the answer.
       if (agent.status === "paused") throw ApplicationFailure.nonRetryable(`Agent ${agent.name} is paused`, AGENT_PAUSED_FAILURE);
       if (business.agentsStoppedAt) throw ApplicationFailure.nonRetryable("Agents are stopped for this business", AGENT_PAUSED_FAILURE);
-      // A second read's revision keeps only the document tools (./second-read).
-      const grants = await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(version, template)));
+      // A second read's revision keeps only the document tools (./second-read); the founder's mail and calendar are read
+      // only where the founder said yes (packages/connectors google-context).
+      const grants = withContextReads(await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(version, template))), await repos.integrations.contextReads(deps.db, input.businessId));
       const route: RouteKey = template.route;
       const { provider, mode, fellBackFrom } = await deps.sandbox();
       // The credit saver: a session on the platform key whose month's credits are low runs routine work on the route's
@@ -1594,7 +1595,7 @@ export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string 
     };
   }
   if (kind === "rate_limit" || kind === "overloaded" || status === 429 || status === 529) {
-    return { outcome: "blocked", blockedReason: "rate_limit", reason: `rate limited by the model provider (${text})`.slice(0, 500), summary: "Blocked: the model provider is rate limiting or overloaded; the task runs again on a later cycle." };
+    return { outcome: "blocked", blockedReason: "rate_limit", reason: `rate limited by the model provider (${text})`.slice(0, 500), summary: "Blocked: the model provider is rate limiting or overloaded; the task runs again on a later round of work." };
   }
   return { outcome: "failed", blockedReason: "error", reason: `the model call failed${status ? ` (${status})` : ""}: ${text}`.slice(0, 500), summary: "The agent run ended with an error from the model provider." };
 }
@@ -1623,7 +1624,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   }
 
   // A second read's revision keeps only the document tools (./second-read): its goal carries another agent's notes.
-  const grants = await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(live.version, live.template)));
+  // The founder's mail and calendar are read only where the founder said yes (packages/connectors google-context).
+  const grants = withContextReads(await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(live.version, live.template))), await repos.integrations.contextReads(deps.db, input.businessId));
   if (grants.unresolved.length > 0) deps.log.info({ sessionId: input.sessionId, unresolved: grants.unresolved.map((u) => `${u.connectorKey}.${u.capability}`).slice(0, 50) }, "granted capabilities no tool serves yet");
   // What the gateway would refuse as not connected (WP-05 T12, the gateway's own rule): the agent is told, and a research
   // or channel task whose every outside connector is refused does not start, before any workspace, token or SDK exists.

@@ -223,7 +223,7 @@ export const EventTimeline: Story = {
           {
             id: "4",
             at: new Date(FIXTURE_NOW.getTime() - 86_400_000),
-            title: "Cycle 41 completed",
+            title: "Round of work 41 completed",
             icon: CircleCheck,
             tone: "neutral",
           },

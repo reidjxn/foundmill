@@ -24,7 +24,7 @@ export const FIRST_DAY_SENTENCE = "The team drafts; you sign off; then they buil
 export function HowItWorks() {
   return (
     <Section id="how">
-      <SectionHeading id="how" eyebrow="How it works" title="From an idea to a running business, one cycle at a time." />
+      <SectionHeading id="how" eyebrow="How it works" title="From an idea to a running business, one round of work at a time." />
       {/* Two by two: each step's product part keeps the width it has in the app (a concept card, the brand picker). */}
       <ol className="grid grid-cols-2 gap-10">
         <Step n="01" icon={Lightbulb} title="Shape the idea" text={
@@ -39,7 +39,7 @@ export function HowItWorks() {
         </Step>
         <Step n="03" icon={Play} title="Press Continue" text={
             <>
-              Each <Term id="cycle">cycle</Term> the <Term id="chief_of_staff">Chief of Staff</Term> plans the work, agents do it in <Term id="sandbox">sandboxes</Term>, and your Inbox gets a short note with anything that needs your decision.
+              Each <Term id="cycle">round of work</Term> the <Term id="chief_of_staff">Chief of Staff</Term> plans the work, agents do it in <Term id="sandbox">sandboxes</Term>, and your Inbox gets a short note with anything that needs your decision.
             </>
           } delay={180}>
           <CyclePlan />
@@ -150,7 +150,7 @@ function CyclePlan() {
         <Avatar size={32} name={chief.name} agent={{ seed: chief.seed, dept: chief.dept }} />
         <span className="flex flex-col">
           <span className="t-body-strong text-primary">{chief.name} · Chief of Staff</span>
-          <span className="text-small text-secondary">Plan for cycle 1</span>
+          <span className="text-small text-secondary">Plan for round of work 1</span>
         </span>
       </span>
       <ul className="flex flex-col gap-1.5">
@@ -216,7 +216,7 @@ function FirstDay() {
             <p className="flex items-start gap-2 text-small text-secondary">
               <AvatarStack size={20} className="mt-px shrink-0" items={[{ name: product.name, agent: { seed: product.seed, dept } }, { name: chief.name, agent: { seed: chief.seed, dept: chief.dept } }]} />
               <span>
-                {product.name}, {product.role}, writes it from your idea and your profile. {chief.name}, Chief of Staff, plans the first cycle from the roadmap.
+                {product.name}, {product.role}, writes it from your idea and your profile. {chief.name}, Chief of Staff, plans the first round of work from the roadmap.
               </span>
             </p>
           </div>

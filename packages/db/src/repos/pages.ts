@@ -16,9 +16,9 @@
  * gets only what the view `public_project_pages` lists (0077). An unknown address and a page that is not published
  * answer the same: null.
  */
-import { ConflictError, isIndexNowKey, OWNER_ROLES, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
+import { ConflictError, isIndexNowKey, OWNER_ROLES, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, pageIsListed, readPageContent, samePageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
 import { toLogoDataUrl } from "@foundmill/shared/logo";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, integrations, memberships, projectPages, publicProjectMilestones, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
 import { auditRepo } from "./audit";
@@ -71,6 +71,8 @@ export interface PublicPage {
   slug: string;
   content: PageContent;
   publishedAt: Date;
+  /** When the published copy last changed (0119); `publishedAt` for a page published before the column existed. */
+  updatedAt: Date;
   name: string;
   logoVersion: string | null;
   brandPrimary: string;
@@ -193,13 +195,17 @@ export const pagesRepo = {
     const existing = maybeOne(await db.select().from(projectPages).where(eq(projectPages.businessId, businessId)).limit(1).for("update"));
     return slugGuard(async () => {
       if (!existing) {
-        const rows = await db.insert(projectPages).values({ businessId, slug: v.slug, draft: v.content, published: v.content, publishedAt: at, publishedBy: v.userId, updatedBy: v.userId }).returning();
+        const rows = await db.insert(projectPages).values({ businessId, slug: v.slug, draft: v.content, published: v.content, publishedAt: at, contentPublishedAt: at, publishedBy: v.userId, updatedBy: v.userId }).returning();
         return { page: rows[0]!, wasLive: false };
       }
       const wasLive = existing.published !== null;
+      // When the public copy changes (0119): a republish of the same words keeps the date. For a client role the
+      // database writes it (the guard), like `published_at`.
+      const before = readPageContent(existing.published);
+      const contentPublishedAt = before && samePageContent(before, v.content) ? (existing.contentPublishedAt ?? existing.publishedAt ?? at) : at;
       const rows = await db
         .update(projectPages)
-        .set({ draft: v.content, published: v.content, publishedAt: wasLive ? (existing.publishedAt ?? at) : at, publishedBy: v.userId, unpublishedAt: null, updatedBy: v.userId, updatedAt: new Date() })
+        .set({ draft: v.content, published: v.content, publishedAt: wasLive ? (existing.publishedAt ?? at) : at, contentPublishedAt, publishedBy: v.userId, unpublishedAt: null, updatedBy: v.userId, updatedAt: new Date() })
         .where(eq(projectPages.businessId, businessId))
         .returning();
       return { page: rows[0]!, wasLive };
@@ -358,7 +364,30 @@ export const pagesRepo = {
       if (!row) return null;
       const content = readPageContent(row.published);
       if (!content) return null;
-      return { slug: row.slug, content, publishedAt: row.publishedAt, name: row.name, logoVersion: row.logoVersion ?? null, brandPrimary: row.kitPrimary, brandSecondary: row.kitSecondary, founderNames: row.founderNames ?? [] };
+      return { slug: row.slug, content, publishedAt: row.publishedAt, updatedAt: row.contentPublishedAt ?? row.publishedAt, name: row.name, logoVersion: row.logoVersion ?? null, brandPrimary: row.kitPrimary, brandSecondary: row.kitSecondary, founderNames: row.founderNames ?? [] };
+    },
+
+    /**
+     * Listed pages for the sitemap (WP-08 T7; `pageIsListed`): their address, when their copy last changed and whether
+     * they have a story, ordered by address and paged by it (`cursor`: the last address of the page before). Only what
+     * the founders published and the listing rule lets through. Service connection only.
+     */
+    async listed(db: Executor, input: { cursor?: string | null; limit: number }): Promise<{ items: { slug: string; updatedAt: Date; story: boolean }[]; next: string | null }> {
+      const limit = Math.max(1, Math.min(5_000, Math.floor(input.limit)));
+      const rows = await db
+        .select({ slug: publicProjectPages.slug, published: publicProjectPages.published, name: publicProjectPages.name, publishedAt: publicProjectPages.publishedAt, contentPublishedAt: publicProjectPages.contentPublishedAt })
+        .from(publicProjectPages)
+        .where(input.cursor ? gt(publicProjectPages.slug, input.cursor) : undefined)
+        .orderBy(publicProjectPages.slug)
+        .limit(limit);
+      const slugs = rows.map((r) => r.slug);
+      const withStory = slugs.length ? new Set((await db.selectDistinct({ slug: publicProjectMilestones.slug }).from(publicProjectMilestones).where(inArray(publicProjectMilestones.slug, slugs))).map((r) => r.slug)) : new Set<string>();
+      const items = rows.flatMap((r) => {
+        const content = readPageContent(r.published);
+        if (!content || !pageIsListed({ name: r.name, content }).listed) return [];
+        return [{ slug: r.slug, updatedAt: r.contentPublishedAt ?? r.publishedAt, story: withStory.has(r.slug) }];
+      });
+      return { items, next: rows.length === limit ? rows[rows.length - 1]!.slug : null };
     },
 
     /**

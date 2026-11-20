@@ -100,7 +100,7 @@ describe("a founder's network messages never ride a business stream (FU-S-2)", (
     await publish(t.redis, "connection.requested");
     await publish(t.redis, "message.received", { ...EVENT_FIXTURES["message.received"], preview: "Here is the term sheet" });
     await publish(t.redis, "cycle.completed");
-    await waitFor(() => owner.events.length === 1 && staff.events.length === 1, 2_000, "the cycle event delivered");
+    await waitFor(() => owner.events.length === 1 && staff.events.length === 1, 2_000, "the round of work event delivered");
     await sleep(100);
     expect(types(owner)).toEqual(["cycle.completed"]);
     expect(types(staff)).toEqual(["cycle.completed"]);

@@ -36,7 +36,7 @@ async function decisionItem(options: { id: string; label: string; consequence: s
     type: "decision",
     from_agent_id: hz.A.agentId,
     subject: "What next for the first channel?",
-    body_md: "The team needs a steer on the first channel before the next cycle.",
+    body_md: "The team needs a steer on the first channel before the next round of work.",
     status_strip: [],
     exhibit: { kind: "none", spec_ref: null },
     // A decision offers at least two options; the second is a neutral alternative.
@@ -89,7 +89,7 @@ describe("inbox.decide with a pre-written option (audit P4)", () => {
 
   it("a 'not now' option records the choice and runs nothing; a hard-gated option asks the founder", async () => {
     const caller = await callerWith(slowModels(0).client);
-    const item = await decisionItem([{ id: "later", label: "Not now", consequence: "We revisit after the next cycle." }]);
+    const item = await decisionItem([{ id: "later", label: "Not now", consequence: "We revisit after the next round of work." }]);
     const result = await caller.inbox.decide({ businessId: hz.A.businessId, itemId: item.id, chosenOption: "later" });
     expect(result.plan.actions.map((a) => a.type)).toEqual(["reply_only"]);
     expect(result.followUp?.bodyMd).toMatch(/You chose "Not now"; nothing runs now/);

@@ -10,7 +10,7 @@ description: Use whenever you write any text a founder can read in the Foundmill
 - The product is **Foundmill**. What a person runs is a **project** until its first sale and a **business** after (in the app's own sentences; text the API writes is left as it comes). The person who runs it is the **founder**; one person is complete (never a line that says or implies they need someone else), and where several people run it they are its founders.
 - The AI agents are the **team**. The humans of a business are its **People**: **cofounders** (equal standing, any number) and **collaborators** (limited access). Never "staff", never "seat", never a limit on people (founder, Nov 11, 2026).
 - **Subtext, never text.** Nothing a person reads says or implies "do this instead of getting a job". Say ownership ("something that is yours"), capability ("what you can do now") and, as an offer, company ("people to build it with, if you want them"). Never jobs, employment, unemployment, careers, "9 to 5", "laid off" or AI taking work as the reason to be here. An agent's job, a job title on a contact and hiring an agent are ordinary words and stay.
-- A round of agent work is a **round of work** in everything a founder reads; "cycle" and cycle numbers are the engine's words and stay in code and in the web's Builder view.
+- A round of agent work is a **round of work** in everything a founder reads; "cycle" is the engine's word and stays in code (founder, 2026-11-17: the product says "round of work" everywhere); round of work numbers stay in the web's Builder view.
 - The agent that plans each round of work and talks for the team is the **Chief of Staff**.
 - A press of **Continue** starts rounds of work that go on until nothing is left to do.
 - Notes from the team land in the **Inbox**. A note that needs the founder is either a **decision** ("Needs your answer", "Your decision") or a **go-ahead** ("Needs your go-ahead", "Waiting for your go-ahead"). Those are the only two families of "needs you" words.
@@ -61,7 +61,7 @@ description: Use whenever you write any text a founder can read in the Foundmill
 | dugout | the design system (never shown) |
 | manager, game, play, score a goal, win the match | founder, business, run, win a customer |
 | staff, seat, seats | People; cofounders and collaborators; never a count of seats |
-| cycle N, "cycle" (to a founder), tokens, PR #N, "N tests passed" | round of work, some AI usage, a finished change, the quality checks passed |
+| round of work N, "cycle" (to a founder), tokens, PR #N, "N tests passed" | round of work, some AI usage, a finished change, the quality checks passed |
 | job, jobs, employment, unemployment, career, "9 to 5", laid off, "AI taking work" (as the reason to be here) | something that is yours; what you can do now; people to build it with |
 | demo (as a chip or caption) | Sample business |
 | "Keep my day job for now" | "Fits around what I already do" |

@@ -49,11 +49,11 @@ Gmail stays on the connector that already exists (`packages/connectors/src/conne
 
 Going through the API does not avoid Google's review: the scope sets it, not the protocol. `gmail.send` and `gmail.compose` are "sensitive" (Google's app verification, usually days). `gmail.readonly` is "restricted" (the same verification plus a yearly outside security assessment, usually weeks). Until verification passes, the app stays in Google's testing mode: at most 100 named test users, and their sign-in lasts seven days.
 
-Recommended, for the founder to confirm: launch with `gmail.send` and `gmail.compose` only, and add `gmail.readonly` once the assessment is done. Session 5b splits the scopes (reading asks for its scope only when the founder turns it on); Session 11 submits the verification on the founder's Google Cloud account. Start that submission now: it is the longest wait in this plan.
+Decided (founder, Nov 19): while sign-up is invite-only, the Google app stays in testing mode, so invited people (up to 100, named) get every scope, reading included, and sign in again every seven days. The founder submits Google's verification now for `gmail.send`, `gmail.compose` (drafts) and `calendar.events` (sensitive: review only), and starts the security assessment for `gmail.readonly` alongside; reading is turned on for everyone when it passes. Session 5b splits the scopes so reading asks for its own scope. Google Workspace admins can trust the app for their own domain before then.
 
 ## 3. The sessions
 
-Every session loads the `ponytail` and `caveman` skills first, reads FOUNDMILL.md, works on its own branch, writes one docs/log entry and does not edit STATUS.md. A session takes the next free migration number when it rebases before merging, never earlier. The founder merges.
+Every session loads the `ponytail` and `caveman` skills first, reads FOUNDMILL.md, works on its own branch, writes one docs/log entry and does not edit STATUS.md. A session takes the next free migration number when it rebases before merging, never earlier. A ready pull request merges itself once the required checks pass (auto-merge, founder, Nov 19); a draft waits.
 
 Files that two sessions could both touch have one owner each: `packages/models/src/routing.ts` (Session 2), `apps/gateway/src/pipeline.ts` and `apps/gateway/src/mcp.ts` (Session 5b), `infra/e2b/` and `packages/sandbox/` (Session 4b), `docs/holistic-plan/STATUS.md` (Session 1).
 
@@ -92,3 +92,44 @@ Files that two sessions could both touch have one owner each: `packages/models/s
 ### Wave 4 (Desktop and the founder): the switch
 
 **Session 11: production.** Watch paths and "Wait for CI" (WP-00 S3, S4, S12). Live keys and switches: `STRIPE_SECRET_KEY`, `SITES_DOMAIN`, `LIVE_CONNECTORS`, the E2B key and template for CLI-Anything, the MCP OAuth clients the founder approved, and Google's verification for Gmail, submitted as early as possible (WP-00 S6, S8, S9, S16). The live checks: `evals-free-plan.yml`, `evals-models-live.yml`, `check-production.mjs`. **Founder zero:** run Foundmill's own launch project inside Foundmill to one real outside outcome, then `SIGNUP_OPEN=1`, `PAID_ENTRY=1` and `WAITLIST_ADMIT_PER_DAY`.
+
+## 4. The founder's answers of Nov 19, 2026 (evening)
+
+- **Streak (WP-10 decision 6):** show only the days opened. No "Not opened" days and no at-risk line. Built by its own session (below).
+- **The first-session journey is eight screens:** landing, sign-in, keep the card, kept card, three questions, Commit, Today, public page. The Nov 13 decisions stand; Session 9's spec budget is 8.
+- **`PAID_ENTRY` stays its own switch**, apart from the plan stage. Session 11 turns it on on opening day, with `SIGNUP_OPEN`.
+- **MCP sign-in apps:** approved for Notion, Shopify and HubSpot (FOUNDMILL.md).
+- **Merging:** a ready pull request merges itself once the required checks pass (`.github/workflows/auto-merge.yml`, `ship-change`).
+- **Cloud sessions** run on Opus 5.5 (the founder's default), never Fable.
+- **WP-00 S9:** `foundmill.app` is bought, its DNS and the `*.foundmill.app` wildcard certificate are on the Railway `sites` service (DEPLOY.md). Still listed as open there: the `sites_reader` password and `DATABASE_URL` on `sites`, and `SITES_DOMAIN=foundmill.app` on api, orchestrator and sites. Session 11 checks them on production and sets what is missing.
+- **WP-11 T3, T8 and T10 have the go-ahead.** A cloud session writes the backup runbook, the schema check and the load-test script; any step on the production database (T8's backup table) runs in Session 11, with the founder watching.
+- **WP-06 T11 is kept:** "Make it live without testing" (built on `claude/sharp-shannon-0a434k`, Session 4) ships. The ratings stay as they were and are marked "not tested since the change".
+
+### Sessions added on Nov 19
+
+**Session 12: the streak shows the days opened.** WP-10 decision 6 as answered above: `StreakStrip` and what feeds it, its stories and tests. Touches nothing else in Today.
+
+**Session 13: WP-11 T3, T8 and T10.** The backup and restore runbook, the production schema check (read-only against production; the backup table is dropped only in Session 11), and the load test for 100 Today loads. Waits for #238 to merge before its migrations.
+
+### The founder's answers of Nov 19, 2026 (night)
+
+- **Mail.** Sending stays on SendGrid, from `mail.foundmill.com` and later a founder's own domain. Receiving stays in Foundmill: mail to a project's address arrives through SendGrid Inbound Parse into `apps/ingest` and is kept in the product. For a domain registered through Foundmill, MX points there too. No mailboxes and no mail server: a founder's own name@ forwards to their own inbox (the Nov 17 answer stands). S15 stays: DMARC on `foundmill.com` moves from `p=none` to `p=quarantine` after a clean week of reports, and `privacy@foundmill.com` is read.
+- **Domains** (docs/log/2026-11/2026-11-17-claude-wp08-domain-plan.md) join this plan as Session 14: Path B (a domain the founder already owns) first, then Path A (registered through Foundmill on OpenSRS, the founder always the registrant, cost plus about $3, an Estimate), after Stripe is live and the OpenSRS reseller account exists.
+- **Gmail and Google Calendar as context.** With the founder's yes per project, agents read the founder's own Gmail (drafts, then the inbox once `gmail.readonly` is verified) and Google Calendar for context, and write drafts and events. Everything read is untrusted content (the quarantined reader); sending and inviting ask first. Session 15.
+- **Watching production (S12):** first `scripts/check-production.mjs` nightly in GitHub Actions; once there are users, the founder creates a Sentry project and an OTLP endpoint and Session 11 sets `SENTRY_DSN` and the OTLP address on the six services.
+- **Hosting (S14):** the Vercel team is on Pro. Done.
+- **Z.ai (Z3):** the founder is getting the DPA, the written no-training confirmation and the SCCs. The free plan's switch (WP-13 T10) still waits on them.
+- **Stop rules:** the waitlist measures of WP-14 T15 (docs/holistic-plan/WP-14-T15-measures.md) win where they overlap the plan's experiments 2, 4 and 6; docs/foundmill-plan/foundmill-plan.md is changed to match.
+
+**Session 14: domains.** Path B, then Path A on OpenSRS, as above: SendGrid's records, the Sites record, MX to Foundmill's inbound and forwarding to the founder's inbox, DMARC `p=none` at first. Mock-first; the live OpenSRS calls wait for the reseller account (founder) and run through the gateway.
+
+**Session 15: Gmail and Google Calendar as context.** On the existing `gmail` and `google_calendar` connectors, after Session 5b's scope split: the per-project opt-in, reads through the quarantined reader into the agents' context, drafts and events written, sends and invitations asking first. Evals for prompt injection through a mail body.
+
+### The founder's answers of Nov 19, 2026 (late)
+
+- **Resting's numbers are approved:** safety factor 1.5, and a backstop of 50 cents per session past an empty balance (at most $2.00 a month per Try founder, which Foundmill pays). Session 3, WP-14 T1.
+- **One budget per owner, before launch:** a plan's included budget (Founder $10.00, Studio $50.00 a month) is one balance for the owner, shared across all their projects, not one per project. Session 3 builds it with #300.
+- **Project limits per plan are enforced:** Try 1, Founder up to 5, Studio any number, deleted ones not counted (FOUNDMILL.md). One more is refused with a way on (change plan). People are never limited. Session 3.
+- **The morning email drops its streak line** ("Open Today to make it N"), to match the Today streak. Session 12, #336.
+- **The phone app is paused.** Foundmill launches publicly on the web first; the Newly app resumes once launch feedback has shaped the product. Phone-only work (Sign in with Apple, prompt 13B, WP-00 S17) waits until then. The web keeps working from 390 px as FOUNDMILL.md says, and the store-links value stays unset.
+- **OpenSRS:** the founder opens the reseller account on Sunday, Nov 22. Session 14's live calls wait for it.
