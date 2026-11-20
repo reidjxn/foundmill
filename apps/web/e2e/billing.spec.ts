@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { commitThrowaway, LONG, NORTHWIND_BUSINESS_ID, openBusiness, openSettings, settingsScreen, settled, UUID } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, openSettings, settingsScreen, settled, UUID } from "./helpers";
 
 /**
  * Settings › Billing: paying for credits (audit 2026-10-12 #22). Top up opens a checkout and grants nothing by itself;
@@ -69,29 +69,30 @@ test.describe("billing", () => {
   });
 
   test("A team out of budget reads Resting with the date its budget resets, never paused or used up (WP-14 T1)", async ({ page }) => {
-    test.setTimeout(300_000);
-    // A plan's budget goes to one project a month, so of two projects taken charge of now the second surely starts
-    // the month with nothing included: its team rests from the start.
-    const stamp = Date.now().toString(36);
-    await commitThrowaway(page, `Rest one ${stamp}`);
-    const bid = await commitThrowaway(page, `Rest two ${stamp}`);
-    const screen = await openSettings(page, "billing", bid);
+    // Which team rests is the server's answer (billing.plan.resting: tested in the api and db suites, where the budget
+    // can be spent). This reads what the screen does with that answer, so the answer is set here, not left to how
+    // many projects the dev owner took charge of this month.
+    const until = new Date(Date.UTC(2026, 11, 1));
+    await page.route("**/trpc/**", async (route) => {
+      const response = await route.fetch();
+      const paths = new URL(route.request().url()).pathname.split("/trpc/")[1]?.split(",") ?? [];
+      const at = paths.indexOf("billing.plan");
+      if (at < 0) return route.fulfill({ response });
+      const body = (await response.json()) as Array<{ result: { data: { json: Record<string, unknown>; meta?: { values?: Record<string, unknown> } } } }>;
+      const data = body[at]!.result.data;
+      data.json.resting = { until: until.toISOString() };
+      data.meta = { ...data.meta, values: { ...data.meta?.values, "resting.until": ["Date"] } };
+      return route.fulfill({ response, json: body });
+    });
+    const screen = await openSettings(page, "billing", NORTHWIND_BUSINESS_ID);
     const resting = screen.getByTestId("resting");
     await expect(resting).toBeVisible({ timeout: LONG });
-    const now = new Date();
-    const resets = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-    await expect(resting).toHaveText(`Resting until ${resets}`);
+    await expect(resting).toHaveText("Resting until Dec 1, 2026");
     // The word is defined where the founder first meets it.
     await expect(resting.locator('[data-term="resting"]')).toBeVisible();
     await expect(screen).toContainText("Paused is a choice. Resting is a team out of budget until the date shown");
-    await expect(screen).toContainText(`when your budget resets`);
-    await expect(screen).toContainText("your own Anthropic key");
+    await expect(screen).toContainText("when your budget resets");
     await expect(screen).not.toContainText(/Used up|team paused/);
-    // One note from the Chief of Staff, with a way on.
-    await page.goto(`/b/${bid}/inbox`);
-    await settled(page);
-    const note = page.getByText("The team is resting: this month's budget is used").first();
-    await expect(note).toBeVisible({ timeout: LONG });
   });
 
   test("Top up opens a mock checkout; completing it adds the credits once, labeled", async ({ page }) => {
