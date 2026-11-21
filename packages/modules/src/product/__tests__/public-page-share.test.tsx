@@ -4,7 +4,7 @@
  */
 import "./setup";
 import { describe, expect, it } from "vitest";
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { encodeShareValue } from "@foundmill/shared/share-targets";
 import { PUBLIC_PAGE_WORDS, PublicPageScreen, type PageViewResponse } from "../PublicPageScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
@@ -101,5 +101,24 @@ describe("PublicPageScreen: Share your page", () => {
   it("a reader who cannot publish can still share a live page", () => {
     render(view({ canEdit: false, canPublish: false }));
     expect(screen.getByRole("button", { name: "Share your page" })).toBeTruthy();
+  });
+});
+
+describe("PublicPageScreen: Show in Explore (the opt-in gallery)", () => {
+  it("is off by default, offered once the page is live, and turns on by the founder's own press without touching the draft", async () => {
+    const calls: string[] = [];
+    render(view(), (path, input) => {
+      calls.push(`${path} ${JSON.stringify(input)}`);
+      return view({ explore: true });
+    });
+    const toggle = screen.getByRole("switch", { name: new RegExp(PUBLIC_PAGE_WORDS.explore) });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(calls).toEqual(['page.setExplore {"listed":true}']));
+  });
+
+  it("is not offered for a page that is not live", () => {
+    render(view({ live: false, published: null, publishedAt: null }));
+    expect(screen.queryByRole("switch", { name: new RegExp(PUBLIC_PAGE_WORDS.explore) })).toBeNull();
   });
 });

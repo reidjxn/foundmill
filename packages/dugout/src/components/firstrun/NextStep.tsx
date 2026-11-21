@@ -61,11 +61,11 @@ function Go({ step, label }: { step: NextStepItem; label: string }) {
 
 /** A step's line; "Cycle 3 is running" (nextSteps.ts `cycleRunningLine`) leads with the defined word as a `Term`. */
 function StepLabel({ label }: { label: string }) {
-  const m = /^Cycle\b/.exec(label);
+  const m = /^Round of work\b/.exec(label);
   if (!m) return <>{label}</>;
   return (
     <>
-      <Term id="cycle">Cycle</Term>
+      <Term id="cycle">Round of work</Term>
       {label.slice(m[0].length)}
     </>
   );

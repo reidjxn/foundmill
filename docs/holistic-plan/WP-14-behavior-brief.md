@@ -59,7 +59,7 @@ Nothing from the founder. The numbers left to the sessions to propose and flag a
 
 ## Tasks
 
-### T1: Resting, and the last task always finishes            [M] [amends WP-09 T13; ships with it]
+### [x] T1: Resting, and the last task always finishes            [M] [amends WP-09 T13; ships with it]
 Brief: A3. Why: today `session-credits.ts` passes `maxBudgetUsd` and a session stops part-way (`CREDITS_USED_UP_SUMMARY`, "…so the session stopped"); Billing says "Used up: team paused".
 Supersedes: "the charge that empties a balance pauses the team" (2026-10-12), by the founder's word in the brief.
 Files: those of WP-09 T13, plus `packages/shared/src/terms.ts` and the voice skill.
@@ -176,7 +176,7 @@ Brief: B1, B4, B7. `docs/foundmill-plan/foundmill-plan.md` is the seed for Found
 - A section of experiments, each with a stop rule: the brief's B6.1 to B6.9, with the price test as in T14. Those that need analytics say so.
 Not here: leaderboards (A8), the phone (A9).
 
-### T14: Plans, prices and what each plan includes            [L] [amends WP-09 T14 and T16; the session holding them takes it]
+### [x] T14: Plans, prices and what each plan includes            [L] [amends WP-09 T14 and T16; the session holding them takes it]
 Brief: A7, B2, B6.3. Founder's answers A1 and A2. Why: `pricing.ts` has `free`, `pro`, `scale` with "TBD" and "Price to be announced".
 Steps:
 1. Display names (keys unchanged): **Try**, **Founder**, **Studio**, and a fourth, **Partner**, in `TIERS` display data as not purchasable.

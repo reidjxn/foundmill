@@ -879,7 +879,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                     <div className="flex flex-col gap-1">
                       <Label htmlFor="run-on-autopilot">Overnight shift</Label>
                       <p id="run-on-autopilot-hint" className="text-small text-secondary">
-                        Off unless you turn it on. With it on, the team runs one <Term id="cycle">cycle</Term> every third night while you sleep, at about 2 AM your time, with a budget of $0.45 (Estimate). Continue keeps its own limits. It never answers notes for you: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and it pauses itself when <Term id="credits">credits</Term> run out. Change it any time in Settings › What the team can do.
+                        Off unless you turn it on. With it on, the team runs one <Term id="cycle">round of work</Term> every third night while you sleep, at about 2 AM your time, with a budget of $0.45 (Estimate). Continue keeps its own limits. It never answers notes for you: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and it pauses itself when <Term id="credits">credits</Term> run out. Change it any time in Settings › What the team can do.
                       </p>
                     </div>
                   </div>

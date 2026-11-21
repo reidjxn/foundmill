@@ -8,21 +8,27 @@
  * not (the platform side of those routers, web search) treats an own-key business as its plan says: a paid plan runs as
  * routed, the free plan on Haiku 5.5 on Foundmill's key, never on a model the founder has not paid for.
  */
-import { modelFundingFor, type ModelFundingKind } from "@foundmill/config";
+import { CREDIT_PACK_UNLOCK_MIN_MINOR, EARLY_ACCESS_STAGE, modelFundingFor, tierIsPaid, type EarlyAccessStage, type ModelFundingKind } from "@foundmill/config";
 import type { Executor } from "./repos/_shared";
 import { repos } from "./repos";
 import { businessAllowance } from "./tiers";
 
 export interface ModelFundingOptions {
   ownKeyServed: boolean;
+  /** The early-access stage (default the config's). Tests pass `open` to cover what applies from the day sign-up opens. */
+  stage?: EarlyAccessStage;
 }
 
 export async function modelFundingOf(db: Executor, attribution: { businessId?: string; userId?: string } | undefined, options: ModelFundingOptions): Promise<ModelFundingKind> {
   if (attribution?.businessId) {
     const business = await repos.businesses.get(db, attribution.businessId, { includeArchived: true });
-    const funding = modelFundingFor({ planTier: business.planTier, modelBilling: business.modelBilling });
+    const stage = options.stage ?? EARLY_ACCESS_STAGE;
+    // From the day sign-up opens, a Try project whose owner bought a credit pack reaches every model (A16). Read only
+    // then, and only for a plan that does not reach them by itself.
+    const creditPack = stage === "open" && !tierIsPaid(business.planTier) && (await repos.checkouts.ownerHasPack(db, business.id, CREDIT_PACK_UNLOCK_MIN_MINOR));
+    const funding = modelFundingFor({ planTier: business.planTier, modelBilling: business.modelBilling, creditPack, stage });
     if (funding !== "own_key" || options.ownKeyServed) return funding;
-    return modelFundingFor({ planTier: business.planTier, modelBilling: "credits" });
+    return modelFundingFor({ planTier: business.planTier, modelBilling: "credits", creditPack, stage });
   }
   if (attribution?.userId) return modelFundingFor({ planTier: (await businessAllowance(db, attribution.userId)).tier, modelBilling: "credits" });
   return "free_plan";

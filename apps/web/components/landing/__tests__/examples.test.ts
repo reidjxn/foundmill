@@ -147,7 +147,7 @@ describe.each(EXAMPLE_IDS)("example business %s", (id) => {
     expect(business.activity.length).toBeGreaterThanOrEqual(8);
   });
 
-  it("has How it works' concepts, six brand options and a cycle plan over its own departments", async () => {
+  it("has How it works' concepts, six brand options and a round of work plan over its own departments", async () => {
     await load();
     const [front, back] = business.howItWorks.concepts;
     expect(front?.name).toBe(business.identity.name);
@@ -252,7 +252,7 @@ describe("Northwind Skincare", () => {
     expect(payments.filter((p) => p.amountMinor >= chainOrder).map((p) => [p.entityName, p.amountMinor])).toEqual([["Larkfield Market", chainOrder]]);
   });
 
-  it("reads whole in the narrowest places: the Ribbon's day card, the cycle 1 plan's rows and the deck's Inbox lines", async () => {
+  it("reads whole in the narrowest places: the Ribbon's day card, the round of work 1 plan's rows and the deck's Inbox lines", async () => {
     const northwind = await loadExample("northwind");
     // The day card puts the chapter title beside a date such as "Wed 15 Oct 2025": 17 characters fit.
     for (const title of northwind.journey.chapterTitles) expect(title.length, title).toBeLessThanOrEqual(17);

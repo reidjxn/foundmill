@@ -56,10 +56,9 @@ describe("retentionEmail", () => {
     expect(e.text).toContain("A customer paid");
   });
 
-  it("tells the person what one visit does to their streak, from 2 days on", () => {
+  it("has no streak line, to match Today's streak (founder, Nov 19, 2026, WP-10 decision 6)", () => {
     const plan = { kind: "daily_brief" as const, day: "2026-11-12", waiting: [], stats: stats() };
-    expect(retentionEmail(plan, { ...ctx, streak: { current: 4, visitedToday: false } }).text).toContain("You are on a 4-day streak. Open Today to make it 5.");
-    expect(retentionEmail(plan, { ...ctx, streak: { current: 1, visitedToday: false } }).text).not.toContain("streak");
+    expect(retentionEmail(plan, ctx).text).not.toMatch(/streak|in a row|make it \d/i);
   });
 
   it("labels spend as an Estimate and escapes HTML", () => {

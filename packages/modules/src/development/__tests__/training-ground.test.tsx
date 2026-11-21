@@ -27,7 +27,8 @@ describe("TrainingGroundScreen", () => {
     expect(fake.subscriberCount(`as:${SESSION_INDEX}`)).toBe(1);
     expect(fake.subscriberCount(`as:${SESSION_SOURCING}`)).toBe(1);
     expect(screen.getByTestId("ground-counts").textContent).toBe("3 live · 2 running");
-    expect(screen.getByText(/your plan runs 16 agents at once/)).toBeTruthy();
+    // The fixture's project is on Founder, which runs as many agents at once as Try (WP-14 T14).
+    expect(screen.getByText(/your plan runs 4 agents at once/)).toBeTruthy();
     expect(fake.queried.get("dev.tasks.list")).toMatchObject({ status: ["running", "paused", "blocked", "review", "merging"] });
     // Guidance on: the department's intro says what a tile is (UX plan §7.10, §7.12), inside the panel's body.
     const explainer = openExplainer("development/live-sessions");

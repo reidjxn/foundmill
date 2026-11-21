@@ -7,16 +7,20 @@
 import { INPUT_LIMITS } from "@foundmill/config";
 import { isServiceOnlyConnector, type HealthResult } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
-import { AppError, boundedRecord, connectorMode, ForbiddenError, mockResultsAllowed, platformMailAddress, platformMailDomain, platformMailLive } from "@foundmill/shared";
+import { AppError, boundedRecord, connectorMode, ForbiddenError, mockResultsAllowed, platformMailAddress, platformMailDomain, platformMailLive, RegistrantContact } from "@foundmill/shared";
 import { z } from "zod";
 import type { GatewayConnectResult } from "../services/gateway";
 import { clearPostalAddress, isProjectFounder, postalAddressOf, setPostalAddress } from "../services/postal-address";
+import { addOwnDomain, checkOwnDomain, finishRegisteredDomain, ownDomainOf, quoteRegisteredDomain, registerProjectDomain, removeOwnDomain, setRegisteredDomainForwarding } from "../services/own-domain";
 import { oauthRedirectUri, signConnectState, signInstallState, verifyConnectState, verifyInstallState } from "../services/install-state";
 import { ANTHROPIC, revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
 
 /** What a project is told when the Stripe account it signed in with is another project's (0137; the gateway's own words). */
 export const STRIPE_ACCOUNT_IN_USE = "This Stripe account is already connected to another project.";
+
+/** Why a collaborator cannot turn Gmail or Google Calendar context on or off. */
+export const CONTEXT_READS_FOUNDERS_ONLY = "Only the project's founders can let agents read their Gmail or calendar.";
 
 /** A Stripe connection made by signing in (Connect), as `config.kind` records it. */
 const isSignIn = (config: unknown): boolean => (config as { kind?: unknown } | null | undefined)?.kind === "connect";
@@ -48,7 +52,9 @@ const read = sectionRead("settings");
 function keptSettings(row: { settings: unknown } | null, externalAccountId: string | null): Record<string, unknown> {
   const settings = (row?.settings ?? {}) as Record<string, unknown>;
   if (settings.externalAccountId !== externalAccountId) return {};
-  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId"));
+  // Context reads of mail and calendar are kept only for an account known on both sides (an id, not two missing ones).
+  const sameKnownAccount = typeof externalAccountId === "string" && externalAccountId !== "";
+  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId" || (k === "contextReads" && sameKnownAccount)));
 }
 
 /** Finishing an App installation (GitHub): what GitHub sent back to the founder, with the state Connect signed. */
@@ -111,6 +117,32 @@ export const integrationsRouter = router({
 
   /** The founders remove it: marketing email from the project's address waits again until one is entered. */
   clearPostalAddress: admin.mutation(({ ctx }) => clearPostalAddress(ctx)),
+
+  /** The project's own domain and its DNS records (WP-08 domain plan, Path B); null when platform mail is off here. */
+  ownDomain: read.query(({ ctx }) => ownDomainOf(ctx)),
+
+  /** The founders add the domain they own (or change the name mail is sent as there); the gateway asks SendGrid for its records. */
+  addOwnDomain: admin.input(z.object({ domain: z.string().trim().min(1).max(300), senderLocalPart: z.string().trim().min(1).max(40) })).mutation(({ ctx, input }) => addOwnDomain(ctx, input)),
+
+  /** "Check now": SendGrid and DNS look for the records; sending from the domain starts once every sending record is found. */
+  checkOwnDomain: admin.mutation(({ ctx }) => checkOwnDomain(ctx)),
+
+  /** The founders remove the domain: mail goes from the project's Foundmill address again. */
+  removeOwnDomain: admin.mutation(({ ctx }) => removeOwnDomain(ctx)),
+
+  /** Whether a name can be registered through Foundmill and its price for a year (OpenSRS's cost plus about $3, an Estimate). */
+  quoteDomain: admin.input(z.object({ domain: z.string().trim().min(1).max(300) })).mutation(({ ctx, input }) => quoteRegisteredDomain(ctx, input.domain)),
+
+  /** The founder registers the domain as its owner, with the price and the registration agreement in front of them. */
+  registerDomain: admin
+    .input(z.object({ domain: z.string().trim().min(1).max(300), priceMinor: z.number().int().min(0).max(1_000_000), owner: RegistrantContact, acceptAgreement: z.literal(true) }))
+    .mutation(({ ctx, input }) => registerProjectDomain(ctx, input)),
+
+  /** Sets a registered domain's records again after a step failed. */
+  finishDomainSetup: admin.mutation(({ ctx }) => finishRegisteredDomain(ctx)),
+
+  /** Mail to the registered domain: a copy to this founder's own inbox (their opt-in click), or none. */
+  setDomainForwarding: admin.input(z.object({ on: z.boolean() })).mutation(({ ctx, input }) => setRegisteredDomainForwarding(ctx, input.on)),
 
   connect: admin.input(z.object({ connectorKey: z.string().min(1).max(60), input: boundedRecord(INPUT_LIMITS.jsonObjectKeys, z.record(z.string(), z.unknown())).default({}) })).mutation(async ({ ctx, input }) => {
     const mode = connectorMode(ctx.env, input.connectorKey);
@@ -208,6 +240,20 @@ export const integrationsRouter = router({
     if (releaseAfter && mode === "live" && ctx.gateway.release) await ctx.gateway.release(ctx.businessId, input.connectorKey, releaseAfter).catch(() => null);
     const consentUrl = typeof record.config.linkUrl === "string" ? record.config.linkUrl : typeof record.config.consentUrl === "string" ? record.config.consentUrl : typeof record.config.authorizeUrl === "string" ? record.config.authorizeUrl : null;
     return { integration, record: { ...record, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
+  }),
+
+  /**
+   * Gmail and Google Calendar as context (founder, Nov 19, 2026): a founder of the project lets its agents read their own
+   * drafts, inbox (once Google granted gmail.readonly) or calendar, or stops it. Collaborators cannot. Sessions started
+   * after the change follow it (the orchestrator takes the reads out of a session's grants while it is off).
+   */
+  setContextReads: admin.input(z.object({ connectorKey: z.enum(["gmail", "google_calendar"]), on: z.boolean() })).mutation(async ({ ctx, input }) => {
+    if (!isProjectFounder(ctx)) throw new ForbiddenError(CONTEXT_READS_FOUNDERS_ONLY);
+    return ctx.rls(async (tx) => {
+      const row = await repos.integrations.setContextReads(tx, ctx.businessId, input.connectorKey, input.on, ctx.userId);
+      await audit(tx, ctx, { action: "integrations.context_reads", target: { kind: "integration", id: row.id }, details: { connectorKey: input.connectorKey, on: input.on } });
+      return row;
+    });
   }),
 
   disconnect: admin.input(z.object({ integrationId: Id })).mutation(async ({ ctx, input }) => {

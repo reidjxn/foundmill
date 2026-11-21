@@ -59,7 +59,7 @@ export function defineSpecialistTemplate(init: SpecialistTemplateInit): AgentTem
       grant("platform", [...PLATFORM_BASE_TOOLS, ...SPECIALIST_PLATFORM_TOOLS] as [string, ...string[]]),
       grant("quarantine", QUARANTINE_TOOLS),
       grant("web", WEB_TOOLS),
-      grant("gmail", ["drafts.create", "threads.read"]),
+      grant("gmail", ["drafts.create", "drafts.read", "threads.read"]),
       grant("google_drive", ["files.list", "files.read", "files.write"]),
       ...init.connectors,
     ],

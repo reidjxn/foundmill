@@ -4,7 +4,7 @@
  * ("agent" | "type" | "all", BUILD §9.6 ApplyScopeDialog). BUILD §11.10; AC-11.10.1/2/5/6.
  */
 import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, LIBRARY_SKILL_PREFIX, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getLibrarySkill, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
-import { CREDITS_CURRENCY, INPUT_LIMITS, LIMITS } from "@foundmill/config";
+import { CREDITS_CURRENCY, INPUT_LIMITS, LIMITS, planName } from "@foundmill/config";
 import { UpdateAgentInput, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
 import { ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, CHOOSABLE_MODEL_KEYS, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
@@ -19,7 +19,7 @@ import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type 
 import { assertEntryPlan } from "../services/payments";
 
 /** A model an agent can be set to: any key but GLM, which the free plan applies when a call runs (WP-13, D3). */
-const ChoosableModel = z.enum(MODEL_KEYS).refine((k) => (CHOOSABLE_MODEL_KEYS as readonly string[]).includes(k), { message: "An agent's model is Opus, Sonnet or Haiku; GLM-5.3 Flash is the free plan's model and is not chosen per agent." });
+const ChoosableModel = z.enum(MODEL_KEYS).refine((k) => (CHOOSABLE_MODEL_KEYS as readonly string[]).includes(k), { message: `An agent's model is Opus, Sonnet or Haiku; GLM-5.3 Flash is ${planName("free")}'s model and is not chosen per agent.` });
 
 const read = sectionRead("team");
 const write = sectionWrite("team");

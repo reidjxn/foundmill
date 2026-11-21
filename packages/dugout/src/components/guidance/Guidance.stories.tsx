@@ -34,7 +34,7 @@ function Sampler({ guidance }: { guidance: GuidanceMode }) {
               onExample={() => {}}
             />
             <p className="text-body text-secondary">
-              Your <Term id="runway">runway</Term> is 7 months <ProvenanceChip kind="estimate" appearance="word" />. Each <Term id="cycle">cycle</Term> reports back in the Inbox.
+              Your <Term id="runway">runway</Term> is 7 months <ProvenanceChip kind="estimate" appearance="word" />. Each <Term id="cycle">round of work</Term> reports back in the Inbox.
             </p>
             <div className="flex items-end gap-6">
               <PlainFigure metricId="runway">

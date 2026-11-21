@@ -88,7 +88,7 @@ describe("RegulatoryScreen", () => {
   it("says what the gates do: they go into the team's brief, and the choices are saved (#176)", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <RegulatoryScreen {...props} />);
-    expect(screen.getByText(/goes into the team's brief each cycle/)).toBeTruthy();
+    expect(screen.getByText(/goes into the team's brief each round of work/)).toBeTruthy();
     expect(screen.queryByText(/never performs these/)).toBeNull();
   });
 

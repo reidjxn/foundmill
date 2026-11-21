@@ -50,11 +50,14 @@ export { createPosthogConnector, posthogMock, POSTHOG_KEY } from "./connectors/p
 export { createResendConnector, resendMock, RESEND_KEY } from "./connectors/resend";
 export { createBufferConnector, bufferMock, BUFFER_KEY } from "./connectors/buffer";
 export * from "./grants";
+export * from "./google-context";
 export * from "./channel-availability";
 export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, READ_SKILL_NOTICE, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";
 export { AcceptanceResult, acceptanceLines, acceptanceRefusal, toolKeys, toolUseKey, unmetAcceptanceLines, type AcceptanceResultT, type ToolUse } from "./connectors/platform/acceptance";
 export { createQuarantineConnector, quarantineMock, QUARANTINE_KEY, quarantinedReaderRequest } from "./connectors/quarantine";
 export * from "./connectors/platform_mail";
+export * from "./connectors/sending_domain";
+export { createOpensrsConnector, opensrsMock, MOCK_COM_COST_MINOR, MOCK_OTHER_COST_MINOR, OPENSRS_KEY, OPENSRS_NAMESERVERS, opensrsTools, opsContact, opsRecords, opsRequest, parseOps, ZoneRecord, quoteDomain, registerDomain, registeredZone, registrableDomain, setupRegisteredDomain, type ZoneRecordT, type DomainQuote, type RegisterFlowDeps, type RegisteredDomainStore } from "./connectors/opensrs";
 export * from "./connectors/platform_notify";
 export { createCliConnector, createCliMock, CLI_COMMANDS, CLI_PROGRAM_KEYS, type CliProgramName } from "./connectors/cli_anything";
 export type { CliRunner } from "./platform";

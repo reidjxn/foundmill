@@ -27,6 +27,8 @@ export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "account_events.user_id": { export: true, onDelete: "cascade", omit: ["idempotency_key"] },
   // 0140 (WP-09 T16): the person's entry plan; the Stripe ids stay with the services, as the client grant has it.
   "account_plans.user_id": { export: true, onDelete: "cascade", omit: ["stripe_customer_id", "stripe_subscription_id"] },
+  "owner_plans.user_id": { export: true, onDelete: "cascade", note: "when the person was invited, and the first Founder or Studio price they paid (WP-14 T14)" },
+  "partner_waitlist.user_id": { export: true, onDelete: "cascade", note: "the Partner waitlist entry and the consent given (WP-14 T14)" },
   // 0138 (WP-09 T2): model calls the person made before a project; the costs are the platform's, read by service only.
   "account_usage.user_id": { export: false, onDelete: "cascade", note: "the platform's metered cost of calls before a project, an Estimate for Foundmill's cost report" },
   "account_outbox.user_id": { export: false, onDelete: "cascade", note: "the delivery queue of the person's own events; the events themselves are exported" },
@@ -83,6 +85,8 @@ export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "project_pages.published_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "project_pages.updated_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "project_postal_addresses.updated_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
+  "project_domains.forwarding_user_id": { export: false, onDelete: "set null", note: "the founder who gets a copy of the domain's mail; cleared with them, and forwarding stops" },
+  "project_domains.added_by": { export: false, onDelete: "set null", note: "who added the project's own domain; the project keeps the domain, the id is cleared" },
   "saved_table_views.user_id": { export: true, onDelete: "cascade" },
   "showcase_consents.user_id": { export: true, onDelete: "cascade" },
   "showcase_requests.requested_by_user_id": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },

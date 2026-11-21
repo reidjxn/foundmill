@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createEvalClient, isLiveEvalEnabled, runAll } from "../harness";
-import { PROJECT_PAGE_CASES, runProjectPageCase } from "../project-page";
+import { PROJECT_PAGE_CASES, projectPageFirstSentenceProblem, runProjectPageCase } from "../project-page";
 
 const live = isLiveEvalEnabled();
 
@@ -21,6 +21,9 @@ describe.skipIf(!live)("project page (live)", () => {
       const cost = results.reduce((s, r) => s + r.costMinor, 0);
       console.warn(`[eval] project page: ${results.filter((r) => r.passed).length}/${results.length} cases passed, cost ${cost} minor (Estimate)`);
       expect(results.filter((r) => !r.passed).map((r) => r.caseId)).toEqual([]);
+      // WP-08 T7: the first sentence of "about" names the project.
+      const unnamed = results.flatMap((r) => (r.draft ? [[r.caseId, projectPageFirstSentenceProblem(PROJECT_PAGE_CASES.find((c) => c.id === r.caseId)!, r.draft)] as const] : [])).filter(([, p]) => p);
+      expect(unnamed).toEqual([]);
     },
     5 * 60 * 1000,
   );

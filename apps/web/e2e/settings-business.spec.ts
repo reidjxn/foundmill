@@ -275,8 +275,8 @@ test.describe("settings > what the team can do: Autopilot", () => {
     await openBusiness(page, "settings/mode");
     const section = settingsScreen(page).getByTestId("autopilot-section");
     await expect(section).toBeVisible({ timeout: LONG });
-    await section.getByLabel(/Most cycles per day/).fill("6");
-    await section.getByLabel(/Pause after failed or empty cycles/).fill("3");
+    await section.getByLabel(/Most rounds of work per day/).fill("6");
+    await section.getByLabel(/Pause after failed or empty rounds of work/).fill("3");
     const save = section.getByTestId("autopilot-save");
     if (await save.isEnabled()) {
       await save.click();
@@ -304,19 +304,19 @@ test.describe("settings > what the team can do: Autopilot", () => {
     await expect(section.getByTestId("autopilot-chip")).not.toHaveAttribute("data-autopilot-state", "off");
     if (await section.locator("[data-autopilot-next]").count()) await expect(section.locator("[data-autopilot-next] [data-provenance='estimate']")).toBeVisible();
 
-    const cycles = section.getByLabel(/Most cycles per day/);
+    const cycles = section.getByLabel(/Most rounds of work per day/);
     await cycles.fill("25");
     await expect(section).toContainText("Use a whole number from 1 to 24");
     await expect(section.getByTestId("autopilot-save")).toBeDisabled();
     await cycles.fill("8");
-    await section.getByLabel(/Pause after failed or empty cycles/).fill("2");
+    await section.getByLabel(/Pause after failed or empty rounds of work/).fill("2");
     await section.getByTestId("autopilot-save").click();
     await expect(toast(page, "Autopilot settings saved")).toBeVisible({ timeout: LONG });
     await page.reload();
     await settled(page);
     const reloaded = settingsScreen(page).getByTestId("autopilot-section");
-    await expect(reloaded.getByLabel(/Most cycles per day/)).toHaveValue("8", { timeout: LONG });
-    await expect(reloaded.getByLabel(/Pause after failed or empty cycles/)).toHaveValue("2");
+    await expect(reloaded.getByLabel(/Most rounds of work per day/)).toHaveValue("8", { timeout: LONG });
+    await expect(reloaded.getByLabel(/Pause after failed or empty rounds of work/)).toHaveValue("2");
 
     // Home shows the same state in words.
     await openBusiness(page, "home");
@@ -325,8 +325,8 @@ test.describe("settings > what the team can do: Autopilot", () => {
     // Back to the seed: restore the limits and turn it off.
     await openBusiness(page, "settings/mode");
     const again = settingsScreen(page).getByTestId("autopilot-section");
-    await again.getByLabel(/Most cycles per day/).fill("6");
-    await again.getByLabel(/Pause after failed or empty cycles/).fill("3");
+    await again.getByLabel(/Most rounds of work per day/).fill("6");
+    await again.getByLabel(/Pause after failed or empty rounds of work/).fill("3");
     await again.getByTestId("autopilot-save").click();
     await expect(toast(page, "Autopilot settings saved")).toBeVisible({ timeout: LONG });
     await again.getByTestId("autopilot-switch").click();

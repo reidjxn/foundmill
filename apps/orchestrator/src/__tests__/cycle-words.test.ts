@@ -6,7 +6,7 @@ import { founderJargonHits } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { CYCLE_NOT_FINISHED_SUBJECT, CYCLE_NOT_STARTED_SUBJECT, cycleOutcomeSubject, cycleTallyLine } from "../cycle-contract";
 
-describe("cycle words", () => {
+describe("round of work words", () => {
   it("every subject is a founder sentence that fits an Inbox subject", () => {
     expect(CYCLE_NOT_FINISHED_SUBJECT).toBe("The team's last round of work did not finish");
     expect(CYCLE_NOT_STARTED_SUBJECT).toBe("The team could not start work");
@@ -21,7 +21,7 @@ describe("cycle words", () => {
     }
   });
 
-  it("the tally counts tasks, not sessions, and names no cycle", () => {
+  it("the tally counts tasks, not sessions, and names no round of work", () => {
     expect(cycleTallyLine({ started: 1, finished: 1, blocked: 0, stillRunning: 0, deferred: 0 })).toBe("This round of work: 1 task started, 1 finished, 0 blocked.");
     const busy = cycleTallyLine({ started: 3, finished: 1, blocked: 1, stillRunning: 1, deferred: 2 });
     expect(busy).toBe("This round of work: 3 tasks started, 1 finished, 1 blocked, 1 still running past the time limit; 2 tasks deferred.");

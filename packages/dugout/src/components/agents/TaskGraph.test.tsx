@@ -26,7 +26,7 @@ describe("layoutTaskGraph", () => {
     );
   });
 
-  it("survives cycles", () => {
+  it("survives rounds of work", () => {
     const cyc: TaskGraphNode[] = [
       { id: "x", title: "X", status: "planned", deps: ["y"] },
       { id: "y", title: "Y", status: "planned", deps: ["x"] },

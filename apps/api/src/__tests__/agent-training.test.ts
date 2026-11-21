@@ -110,7 +110,7 @@ describe("agent.model.set retests (AC-11.10.5)", () => {
     const owner = hz.caller({ userId: ownerId });
     expect((await repos.agents.get(hz.db, businessId, agentId)).modelKey).toBe("sonnet");
     // The founder saves a draft on Sonnet, then moves the agent to Opus before the draft is trained and promoted.
-    const { version } = await owner.agent.training.saveDraft({ businessId, agentId, instructions: { role: "Chief of Staff", goals: ["Plan every cycle"], rules: ["Ask before spending"], playbook: ["Read the inbox first"], tone: "Plain", examples: [] } });
+    const { version } = await owner.agent.training.saveDraft({ businessId, agentId, instructions: { role: "Chief of Staff", goals: ["Plan every round of work"], rules: ["Ask before spending"], playbook: ["Read the inbox first"], tone: "Plain", examples: [] } });
     expect(version.modelKey).toBe("sonnet");
     await owner.agent.model.set({ businessId, agentId, modelKey: "opus" });
     const run = await repos.training.create(hz.db, businessId, { agentId, toVersionId: version.id, status: "awaiting_decision" });
@@ -132,7 +132,7 @@ describe("promote writes the run's scores onto the agent's ratings (founder: 'Tr
   /** A trained draft awaiting the founder's decision, as the orchestrator leaves it (results per skill, test counts). */
   const awaitingRun = async (results: Record<string, { old: number; new: number; tests?: number }>) => {
     const { businessId, ownerId, agentId } = hz.A;
-    const { version } = await hz.caller({ userId: ownerId }).agent.training.saveDraft({ businessId, agentId, instructions: { role: "Chief of Staff", goals: ["Plan every cycle"], rules: ["Ask before spending"], playbook: ["Read the inbox first"], tone: "Plain", examples: [] } });
+    const { version } = await hz.caller({ userId: ownerId }).agent.training.saveDraft({ businessId, agentId, instructions: { role: "Chief of Staff", goals: ["Plan every round of work"], rules: ["Ask before spending"], playbook: ["Read the inbox first"], tone: "Plain", examples: [] } });
     const agent = await repos.agents.get(hz.db, businessId, agentId);
     const run = await repos.training.create(hz.db, businessId, { agentId, fromVersionId: agent.currentVersionId, toVersionId: version.id, status: "awaiting_decision" });
     return repos.training.update(hz.db, businessId, run.id, { results, endedAt: new Date() });

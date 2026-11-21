@@ -18,8 +18,8 @@ const meta = {
   },
   args: {
     screenId: "home",
-    purpose: "Your business at a glance: what the team did last cycle and what it needs from you.",
-    action: "Read the notes in the Inbox, then press Continue to run the next cycle.",
+    purpose: "Your business at a glance: what the team did last round of work and what it needs from you.",
+    action: "Read the notes in the Inbox, then press Continue to run the next round of work.",
     watchFor: "The runway tile turning amber: under 9 months of cash left.",
   },
   decorators: [

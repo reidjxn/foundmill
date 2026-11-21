@@ -306,7 +306,7 @@ for (const width of [1280, 1440]) {
       await expect(dialog).not.toContainText(/First training run/);
       // What hiring does and what it can cost, under the form (ConsequenceLine, always); focus on the first field, not
       // the Estimate chip, so Escape closes the dialog itself.
-      await expect(dialog.getByTestId("hire-consequence")).toContainText("Starts next cycle");
+      await expect(dialog.getByTestId("hire-consequence")).toContainText("Starts next round of work");
       await expect(dialog.getByTestId("hire-consequence")).toContainText(/Up to \$[\d,.]+\/mo \(Estimate\)/);
       await expect(dialog.getByRole("combobox", { name: "Department" })).toBeFocused();
       if (guided) await expect(dialog.locator("[data-reassurance]")).toContainText("let it go later");
@@ -318,7 +318,7 @@ for (const width of [1280, 1440]) {
       expect(await catalogue.getByRole("row").allTextContents(), "skills and departments read as words, never keys").not.toContainEqual(expect.stringMatching(/[a-z]_[a-z]/));
       expect(await headersInside(page, "Catalog")).toEqual([]);
       // The catalog says what it is (C10), its kind column is "Kind", and the moves read lend / duplicate / let go.
-      await expect(page.getByTestId("catalogue-intro")).toHaveText("Ready-made agents. Hire one into a department and it starts next cycle.");
+      await expect(page.getByTestId("catalogue-intro")).toHaveText("Ready-made agents. Hire one into a department and it starts next round of work.");
       await expect(catalogue.getByRole("columnheader", { name: /^Kind/ })).toBeVisible();
       await expect(catalogue.getByRole("columnheader", { name: /^Family/ })).toHaveCount(0);
       await page.getByRole("grid", { name: "Team moves" }).getByRole("row").nth(1).click({ button: "right" });

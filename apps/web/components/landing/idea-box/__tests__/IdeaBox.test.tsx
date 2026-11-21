@@ -100,6 +100,10 @@ describe("IdeaBox", () => {
     expect(screen.getByRole("heading", { level: 2, name: IDEA_NEXT_WORDS.title("Firstframe") })).toBeTruthy();
     expect(onLanded).toHaveBeenLastCalledWith({ name: "Firstframe", prompt: "Restored film cameras", interest: null });
     expect(screen.getByText(IDEA_BOX_WORDS.waits)).toBeTruthy();
+    // The page the card would start as, before any sign-in: the card's name and pitch in the project page.
+    const page = screen.getByTestId("idea-page-preview");
+    expect(page.querySelector("[data-project-name]")?.textContent).toBe("Firstframe");
+    expect(page.textContent).toContain(card.pitch);
   });
 
   it("shows a refusal's one line under the field and stays ready", async () => {

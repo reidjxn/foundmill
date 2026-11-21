@@ -130,7 +130,7 @@ test.describe("legal fixes", () => {
     const secondSave = saved();
     await page.getByRole("switch", { name: "Health" }).click();
     await secondSave;
-    await expect(page.getByText(/goes into the team's brief each cycle/)).toBeVisible();
+    await expect(page.getByText(/goes into the team's brief each round of work/)).toBeVisible();
     await expect(page.getByText(/never performs these/)).toHaveCount(0);
   });
 

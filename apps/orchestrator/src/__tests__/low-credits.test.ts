@@ -26,11 +26,12 @@ afterAll(async () => {
 
 const B = () => t.businessId;
 const period = () => periodOf(t.clock.now());
-const LINE = lowCreditsThresholdMinor(includedCreditsMinor("free"));
+// The project is on Founder (above), so the line is a fifth of Founder's month.
+const LINE = lowCreditsThresholdMinor(includedCreditsMinor("pro"));
 
 /** Sets this month's balance to exactly `minor` (the row is created with the tier's included credits first). */
 async function setBalance(minor: number, p: string = period()) {
-  await repos.usage.ensurePeriodCredits(t.db, B(), p, includedCreditsMinor("free"));
+  await repos.usage.ensurePeriodCredits(t.db, B(), p, includedCreditsMinor("pro"));
   const now = (await repos.usage.creditBalance(t.db, B(), p))!;
   const diff = minor - Number(now.balanceMinor);
   if (diff > 0) await repos.usage.grantCredits(t.db, B(), p, diff);

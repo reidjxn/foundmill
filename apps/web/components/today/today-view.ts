@@ -125,11 +125,11 @@ export interface StreakLike {
 const WEEKDAY = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
 
 /**
- * The StreakStrip's props (WP-04 D5: quieter): the shared words, never the at-risk line (the founder is here now), and
- * only the days of the last seven the founder opened the business, each with its short weekday ("Mon").
+ * The StreakStrip's props (WP-04 D5: quieter; founder, Nov 19, 2026, WP-10 decision 6): the shared words, which carry no
+ * at-risk line, and only the days of the last seven the founder opened the business, each with its short weekday ("Mon").
  */
 export function streakStripProps(s: StreakLike): { headline: string; line: string; milestone: boolean; opened: { day: string; label: string }[] } {
-  const words = streakWords({ ...s, atRisk: false });
+  const words = streakWords(s);
   return { ...words, milestone: s.milestone !== null, opened: s.week.filter((d) => d.state === "visited").map((d) => ({ day: d.day, label: WEEKDAY.format(new Date(`${d.day}T12:00:00Z`)) })) };
 }
 

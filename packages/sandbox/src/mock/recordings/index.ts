@@ -168,7 +168,7 @@ const ledgerlyAnnualPlanDiscount: RecordingInput = {
   acceptanceTests: 1,
   outcome: "blocked",
   events: [
-    ev(0, phase(null, "planning", "Pricing experiment agreed in Monday's cycle")),
+    ev(0, phase(null, "planning", "Pricing experiment agreed in Monday's round of work")),
     ev(600, note("Plan: check the current annual prices, create a 90-day 20% coupon in test mode, then wire it to the pricing page.")),
     ev(1500, call("c1", "stripe", "list_prices", "started", { argsSummary: "active recurring prices" })),
     ev(2300, call("c1", "stripe", "list_prices", "succeeded", { argsSummary: "active recurring prices", resultSummary: "4 prices; annual plans at 290 and 990 EUR", durationMs: 800, policyOutcome: "allow" })),

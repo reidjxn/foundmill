@@ -94,7 +94,7 @@ describe("a gated call waits for the founder's answer in the Inbox", () => {
     expect((await acts.finishSession(input, launch, result)).taskStatus).not.toBe("blocked");
   });
 
-  it("Reject ends the session blocked on the founder's answer, and the cycle leaves the task alone until it is started by hand", async () => {
+  it("Reject ends the session blocked on the founder's answer, and the round of work leaves the task alone until it is started by hand", async () => {
     const task = await newTask("Add the composite index");
     const { sessionId, input, launch, run } = await startOn(task.id);
     const approval = await approvalOf(sessionId);
