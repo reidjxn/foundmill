@@ -28,7 +28,7 @@ function sources(dir: string, out: string[] = []): string[] {
  * use it where a first-timer meets the word, or remove it. The test fails when one of these gets used (take it off the
  * list) and when a new id has no use.
  */
-const NOT_ON_A_SCREEN_YET = ["conversion", "pipeline", "contacts", "sku", "product_lead", "policy"];
+const NOT_ON_A_SCREEN_YET = ["conversion", "pipeline", "contacts", "sku", "product_lead", "policy", "team_budget"];
 
 describe("terms in use (WP-10 T4)", () => {
   it("every TERMS id is used on a screen (concept attributes are read by key and are exempt)", () => {
