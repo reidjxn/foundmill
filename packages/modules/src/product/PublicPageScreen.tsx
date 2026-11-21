@@ -97,6 +97,8 @@ export interface PageViewResponse {
   mark?: boolean;
   /** Whether Follow can send its confirmation here (WP-02 T7); absent from an older api reads as true. */
   followAvailable?: boolean;
+  /** The opt-in to the public gallery (`/explore`, 0149); absent from an older api reads as off. */
+  explore?: boolean;
 }
 
 type PublishResponse = { outcome: "published"; page: PageViewResponse } | { outcome: "held"; reason: PageHoldReason; message: string; page: PageViewResponse };
@@ -128,6 +130,8 @@ export const PUBLIC_PAGE_WORDS = {
   showFoundersHint: "Adds “Built by …” with the names of the project's owners.",
   followForm: "Let people follow this project",
   followFormHint: "Adds a form where visitors leave their email and agree to hear from you. Each one shows up in Customers.",
+  explore: "Show in Explore",
+  exploreHint: "Lists your live page in the public gallery at /explore. Off unless you turn it on; taking the page down removes it.",
   followUnavailable: `Following opens when email is switched on for ${APP_NAME}. Your page works without it.`,
   save: "Save draft",
   saved: "Draft saved",
@@ -221,7 +225,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
   }, [data?.draft.pitch, data?.draft.about, data?.draft.forWhom, data?.draft.stage, data?.draft.showFounders, data?.draft.followForm]);
 
   const [touched, setTouched] = useState(false);
-  const [pending, setPending] = useState<null | "save" | "publish" | "unpublish" | "slug">(null);
+  const [pending, setPending] = useState<null | "save" | "publish" | "unpublish" | "slug" | "explore">(null);
   const [error, setError] = useState<string | null>(null);
   const [held, setHeld] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -277,6 +281,12 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
       apply(result.page);
       if (result.outcome === "held") setHeld(result.message);
       else if (narrow && result.page.live) setAsking(true);
+    });
+  const setExplore = (listed: boolean) =>
+    run("explore", async () => {
+      // Not `apply`: that would replace what the founder has typed but not saved.
+      await mutate<PageViewResponse>("page.setExplore", { listed });
+      view.refetch();
     });
   const unpublish = () =>
     run("unpublish", async () => {
@@ -406,6 +416,15 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
               <p className="t-small text-secondary" data-testid="page-not-listed">
                 {PAGE_NOT_LISTED_LINE}
               </p>
+            ) : null}
+            {data?.live ? (
+              <label className="flex items-start gap-3" htmlFor={`${id}-explore`}>
+                <Switch id={`${id}-explore`} checked={Boolean(data.explore)} disabled={!canEdit || pending !== null} onCheckedChange={(on) => void setExplore(on === true)} className="mt-0.5" />
+                <span className="flex flex-col gap-0.5">
+                  <span className="t-body text-primary">{PUBLIC_PAGE_WORDS.explore}</span>
+                  <span className="t-small text-secondary">{PUBLIC_PAGE_WORDS.exploreHint}</span>
+                </span>
+              </label>
             ) : null}
             {followers ? (
               <p className="t-body text-primary" data-testid="page-followers">

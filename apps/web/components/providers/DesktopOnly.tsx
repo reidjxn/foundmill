@@ -30,6 +30,7 @@ import { ContinueLater } from "./ContinueLater";
  */
 export const SMALL_SCREEN_PREFIXES: readonly string[] = [
   "/p/",
+  "/explore",
   "/u/",
   "/m/",
   "/login",

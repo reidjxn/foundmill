@@ -27,6 +27,9 @@ export const publicProjectStory = cache(async (slug: string): Promise<PublicProj
 /** The card of one shown milestone, or null when it is not shown (or its project's page is not public). Rejects as the API does. */
 export const publicMilestoneCard = cache(async (id: string): Promise<PublicMilestoneCard | null> => publicApi().publicPage.cardById.query({ id }));
 
+/** The gallery (`/explore`): the pages whose founders opted in, newest first. Rejects as the API does. */
+export const publicExplore = cache(async () => publicApi().publicPage.explore.query());
+
 /**
  * The IndexNow key file of a public page (app/p/[slug]/[keyFile]): the key when it is the one the project's founders
  * connected IndexNow with for this page, else null. Not cached: each request names its own key.

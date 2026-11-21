@@ -321,7 +321,7 @@ export function TodayScreen() {
         ) : null}
       </>
     ),
-    "post-ready": todayQ.data?.postsReady ? <PostReadyNote span={12} waiting={todayQ.data.postsReady.count} href={`${moduleTabHref(businessId, departments, "distribution", "creative")}?asset=${todayQ.data.postsReady.assetId}`} /> : null,
+    "post-ready": todayQ.data?.postsReady && !phone ? <PostReadyNote span={12} waiting={todayQ.data.postsReady.count} href={`${moduleTabHref(businessId, departments, "distribution", "creative")}?asset=${todayQ.data.postsReady.assetId}`} /> : null,
     week: (
       <WeekPlan
         span={12}
@@ -352,7 +352,8 @@ export function TodayScreen() {
       <HomeFoundations />
       <PageGrid flush stack data-order={order.join(" ")}>
         {todayQ.data ? <WeekOutcomes span={12} headline={todayQ.data.outcomes.headline} detail={todayQ.data.outcomes.detail} toward={todayQ.data.outcomes.toward} /> : null}
-        <WorkingNowStrip span={12} lines={workingNow} href={moduleTabHref(businessId, departments, "development", "training-ground")} />
+        {/* The Working now tab is desktop only: on a phone the strip names the work and links nowhere (Session 9). */}
+        <WorkingNowStrip span={12} lines={workingNow} href={phone ? undefined : moduleTabHref(businessId, departments, "development", "training-ground")} />
         {order.map((id) => (
           <Fragment key={id}>{sections[id]}</Fragment>
         ))}
