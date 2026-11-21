@@ -51,7 +51,7 @@ An existing connection with all three scopes keeps working.
 - **Shopify**: the Storefront MCP's catalog and cart tools were removed from `/api/mcp`; UCP at `/api/ucp/mcp` wants an agent
   profile per request; Checkout and Customer Accounts MCP list no tools or sign-in. Nothing a founder can sign into yet.
 
-## Judgment calls the founder may want to change
+## Decisions
 - **Shopify is `live: false`.** Its list is from the documentation and connecting it throws "not confirmed"; Settings hides it. The
   existing Shopify API connector stays. Flip `live` once Shopify's sign-in and the per-store address are confirmed.
 - **Tool lists are recorded from documentation, not from a live `tools/list`.** Notion's names are from memory of its
@@ -82,7 +82,7 @@ Left open, and why:
 - Vendor health checks use the stored token without refreshing, so Notion may read "degraded" after about 8 hours until the next call.
 - Existing Gmail connections that hold `gmail.readonly` keep it until the founder signs in again.
 
-## Known limits
+## Not done
 - Custom server addresses are checked against private ranges right before the request, not on the socket (DNS rebinding is
   not stopped); the MCP SDK transport takes no custom dispatcher yet (`shortcut:` note in `custom.ts`).
 - The refresh queue is per process: two gateway replicas refreshing one Notion credential at the same moment can replay a rotated token
