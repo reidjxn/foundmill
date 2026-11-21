@@ -33,7 +33,7 @@ import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, attachedSkills, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, NO_TOOL_LOOP_PRELOAD_BODIES, restoredWorkspaceNote, selectSkills, SESSION_PRELOAD_BODIES, ToolGrant, type AgentTemplate, type AttachedSkill } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, modelFundingFor, sandboxCostMicroMinor } from "@foundmill/config";
-import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
+import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, withContextReads, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
 import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, freeCapCheck, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, readSessionEvents, type SessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_ENDPOINTS, MODEL_PRICING, MODEL_PROVIDER, MODELS, resolveModel, type ModelId, type ModelKey as RoutedModelKey, type RouteKey } from "@foundmill/models";
@@ -374,8 +374,8 @@ function withPrefetched(first: SessionCommand[], pull: () => Promise<SessionComm
 /**
  * The business's stop flag as a control command: every STOP_CHECK_MS the feed re-reads it and, once the team is
  * stopped, adds one `stop`. A session opened while Stop all agents was being pulled, one its signal never reached
- * (Temporal slow or down) and one running when the credits ran out or the key was revoked (no signal at all) all stop
- * within seconds. A failed read is logged and retried on the next check.
+ * (Temporal slow or down) and one running when the key was revoked (no signal at all) all stop within seconds. A session
+ * running when the month's budget ran out is not stopped: it finishes (./session-credits). A failed read is logged and retried on the next check.
  */
 function withStopWatch(deps: OrchestratorDeps, businessId: string, pull: () => Promise<SessionCommand[]>): () => Promise<SessionCommand[]> {
   let nextCheckMs = deps.clock.nowMs() + STOP_CHECK_MS;
@@ -385,7 +385,10 @@ function withStopWatch(deps: OrchestratorDeps, businessId: string, pull: () => P
     if (stopped || deps.clock.nowMs() < nextCheckMs) return commands;
     nextCheckMs = deps.clock.nowMs() + STOP_CHECK_MS;
     try {
-      stopped = await repos.businesses.agentsStopped(deps.db, businessId);
+      // A team that is resting (the month's budget is used) starts nothing new, but the task that is running finishes
+      // (founder, Nov 17, 2026; WP-14 T1): only Stop all agents, a revoked key or an archived business stops it here.
+      const state = await repos.businesses.stopState(deps.db, businessId);
+      stopped = state.stopped && (state.archived || state.reason !== "credits_exhausted");
     } catch (err) {
       deps.log.warn({ err: (err as Error).message, businessId }, "stop flag read failed; retrying on the next check");
     }
@@ -880,8 +883,9 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       // session `stopped` and the agent stays paused; retrying would not change the answer.
       if (agent.status === "paused") throw ApplicationFailure.nonRetryable(`Agent ${agent.name} is paused`, AGENT_PAUSED_FAILURE);
       if (business.agentsStoppedAt) throw ApplicationFailure.nonRetryable("Agents are stopped for this business", AGENT_PAUSED_FAILURE);
-      // A second read's revision keeps only the document tools (./second-read).
-      const grants = await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(version, template)));
+      // A second read's revision keeps only the document tools (./second-read); the founder's mail and calendar are read
+      // only where the founder said yes (packages/connectors google-context).
+      const grants = withContextReads(await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(version, template))), await repos.integrations.contextReads(deps.db, input.businessId));
       const route: RouteKey = template.route;
       const { provider, mode, fellBackFrom } = await deps.sandbox();
       // The credit saver: a session on the platform key whose month's credits are low runs routine work on the route's
@@ -1595,7 +1599,7 @@ export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string 
     };
   }
   if (kind === "rate_limit" || kind === "overloaded" || status === 429 || status === 529) {
-    return { outcome: "blocked", blockedReason: "rate_limit", reason: `rate limited by the model provider (${text})`.slice(0, 500), summary: "Blocked: the model provider is rate limiting or overloaded; the task runs again on a later cycle." };
+    return { outcome: "blocked", blockedReason: "rate_limit", reason: `rate limited by the model provider (${text})`.slice(0, 500), summary: "Blocked: the model provider is rate limiting or overloaded; the task runs again on a later round of work." };
   }
   return { outcome: "failed", blockedReason: "error", reason: `the model call failed${status ? ` (${status})` : ""}: ${text}`.slice(0, 500), summary: "The agent run ended with an error from the model provider." };
 }
@@ -1612,8 +1616,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // call, is capped at what is spendable, books as it goes and ends when the credits are used up.
   let credits: SessionCredits | null = null;
   if (key.source === "platform") {
-    const opened = await SessionCredits.open(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, modelKey: launch.modelKey });
-    if (!opened.ok) return { outcome: "blocked", reason: `model budget exhausted: ${opened.reason}`, blockedReason: "budget", approvalId: null, summary: CREDITS_USED_UP_SUMMARY, providerSessionId: null };
+    const opened = await SessionCredits.open(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, modelKey: launch.modelKey, agentType: agent.agentType });
+    if (!opened.ok) return { outcome: "blocked", reason: `model budget exhausted: ${opened.reason}`, blockedReason: "budget", approvalId: null, summary: opened.summary, providerSessionId: null };
     credits = opened.credits;
   }
   // The month's free-plan cap (WP-13 T6): while Foundmill's platform-wide spend is held, a free session does not start; the
@@ -1624,7 +1628,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   }
 
   // A second read's revision keeps only the document tools (./second-read): its goal carries another agent's notes.
-  const grants = await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(live.version, live.template)));
+  // The founder's mail and calendar are read only where the founder said yes (packages/connectors google-context).
+  const grants = withContextReads(await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(live.version, live.template))), await repos.integrations.contextReads(deps.db, input.businessId));
   if (grants.unresolved.length > 0) deps.log.info({ sessionId: input.sessionId, unresolved: grants.unresolved.map((u) => `${u.connectorKey}.${u.capability}`).slice(0, 50) }, "granted capabilities no tool serves yet");
   // What the gateway would refuse as not connected (WP-05 T12, the gateway's own rule): the agent is told, and a research
   // or channel task whose every outside connector is refused does not start, before any workspace, token or SDK exists.
@@ -1870,7 +1875,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   };
   const endForCredits = async () => {
     if (ending) return;
-    await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "This month's credits are used up, so the session stops here. What it spent is booked as an Estimate." });
+    await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "This month's team budget is used and this task needed more than the amount set aside to let it finish, so the session stops here. What it spent is booked as an Estimate." });
     await end("budget");
   };
 

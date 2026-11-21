@@ -14,7 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleStop, Dumbbell, Eye, FlaskConical, History, Save, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CREDITS_CURRENCY } from "@foundmill/config";
+import { CREDITS_CURRENCY, planName } from "@foundmill/config";
 import { BetterModelsPrompt, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Explainer, Icon, InstructionsEditor, KeyValueList, MODEL_LABELS, ModelPicker, Panel, ProgressRing, ProvenanceChip, SkillGrid, TabBar, Term, TrainingResults, formatDuration, formatMoney, formatRelative, instructionsEqual, useDateFormat, type AgentInstructions, type InstructionComment, type InstructionViolation, type TabItem } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
@@ -456,7 +456,7 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
         </DialogContent>
       </Dialog>
 
-      <BetterModelsPrompt open={betterOpen} onOpenChange={setBetterOpen} onSeePlans={() => router.push(`/b/${businessId}/settings/billing`)} onConnectKey={() => router.push(`/b/${businessId}/settings/keys`)} />
+      <BetterModelsPrompt planLabel={planName("free")} open={betterOpen} onOpenChange={setBetterOpen} onSeePlans={() => router.push(`/b/${businessId}/settings/billing`)} onConnectKey={() => router.push(`/b/${businessId}/settings/keys`)} />
       <ModelChangeDialog businessId={businessId} profile={profile} open={!!applyModel} onOpenChange={(o) => !o && setApplyModel(null)} preselect={applyModel} />
       <CustomSkillsPanel businessId={businessId} profile={profile} onChanged={refetch} />
     </div>

@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, TriangleAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { CREDITS_CURRENCY } from "@foundmill/config";
+import { CREDITS_CURRENCY, planName } from "@foundmill/config";
 import { ApplyScopeDialog, BetterModelsPrompt, Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, MODEL_LABELS, ModelPicker, SkeletonText, Term, useToast, type ApplyScope } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
@@ -109,7 +109,7 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
         </DialogContent>
       </Dialog>
 
-      <BetterModelsPrompt open={betterOpen} onOpenChange={setBetterOpen} onSeePlans={() => router.push(`/b/${businessId}/settings/billing`)} onConnectKey={() => router.push(`/b/${businessId}/settings/keys`)} />
+      <BetterModelsPrompt planLabel={planName("free")} open={betterOpen} onOpenChange={setBetterOpen} onSeePlans={() => router.push(`/b/${businessId}/settings/billing`)} onConnectKey={() => router.push(`/b/${businessId}/settings/keys`)} />
 
       <Dialog open={open && step === "warn"} onOpenChange={(o) => !o && reset()}>
         <DialogContent size="sm" data-testid="cos-downgrade-warning">

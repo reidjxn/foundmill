@@ -83,7 +83,7 @@ describe("the credits gate on the api's model calls (S2)", () => {
       refusal(owner.plan.preview({ businessId: B, text: "Pause the ads for a week" })),
       refusal(owner.inbox.decide({ businessId: B, itemId: item.id, freeText: "Start the soft launch next Monday" })),
     ]);
-    for (const r of refusals) expect(r).toMatchObject({ code: "PAYMENT_REQUIRED", appCode: "credits_exhausted", message: expect.stringMatching(/^This month's credits are used up, so Foundmill makes no more model calls for this business\. To keep going, add your own Anthropic key in Settings › Keys/) });
+    for (const r of refusals) expect(r).toMatchObject({ code: "PAYMENT_REQUIRED", appCode: "credits_exhausted", message: expect.stringMatching(/^The team is resting: this month's team budget is used, so Foundmill makes no more model calls for this project\. To keep going, add your own Anthropic key in Settings › Keys/) });
     // Nothing was spent: no ledger row, and the decision is still open.
     expect(await ledgerRows(B)).toBe(before);
     expect((await repos.inbox.get(hz.db, B, item.id)).state).not.toBe("answered");
@@ -120,7 +120,7 @@ describe("dev.tasks.start counts against the plan's concurrent agents (S2)", () 
     for (let i = open; i < TIERS.free.maxConcurrentAgents; i++) filler.push(await repos.agents.createSession(hz.db, A, { agentId: hz.A.agentId }));
     const task = await repos.tasks.create(hz.db, A, { kind: "ops", title: "One task too many", status: "ready", assigneeAgentId: hz.A.agent2Id });
     const refused = await refusal(member.dev.tasks.start({ businessId: A, taskId: task.id }));
-    expect(refused).toMatchObject({ code: "FORBIDDEN", appCode: "tier_limit", message: expect.stringMatching(/^The Free plan runs 4 agents at once and all of them are working\./) });
+    expect(refused).toMatchObject({ code: "FORBIDDEN", appCode: "tier_limit", message: expect.stringMatching(/^Try runs 4 agents at once and all of them are working\./) });
     expect((await repos.tasks.get(hz.db, A, task.id)).status).toBe("ready");
     expect((await repos.agents.listSessions(hz.db, A, { taskId: task.id, limit: 5 })).items).toHaveLength(0);
     for (const s of filler) await repos.agents.endSession(hz.db, A, s.id, { outcome: "done" });

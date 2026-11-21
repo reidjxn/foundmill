@@ -42,7 +42,7 @@ describe("BetterModelsPrompt", () => {
     const onOpenChange = vi.fn();
     const onSeePlans = vi.fn();
     const onConnectKey = vi.fn();
-    render(<BetterModelsPrompt open onOpenChange={onOpenChange} onSeePlans={onSeePlans} onConnectKey={onConnectKey} />);
+    render(<BetterModelsPrompt planLabel="Try" open onOpenChange={onOpenChange} onSeePlans={onSeePlans} onConnectKey={onConnectKey} />);
     expect(screen.getByText("Better models come with a plan")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "See plans" }));
     await userEvent.click(screen.getByRole("button", { name: "Connect your Anthropic key" }));

@@ -56,7 +56,7 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
       flush
       empty={inbox.data && items.length === 0 ? { icon: Inbox, text: (
             <>
-              Notes from your team land here after each <Term id="cycle">cycle</Term>. Press Continue to start one.
+              Notes from your team land here after each <Term id="cycle">round of work</Term>. Press Continue to start one.
             </>
           ), action: { label: "Open inbox", onClick: () => navigate(routes.inbox(businessId)) } } : null}
       actions={

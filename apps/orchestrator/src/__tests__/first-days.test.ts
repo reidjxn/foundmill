@@ -32,7 +32,7 @@ async function waitingBusiness(name: string) {
   return { id: b.id, chief };
 }
 
-describe("the brief and the cycle planner", () => {
+describe("the brief and the round of work planner", () => {
   it("the brief names the product stage (the fixture sells); the planner holds channel work back until selling and says why", async () => {
     const brief = createBriefActivities(t.deps);
     const cycle = createCycleActivities(t.deps);

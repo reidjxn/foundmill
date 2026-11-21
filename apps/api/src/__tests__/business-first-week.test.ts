@@ -38,7 +38,7 @@ describe("business.firstWeek.get", () => {
     await expect(hz.caller({ userId: stranger }).business.firstWeek.get({ businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("flips as a note from an agent is opened, the founder writes to an agent, a cycle completes and the page is published", async () => {
+  it("flips as a note from an agent is opened, the founder writes to an agent, a round of work completes and the page is published", async () => {
     const { businessId } = hz.B;
     const owner = hz.caller({ userId: hz.B.ownerId });
     const before = await owner.business.firstWeek.get({ businessId });

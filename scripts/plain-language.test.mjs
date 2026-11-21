@@ -154,7 +154,7 @@ describe("tiers come from packages/shared/src/terms.ts", () => {
     const words = Object.values(terms).map((t) => t.word);
     assert.deepEqual([...tiers.define, ...tiers.plain].sort(), [...words].sort());
     for (const w of tiers.define) assert.ok(!tiers.plain.includes(w), w);
-    for (const w of ["Runway", "MRR", "Pull request", "Cycle", "Estimate", "Chief of Staff"])
+    for (const w of ["Runway", "MRR", "Pull request", "Round of work", "Estimate", "Chief of Staff"])
       assert.ok(tiers.define.includes(w), w);
     for (const w of ["Revenue", "Lead", "Model", "Session", "Training", "Health", "Form"])
       assert.ok(tiers.plain.includes(w), w);

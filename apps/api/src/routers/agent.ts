@@ -4,7 +4,7 @@
  * ("agent" | "type" | "all", BUILD §9.6 ApplyScopeDialog). BUILD §11.10; AC-11.10.1/2/5/6.
  */
 import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, LIBRARY_SKILL_PREFIX, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getLibrarySkill, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
-import { CREDITS_CURRENCY, INPUT_LIMITS, LIMITS } from "@foundmill/config";
+import { CREDITS_CURRENCY, INPUT_LIMITS, LIMITS, planName } from "@foundmill/config";
 import { UpdateAgentInput, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
 import { ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, CHOOSABLE_MODEL_KEYS, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";

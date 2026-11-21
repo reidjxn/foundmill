@@ -56,7 +56,7 @@ describe("search and the palette", () => {
 });
 
 describe("the first-week checklist", () => {
-  it("off: no cycle number in the facts", () => {
+  it("off: no round of work number in the facts", () => {
     const cycle = { running: true, cycleNumber: 3, activeAgentIds: ["a"], completedCount: 2 };
     expect(nextStepFacts({ foundationsStatus: "ready", blocking: 0, unread: 0, cycle, distributionStartedAt: null, builder: false }).cycleNumber).toBeNull();
     expect(nextStepFacts({ foundationsStatus: "ready", blocking: 0, unread: 0, cycle, distributionStartedAt: null, builder: true }).cycleNumber).toBe(3);

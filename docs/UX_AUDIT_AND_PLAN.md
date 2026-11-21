@@ -173,7 +173,7 @@ A static map keyed by stable id, not by display word, so the UI, the Composer an
 export const TERMS = {
   runway: { word: "Runway", short: "How many months your cash lasts at today's spending.",
             long: "Cash in the bank divided by what you spend more than you earn each month. Estimated until a bank is connected.", learn: "finance/runway" },
-  cycle:  { word: "Cycle", short: "One round of work: the team works for a while, then reports back in the Inbox.", … },
+  cycle:  { word: "Cycle", short: "A stretch where the team works for a while, then reports back in the Inbox.", … },
   estimate: { word: "Estimate", short: "Worked out, not measured.", … },
   forecast: { word: "Forecast", short: "A projection of what could happen, not a measurement.", … },
   …

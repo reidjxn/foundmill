@@ -4,7 +4,7 @@
  * connect their own Anthropic key. A paid plan, an own Anthropic key, and (from the day sign-up opens, WP-09 T16) a credit
  * pack unlock them. The agent's stored choice is kept either way: it is what the agent runs on after the upgrade.
  */
-import { modelFundingFor, type ModelFundingKind } from "@foundmill/config";
+import { modelFundingFor, planName, type ModelFundingKind } from "@foundmill/config";
 import { markBilling, repos, type Business, type Executor } from "@foundmill/db";
 import { AppError, type Env, type ModelKey } from "@foundmill/shared";
 
@@ -12,7 +12,7 @@ import { AppError, type Env, type ModelKey } from "@foundmill/shared";
 const CLAUDE_ON_PLATFORM_KEY: readonly ModelKey[] = ["opus", "sonnet"];
 
 export const UPGRADE_OR_OWN_KEY = "upgrade_or_own_key";
-export const UPGRADE_OR_OWN_KEY_MESSAGE = "Claude models come with a paid plan, or connect your own Anthropic key and pay Anthropic directly. On the free plan your team runs on Haiku 5.5 or GLM-5.3 Flash.";
+export const UPGRADE_OR_OWN_KEY_MESSAGE = `Claude models come with a paid plan, or connect your own Anthropic key and pay Anthropic directly. On the ${planName("free")} plan your team runs on Haiku 5.5 or GLM-5.3 Flash.`;
 
 export interface ModelGate {
   funding: ModelFundingKind;

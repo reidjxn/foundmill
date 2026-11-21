@@ -31,7 +31,7 @@ const SAMPLES: Record<string, ToastOptions> = {
   good: { title: "Plan executed", description: "3 tasks created, 1 channel enabled.", tone: "good" },
   warn: { title: "Runway under 9 months", description: "The Finance lead has a recommendation in your Inbox.", tone: "warn" },
   bad: { title: "Agent session failed", description: "Scout hit a rate limit and will retry in 40 s.", tone: "bad", duration: Infinity },
-  info: { title: "Cycle complete", tone: "info", action: { label: "Open Inbox", onClick: () => {} } },
+  info: { title: "Round of work complete", tone: "info", action: { label: "Open Inbox", onClick: () => {} } },
   neutral: { title: "Draft saved", description: "Version 4 of the Boots UK pitch." },
 };
 

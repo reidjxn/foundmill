@@ -146,9 +146,17 @@ export interface ApprovalRouting {
  * handler when every department agrees. A staff member who left, or an agent released or paused, hands it back to the
  * founder. Signing is a hard gate: an agent never decides it, nor its own request.
  */
-export async function routeApproval(db: Executor, businessId: string, input: { agentId?: string | null; decisionType: DecisionType | null; founderOnly?: boolean }): Promise<ApprovalRouting> {
+/**
+ * Calls that send mail from the founder's own Gmail or invite people from their own calendar (founder, Nov 19, 2026):
+ * their approval is the founder's in every case, whoever Team › Responsibilities names. Policy `founder-google-send-asks`
+ * lists the same tools.
+ */
+export const FOUNDER_ACCOUNT_SEND_TOOLS: ReadonlySet<string> = new Set(["gmail:send_message", "google_calendar:create_event", "google_calendar:update_event", "google_calendar:delete_event"]);
+
+export async function routeApproval(db: Executor, businessId: string, input: { agentId?: string | null; decisionType: DecisionType | null; founderOnly?: boolean; founderAccount?: boolean }): Promise<ApprovalRouting> {
   const none: ApprovalRouting = { decisionType: input.decisionType, handlerKind: null, handlerId: null, decidedByAgent: null };
-  if (!input.decisionType) return none;
+  // Mail from the founder's own Gmail and invitations from their own calendar: the founder answers, never a delegate.
+  if (!input.decisionType || input.founderAccount === true) return none;
   const live = await db.select({ id: departments.id, approvers: departments.approvers }).from(departments).where(and(eq(departments.businessId, businessId), isNull(departments.archivedAt)));
   if (live.length === 0) return none;
   const requester = input.agentId ? (await db.select({ departmentIds: agents.departmentIds }).from(agents).where(and(eq(agents.businessId, businessId), eq(agents.id, input.agentId))).limit(1))[0] : undefined;
@@ -192,6 +200,7 @@ export const approvalsRepo = {
       agentId: v.agentId,
       decisionType: v.decisionType === undefined ? inferDecisionType(v.connectorKey, v.tool) : v.decisionType,
       founderOnly: inferDecisionType(v.connectorKey, v.tool) === "merge_to_main",
+      founderAccount: FOUNDER_ACCOUNT_SEND_TOOLS.has(`${v.connectorKey}:${v.tool}`),
     });
     return one(
       await db

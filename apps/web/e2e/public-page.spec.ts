@@ -165,9 +165,15 @@ test.describe("public page", () => {
     const phone = await visitor(browser, 390, 844);
     try {
       await expectPublicPage(phone.page, pagePath, 390, "40-project-page-390.png");
-      // Indexable, with its own title and share card.
+      // Its own title and share card. A short page is public and not listed for search engines yet (WP-08 T7).
       await expect(phone.page).toHaveTitle(/^Doorstep Bikes [a-z0-9]+: Bike repairs at your door/);
-      await expect(phone.page.locator('meta[name="robots"]')).toHaveAttribute("content", /index, follow/);
+      await expect(phone.page.locator('meta[name="robots"]')).toHaveAttribute("content", /^noindex, follow/);
+      // One structured-data block, and the page as Markdown for AI readers (WP-08 T7).
+      await expect(phone.page.locator('script[type="application/ld+json"]')).toHaveCount(1);
+      expect(JSON.parse((await phone.page.locator('script[type="application/ld+json"]').textContent()) ?? "{}")["@graph"][0]["@type"]).toBe("ProfilePage");
+      const md = await phone.page.request.get(`${pagePath}/llms.txt`);
+      expect(md.status()).toBe(200);
+      expect(await md.text()).toContain("> Bike repairs at your door");
       await expect(phone.page.locator('meta[property="og:title"]')).toHaveAttribute("content", /Bike repairs at your door/);
       await expect(phone.page.locator('meta[property="og:image"]')).toHaveAttribute("content", /\/p\/[a-z0-9-]+\/opengraph-image/);
       await expect(phone.page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/p\/[a-z0-9-]+$/);

@@ -21,7 +21,7 @@ function Demo({ options, value, inUse, prompt }: { options: ModelOption[]; value
   return (
     <div className="w-[640px]">
       <ModelPicker options={options} value={value} inUse={inUse} onChange={(m) => options.find((o) => o.key === m)?.gated && setOpen(true)} />
-      <BetterModelsPrompt open={open} onOpenChange={setOpen} onSeePlans={() => setOpen(false)} onConnectKey={() => setOpen(false)} />
+      <BetterModelsPrompt planLabel="Try" open={open} onOpenChange={setOpen} onSeePlans={() => setOpen(false)} onConnectKey={() => setOpen(false)} />
     </div>
   );
 }

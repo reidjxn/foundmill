@@ -409,7 +409,7 @@ describe("founder copy on the profile (the instructions are written to the model
     expect(wageLabel("2026-09", new Date("2026-10-10T12:00:00Z"), { date: "day_first", time: "24h" })).toBe("AI cost in September 2026");
   });
   it("keeps the first-person description and drops its structured tail and ids", () => {
-    expect(plainDescription("I plan each cycle and compile replies into typed Plans. Inputs: the brief. Outputs: a plan. Tools: x. Never does: spend.")).toBe("I plan each cycle and compile replies into plans.");
+    expect(plainDescription("I plan each round of work and compile replies into typed Plans. Inputs: the brief. Outputs: a plan. Tools: x. Never does: spend.")).toBe("I plan each round of work and compile replies into plans.");
     expect(founderPlain("Every founder reply becomes a plan; everything else queues for the founder, who reads the founder's Inbox.")).toBe("Every reply from you becomes a plan; everything else queues for you, who reads your Inbox.");
     expect(founderPlain("Hard gates are routed to request_human_action (BUILD §2.2).")).toBe("Hard gates are routed to a task for you.");
     expect(founderPlain("Send an email (never claiming to be human — BUILD §2.3). Refused when unverified.")).toBe("Send an email (never claiming to be human). Refused when unverified.");

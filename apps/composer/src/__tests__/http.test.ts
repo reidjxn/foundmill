@@ -167,7 +167,7 @@ describe("the credits gate (SEC2 S2)", () => {
     const event = await hz.writeEvent(B, "payment.received", { amount: { amountMinor: 1200, currency: "EUR" } }, [hz.B.entityId]);
     const res = await narrate(event.id);
     expect(res.status).toBe(402);
-    expect(await res.json()).toMatchObject({ error: "credits_exhausted", message: expect.stringMatching(/^This month's credits are used up/), details: { reason: "exhausted", businessId: B } });
+    expect(await res.json()).toMatchObject({ error: "credits_exhausted", message: expect.stringMatching(/^The team is resting: this month's team budget is used/), details: { reason: "exhausted", businessId: B } });
     expect(hz.usage.length).toBe(booked);
     expect((await repos.inbox.list(hz.db, B, { limit: 500 })).items.length).toBe(notes);
   });

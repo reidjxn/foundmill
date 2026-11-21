@@ -6,7 +6,7 @@ import { Markdown } from "./Markdown";
 const NOTE = [
   "**Runway is 7 months** at today's spending, and the figure is an estimate until the bank is connected.",
   "",
-  "Cycle 3 finished with two cycles' worth of work: MRR rose to £4,200 (an Estimate from Stripe's own figures), and the runway forecast moved by a week.",
+  "Round of work 3 finished with two rounds of work' worth of work: MRR rose to £4,200 (an Estimate from Stripe's own figures), and the runway forecast moved by a week.",
   "",
   "- The [runway page](/b/demo/finance/runway) has the detail.",
   "- `runway` in a code span stays code.",

@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import { Cpu } from "lucide-react";
-import { CREDITS_CURRENCY } from "@foundmill/config";
+import { CREDITS_CURRENCY, planName } from "@foundmill/config";
 import { ApplyScopeDialog, BetterModelsPrompt, Button, useAgentPersona, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, MODEL_LABELS, ModelPicker, SkeletonText, type ApplyScope, type ModelOption } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -116,6 +116,7 @@ export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, on
         </DialogContent>
       </Dialog>
       <BetterModelsPrompt
+        planLabel={planName("free")}
         open={betterOpen}
         onOpenChange={setBetterOpen}
         onSeePlans={() => navigate(`/b/${businessId}/settings/billing`)}

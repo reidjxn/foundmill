@@ -62,7 +62,7 @@ test.describe("screens in plain words", () => {
     const barWords = page.getByTestId("kit-bar").locator("[data-runway-words]");
     if (await barWords.count()) await expect(strip.getByText((await barWords.innerText()).trim(), { exact: true })).toBeVisible({ timeout: LONG });
     // Quiet department cards say so briefly; the instruction to press Continue is not repeated in every "Next up".
-    await expect(page.locator("[data-department]").filter({ hasText: "Continue plans the next cycle" })).toHaveCount(0);
+    await expect(page.locator("[data-department]").filter({ hasText: "Continue plans the next round of work" })).toHaveCount(0);
   });
 
   test("sign-in: the atmosphere frame, plain words, the screen-size note", async ({ page }) => {

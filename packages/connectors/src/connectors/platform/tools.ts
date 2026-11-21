@@ -9,7 +9,7 @@ import { z } from "zod";
 import { AGENT_MESSAGE_TYPES } from "@foundmill/events";
 import { AppError, PositioningNotesInput, RECIPIENT_BASES, TASK_KINDS, TASK_STATUSES } from "@foundmill/shared";
 import { defineTool } from "../../define";
-import { AcceptanceResult } from "./acceptance";
+import { AcceptanceResult } from "./acceptance-result";
 
 export const PLATFORM_KEY = "platform";
 export const PLATFORM_RATE_LIMITS = { perMinute: 600, perDay: 20_000 };

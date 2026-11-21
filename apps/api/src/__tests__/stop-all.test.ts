@@ -71,7 +71,7 @@ describe("business.stopAllAgents with Temporal reachable", () => {
   }, 120_000);
   afterAll(() => hz.close());
 
-  it("signals every running workflow of the business (sessions by their computed id, the running cycle, every enabled engine, holiday) with `stop`", async () => {
+  it("signals every running workflow of the business (sessions by their computed id, the running round of work, every enabled engine, holiday) with `stop`", async () => {
     const { businessId, ownerId, agent2Id, taskId, channelId } = hz.A;
     const session = await repos.agents.createSession(hz.db, businessId, { agentId: agent2Id, taskId, modelKey: "sonnet" });
     // A row written before 0023 by a cycle: the placeholder is never trusted, the id is computed.

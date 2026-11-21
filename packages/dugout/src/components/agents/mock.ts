@@ -731,7 +731,7 @@ export function mockModelOptions(current: ModelKey = "sonnet", opts: { chiefOfSt
     const step = rank[key] - rank[current];
     const option: ModelOption = { ...base[key], skillDelta: step * 2.5, wageDelta: { amountMinor: step * 9_000, currency: "EUR" } };
     if (opts.lockedToOpus && key !== "opus") option.lockedReason = "The Inbox Composer is locked to Opus.";
-    if (opts.chiefOfStaff && step < 0) option.warning = "Downgrading the Chief of Staff affects every cycle plan and every vacation decision.";
+    if (opts.chiefOfStaff && step < 0) option.warning = "Downgrading the Chief of Staff affects every round of work plan and every vacation decision.";
     return option;
   });
 }
