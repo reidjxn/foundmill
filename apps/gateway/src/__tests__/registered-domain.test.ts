@@ -1,6 +1,6 @@
 /**
  * `POST /v1/domains/register` (WP-08 domain plan, Path A): only the api asks; a quote is OpenSRS's cost plus $3; a mock
- * registration runs only for a paid domain checkout (0149), once, with the founder as owner and every record set, and
+ * registration runs only for a paid domain checkout (0150), once, with the founder as owner and every record set, and
  * never on a simulated payment when OpenSRS is live; nothing simulated is written for a person's project on staging.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

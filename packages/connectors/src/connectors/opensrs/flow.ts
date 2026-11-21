@@ -5,7 +5,7 @@
  *
  *   quote     OpenSRS says whether the name is free and its cost for a year; the founder's price is that plus the
  *             markup (`domainRegistrationEstimate`), shown as an Estimate.
- *   register  only for a paid domain checkout (0149): the founder saw the price and Tucows' agreement, entered their
+ *   register  only for a paid domain checkout (0150): the founder saw the price and Tucows' agreement, entered their
  *             details and paid; the checkout is claimed once, OpenSRS registers the name with the founder as owner,
  *             admin and billing contact, the row is written at once (a registration that went through is never lost),
  *             the founder's details are deleted, then `setup` runs.
@@ -50,7 +50,7 @@ export async function quoteDomain(deps: Pick<RegisterFlowDeps<OwnDomainRow>, "re
   return { domain, available: r.available && r.costMinor !== null, priceMinor: r.available && r.costMinor !== null ? domainRegistrationEstimate(r.costMinor) : null };
 }
 
-/** A paid domain checkout, claimed for its one registration (0149). */
+/** A paid domain checkout, claimed for its one registration (0150). */
 export interface DomainOrder {
   domain: string;
   /** What the founder paid, USD cents. */

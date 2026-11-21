@@ -21,7 +21,7 @@ export const CreateCheckoutInput = z.object({
   creditsMinor: MinorAmount.positive().optional(),
   /** 0140: what the checkout unblocks once paid ('continue': the next round of work starts by itself). */
   resume: z.enum(BILLING_CHECKOUT_RESUME).nullable().optional(),
-  /** 0149: the domain a `domain` checkout pays for (required for that kind, refused for the others). */
+  /** 0150: the domain a `domain` checkout pays for (required for that kind, refused for the others). */
   domainName: z.string().min(4).max(253).optional(),
 });
 export type CreateCheckoutInput = z.input<typeof CreateCheckoutInput>;
@@ -131,7 +131,7 @@ export const checkoutsRepo = {
   },
 
   /**
-   * 0149: the one registration a paid domain checkout allows, claimed atomically. Null when the checkout is not a paid
+   * 0150: the one registration a paid domain checkout allows, claimed atomically. Null when the checkout is not a paid
    * domain checkout for this business, or another press already claimed it.
    */
   async claimDomainOrder(db: Executor, businessId: string, checkoutId: string): Promise<BillingCheckout | null> {

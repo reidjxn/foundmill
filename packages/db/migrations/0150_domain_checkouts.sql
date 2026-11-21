@@ -1,4 +1,4 @@
--- 0149 — paying for a domain registered through Foundmill (docs/log/2026-11/2026-11-17-claude-wp08-domain-plan.md,
+-- 0150 — paying for a domain registered through Foundmill (docs/log/2026-11/2026-11-17-claude-wp08-domain-plan.md,
 -- Path A; founder, Nov 17, 2026: "Paid through Foundmill's Stripe"). A domain is a one-off Stripe Checkout payment on
 -- the platform account, a `domain` checkout: the price shown before paying (OpenSRS's cost plus about $3, an Estimate)
 -- is its amount, and `domain_name` is what it pays for. Paying grants no credits; it lets the registration run, once:

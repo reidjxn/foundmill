@@ -1,5 +1,5 @@
 /**
- * 0149: a domain checkout and `domain_registrants`.
+ * 0150: a domain checkout and `domain_registrants`.
  *   - no app role reads or writes `domain_registrants`: not the founder who paid, not another founder of the project,
  *     not anyone outside it (a founder's address is theirs alone);
  *   - a domain checkout names its domain (and only a domain checkout names one);

@@ -7,8 +7,8 @@ supersedes: []
 ---
 ## What changed
 - A domain registered through Foundmill is now paid for first, on Foundmill's own Stripe (the founder's answer of Nov 17, 2026), and only a paid payment registers it. This lifts the refusal of a live registration that Path A left in place (`2026-11-19-claude-exciting-noether-vn7ca1-path-a.md`).
-- Migration 0149: `billing_checkouts` gains the `domain` kind, `domain_name` (required for that kind, refused for the others) and `fulfilled_at`, the one registration a paid domain checkout allows, claimed atomically and given back if the registry refused.
-- `domain_registrants` (0149): the founder's registrant details between paying and registering. Service role only, so no other founder of the project ever reads them; deleted once the domain is registered, and with the checkout. Cross-tenant test: `packages/db/src/__tests__/rls/domain-registrants.test.ts`.
+- Migration 0150 (0149 was taken on main by the explore listing): `billing_checkouts` gains the `domain` kind, `domain_name` (required for that kind, refused for the others) and `fulfilled_at`, the one registration a paid domain checkout allows, claimed atomically and given back if the registry refused.
+- `domain_registrants` (0150): the founder's registrant details between paying and registering. Service role only, so no other founder of the project ever reads them; deleted once the domain is registered, and with the checkout. Cross-tenant test: `packages/db/src/__tests__/rls/domain-registrants.test.ts`.
 - Settlement (`settleCreditCheckout`): a paid domain checkout grants no credits; it is marked paid once and audited (`billing.domain_paid`). Ingest's platform Stripe webhook accepts a `domain` session in payment mode; the gateway's checkout route accepts the kind.
 - The api: `integrations.startDomainCheckout` (Pay) quotes again, refuses a price other than the one the founder saw, opens the checkout through the existing `startCreditCheckout` (Stripe live through the gateway, simulated where payments are), returns to Settings › Integrations, and stores the founder's details apart.
 - `integrations.completeDomainCheckout` settles a simulated payment where those are allowed, says "waiting" while Stripe has not confirmed a real one, and then runs the registration once.
@@ -33,8 +33,12 @@ A cost change at OpenSRS between paying and registering does not stop the regist
 - The return from Stripe registers from an effect, once; the domain's `added_by` is the founder who paid.
 - Not done: a sweep of `domain_registrants` rows whose checkout expired or failed, and a per-business lock around two simultaneous presses of Pay (the one-payment rule narrows that to a race between two first presses).
 
-### WHOIS privacy stays a question for the founder
-OpenSRS's Contact Privacy guide charges a full year when the service is added, and the reseller sets the price to the registrant. No public price per ending exists: it is in the reseller panel and the pricing API's add-on section. `f_whois_privacy` stays unset until the founder decides.
+### WHOIS privacy only where it is free (founder, Nov 21, 2026)
+The founder's answer: turn WHOIS privacy on only for endings where OpenSRS charges nothing for it; where it costs anything, leave it off and rely on ICANN's redaction.
+- Built as a list, `WHOIS_PRIVACY_FREE_TLDS` (packages/shared `domains.ts`), and `whoisPrivacyFor`: `register_domain` sends `f_whois_privacy: 1` only for an ending on the list, and every ending not on it is off.
+- The list is empty today. OpenSRS's Contact Privacy guide (support.opensrs.com article 201000063415, read Nov 21, 2026) says "the full subscription cost is due when the service is added" and names no ending as free.
+- The one statement that privacy is free is a 2011 OpenSRS blog post about .CO, too old to rely on.
+- Per-ending prices are only in the reseller panel and the pricing API's add-on section (support.opensrs.com 201000133083), so an ending is added from there, with the date it was read, once the reseller account exists (Nov 22).
 
 ## Not done
 - Renewal (yearly, through Foundmill's Stripe) and the low-balance alert on the reseller account.

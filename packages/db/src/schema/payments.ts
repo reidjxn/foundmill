@@ -43,9 +43,9 @@ export const billingCheckouts = pgTable(
     grantedPeriod: text("granted_period"),
     creditBalanceId: uuid("credit_balance_id").references(() => creditBalances.id, { onDelete: "set null" }),
     failure: text("failure"),
-    /** 0149: the domain a `domain` checkout pays for. */
+    /** 0150: the domain a `domain` checkout pays for. */
     domainName: text("domain_name"),
-    /** 0149: the paid domain checkout's one registration was claimed (given back if the registry refused). */
+    /** 0150: the paid domain checkout's one registration was claimed (given back if the registry refused). */
     fulfilledAt: tstz("fulfilled_at"),
     ...timestamps(),
   },
@@ -87,7 +87,7 @@ export const accountPlans = pgTable(
 export type AccountPlan = typeof accountPlans.$inferSelect;
 
 /**
- * 0149: the founder's registrant details for a domain checkout, between paying and registering. Service role only (no
+ * 0150: the founder's registrant details for a domain checkout, between paying and registering. Service role only (no
  * app-role grant or policy): no founder reads another's address. Deleted once the domain is registered.
  */
 export const domainRegistrants = pgTable(

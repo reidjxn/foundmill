@@ -65,7 +65,8 @@ const BUDGETS: Array<[path: string, input: (businessId: string) => unknown, trip
   ["dev.tasks.list", (b) => ({ businessId: b }), 4],
   ["dev.sessions.list", (b) => ({ businessId: b, limit: 200 }), 4],
   ["team.agents.list", (b) => ({ businessId: b }), 5],
-  ["billing.plan", (b) => ({ businessId: b }), 4],
+  // The month's real outcomes are one more read (WP-14 T3), as the Partner waitlist entry was one (WP-14 T14).
+  ["billing.plan", (b) => ({ businessId: b }), 5],
   ["product.roadmap.list", (b) => ({ businessId: b }), 4],
   ["product.foundations.get", (b) => ({ businessId: b }), 4],
   ["distribution.channels.list", (b) => ({ businessId: b }), 4],

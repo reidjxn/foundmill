@@ -1,5 +1,5 @@
 /**
- * domain_registrants (0149): the founder's registrant details for a paid domain checkout, between paying and
+ * domain_registrants (0150): the founder's registrant details for a paid domain checkout, between paying and
  * registering. Service connection only (no app role reads or writes the table); removed once the domain is registered.
  */
 import { RegistrantContact } from "@foundmill/shared";

@@ -195,7 +195,7 @@ export async function quoteRegisteredDomain(ctx: BusinessContext, domain: string
 /**
  * The founder's own press, "Pay": they saw the price (an Estimate) and Tucows' registration agreement and accepted it,
  * and they are the domain's owner with the contact details they entered. The price is quoted again and must be the one
- * they saw; a `domain` checkout (0149) opens on Foundmill's Stripe through the gateway (simulated where payments are),
+ * they saw; a `domain` checkout (0150) opens on Foundmill's Stripe through the gateway (simulated where payments are),
  * and their details are kept apart until the registration. Never an agent's (hard gates: money, terms, identity).
  */
 export async function startDomainCheckout(ctx: BusinessContext, input: { domain: string; priceMinor: number; owner: RegistrantContact; acceptAgreement: true }) {

@@ -3,7 +3,7 @@
  * Service-only: the gateway's `POST /v1/domains/register` is its one live caller.
  */
 import { randomBytes } from "node:crypto";
-import { uuid } from "@foundmill/shared";
+import { uuid, whoisPrivacyFor } from "@foundmill/shared";
 import { ConfigError, VendorError, type Connector } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
@@ -67,6 +67,8 @@ export function createOpensrsConnector(options: LiveConnectorOptions = {}): Conn
             handle: "process",
             auto_renew: 0,
             custom_tech_contact: 0,
+            // Privacy only where OpenSRS charges nothing for it (founder, Nov 21, 2026); elsewhere ICANN's redaction.
+            f_whois_privacy: whoisPrivacyFor(domain) ? 1 : 0,
             custom_nameservers: 1,
             nameserver_list: OPENSRS_NAMESERVERS.map((name, i) => ({ name, sortorder: i + 1 })),
             contact_set: { owner: contact, admin: contact, billing: contact },

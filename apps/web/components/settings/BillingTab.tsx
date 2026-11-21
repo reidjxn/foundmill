@@ -90,6 +90,28 @@ export function tierFacts(tier: TierKey, stage: EarlyAccessStage = EARLY_ACCESS_
   return [projects, `${plural(spec.maxConcurrentAgents, "agent")} at once`, "As many people as you like", includedCreditsFact(tier), modelsFact(tier, stage)];
 }
 
+export interface TeamBudgetView {
+  outcomes: number;
+  costPerOutcomeMinor: number;
+  enoughFor: number;
+}
+
+/**
+ * Billing's first line (WP-14 T3). With a pace to read: "This month's team budget: enough for about 12 more outcomes at
+ * your current pace" (an Estimate, marked beside it). With none yet, the label alone: the dollar balance beneath is all
+ * there is to say, and no number is made up.
+ */
+export function teamBudgetLine(budget: TeamBudgetView | null | undefined): string {
+  if (!budget) return "This month's team budget";
+  if (budget.enoughFor < 1) return "This month's team budget: less than one more outcome at your current pace";
+  return `This month's team budget: enough for about ${plural(budget.enoughFor, "more outcome")} at your current pace`;
+}
+
+/** "About $0.30 an outcome so far this month (4 outcomes)": on Billing only, never on Today. */
+export function costPerOutcomeLine(budget: TeamBudgetView, money: (minor: number) => string): string {
+  return `About ${money(budget.costPerOutcomeMinor)} an outcome so far this month (${plural(budget.outcomes, "outcome")}). An outcome is a real result outside the project: your page live, an email sent, a follower, a reply or a payment.`;
+}
+
 /** "Adds Vacation mode, Card sharing, …" for a plan that adds features over the one below it; null for Try. */
 export function tierAddsLine(tier: TierKey): string | null {
   const adds = planAdds(tier);
@@ -104,7 +126,7 @@ type CheckoutView = RouterOutputs["billing"]["checkout"]["status"]["checkout"];
 export function checkoutNotice(checkout: Pick<CheckoutView, "status" | "mode" | "amountMinor" | "currency" | "failure"> & { kind?: "credits" | "subscription" | "domain"; creditsMinor?: number | null }, opts: { canceled?: boolean; waitedLong?: boolean } = {}): { tone: StatusTone; word: string; text: string } {
   const amount = formatMoney({ amountMinor: checkout.amountMinor, currency: checkout.currency });
   if (checkout.kind === "subscription") return subscriptionNotice(checkout, amount, opts);
-  // A domain's payment (0149) finishes in Settings › Integrations, where the domain is registered.
+  // A domain's payment (0150) finishes in Settings › Integrations, where the domain is registered.
   if (checkout.kind === "domain") return checkout.status === "paid" ? { tone: "good", word: "Paid", text: `${amount} for a domain, registered in Settings › Integrations.` } : { tone: "neutral", word: "Domain", text: `${amount} for a domain. Its payment and registration are in Settings › Integrations.` };
   const credits = checkout.creditsMinor ? formatMoney({ amountMinor: checkout.creditsMinor, currency: checkout.currency }) : null;
   if (credits && checkout.status === "paid") return { tone: "good", word: "Paid", text: checkout.mode === "mock" ? `${credits} in credits added for ${amount}. Mock top-up: no money moved.` : `${credits} in credits added for ${amount}. Stripe sends the receipt to your email.` };
@@ -300,26 +322,32 @@ export function BillingTab() {
       <SettingsSection wide title="Plan" meta={p ? periodLabel(p.period, datePrefs) : undefined} loading={plan.isLoading}>
         {p ? (
           <>
+            {/* The team budget leads, as outcomes where there is a pace to read (WP-14 T3); the dollar balance sits beneath. */}
+            <div className="flex flex-col gap-1" data-testid="team-budget" data-estimate={p.teamBudget ? "outcomes" : "none"}>
+              <p className="t-display-sm flex flex-wrap items-center gap-2">
+                <span data-testid="team-budget-line">{teamBudgetLine(p.teamBudget)}</span>
+                {p.teamBudget ? <ProvenanceChip kind="estimate" /> : null}
+              </p>
+              <p className="inline-flex flex-wrap items-center gap-2 text-small text-secondary" data-testid="credits-balance">
+                {money(p.credits.balanceMinor)} left of {money(p.credits.grantedMinor)} <ProvenanceChip kind="estimate" />
+                {p.credits.mockMinor > 0 ? <Chip tone="info">{money(p.credits.mockMinor)} from mock top-ups</Chip> : null}
+                {p.resting ? (
+                  <Chip tone="warn" data-testid="resting">
+                    <Term id="resting">Resting</Term> until {formatDate(p.resting.until, datePrefs)}
+                    {p.modelBilling === "byok" ? ": conversations and Refresh" : null}
+                  </Chip>
+                ) : null}
+              </p>
+              {p.teamBudget ? (
+                <p className="inline-flex flex-wrap items-center gap-2 text-small text-secondary" data-testid="cost-per-outcome">
+                  {costPerOutcomeLine(p.teamBudget, money)} <ProvenanceChip kind="estimate" />
+                </p>
+              ) : null}
+            </div>
             <KeyValueList
               items={[
                 { label: "Plan", value: <span className="flex flex-wrap items-center gap-2" data-testid="current-plan">{planName(p.tier)} <Chip tone="neutral">{tierPriceLabel(p.tier, p.stage)}</Chip></span> },
                 { label: "Model calls", value: MODEL_BILLING_WORD[p.modelBilling] ?? plainWords(p.modelBilling) },
-                {
-                  label: "Credits",
-                  value: (
-                    <span className="inline-flex flex-wrap items-center gap-2" data-testid="credits-balance">
-                      {money(p.credits.balanceMinor)} left of {money(p.credits.grantedMinor)} <ProvenanceChip kind="estimate" />
-                      {p.credits.mockMinor > 0 ? <Chip tone="info">{money(p.credits.mockMinor)} from mock top-ups</Chip> : null}
-                      {p.resting ? (
-                        <Chip tone="warn" data-testid="resting">
-                          <Term id="resting">Resting</Term> until {formatDate(p.resting.until, datePrefs)}
-                          {p.modelBilling === "byok" ? ": conversations and Refresh" : null}
-                        </Chip>
-                      ) : null}
-                    </span>
-                  ),
-                  numeric: true,
-                },
                 {
                   label: "Spent this month",
                   value: (

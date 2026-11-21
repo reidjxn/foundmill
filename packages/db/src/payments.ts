@@ -96,7 +96,7 @@ export async function settleCreditCheckout(db: Executor, input: SettleCheckoutIn
       });
       return { outcome: "mismatch" as const, checkout: row, reason };
     }
-    // A domain checkout (0149) grants nothing: it lets the domain's one registration run (`claimDomainOrder`).
+    // A domain checkout (0150) grants nothing: it lets the domain's one registration run (`claimDomainOrder`).
     if (row.kind === "domain") {
       const checkout = await repos.checkouts.markPaid(tx, input.businessId, row.id, { paidAt: input.paidAt, paidEventId: input.eventId, grantedPeriod: null, creditBalanceId: null });
       await repos.audit.append(tx, input.businessId, {

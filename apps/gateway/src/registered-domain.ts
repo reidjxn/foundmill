@@ -23,7 +23,7 @@ const SiteHost = z.string().trim().toLowerCase().max(253).regex(/^(?:[a-z0-9](?:
 
 export const RegisterDomainRequest = z.discriminatedUnion("action", [
   z.object({ action: z.literal("quote"), businessId: z.guid(), domain: z.string().max(300) }),
-  // Only for a paid domain checkout (0149): its domain, price and the founder's details come from the checkout.
+  // Only for a paid domain checkout (0150): its domain, price and the founder's details come from the checkout.
   z.object({ action: z.literal("register"), businessId: z.guid(), userId: z.guid(), checkoutId: z.guid(), siteHost: SiteHost }),
   z.object({ action: z.literal("setup"), businessId: z.guid(), siteHost: SiteHost }),
 ]);
