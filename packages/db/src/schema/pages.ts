@@ -1,6 +1,6 @@
 /** 0077 — a project's public page: one row per business, a draft and what is published, at its own address. */
 import type { ProjectPageContent } from "@foundmill/shared";
-import { index, jsonb, pgTable, pgView, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, jsonb, pgTable, pgView, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { id, timestamps, tstz } from "./_common";
 import { businessId } from "./_refs";
@@ -28,6 +28,8 @@ export const projectPages = pgTable(
     unpublishedAt: tstz("unpublished_at"),
     /** 0119: when the published copy last changed (the page's dateModified and sitemap lastmod); the database's for a client role. */
     contentPublishedAt: tstz("content_published_at"),
+    /** 0149: the owner's opt-in to the public gallery (`/explore`). Counts only while the page is published; an owner's or an admin's to switch (its own guard). */
+    exploreListed: boolean("explore_listed").notNull().default(false),
     ...timestamps(),
     updatedBy: uuid("updated_by").references(() => authUsers.id, { onDelete: "set null" }),
   },
@@ -81,3 +83,20 @@ export const PUBLIC_PROJECT_MILESTONE_COLUMNS = ["id", "slug", "key", "label", "
 
 /** The columns `public_project_pages` exposes, in order (the view's test compares the catalog with this list). */
 export const PUBLIC_PROJECT_PAGE_COLUMNS = ["slug", "published", "published_at", "name", "logo_version", "kit_primary", "kit_secondary", "founder_names", "content_published_at"] as const;
+
+/**
+ * The gallery's read (0143): the pages whose owners opted in, while they are public. A card's columns and nothing else,
+ * the service connection's only, built on `public_project_pages` so what is public is decided in one place.
+ */
+export const publicExploreProjects = pgView("public_explore_projects", {
+  slug: text("slug").notNull(),
+  name: text("name").notNull(),
+  pitch: text("pitch").notNull(),
+  stage: text("stage").notNull(),
+  kitPrimary: text("kit_primary").notNull(),
+  kitSecondary: text("kit_secondary").notNull(),
+  publishedAt: tstz("published_at").notNull(),
+}).existing();
+
+/** The columns `public_explore_projects` exposes, in order (the view's test compares the catalog with this list). */
+export const PUBLIC_EXPLORE_PROJECT_COLUMNS = ["slug", "name", "pitch", "stage", "kit_primary", "kit_secondary", "published_at"] as const;

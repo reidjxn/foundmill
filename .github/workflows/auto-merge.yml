@@ -1,0 +1,26 @@
+# Founder, Nov 19, 2026: a session's pull request merges itself once the required checks pass.
+# This turns on GitHub auto-merge (squash) when a claude/* pull request opens or leaves draft.
+# shortcut: with only GITHUB_TOKEN, the merge it makes starts no workflow on main (GitHub's rule),
+# so main's push checks and the E2B template build skip; set the AUTOMERGE_TOKEN secret to keep them.
+name: Auto-merge session pull requests
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable:
+    if: startsWith(github.head_ref, 'claude/') && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: gh pr merge "$PR" --auto --squash --repo "$REPO"
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN || github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}

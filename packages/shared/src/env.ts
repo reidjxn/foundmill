@@ -128,6 +128,10 @@ const Env = z.object({
     .optional()
     .transform((v) => v === "1" || v === "true"),
   SENDGRID_API_KEY: z.string().optional(),
+  /** OpenSRS reseller (domains registered through Foundmill, WP-08 Path A): gateway only. `test` is horizon.opensrs.net. */
+  OPENSRS_USERNAME: z.string().optional(),
+  OPENSRS_API_KEY: z.string().optional(),
+  OPENSRS_ENV: z.enum(["test", "live"]).optional(),
   SENDGRID_WEBHOOK_PUBLIC_KEY: z.string().optional(),
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_APP_PRIVATE_KEY: z.string().optional(),

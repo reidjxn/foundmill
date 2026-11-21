@@ -9,7 +9,8 @@
 import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
 import { formatMoney } from "@foundmill/dugout";
 import type { LandingVariant } from "@/lib/landing-variant";
-import { BUILDER_EXAMPLES, NO_IDEA_EXAMPLES, RUNNING_EXAMPLES } from "./variant-examples";
+import type { ExampleIdeaId, StudioSetId } from "./first-timer-examples";
+import { BUILDER_EXAMPLES, NO_IDEA_EXAMPLES, PROFILE_EXAMPLES as P, RUNNING_EXAMPLES } from "./variant-examples";
 
 export const INCLUDED = formatMoney({ amountMinor: includedCreditsMinor("free"), currency: CREDITS_CURRENCY }, { locale: "en-US" });
 
@@ -27,6 +28,10 @@ export interface VariantWords {
   /** "Surprise me" starts open, its interests showing. */
   surpriseOpen?: boolean;
   ways: readonly [WayId, WayId, WayId];
+  /** The hero examples' order, the first one chosen; absent: Northwind, Tutorlane, Sole Revival, Glitchwick. */
+  examples?: readonly [ExampleIdeaId, ExampleIdeaId, ExampleIdeaId, ExampleIdeaId];
+  /** The Ideation Studio's example set (first-timer-examples.ts `STUDIO_SETS`); absent: `sneakers`. */
+  studio?: StudioSetId;
 }
 
 const FREE = "free and before you sign up";
@@ -82,6 +87,199 @@ export const VARIANT_WORDS: Record<LandingVariant, VariantWords> = {
     lede: `A whole team of AI agents, working on your idea. Type it and they give it a name, a pitch and ten honest ratings, ${FREE}.`,
     label: "What do you want to make?",
     ways: ["sentence", "studio", "bring"],
+  },
+  // The profile pages, `/2` to `/20` in this order (founder, 2026-11-19; lib/landing-variant.ts `PROFILE_VARIANTS`).
+  // Each comment names the founder the page is written for.
+  // 2. A college student with little money and hours between classes.
+  student: {
+    title: "Start something of your own between classes.",
+    lede: `Type an idea for your campus. A team of AI agents names it, pitches it and rates it ten ways, ${FREE}.`,
+    label: "What could your campus use?",
+    ideas: P.student,
+    ways: ["sentence", "studio", "bring"],
+    examples: ["sole-revival", "tutorlane", "glitchwick", "northwind"],
+    studio: "sneakers",
+  },
+  // 3. A recent graduate choosing what to build first, starting from what they studied or are good at.
+  graduate: {
+    title: "Just graduated? Build something that's yours.",
+    lede: `Start from what you studied or what you're good at. Type it and a team of AI agents turns it into a named, rated idea, ${FREE}.`,
+    label: "What are you good at?",
+    ideas: P.graduate,
+    ways: ["sentence", "studio", "bring"],
+    examples: ["tutorlane", "glitchwick", "northwind", "sole-revival"],
+    studio: "tutoring",
+  },
+  // 4. Someone who has tried AI chat tools and stalled at the empty prompt.
+  "blank-box": {
+    title: "Skip the blank chat box.",
+    lede: `You don't need the perfect prompt. Type one rough sentence and a team of AI agents comes back with a name, a pitch and ten honest ratings, ${FREE}.`,
+    label: "One rough sentence is enough",
+    ideas: P["blank-box"],
+    surpriseOpen: true,
+    ways: ["sentence", "studio", "bring"],
+    examples: ["northwind", "sole-revival", "tutorlane", "glitchwick"],
+    studio: "food",
+  },
+  // 5. Someone put off by choosing and wiring together a toolkit of AI products.
+  overwhelmed: {
+    title: "Your AI team, already put together.",
+    lede: `Nothing to choose, connect or set up first. Type your idea and a team of AI agents starts on it with a name, a pitch and ten honest ratings, ${FREE}.`,
+    label: "What do you want to make?",
+    ideas: P.overwhelmed,
+    ways: ["sentence", "bring", "studio"],
+    examples: ["northwind", "glitchwick", "tutorlane", "sole-revival"],
+    studio: "skincare",
+  },
+  // 6. Someone with a few spare hours on evenings and weekends.
+  evenings: {
+    title: "Build it in the hours you have.",
+    lede: `Type your idea and get it named and rated, ${FREE}. Inside, you set the team going, step away, and come back to drafts and the decisions that are yours.`,
+    label: "What would you build on weekends?",
+    ideas: P.evenings,
+    ways: ["sentence", "studio", "bring"],
+    examples: ["sole-revival", "northwind", "tutorlane", "glitchwick"],
+    studio: "making",
+  },
+  // 7. A parent fitting a project around family life.
+  parent: {
+    title: "Something of your own, around family life.",
+    lede: `Type an idea in the time a nap allows. A team of AI agents names it and rates it ten ways, ${FREE}, and anything that reaches another person waits for your yes.`,
+    label: "What do parents around you need?",
+    ideas: P.parent,
+    ways: ["sentence", "studio", "bring"],
+    examples: ["tutorlane", "northwind", "sole-revival", "glitchwick"],
+    studio: "family",
+  },
+  // 8. An experienced professional in their 40s or 50s with deep know-how in one field.
+  expert: {
+    title: "Twenty years of know-how. Now a business of your own.",
+    lede: `Describe what you know best. A team of AI agents turns it into a named, rated idea, ${FREE}. Inside, they draft the page and the first posts for you to approve.`,
+    label: "What do you know better than most?",
+    ideas: P.expert,
+    ways: ["bring", "sentence", "studio"],
+    examples: ["tutorlane", "glitchwick", "northwind", "sole-revival"],
+    studio: "expertise",
+  },
+  // 9. A skilled tradesperson (electrician, carpenter, plumber) who wants a business of their own.
+  trades: {
+    title: "You know the trade. Your team handles the rest.",
+    lede: `Say what you do in one sentence. A team of AI agents names it, rates it and names the one thing that would raise it most, ${FREE}. Then they draft the page and the posts while you do the work only you can do.`,
+    label: "What's your trade?",
+    ideas: P.trades,
+    ways: ["sentence", "bring", "studio"],
+    examples: ["sole-revival", "tutorlane", "northwind", "glitchwick"],
+    studio: "trades",
+  },
+  // 10. A retiree in their 60s or older with time, experience and little patience for technical setup.
+  retired: {
+    title: "A lifetime of experience. Now a project of your own.",
+    lede: `Type your idea in plain words. A team of AI agents comes back with a name, a pitch and ten honest ratings, ${FREE}, and explains any new word the first time it comes up.`,
+    label: "What would you like to start?",
+    ideas: P.retired,
+    ways: ["sentence", "studio", "bring"],
+    examples: ["tutorlane", "sole-revival", "northwind", "glitchwick"],
+    studio: "local",
+  },
+  // 11. A maker or crafter (pottery, woodwork, textiles) who wants to sell what they make.
+  maker: {
+    title: "You make it. Your team helps it sell.",
+    lede: `Type what you make. A team of AI agents names it, pitches it and rates it ten ways, ${FREE}. Inside, they draft the page and the posts, and each waits for your yes.`,
+    label: "What do you make?",
+    ideas: P.maker,
+    ways: ["sentence", "studio", "bring"],
+    examples: ["northwind", "sole-revival", "tutorlane", "glitchwick"],
+    studio: "making",
+  },
+  // 12. A home cook with a recipe people keep asking for.
+  cook: {
+    title: "The recipe everyone asks for, as a business.",
+    lede: `Type it in one sentence. A team of AI agents gives it a name, a pitch and ten honest ratings, including the rules a food business has to plan for, ${FREE}.`,
+    label: "What do people ask you to cook?",
+    ideas: P.cook,
+    ways: ["sentence", "studio", "bring"],
+    examples: ["northwind", "sole-revival", "tutorlane", "glitchwick"],
+    studio: "food",
+  },
+  // 13. A creator with an audience who wants something of their own to sell to it.
+  creator: {
+    title: "Your audience is there. Give them something to buy.",
+    lede: `Type what you would make for the people who follow you. A team of AI agents names it and rates it ten ways, ${FREE}, and names the one thing that would raise it most.`,
+    label: "What would your followers buy?",
+    ideas: P.creator,
+    ways: ["sentence", "bring", "studio"],
+    examples: ["glitchwick", "northwind", "tutorlane", "sole-revival"],
+    studio: "creator",
+  },
+  // 14. A freelancer (designer, writer, editor) who wants to turn client work into something they own.
+  freelancer: {
+    title: "From client work to a business of your own.",
+    lede: `Turn what clients already pay you for into something that is yours. Type it and a team of AI agents names it and rates it honestly, ${FREE}.`,
+    label: "What do clients pay you for?",
+    ideas: P.freelancer,
+    ways: ["bring", "sentence", "studio"],
+    examples: ["glitchwick", "tutorlane", "northwind", "sole-revival"],
+    studio: "expertise",
+  },
+  // 15. A software developer who can build the product but not the business around it.
+  developer: {
+    title: "Build the product. Your team shapes the business.",
+    lede: `Describe what you would build. A team of AI agents rates it ten ways, including how clearly it can reach buyers, ${FREE}. Inside, they work in your own GitHub account.`,
+    label: "What would you build?",
+    ideas: P.developer,
+    ways: ["sentence", "bring", "studio"],
+    examples: ["glitchwick", "tutorlane", "northwind", "sole-revival"],
+    studio: "games",
+  },
+  // 16. An indie game maker.
+  "game-dev": {
+    title: "Make games, and the business around them.",
+    lede: `Type your game, or a tool for people who make games. A team of AI agents names it, pitches it and rates it honestly, ${FREE}.`,
+    label: "What are you making?",
+    ideas: P["game-dev"],
+    ways: ["sentence", "studio", "bring"],
+    examples: ["glitchwick", "tutorlane", "sole-revival", "northwind"],
+    studio: "games",
+  },
+  // 17. A teacher or tutor who wants to build something around what they teach.
+  educator: {
+    title: "You already teach. Build something around it.",
+    lede: `Type what you teach and who it's for. A team of AI agents turns it into a named idea with ten honest ratings, ${FREE}.`,
+    label: "What do you teach?",
+    ideas: P.educator,
+    ways: ["sentence", "studio", "bring"],
+    examples: ["tutorlane", "glitchwick", "northwind", "sole-revival"],
+    studio: "tutoring",
+  },
+  // 18. A beauty and wellness enthusiast with a product they wish existed.
+  beauty: {
+    title: "The product you wish existed, made yours.",
+    lede: `Type the routine, product or service you keep looking for. A team of AI agents names it and rates it ten ways, including the rules it would have to meet, ${FREE}.`,
+    label: "What do you wish someone sold?",
+    ideas: P.beauty,
+    ways: ["sentence", "studio", "bring"],
+    examples: ["northwind", "sole-revival", "tutorlane", "glitchwick"],
+    studio: "skincare",
+  },
+  // 19. The owner of a local shop or service that is already open.
+  "shop-owner": {
+    title: "Your shop, with a whole team behind it.",
+    lede: `Describe your shop in one sentence and see how a team of AI agents rates it, ${FREE}. Inside, point them at your website, read only, for a report of what is missing and what to decide first.`,
+    label: "What does your shop do?",
+    ideas: P["shop-owner"],
+    ways: ["bring", "sentence", "studio"],
+    examples: ["sole-revival", "northwind", "tutorlane", "glitchwick"],
+    studio: "local",
+  },
+  // 20. Someone with a notebook of ideas who cannot pick one.
+  "idea-collector": {
+    title: "Too many ideas? Find the one worth building.",
+    lede: `Type them one at a time. Each comes back rated on the same ten things, ${FREE}, so you can tell a strong idea from a loud one.`,
+    label: "Which idea is on your mind?",
+    ideas: P["idea-collector"],
+    ways: ["studio", "sentence", "bring"],
+    examples: ["glitchwick", "northwind", "sole-revival", "tutorlane"],
+    studio: "food",
   },
 };
 
@@ -156,7 +354,8 @@ export const LANDING_WORDS = {
     title: "Inside the Ideation Studio",
     lede: "Every idea arrives rated on the same ten things, so you can tell a strong one from a loud one.",
     label: "Example ideas",
-    brief: "From the brief “Something with sneakers at my college”",
+    /** The set's brief (first-timer-examples.ts `STUDIO_SETS`), as the frame prints it. */
+    brief: (brief: string) => `From the brief “${brief}”`,
     steerLabel: "Steer the next set",
     steer: ["Cheaper to start", "B2B instead", "More defensible"],
     points: [

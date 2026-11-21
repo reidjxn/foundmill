@@ -507,7 +507,21 @@ export const TERMS = {
     id: "credits",
     word: "Credits",
     short: "Prepaid balance that pays for the team's AI usage, in US dollars.",
-    long: "Every agent session draws down credits by the tokens it used. When they run out the team stops until you top up or add your own API key.",
+    long: "Every agent session draws down credits by the tokens it used. When the month's budget is used the team finishes the task it is on and rests until the budget resets, you top up or you add your own API key.",
+    learn: "settings/billing",
+  },
+  team_budget: {
+    id: "team_budget",
+    word: "Team budget",
+    short: "What your team can spend on its work this month, in US dollars.",
+    long: "Your plan includes a team budget every month, and credits you buy add to it. Billing shows it first as the outcomes it is enough for at your current pace, an Estimate, with the dollar balance beneath.",
+    learn: "settings/billing",
+  },
+  resting: {
+    id: "resting",
+    word: "Resting",
+    short: "A team that has used the month's budget, until the date shown.",
+    long: "Paused is a choice. Resting is a team out of budget until the date shown. Nothing is stopped part-way: the task that was running finishes, and the team picks up again when the budget resets, after a top-up or on your own key.",
     learn: "settings/billing",
   },
 
@@ -767,6 +781,8 @@ export const DEFINE_TIER_IDS = [
   // AI usage.
   "tokens",
   "credits",
+  "team_budget",
+  "resting",
   // Team.
   "chief_of_staff",
   "potential",

@@ -18,16 +18,23 @@
  * A tool row is third-party spend the vendor bills to the founder's own account, and an amount in another currency is
  * never subtracted from a USD balance.
  *
- * The charge that uses the last credit of a business on credits stops the team (the business's stop flag, reason
- * `credits_exhausted`: nothing starts work until a top-up, a stored key or an owner or admin lifts it) and posts one
- * Inbox warning from the Chief of Staff. On its own key the team keeps working, and the warning says what waits.
- * Later charges on an empty balance are recorded (the ledger is the truth, overrun included) without repeating either.
+ * **Resting** (WP-14 T1; founder, Nov 17, 2026) is a team that has used the month's budget: nothing new starts until
+ * the date the budget resets, a top-up or the founder's own key. Paused is a choice; Resting is not. A team rests in one
+ * of two ways, and each posts the same one note from the Chief of Staff (`restTeam`):
+ * - before a session starts, when what is left is under the reserve for it (`restBeforeSession`, called by the
+ *   orchestrator): the session does not start, nothing is booked and what is left stays in the balance;
+ * - on the charge that uses the last credit (`bookUsage`). A session already running is not stopped by it: it finishes,
+ *   up to the backstop ceiling (apps/orchestrator session-credits.ts).
+ * Internally it is still the business's stop flag with reason `credits_exhausted`. On its own key the team keeps
+ * working, and the note says what waits. Later charges on an empty balance are recorded (the ledger is the truth,
+ * overrun included) without repeating either. A team waiting at the platform's monthly cap (WP-13 T4, T6) is not
+ * Resting: that is `freeCapCheck`'s own message and it sets no stop.
  *
  * Settling after the fact bounds spend only to within one call, so every caller of the platform key also asks first:
  * `assertPlatformCredits` refuses a call while the month's credits are used up (or stopped for it), and where calls are
  * live, credits granted by a simulated payment never count (`ALLOW_MOCK_PAYMENTS`, docs/DEPLOY.md §4).
  */
-import { APP_NAME, chargedMinor, creditsAreLow, tierShowsBuiltOnMark, type TierKey, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, ownPlanFunds, tierIncludedCreditPlaces } from "@foundmill/config";
+import { APP_NAME, chargedMinor, creditsAreLow, EARLY_ACCESS_STAGE, planName, subscriptionChargingOpen, tierShowsBuiltOnMark, type TierKey, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, ownPlanFunds, tierIncludedCreditPlaces } from "@foundmill/config";
 import { CreditsExhaustedError, platformBillingMode, type Env, type FundingSource } from "@foundmill/shared";
 import { stopBusinessAgents } from "./controls";
 import { repos } from "./repos";
@@ -36,16 +43,18 @@ import { MICRO_PER_MINOR, periodOf, periodRange, type RecordUsageInput } from ".
 import type { Business, CreditBalance, UsageEntry } from "./schema";
 import { businessAllowance } from "./tiers";
 
-export const CREDITS_EXHAUSTED_SUBJECT = "Credits used up: team paused";
+/** The one note when a team on credits rests (the name is older than the word). */
+export const CREDITS_EXHAUSTED_SUBJECT = "The team is resting: this month's budget is used";
+export const RESTING_SUBJECT = CREDITS_EXHAUSTED_SUBJECT;
 /** The one note a month when credits fall below the low line and routine work moves to a lower-cost model. */
 export const CREDITS_LOW_SUBJECT = "Credits running low: routine work moved to a lighter model";
 /** The audit action that records the low-credits note (one per business and month). */
 export const CREDITS_LOW_AUDIT_ACTION = "billing.credits_low";
 /** The warning a business on its own key gets: its agents keep working, the platform-key features wait. */
-export const PLATFORM_CREDITS_EXHAUSTED_SUBJECT = "Credits used up: conversations and Refresh paused";
+export const PLATFORM_CREDITS_EXHAUSTED_SUBJECT = "Conversations and Refresh are resting: this month's budget is used";
 
 /** Why `agent.health_changed` says the team stopped (the agent's pill and Activity read it). */
-export const CREDITS_EXHAUSTED_HEALTH_REASON = "Credits used up";
+export const CREDITS_EXHAUSTED_HEALTH_REASON = "Resting: this month's budget is used";
 
 export interface CreditsOutcome {
   /** Always true since 2026-10-12 (every business holds a balance for the platform key); kept for callers that read it. */
@@ -174,7 +183,7 @@ export async function bookUsage(db: Executor, businessId: string, input: BookUsa
     const charged = await repos.usage.chargeCreditsMicro(tx, businessId, period, chargeMicro, { includedMinor: (t) => includedCreditsFor(t, business, period, { lock: true }) });
     if (!charged) return { entry, credits: { enforced: false, balance: null, exhausted: null, pausedAgents: 0, noteId: null } };
     if (charged.exhausted === null) {
-      const lowNoteId = await creditsLowNotice(tx, business, period, charged.balance);
+      const lowNoteId = await creditsLowNotice(tx, business, period, charged.balance, options.topUps ?? false);
       return { entry, credits: { enforced: true, balance: charged.balance, exhausted: null, pausedAgents: 0, noteId: null, lowNoteId } };
     }
     if (charged.exhausted !== "now") return { entry, credits: { enforced: true, balance: charged.balance, exhausted: charged.exhausted, pausedAgents: 0, noteId: null } };
@@ -188,9 +197,26 @@ export async function bookUsage(db: Executor, businessId: string, input: BookUsa
  * back; a team on its own key keeps working and is told what waits. `bookUsage` runs it on the charge that used the
  * last credit; Commit runs it for a business that starts a month with nothing included (the founder's pool was used).
  */
-export async function creditsUsedUp(db: Executor, business: Business, period: string, balance: CreditBalance, options: { topUps?: boolean } = {}): Promise<{ pausedAgents: number; noteId: string | null }> {
+export async function creditsUsedUp(db: Executor, business: Business, period: string, balance: Pick<CreditBalance, "grantedMinor" | "balanceMinor">, options: { topUps?: boolean } = {}): Promise<{ pausedAgents: number; noteId: string | null }> {
   const topUps = options.topUps ?? false;
-  return business.modelBilling === "byok" ? noteForOwnKey(db, business, period, balance, topUps) : pauseForCredits(db, business, period, balance, topUps);
+  return business.modelBilling === "byok" ? noteForOwnKey(db, business, period, balance, topUps) : restTeam(db, business, period, balance, topUps);
+}
+
+/**
+ * Rests the team before a session that would not fit (WP-14 T1): what is left of the month's budget is under the
+ * session's reserve, so the session does not start, nothing is booked and the balance keeps what is left. One call
+ * rests the team and posts the note; later ones find it resting and do nothing. For a business on its own key nothing
+ * rests (its agents run on that key).
+ */
+export async function restBeforeSession(db: Executor, businessId: string, input: { reserveMinor: number; now?: Date; topUps?: boolean }): Promise<{ rested: boolean; noteId: string | null }> {
+  return db.transaction(async (tx) => {
+    const business = await repos.businesses.get(tx, businessId, { includeArchived: true });
+    if (business.modelBilling === "byok") return { rested: false, noteId: null };
+    const period = periodOf(input.now ?? new Date());
+    const credits = await platformCredits(tx, business, period);
+    const { noteId } = await restTeam(tx, business, period, credits, input.topUps ?? false, { reserveMinor: input.reserveMinor });
+    return { rested: true, noteId };
+  });
 }
 
 export interface PlatformCredits {
@@ -334,8 +360,8 @@ export async function assertPlatformCredits(db: Executor, businessId: string, op
     check.reason === "mock_only"
       ? `Only simulated credits are left this month, and they never pay for live model calls. ${ways}`
       : check.modelBilling === "byok"
-        ? `This month's credits for work on ${APP_NAME}'s key (conversations, Refresh, planning) are used up. Your agents keep working on your own Anthropic key. ${ways}`
-        : `This month's credits are used up, so ${APP_NAME} makes no more model calls for this business. ${ways}`;
+        ? `This month's budget for work on ${APP_NAME}'s key (conversations, Refresh, planning) is used, so that work is resting. Your agents keep working on your own Anthropic key. ${ways}`
+        : `The team is resting: this month's team budget is used, so ${APP_NAME} makes no more model calls for this project. ${ways}`;
   throw new CreditsExhaustedError(message, { reason: check.reason ?? "exhausted", businessId, period: check.period, balanceMinor: check.balanceMinor });
 }
 
@@ -343,14 +369,12 @@ export async function assertPlatformCredits(db: Executor, businessId: string, op
 const usd = (minor: number) => `$${(minor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 /** "Nov 1, 2026" (US dates). */
 const shortDate = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-const tierWord = (tier: Business["planTier"]) => tier.charAt(0).toUpperCase() + tier.slice(1);
-
 /** Why a month started with nothing included: another business of the same founder took the pool's place. */
-function poolSentence(business: Business, balance: CreditBalance): string {
+function poolSentence(business: Business, balance: Pick<CreditBalance, "grantedMinor">): string {
   if (Number(balance.grantedMinor) > 0 || includedCreditsMinor(business.planTier) <= 0) return "";
   const n = tierIncludedCreditPlaces(business.planTier);
-  const places = n !== null ? `${n} business${n === 1 ? "" : "es"}` : "its businesses";
-  return ` The ${tierWord(business.planTier)} plan includes credits for ${places} a month, and this month's already went to another business you took charge of.`;
+  const places = n !== null ? `${n} project${n === 1 ? "" : "s"}` : "every project";
+  return ` ${planName(business.planTier)}'s budget goes to ${places} a month, and this month's already went to another project you took charge of.`;
 }
 
 /**
@@ -358,14 +382,17 @@ function poolSentence(business: Business, balance: CreditBalance): string {
  * bought here (`topUps`), the founder's own Anthropic key unless the business already runs on one (`ownKey`), and the
  * date next month's credits arrive. It names no model: credits buy the same work on every plan.
  */
-export function waysToContinue(input: { topUps: boolean; nextCreditsOn: Date; ownKey?: boolean }): string {
+export function waysToContinue(input: { topUps: boolean; nextCreditsOn: Date; ownKey?: boolean; plans?: boolean; voice?: "rest" }): string {
+  const rest = input.voice === "rest";
+  const plans = input.plans ?? subscriptionChargingOpen(EARLY_ACCESS_STAGE);
   const ways = [
-    ...(input.topUps ? ["add credits in Settings › Billing"] : []),
+    ...(input.topUps ? [rest ? "top up in Settings › Billing" : "add credits in Settings › Billing"] : []),
+    ...(plans ? ["change plan"] : []),
     ...(input.ownKey ? [] : ["add your own Anthropic key in Settings › Keys (billed by Anthropic, not by us)"]),
-    `wait for next month's credits on ${shortDate(input.nextCreditsOn)}`,
+    rest ? `let us rest until ${shortDate(input.nextCreditsOn)}, when your budget resets` : `wait for next month's credits on ${shortDate(input.nextCreditsOn)}`,
   ];
   const sentence = ways.length === 1 ? ways[0]! : `${ways.slice(0, -1).join(", ")}${ways.length > 2 ? "," : ""} or ${ways.at(-1)}`;
-  return `To keep going, ${sentence}.`;
+  return `${rest ? "You can" : "To keep going,"} ${sentence}.`;
 }
 
 /** What stops at zero credits, and what still works with no model call (each one a test proves: credits-ceiling.test.ts). */
@@ -383,13 +410,37 @@ export function includedAiUsedUp(nextCreditsOn: Date): string {
   return `You've used all your included AI! It is back on ${monthDay(nextCreditsOn)}. To keep going now, connect your own Anthropic key.`;
 }
 
+/** Up to five tasks finished this month and three that come next, by the titles the founder reads. Real records only. */
+async function finishedAndNext(db: Executor, businessId: string, period: string): Promise<{ finished: string[]; next: string[] }> {
+  const { from, to } = periodRange(period);
+  const [done, open] = await Promise.all([repos.tasks.finishedBetween(db, businessId, { from, to, limit: 5 }), repos.tasks.upNext(db, businessId, 3)]);
+  const title = (t: { title: string; founderTitle: string | null }) => (t.founderTitle ?? t.title).replace(/\s+/g, " ").trim();
+  return { finished: done.map(title), next: open.map(title) };
+}
+
+/** The resting note's body: the brief's sentence, the two lists from real records, the plan by its name, and the ways on. */
+export function restingNoteBody(input: { planTier: Business["planTier"]; finished: readonly string[]; next: readonly string[]; leftMinor: number; nextOn: Date; pool?: string; topUps?: boolean; plans?: boolean }): string {
+  const lists = input.finished.length > 0 || input.next.length > 0;
+  const ways = waysToContinue({ topUps: input.topUps ?? false, ...(input.plans === undefined ? {} : { plans: input.plans }), nextCreditsOn: input.nextOn, voice: "rest" });
+  const parts = [`We've used this month's team budget.${lists ? " Here's what we finished, and here's what we'd do next." : ""} ${ways}`];
+  if (input.finished.length > 0) parts.push(`**Finished this month**\n${input.finished.map((t) => `- ${t}`).join("\n")}`);
+  if (input.next.length > 0) parts.push(`**What we'd do next**\n${input.next.map((t) => `- ${t}`).join("\n")}`);
+  const left = input.leftMinor > 0 ? ` ${usd(input.leftMinor)} is left: too little to finish another task, so it stays in your balance.` : "";
+  parts.push(
+    `You're on ${planName(input.planTier)}, which includes ${usd(includedCreditsMinor(input.planTier))} of team budget a month.${input.pool ?? ""}${left} Nothing was stopped part-way: the task that was running finished. ${input.topUps ? "With a top-up or your own key" : "With your own key"} the team picks up by itself, and tasks carry on where they stopped; on ${shortDate(input.nextOn)}, press Resume agents. Conversations, Refresh and planning run on ${APP_NAME}'s key, so they rest too. Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
+  );
+  return parts.join("\n\n");
+}
+
 /**
- * The 100 % action of BUILD §10.4 for a business on credits: stop the team (the business's stop flag, so nothing starts
- * work until it is lifted) and let the Inbox explain the way back for this tier. A top-up or a stored key lifts this
- * stop by itself (`resumeBusinessAgents`).
+ * Rests a team on credits (the 100 % action of BUILD §10.4): the business's stop flag, so nothing new starts, and one
+ * note from the Chief of Staff with what was finished, what comes next and the ways on. A top-up or a stored key lifts
+ * it by itself (`resumeBusinessAgents`). A team already resting this month is left as it is: one note, not two.
  */
-async function pauseForCredits(db: Executor, business: Business, period: string, balance: CreditBalance, topUps: boolean): Promise<{ pausedAgents: number; noteId: string | null }> {
+async function restTeam(db: Executor, business: Business, period: string, balance: Pick<CreditBalance, "grantedMinor" | "balanceMinor">, topUps: boolean, options: { reserveMinor?: number } = {}): Promise<{ pausedAgents: number; noteId: string | null }> {
   const businessId = business.id;
+  const state = await repos.businesses.stopState(db, businessId);
+  if (state.reason === "credits_exhausted" && state.stoppedAt !== null && periodOf(state.stoppedAt) === period) return { pausedAgents: 0, noteId: null };
   const stop = await stopBusinessAgents(db, businessId, { reason: "credits_exhausted" });
   const pausedAgents = stop.paused.length;
   // Every agent the stop paused tells the open screens (audit BILL-21), as the kill switch does.
@@ -402,16 +453,15 @@ async function pauseForCredits(db: Executor, business: Business, period: string,
     });
   }
   const chief = await repos.agents.chiefOfStaff(db, businessId);
+  const leftMinor = Math.max(0, Number(balance.balanceMinor));
   let noteId: string | null = null;
   if (chief) {
-    const head = `${includedAiUsedUp(periodRange(period).to)}${poolSentence(business, balance)}`;
-    const credits = topUps ? " Or add credits in Settings › Billing." : "";
-    const resume = `${topUps ? "Credits or your own key resume" : "Your own key resumes"} the team by itself and tasks pick up where they stopped; after next month's credits arrive, press Resume agents.`;
+    const { finished, next } = await finishedAndNext(db, businessId, period);
     const note = await repos.inbox.createItem(db, businessId, {
       type: "warning",
       from_agent_id: chief.id,
-      subject: CREDITS_EXHAUSTED_SUBJECT,
-      body_md: `${head}${credits} ${CREDITS_ZERO_STOPPED} ${CREDITS_ZERO_STILL_WORKS} ${resume} Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
+      subject: RESTING_SUBJECT,
+      body_md: restingNoteBody({ planTier: business.planTier, finished, next, leftMinor, nextOn: periodRange(period).to, pool: poolSentence(business, balance), topUps }),
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
       decision: null,
@@ -427,7 +477,7 @@ async function pauseForCredits(db: Executor, business: Business, period: string,
       payload: { inboxItemId: note.id, type: note.type, fromAgentId: chief.id, subject: note.subject, blocksContinue: note.blocksContinue, sourceEventIds: [], cost: null },
     });
   }
-  await repos.audit.append(db, businessId, { actorKind: "system", action: "billing.credits_exhausted", target: { kind: "business", id: businessId }, details: { period, pausedAgents, noteId, planTier: business.planTier, modelBilling: business.modelBilling, teamStopped: true } });
+  await repos.audit.append(db, businessId, { actorKind: "system", action: "billing.credits_exhausted", target: { kind: "business", id: businessId }, details: { period, pausedAgents, noteId, planTier: business.planTier, modelBilling: business.modelBilling, teamStopped: true, resting: true, leftMinor, reserveMinor: options.reserveMinor ?? null } });
   return { pausedAgents, noteId };
 }
 
@@ -438,7 +488,7 @@ async function pauseForCredits(db: Executor, business: Business, period: string,
  * own key). One per business and month, recorded in the audit log (`CREDITS_LOW_AUDIT_ACTION`); the charges of one
  * month are serialized on the balance row, so two charges never post two notes. Returns the note's id, else null.
  */
-async function creditsLowNotice(db: Executor, business: Business, period: string, balance: CreditBalance): Promise<string | null> {
+async function creditsLowNotice(db: Executor, business: Business, period: string, balance: CreditBalance, topUps: boolean): Promise<string | null> {
   const balanceMinor = Number(balance.balanceMinor);
   if (!(await belowLowLine(db, business, period, balanceMinor))) return null;
   // Matched on the period it is about, not on when it was written: a late-booked charge belongs to its own month.
@@ -451,7 +501,7 @@ async function creditsLowNotice(db: Executor, business: Business, period: string
       type: "warning",
       from_agent_id: chief.id,
       subject: CREDITS_LOW_SUBJECT,
-      body_md: creditsLowBody(business, balanceMinor, to),
+      body_md: creditsLowBody(business, balanceMinor, to, topUps),
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
       decision: null,
@@ -472,25 +522,24 @@ async function creditsLowNotice(db: Executor, business: Business, period: string
 }
 
 /** The low-credits note's body, worded for how the business pays for its agents and for its plan. */
-function creditsLowBody(business: Business, balanceMinor: number, nextMonth: Date): string {
+function creditsLowBody(business: Business, balanceMinor: number, nextMonth: Date, topUps: boolean): string {
   const left = `This month's credits are down to ${usd(balanceMinor)} (an Estimate in US dollars).`;
   const kept = "Replies to you, plans, the Chief of Staff, anything that goes outside the business, and money and legal work keep their usual model.";
   if (business.modelBilling === "byok") {
-    return `${left} Your agents run on your own Anthropic key, so they are not affected. To make the credits last, planning and first drafts on ${APP_NAME}'s key now use a lighter, lower-cost model. ${kept} To keep everything on its usual model, top up in Settings → Billing. Next month's credits arrive on ${shortDate(nextMonth)}.`;
+    return `${left} Your agents run on your own Anthropic key, so they are not affected. To make the credits last, planning and first drafts on ${APP_NAME}'s key now use a lighter, lower-cost model. ${kept} ${topUps ? "To keep everything on its usual model, top up in Settings → Billing. " : ""}Next month's credits arrive on ${shortDate(nextMonth)}.`;
   }
-  const free = business.planTier === "free";
-  const avoid = free
-    ? "To keep everything on its usual model, add your own Anthropic key in Settings → Keys (Anthropic bills your key, not us)."
-    : "To keep everything on its usual model, top up in Settings → Billing, or add your own Anthropic key in Settings → Keys (Anthropic bills your key, not us).";
-  const until = free ? "you add your key" : "you top up or add your key";
-  return `${left} To make them last, routine work now runs on a lighter, lower-cost model: research, drafts, internal prep and planning. ${kept} ${avoid} If the credits run out, the team pauses until ${until}, or until next month's credits arrive on ${shortDate(nextMonth)}.`;
+  const avoid = topUps
+    ? "To keep everything on its usual model, top up in Settings → Billing, or add your own Anthropic key in Settings → Keys (Anthropic bills your key, not us)."
+    : "To keep everything on its usual model, add your own Anthropic key in Settings → Keys (Anthropic bills your key, not us).";
+  const until = topUps ? "you top up or add your key" : "you add your key";
+  return `${left} To make them last, routine work now runs on a lighter, lower-cost model: research, drafts, internal prep and planning. ${kept} ${avoid} If the budget runs out, the team finishes the task it is on and rests until ${until}, or until next month's budget arrives on ${shortDate(nextMonth)}.`;
 }
 
 /**
  * The 100 % action for a business on its own key: its agents keep working on that key, so nothing is stopped; the Inbox
  * says that conversations, Refresh and planning (the platform key's work) wait for a top-up or next month's credits.
  */
-async function noteForOwnKey(db: Executor, business: Business, period: string, balance: CreditBalance, topUps: boolean): Promise<{ pausedAgents: number; noteId: string | null }> {
+async function noteForOwnKey(db: Executor, business: Business, period: string, balance: Pick<CreditBalance, "grantedMinor" | "balanceMinor">, topUps: boolean): Promise<{ pausedAgents: number; noteId: string | null }> {
   const businessId = business.id;
   const chief = await repos.agents.chiefOfStaff(db, businessId);
   let noteId: string | null = null;
@@ -499,7 +548,7 @@ async function noteForOwnKey(db: Executor, business: Business, period: string, b
       type: "warning",
       from_agent_id: chief.id,
       subject: PLATFORM_CREDITS_EXHAUSTED_SUBJECT,
-      body_md: `Your agents run on your own Anthropic key and keep working. Conversations, Refresh and planning run on ${APP_NAME}'s key and use this month's credits, which are used up.${poolSentence(business, balance)} ${waysToContinue({ topUps, nextCreditsOn: periodRange(period).to, ownKey: true })} Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
+      body_md: `Your agents run on your own Anthropic key and keep working. Conversations, Refresh and planning run on ${APP_NAME}'s key and use this month's budget, which is used, so they are resting.${poolSentence(business, balance)} ${waysToContinue({ topUps, nextCreditsOn: periodRange(period).to, ownKey: true })} Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
       decision: null,

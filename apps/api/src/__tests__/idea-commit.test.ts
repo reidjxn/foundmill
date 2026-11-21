@@ -117,6 +117,9 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(audit.items).toHaveLength(1);
     const committed = await repos.ideas.get(hz.db, userId, idea.id);
     expect(committed.businessId).toBe(bid);
+    // WP-14 T14 (A12): a person who takes charge while sign-up is invite-only is marked, with the day they joined, as
+    // never billed the Founder fee. No price is stored: nothing is charged.
+    expect(await repos.ownerPlans.get(hz.db, userId)).toMatchObject({ invitedAt: expect.any(Date), priceTier: null, priceMinor: null });
 
     // First businessCycle started on (fake) Temporal with the deterministic id.
     expect(result.cycle?.queued).toBe(true);
@@ -292,7 +295,10 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(await repos.usage.creditBalance(hz.db, again.business.id, period)).toMatchObject({ grantedMinor: 0, balanceMinor: 0 });
     expect(await repos.businesses.stopState(hz.db, again.business.id)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
     const warning = (await repos.inbox.list(hz.db, again.business.id, { limit: 50 })).items.find((i) => i.subject === CREDITS_EXHAUSTED_SUBJECT);
-    expect(warning?.bodyMd).toMatch(/this month's already went to another business you took charge of\. What stopped: /);
+    expect(warning?.bodyMd).toMatch(/Try's budget goes to 1 project a month, and this month's already went to another project you took charge of\./);
+    expect(warning?.bodyMd).toMatch(/add your own Anthropic key in Settings › Keys/);
+    // The resting state is visible on Billing, with the day the budget resets.
+    expect((await caller.billing.plan({ businessId: again.business.id })).resting).toMatchObject({ until: expect.any(Date) });
     expect((await caller.founder.businesses.allowance()).includedCredits).toMatchObject({ places: 1, taken: 1 });
     expect((await caller.billing.plan({ businessId: again.business.id })).includedCreditsMinor).toBe(0);
   });

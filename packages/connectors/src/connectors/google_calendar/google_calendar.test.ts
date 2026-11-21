@@ -18,6 +18,9 @@ describeConnectorContract("google_calendar (mock)", {
     { tool: "list_events", args: { ...WEEK, q: "maja" }, check: (r) => expect(isUntrusted(r.data) && (r.data.content as { items: unknown[] }).items).toHaveLength(1) },
     { tool: "get_event", args: { eventId: "evt_offsite" }, check: (r) => expect(isUntrusted(r.data) && r.data.content).toMatchObject({ allDay: true, location: "Vaxholm" }) },
     { tool: "create_event", args: { summary: "Demo with Ledgerly", start: "2026-10-08T13:00:00Z", end: "2026-10-08T13:30:00Z", attendees: ["sara@ledgerly.app"], addMeetLink: true }, check: (r) => expect(r.data).toMatchObject({ attendees: [{ email: "sara@ledgerly.app", responseStatus: "needsAction" }], meetLink: expect.stringContaining("meet.google.com") }) },
+    { tool: "add_event", args: { summary: "Prep for the Ledgerly demo", start: "2026-10-08T12:00:00Z", end: "2026-10-08T12:30:00Z" }, check: (r) => expect(r.data).toMatchObject({ summary: "Prep for the Ledgerly demo", attendees: [] }) },
+    { tool: "add_event", args: { summary: "Prep", start: "2026-10-08T12:00:00Z", end: "2026-10-08T12:00:00Z" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
+    { tool: "add_event", args: { calendarId: "team@group.calendar.google.com", summary: "Prep", start: "2026-10-08T12:00:00Z", end: "2026-10-08T12:30:00Z" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
     { tool: "create_event", args: { summary: "Backwards", start: "2026-10-08T13:00:00Z", end: "2026-10-08T12:00:00Z" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
     { tool: "find_free_slots", args: { timeMin: "2026-10-07T06:00:00Z", timeMax: "2026-10-07T18:00:00Z", durationMinutes: 60 }, check: (r) => expect((r.data as { slots: { start: string }[] }).slots[0]).toEqual({ start: "2026-10-07T09:00:00.000Z", end: "2026-10-07T10:00:00.000Z" }) },
   ],
@@ -34,7 +37,10 @@ describe("google_calendar slot finder", () => {
     const mock = createGoogleCalendarMock();
     const ctx = makeToolContext(mock);
     const upd = await mock.callTool("update_event", { eventId: "evt_supplier", summary: "Hallbergs Hud — pricing (moved)", start: "2026-10-07T10:00:00Z", end: "2026-10-07T11:00:00Z" }, ctx);
-    expect(upd.data).toMatchObject({ summary: "Hallbergs Hud — pricing (moved)", start: "2026-10-07T10:00:00.000Z" });
+    // A change reports only its id, times, status and link: never the organizer's description, location or attendees.
+    expect(upd.data).toMatchObject({ id: "evt_supplier", start: "2026-10-07T10:00:00.000Z", end: "2026-10-07T11:00:00.000Z", status: "confirmed" });
+    expect(Object.keys(upd.data as object).sort()).toEqual(["calendarId", "end", "htmlLink", "id", "start", "status"]);
+    expect((await mock.callTool("get_event", { eventId: "evt_supplier" }, ctx)).data).toMatchObject({ content: { summary: "Hallbergs Hud — pricing (moved)" } });
     expect((await mock.callTool("delete_event", { eventId: "evt_supplier" }, ctx)).data).toEqual({ deleted: true, eventId: "evt_supplier" });
     expect((await mock.callTool("get_event", { eventId: "evt_supplier" }, ctx)).error?.code).toBe("not_found");
   });
