@@ -65,7 +65,7 @@ describe("demo isolation", () => {
   }
 });
 
-describe("real_businesses (0145)", () => {
+describe("real_businesses (0150)", () => {
   const rows = async (h: TestHarness) => ((await h.db.execute(sql`select id, is_house from real_businesses`)) as unknown as { rows: { id: string; is_house: boolean }[] }).rows;
 
   it("holds no sample, and is_house is true for the house project alone", async () => {

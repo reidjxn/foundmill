@@ -221,7 +221,7 @@ describe("memberships 0092: the roles and the end date", () => {
     for (const id of [A.ownerId, cofounder, A.adminId, A.memberId]) expect(await snapshot(id), id).toHaveLength(1);
     await expect(snapshot(A.viewerId)).rejects.toThrow(RLS_DENIED);
     expect((await h.asUser(A.viewerId).run((tx) => tx.select({ id: s.ledgerSnapshots.id }).from(s.ledgerSnapshots).where(eq(s.ledgerSnapshots.businessId, A.businessId)))).length).toBeGreaterThan(0);
-    // Every policy on the seven tables is the select 0095 wrote or one of the three 0146 split its write into, and none admits a collaborator, for reads or writes.
+    // Every policy on the seven tables is the select 0095 wrote or one of the three 0151 split its write into, and none admits a collaborator, for reads or writes.
     const policies = await policiesOn(COLLABORATOR_CLOSED_MONEY_LEGAL);
     expect(policies.map((p) => `${p.tablename}.${p.policyname}:${p.cmd}`).sort()).toEqual(COLLABORATOR_CLOSED_MONEY_LEGAL.flatMap((t) => [`${t}.${t}_select:SELECT`, `${t}.${t}_insert:INSERT`, `${t}.${t}_update:UPDATE`, `${t}.${t}_delete:DELETE`]).sort());
     for (const p of policies) {

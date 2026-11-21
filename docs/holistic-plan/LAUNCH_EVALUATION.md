@@ -133,3 +133,8 @@ Files that two sessions could both touch have one owner each: `packages/models/s
 - **The morning email drops its streak line** ("Open Today to make it N"), to match the Today streak. Session 12, #336.
 - **The phone app is paused.** Foundmill launches publicly on the web first; the Newly app resumes once launch feedback has shaped the product. Phone-only work (Sign in with Apple, prompt 13B, WP-00 S17) waits until then. The web keeps working from 390 px as FOUNDMILL.md says, and the store-links value stays unset.
 - **OpenSRS:** the founder opens the reseller account on Sunday, Nov 22. Session 14's live calls wait for it.
+
+### The founder's answers of Nov 20, 2026
+
+- **Spending backstops (WP-00 S13):** Anthropic Console monthly limit about $750 (above the product's own $600 cap); E2B team monthly limit about $100; Redis `maxmemory 256mb` with `noeviction` (set on Railway on Nov 20, so a full Redis refuses writes instead of dropping rate-limit and people-limit counters). The founder sets the Anthropic and E2B limits in their dashboards.
+- **Session 16** fixes the nightly outcome eval `sourcing_manufacturing.records_suppliers`, which failed on Nov 18, 19 and 20.

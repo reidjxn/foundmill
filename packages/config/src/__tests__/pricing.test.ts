@@ -75,6 +75,18 @@ describe("the first round of a free project (WP-09 T11, founder D6)", () => {
   });
 });
 
+describe("the reserve before a session starts (WP-14 T1)", () => {
+  it("is the larger of the minimum and the type's recent average times the safety factor", async () => {
+    const { SESSION_RESERVE, sessionReserveMinor } = await import("../pricing");
+    expect(SESSION_RESERVE).toEqual({ minMinor: 10, safetyFactor: 1.5, sampleSessions: 20, backstopCeilingMinor: 50 });
+    expect(sessionReserveMinor(null)).toBe(10);
+    expect(sessionReserveMinor(0.68)).toBe(10);
+    expect(sessionReserveMinor(14)).toBe(21);
+    expect(sessionReserveMinor(15)).toBe(23);
+    expect(sessionReserveMinor(-4)).toBe(10);
+  });
+});
+
 describe("who pays for a model call (WP-13)", () => {
   it("puts everyone not on a paid plan on the free plan, a business on its own key on that key, and a paid plan on every model", async () => {
     const { modelFundingFor, tierIsPaid } = await import("../pricing");

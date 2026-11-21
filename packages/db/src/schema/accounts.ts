@@ -91,7 +91,7 @@ export const publicPersonProfiles = pgView("public_person_profiles", {
 }).existing();
 export type PublicPersonProfile = typeof publicPersonProfiles.$inferSelect;
 
-/** 0145 — every project that is not a sample; `is_house` marks Foundmill's own. A query across projects joins this (packages/db/CLAUDE.md). */
+/** 0150 — every project that is not a sample; `is_house` marks Foundmill's own. A query across projects joins this (packages/db/CLAUDE.md). */
 export const realBusinesses = pgView("real_businesses", { id: uuid("id").notNull(), isHouse: boolean("is_house").notNull() }).existing();
 
 /** The columns `public_person_profiles` exposes, in order (the view's test compares the catalog with this list). */

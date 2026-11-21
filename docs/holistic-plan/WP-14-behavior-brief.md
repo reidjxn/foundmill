@@ -59,7 +59,7 @@ Nothing from the founder. The numbers left to the sessions to propose and flag a
 
 ## Tasks
 
-### T1: Resting, and the last task always finishes            [M] [amends WP-09 T13; ships with it]
+### [x] T1: Resting, and the last task always finishes            [M] [amends WP-09 T13; ships with it]
 Brief: A3. Why: today `session-credits.ts` passes `maxBudgetUsd` and a session stops part-way (`CREDITS_USED_UP_SUMMARY`, "…so the session stopped"); Billing says "Used up: team paused".
 Supersedes: "the charge that empties a balance pauses the team" (2026-10-12), by the founder's word in the brief.
 Files: those of WP-09 T13, plus `packages/shared/src/terms.ts` and the voice skill.
