@@ -56,6 +56,11 @@ link uses that, and the existing pinned test says so. `stripe:create_payment_lin
 (`apps/gateway/src/pipeline.ts`, not mine to edit): until the owner of that file adds it, automated mode treats it as any
 irreversible tool and not as the inbound payment power's tool.
 
+### `post.published` is filed under Settings, like `share.opened`
+Filed under Distribution, a collaborator would receive it, and the database's `fm_collaborator_event_types()` would need a
+new migration. Filed under Settings it is never sent to a collaborator and needs none. A collaborator therefore does not see
+"Posted on X" on a card; they cannot answer the question either.
+
 ## Not done
 - T5: the tab reaches projects created from now on. A project that already exists has no "First ten" tab until a
   migration backfills its department screens; that needs a migration number I was not given (asked).

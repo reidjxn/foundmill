@@ -30,7 +30,7 @@ interface PageForMessage {
   preview: { name: string };
 }
 
-export function FirstTenScreen({ businessId }: ModuleScreenProps) {
+export function FirstTenScreen(_props: ModuleScreenProps) {
   const list = useWidgetQuery<FirstTenList>("crm.firstTen.list", {});
   const page = useWidgetQuery<PageForMessage>("page.get", {});
   const action = useAction();
