@@ -135,11 +135,11 @@ export function platformMailFooter(projectName: string, unsubscribeUrl: string, 
 }
 
 /** The v3 `mail/send` body (camelCase; `@sendgrid/mail` converts it). Shared by the live side and the mock. */
-export function buildPlatformMailData(mail: PlatformSendMailT, envelope: { from: { email: string; name: string }; projectName: string; unsubscribeUrl: string; customArgs: Record<string, string>; postalAddress?: string | null }): Record<string, unknown> {
+export function buildPlatformMailData(mail: PlatformSendMailT, envelope: { from: { email: string; name: string }; replyTo?: { email: string; name: string }; projectName: string; unsubscribeUrl: string; customArgs: Record<string, string>; postalAddress?: string | null }): Record<string, unknown> {
   const footer = platformMailFooter(envelope.projectName, envelope.unsubscribeUrl, envelope.postalAddress);
   return {
     from: envelope.from,
-    replyTo: envelope.from,
+    replyTo: envelope.replyTo ?? envelope.from,
     personalizations: [{ to: [{ email: mail.to.email, ...(mail.to.name ? { name: mail.to.name } : {}) }], customArgs: envelope.customArgs }],
     subject: mail.subject,
     text: `${mail.text}${footer.text}`,

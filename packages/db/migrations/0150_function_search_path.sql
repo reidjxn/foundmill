@@ -1,4 +1,4 @@
--- 0145 — every function in public pins its search_path (Supabase advisor lint 0011, function_search_path_mutable;
+-- 0150 — every function in public pins its search_path (Supabase advisor lint 0011, function_search_path_mutable;
 -- docs/holistic-plan/WP-11 T4). None of the thirteen is security definer, so this closes a lint, not a hole: a function
 -- whose path follows the caller's could resolve a table or operator from a schema the caller put first. `public` stays
 -- on the path because the helpers name tables unqualified and pg_trgm and vector live there.

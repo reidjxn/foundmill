@@ -1,4 +1,4 @@
--- 0146 — auth.uid() once per statement, not once per row (Supabase advisor lint 0003, auth_rls_initplan;
+-- 0151 — auth.uid() once per statement, not once per row (Supabase advisor lint 0003, auth_rls_initplan;
 -- docs/holistic-plan/WP-11 T5). Wrapping the call in a select makes Postgres plan it as one InitPlan. 45 policies on
 -- 28 tables: 39 written by hand and 6 made by fm_idea_table. No rule changes: `alter policy` keeps each policy's
 -- command, roles and whether it is restrictive (inbox_items_for_user stays restrictive); only when the function is
@@ -18,7 +18,7 @@ begin
 end $$;
 --> statement-breakpoint
 -- The helper, so a table it makes later is born with the same form. The body of 0002 with each auth.uid() wrapped, and
--- the search_path of 0145 in its own text (create or replace resets what `alter function ... set` stored).
+-- the search_path of 0150 in its own text (create or replace resets what `alter function ... set` stored).
 create or replace function fm_idea_table(tbl text) returns void language plpgsql set search_path = pg_catalog, public, pg_temp as $$
 begin
   execute format('alter table %I enable row level security', tbl);
