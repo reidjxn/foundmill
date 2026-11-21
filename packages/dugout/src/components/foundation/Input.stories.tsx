@@ -59,7 +59,7 @@ export const InAField: Story = {
       <Field htmlFor="email" label="Founder email" error="That does not look like an email address.">
         <Input id="email" defaultValue="ada@" invalid aria-describedby={fieldDescribedBy("email", { error: true })} />
       </Field>
-      <Field htmlFor="notes" label="Notes to the team" hint="Plain language. The Chief of Staff reads this every cycle.">
+      <Field htmlFor="notes" label="Notes to the team" hint="Plain language. The Chief of Staff reads this every round of work.">
         <Textarea id="notes" placeholder="Focus on activation this week." aria-describedby={fieldDescribedBy("notes", { hint: true })} />
       </Field>
     </div>

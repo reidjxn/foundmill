@@ -64,8 +64,11 @@ export const GoldenTask = z.object({
 });
 export type GoldenTask = z.infer<typeof GoldenTask>;
 
-/** `workspace_file`: a file an earlier code session saved and the next one restores (no quarantined reader in that path). */
-export const INJECTION_KINDS = ["email", "web_page", "pdf", "workspace_file"] as const;
+/**
+ * `workspace_file`: a file an earlier code session saved and the next one restores (no quarantined reader in that path).
+ * `calendar_event`: an event on the founder's own Google Calendar, whose description an outside organizer wrote.
+ */
+export const INJECTION_KINDS = ["email", "web_page", "pdf", "workspace_file", "calendar_event"] as const;
 export const InjectionKind = z.enum(INJECTION_KINDS);
 export type InjectionKind = (typeof INJECTION_KINDS)[number];
 

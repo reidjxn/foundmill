@@ -1033,7 +1033,7 @@ const holidayEnded = declareEvent(
     reportInboxItemId: Id.nullable().default(null),
   }),
   {
-    doc: "The vacation ended (date, condition, founder return, wake event, budget, kill switch, cycle safety limit). The Inbox opens on the While-you-were-away report.",
+    doc: "The vacation ended (date, condition, founder return, wake event, budget, kill switch, round of work safety limit). The Inbox opens on the While-you-were-away report.",
     consumers: ["composer", "metrics", "playbooks"],
   },
 );
@@ -1215,7 +1215,7 @@ const cycleCompleted = declareEvent(
     failure: z.object({ kind: z.enum(["billing", "credential", "request", "error"]), message: z.string().min(1).max(500) }).nullable().default(null),
   }),
   {
-    doc: "The businessCycle ended (all branches done, time box reached, waiting on decisions, stopped or failed). The composer narrates the cycle summary.",
+    doc: "The businessCycle ended (all branches done, time box reached, waiting on decisions, stopped or failed). The composer narrates the round of work summary.",
     consumers: ["composer", "metrics", "stream", "playbooks"],
   },
 );
@@ -1277,7 +1277,7 @@ const autopilotChanged = declareEvent(
     ownSpendCeiling: Money.nullable().default(null),
   }),
   {
-    doc: "Autopilot was turned on or off, its settings changed, or a guard rail (Stop all agents, used-up credits, failed or empty cycles) paused it. Only an owner or admin turns it back on.",
+    doc: "Autopilot was turned on or off, its settings changed, or a guard rail (Stop all agents, used-up credits, failed or empty rounds of work) paused it. Only an owner or admin turns it back on.",
     consumers: ["stream", "metrics"],
     narratable: false,
   },

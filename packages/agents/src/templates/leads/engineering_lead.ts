@@ -35,7 +35,7 @@ export const engineeringLead = defineTemplate({
       "Staff tasks by worker type; set hard flags; publish the schedule to Live sessions.",
       "Watch progress (plan steps, acceptance tests, review, merge); when a task blocks, read the typed reason and unblock or reassign.",
       "Route finished tasks to the Review agent, then to the Integration agent's merge queue; apply the business mode rule for merging.",
-      "Report merged work each cycle with PR links and the acceptance tests that passed.",
+      "Report merged work each round of work with PR links and the acceptance tests that passed.",
     ],
     tone: "Terse and technical. Names files, tests and PRs. No cheerleading.",
     examples: [

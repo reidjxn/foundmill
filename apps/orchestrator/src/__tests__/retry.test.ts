@@ -11,7 +11,7 @@ describe("failureStreak", () => {
     expect(failureStreak([ended("failed", "2026-10-12T10:00:00Z"), ended("failed", "2026-10-12T09:00:00Z"), ended("done", "2026-10-11T09:00:00Z"), ended("failed", "2026-10-10T09:00:00Z")])).toEqual({ failures: 2, lastEndedAt: at("2026-10-12T10:00:00Z") });
     expect(failureStreak([ended("done", "2026-10-12T10:00:00Z"), ended("failed", "2026-10-12T09:00:00Z")]).failures).toBe(0);
   });
-  it("counts blocked sessions too when asked, so a refusal that keeps coming back is retried on the doubling wait, not every cycle (audit BF-14)", () => {
+  it("counts blocked sessions too when asked, so a refusal that keeps coming back is retried on the doubling wait, not every round of work (audit BF-14)", () => {
     const sessions = [ended("blocked", "2026-10-12T10:00:00Z"), ended("failed", "2026-10-12T09:00:00Z"), ended("blocked", "2026-10-12T08:00:00Z"), ended("done", "2026-10-11T09:00:00Z")];
     expect(failureStreak(sessions).failures).toBe(0);
     expect(failureStreak(sessions, ["failed", "blocked"])).toEqual({ failures: 3, lastEndedAt: at("2026-10-12T10:00:00Z") });

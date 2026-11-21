@@ -504,7 +504,7 @@ describe("text helpers", () => {
     expect(describeEvent({ type: "customer.converted", payload: { kind: "payment", amount: { amountMinor: 4900, currency: "USD" } } })).toMatchObject({ title: "New paying customer", description: "$49.00", statusWord: "Win" });
     expect(describeEvent({ type: "approval.resolved", payload: { outcome: "approved" } })).toMatchObject({ title: "Approved", statusWord: "Approved", tone: "good" });
     expect(describeEvent({ type: "approval.resolved", payload: { outcome: "expired" } }).title).toBe("Approval expired");
-    expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 3, outcome: "time_box", tasksCompleted: 1 } })).toMatchObject({ title: "Cycle 3 reached its time limit", description: "1 task done" });
+    expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 3, outcome: "time_box", tasksCompleted: 1 } })).toMatchObject({ title: "Round of work 3 reached its time limit", description: "1 task done" });
     expect(describeEvent({ type: "task.progressed", payload: { phase: "implementing", progress: 0.45 } }).title).toBe("Implementing: 45%");
     expect(describeEvent({ type: "mode.changed", payload: { scope: "business" } }).title).toBe("Business mode changed");
     expect(describeEvent({ type: "constructor", payload: {} }).title).toBe("Business update");
@@ -514,7 +514,7 @@ describe("text helpers", () => {
     }
   });
 
-  it("Builder view off: rounds of work and Gone live, with no cycle or PR numbers; on: the engine's words", () => {
+  it("Builder view off: rounds of work and Gone live, with no round of work or PR numbers; on: the engine's words", () => {
     const off = { builder: false };
     expect(describeEvent({ type: "cycle.started", payload: { cycleNumber: 4 } }, off).title).toBe("The team started a round of work");
     expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 4, outcome: "completed", tasksCompleted: 3 } }, off)).toMatchObject({ title: "Round of work finished · 3 tasks done", tone: "good" });
@@ -528,7 +528,7 @@ describe("text helpers", () => {
       expect(`${d.title} ${d.description ?? ""}`, e.type).not.toMatch(/cycle|#\d|PR\b|\d+ tasks? done.*\d/i);
     }
     // On (and by default): today's words.
-    expect(describeEvent({ type: "cycle.started", payload: { cycleNumber: 4 } }, { builder: true }).title).toBe("Cycle 4 started");
+    expect(describeEvent({ type: "cycle.started", payload: { cycleNumber: 4 } }, { builder: true }).title).toBe("Round of work 4 started");
     expect(describeEvent({ type: "pr.merged", payload: { prNumber: 41, title: "Sitemap fixes" } }).title).toBe("Merged PR #41");
     expect(describeEvent({ type: "task.completed", payload: { title: "Checkout", summary: "105 tests passed" } }).description).toBe("105 tests passed");
   });

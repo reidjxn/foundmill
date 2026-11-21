@@ -65,7 +65,7 @@ describe("RecruitmentScreen", () => {
     expect(within(table).getByRole("columnheader", { name: /^Kind/ })).toBeTruthy();
     expect(within(table).queryByRole("columnheader", { name: /^Family/ })).toBeNull();
     expect(within(table).getByRole("columnheader", { name: /Wage cap \(USD\)/ })).toBeTruthy();
-    expect(screen.getByTestId("catalogue-intro").textContent).toBe("Ready-made agents. Hire one into a department and it starts next cycle.");
+    expect(screen.getByTestId("catalogue-intro").textContent).toBe("Ready-made agents. Hire one into a department and it starts next round of work.");
     expect(screen.getByTestId("catalogue-summary").textContent).toBe("6 templates · 4 in the team");
     // Guidance is on outside a provider: the tab's intro sits in the builder panel, the wage cap is a defined word, and
     // the generate button shows no key cap (an operator's affordance).
@@ -95,7 +95,7 @@ describe("RecruitmentScreen", () => {
     expect(within(dialog).getByText("Wage cap (USD)")).toBeTruthy();
     // What hiring does and what it can cost, under the form (UX plan §6.2 ConsequenceLine), then the reassurance.
     const consequence = within(dialog).getByTestId("hire-consequence");
-    expect(consequence.textContent).toContain("Starts next cycle with the template's instructions, tools and skills");
+    expect(consequence.textContent).toContain("Starts next round of work with the template's instructions, tools and skills");
     expect(consequence.textContent).toContain("Up to $150.00/mo (Estimate)");
     expect(consequence.textContent).toContain("Reversible");
     expect(dialog.querySelector("[data-reassurance]")?.textContent).toContain("lend it or let it go later");
@@ -168,7 +168,7 @@ describe("RecruitmentScreen", () => {
     await screen.findByRole("grid", { name: "Catalog" });
     expect(screen.getByTestId("draft-agent").querySelector("kbd")?.textContent).toBe("⌘↵");
     expect(document.querySelector("[data-explainer='team-recruitment']")).toBeNull();
-    expect(screen.getByTestId("catalogue-intro").textContent).toBe("Ready-made agents. Hire one into a department and it starts next cycle.");
+    expect(screen.getByTestId("catalogue-intro").textContent).toBe("Ready-made agents. Hire one into a department and it starts next round of work.");
   });
 
   it("keeps a long template description to three lines in the hire dialog, the rest on request", async () => {

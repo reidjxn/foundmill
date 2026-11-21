@@ -50,6 +50,8 @@ import { openaiImagesTools } from "./connectors/openai_images/tools";
 import { elevenlabsTools } from "./connectors/elevenlabs/tools";
 import { onesignalTools } from "./connectors/onesignal/tools";
 import { platformNotifyTools } from "./connectors/platform_notify/tools";
+import { sendingDomainTools } from "./connectors/sending_domain/tools";
+import { opensrsTools } from "./connectors/opensrs/tools";
 import { webTools } from "./connectors/web/tools";
 import { e2bTools } from "./connectors/e2b/tools";
 import { platformMailTools } from "./connectors/platform_mail/tools";
@@ -64,6 +66,8 @@ const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: Pol
   elevenlabs: elevenlabsTools,
   onesignal: onesignalTools,
   platform_notify: platformNotifyTools,
+  sending_domain: sendingDomainTools,
+  opensrs: opensrsTools,
   github: githubTools,
   google_drive: googleDriveTools,
   gmail: gmailTools,
@@ -172,8 +176,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "pulls.review": ["get_pull_request", "read_file"],
     "pulls.merge": ["merge_pr"],
   },
-  gmail: { "drafts.create": ["create_draft"], "threads.read": ["list_messages", "get_message", "list_labels"] },
-  google_calendar: { "events.list": ["list_calendars", "list_events", "get_event", "find_free_slots"], "events.create": ["create_event", "update_event", "find_free_slots"] },
+  gmail: { "drafts.create": ["create_draft"], "drafts.read": ["list_drafts", "get_draft"], "threads.read": ["list_messages", "get_message", "list_labels"] },
+  google_calendar: { "events.list": ["list_calendars", "list_events", "get_event", "find_free_slots"], "events.create": ["add_event", "create_event", "update_event", "find_free_slots"] },
   google_drive: { "files.list": ["search_files", "get_file"], "files.read": ["get_file", "export_text", "read_doc"], "files.write": ["create_doc", "append_to_doc"] },
   notion: { "pages.search": ["search", "query_data_source"], "pages.read": ["get_page", "get_page_content", "query_data_source"], "pages.write": ["create_page", "append_paragraphs"] },
   opencorporates: { "companies.search": ["search_companies", "get_company"] },
@@ -306,12 +310,14 @@ export const NOT_YET_SERVED: Readonly<Record<string, Readonly<Record<string, str
  * Connectors only the platform itself calls, from a service route of the gateway (never an agent session): `openai_images`
  * makes the faces of anthropomorphic agents on the platform key (`POST /v1/personas/portrait`); `onesignal` pushes to
  * founders' own phones from the mobile app (`POST /v1/push/send`); `platform_notify` emails a person from Foundmill
- * itself about their own project (`POST /v1/notify/email`); `elevenlabs` speaks an agent's turn and transcribes the founder's
+ * itself about their own project (`POST /v1/notify/email`); `sending_domain` adds and checks a project's own domain at the
+ * platform's SendGrid for the founders (`POST /v1/domains/own`); `opensrs` registers a domain for the founder on Foundmill's reseller account
+ * (`POST /v1/domains/register`); `elevenlabs` speaks an agent's turn and transcribes the founder's
  * on a Team call (`POST /v1/speech/synthesize` and `/v1/speech/transcribe`). A grant on one resolves to nothing, the gateway refuses
  * it on `/v1/call` and `/mcp/:connector` whatever a session token says, and the api neither lists it in
  * Settings › Integrations nor connects it for a business.
  */
-export const SERVICE_ONLY_CONNECTORS: ReadonlySet<string> = new Set(["openai_images", "onesignal", "platform_notify", "elevenlabs"]);
+export const SERVICE_ONLY_CONNECTORS: ReadonlySet<string> = new Set(["openai_images", "onesignal", "platform_notify", "sending_domain", "opensrs", "elevenlabs"]);
 
 /** Why a grant on a service-only connector resolves to nothing (`ResolvedGrants.unresolved`). */
 export const SERVICE_ONLY_REASON = "the platform calls this connector itself; agents never do";

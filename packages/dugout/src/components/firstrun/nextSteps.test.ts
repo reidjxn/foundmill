@@ -50,9 +50,9 @@ describe("nextStepsFor: day one", () => {
     expect(steps[2]?.done).toBeFalsy();
   });
 
-  it("marks the last row done with the running line once cycle 1 is under way", () => {
+  it("marks the last row done with the running line once round of work 1 is under way", () => {
     const steps = nextStepsFor({ ...dayOne, blockingNotes: 0, cycleRunning: true, agentsWorking: 4 }, routes);
-    expect(steps[2]).toMatchObject({ label: "Cycle 1 is running · 4 agents at work", done: true });
+    expect(steps[2]).toMatchObject({ label: "Round of work 1 is running · 4 agents at work", done: true });
   });
 
   it("skips the draft rows for a business that has no first draft (imported or seeded): the notes, then Continue", () => {
@@ -60,7 +60,7 @@ describe("nextStepsFor: day one", () => {
     expect(steps.map((s) => s.id)).toEqual(["answer-notes", "press-continue"]);
     expect(steps[0]).toMatchObject({ label: "Answer the 1 note in the Inbox", href: routes.inboxRespond });
     expect(nextStepsFor({ ...dayOne, foundationsStatus: "none", blockingNotes: 0 }, routes)).toEqual([{ id: "press-continue", label: "Press Continue" }]);
-    expect(nextStepsFor({ ...dayOne, foundationsStatus: "none", blockingNotes: 0, cycleRunning: true, agentsWorking: 2 }, routes)).toEqual([{ id: "press-continue", label: "Cycle 1 is running · 2 agents at work", done: true }]);
+    expect(nextStepsFor({ ...dayOne, foundationsStatus: "none", blockingNotes: 0, cycleRunning: true, agentsWorking: 2 }, routes)).toEqual([{ id: "press-continue", label: "Round of work 1 is running · 2 agents at work", done: true }]);
   });
 
   it("takes the routes from a callback too", () => {
@@ -70,16 +70,16 @@ describe("nextStepsFor: day one", () => {
   });
 });
 
-describe("nextStepsFor: after the first cycle", () => {
+describe("nextStepsFor: after the first round of work", () => {
   it("is one row: the notes that need an answer first", () => {
     expect(nextStepsFor({ ...later, blockingNotes: 2, cycleRunning: true }, routes)).toEqual([{ id: "answer-notes", label: "2 notes need your answer", href: routes.inboxRespond }]);
     expect(nextStepsFor({ ...later, blockingNotes: 1 }, routes)[0]?.label).toBe("1 note needs your answer");
   });
 
-  it("then the running cycle, with the agents at work when known", () => {
-    expect(nextStepsFor({ ...later, cycleRunning: true, unreadNotes: 3 }, routes)).toEqual([{ id: "cycle-running", label: "Cycle 3 is running · 4 agents at work" }]);
-    expect(nextStepsFor({ ...later, cycleRunning: true, agentsWorking: 1 }, routes)[0]?.label).toBe("Cycle 3 is running · 1 agent at work");
-    expect(nextStepsFor({ ...later, cycleRunning: true, agentsWorking: 0 }, routes)[0]?.label).toBe("Cycle 3 is running");
+  it("then the running round of work, with the agents at work when known", () => {
+    expect(nextStepsFor({ ...later, cycleRunning: true, unreadNotes: 3 }, routes)).toEqual([{ id: "cycle-running", label: "Round of work 3 is running · 4 agents at work" }]);
+    expect(nextStepsFor({ ...later, cycleRunning: true, agentsWorking: 1 }, routes)[0]?.label).toBe("Round of work 3 is running · 1 agent at work");
+    expect(nextStepsFor({ ...later, cycleRunning: true, agentsWorking: 0 }, routes)[0]?.label).toBe("Round of work 3 is running");
   });
 
   it("then unread notes from the team", () => {
@@ -106,7 +106,7 @@ describe("nextStepsFor: a failed first draft", () => {
 });
 
 describe("cycleRunningLine", () => {
-  it("never says cycle 0", () => {
-    expect(cycleRunningLine(0, 2)).toBe("Cycle 1 is running · 2 agents at work");
+  it("never says round of work 0", () => {
+    expect(cycleRunningLine(0, 2)).toBe("Round of work 1 is running · 2 agents at work");
   });
 });

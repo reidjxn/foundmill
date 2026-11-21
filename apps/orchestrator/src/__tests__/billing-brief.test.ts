@@ -39,7 +39,7 @@ describe("loadBrief: the plan tier and credits", () => {
     await repos.businesses.update(t.db, t.businessId, { modelBilling: "credits" });
   });
 
-  it("with this month's credits used up, the brief has no budget and the cycle plan drafts nothing on the platform's key", async () => {
+  it("with this month's credits used up, the brief has no budget and the round of work plan drafts nothing on the platform's key", async () => {
     const { loadBrief } = createBriefActivities(t.deps);
     const { planCycle } = createCycleActivities(t.deps);
     const period = periodOf(t.deps.clock.now());
@@ -60,7 +60,7 @@ describe("loadBrief: the plan tier and credits", () => {
     }
   });
 
-  it("with every slot of the plan in use, the cycle plan defers each start", async () => {
+  it("with every slot of the plan in use, the round of work plan defers each start", async () => {
     const { loadBrief } = createBriefActivities(t.deps);
     const { planCycle } = createCycleActivities(t.deps);
     let brief = await loadBrief({ businessId: t.businessId });

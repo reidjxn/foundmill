@@ -4,17 +4,23 @@
  * gateway refuses a malformed set; the orchestrator ends the session done only when a report was saved and every
  * line holds. No model grades anything: these are the agent's own claims, checked against what the session did.
  */
-import { z } from "zod";
+import { AcceptanceResult, type AcceptanceResultT } from "./acceptance-result";
+import { platformTools } from "./tools";
 
-export const AcceptanceResult = z.object({
-  line: z.number().int().min(1).max(30),
-  met: z.boolean(),
-  /** A heading of the report this session saved with save_report (its words, without the #), where the line is shown. */
-  reportSection: z.string().trim().min(1).max(200).optional(),
-  /** The outside tool call that did it, by tool name ("send_mail", or "platform_mail:send_mail"); never a platform tool. */
-  tool: z.string().trim().min(1).max(100).optional(),
-});
-export type AcceptanceResultT = z.infer<typeof AcceptanceResult>;
+export { AcceptanceResult, type AcceptanceResultT };
+
+/**
+ * Platform tool names an agent may cite bare for an outside call of the same name (gmail's send_message and
+ * list_messages): a bare citation of one of these is judged by the session, which knows which connector ran.
+ */
+export const SHARED_WITH_OUTSIDE: ReadonlySet<string> = new Set(["list_messages", "send_message"]);
+/** Tools that never stand behind a line (`unmetAcceptanceLines` sees outside tools only): cited, they are refused. */
+const INSIDE_CONNECTORS = new Set(["platform", "quarantine"]);
+const PLATFORM_TOOL_NAMES = new Set<string>(platformTools.map((t) => t.name).filter((n) => !SHARED_WITH_OUTSIDE.has(n)));
+const isInsideTool = (name: string): boolean => {
+  const k = toolKeys(name);
+  return k.connector ? INSIDE_CONNECTORS.has(k.connector) : PLATFORM_TOOL_NAMES.has(k.bare);
+};
 
 /** The acceptance lines of a task that is not code: its sentences, in order (a code task's are checked by its tests). */
 export function acceptanceLines(task: { kind: string; acceptance: unknown }): string[] {
@@ -47,6 +53,8 @@ export function acceptanceRefusal(lines: readonly string[], results: readonly Ac
     if (seen.has(r.line)) return `line ${r.line} has more than one result`;
     seen.add(r.line);
     if (r.met && !r.reportSection && !r.tool) return `line ${r.line} is marked met without saying where: give the reportSection of your report or the tool that did it`;
+    // Refused here, not only left unmet at the end: the agent can still cite its report in the same turn.
+    if (r.met && r.tool && isInsideTool(r.tool)) return `line ${r.line} cites ${r.tool}, a tool inside the project, which never counts as where a line shows: give the reportSection of your report that shows it (or an outside tool that did it)`;
     if (r.reportSection && !sections.has(squash(r.reportSection.replace(/^#+\s*/, "")))) return `line ${r.line} cites the section "${r.reportSection}", which is not a heading of the report you saved`;
   }
   const missing = lines.map((_, i) => i + 1).filter((i) => !seen.has(i));

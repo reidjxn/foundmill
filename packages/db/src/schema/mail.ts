@@ -1,7 +1,9 @@
 /** 0078 — a project's Foundmill sending address: one row per business, its local part kept once chosen. */
-import { index, integer, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { bigint, boolean, char, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import type { OwnDomainRecord } from "@foundmill/shared";
 import { authUsers } from "drizzle-orm/supabase";
-import { id, timestamps } from "./_common";
+import { emptyList, id, timestamps } from "./_common";
 import { businessId } from "./_refs";
 
 export const PROJECT_MAIL_STATUSES = ["active", "paused"] as const;
@@ -57,3 +59,44 @@ export const projectPostalAddresses = pgTable(
   (t) => [uniqueIndex("project_postal_addresses_business_id_key").on(t.businessId), index("project_postal_addresses_updated_by_idx").on(t.updatedBy)],
 );
 export type ProjectPostalAddress = typeof projectPostalAddresses.$inferSelect;
+
+export const PROJECT_DOMAIN_STATUSES = ["pending", "verified"] as const;
+export const PROJECT_DOMAIN_SOURCES = ["own", "registered"] as const;
+export type ProjectDomainStatus = (typeof PROJECT_DOMAIN_STATUSES)[number];
+
+/**
+ * 0147 — a project's own domain (WP-08 domain plan, Path B). Members read; only the services write (the api, after the
+ * gateway added or checked the domain at SendGrid). A domain is verified by one real project at most; members read the
+ * display columns only (a column grant), never SendGrid's id or `added_by`.
+ */
+export const projectDomains = pgTable(
+  "project_domains",
+  {
+    id: id(),
+    businessId: businessId(),
+    domain: text("domain").notNull(),
+    senderLocalPart: text("sender_local_part").notNull().default("hello"),
+    /** Null only for a registered domain between OpenSRS's registration and SendGrid's authentication (0148). */
+    sendgridDomainId: text("sendgrid_domain_id"),
+    records: jsonb("records").$type<OwnDomainRecord[]>().notNull().default(emptyList),
+    status: text("status", { enum: PROJECT_DOMAIN_STATUSES }).notNull().default("pending"),
+    simulated: boolean("simulated").notNull().default(false),
+    checkedAt: timestamp("checked_at", { withTimezone: true }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    addedBy: uuid("added_by").references(() => authUsers.id, { onDelete: "set null" }),
+    /** 0148: `registered` when Foundmill registered it for the founder on OpenSRS (Path A). */
+    source: text("source", { enum: PROJECT_DOMAIN_SOURCES }).notNull().default("own"),
+    registrarOrderId: text("registrar_order_id"),
+    registeredAt: timestamp("registered_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** What the founder was shown for a year, USD cents (an Estimate). */
+    priceMinor: bigint("price_minor", { mode: "number" }),
+    currency: char("currency", { length: 3 }).notNull().default("USD"),
+    /** The founder whose own inbox gets a copy of mail to the domain, after they turned it on. */
+    forwardingUserId: uuid("forwarding_user_id").references(() => authUsers.id, { onDelete: "set null" }),
+    forwardingOptedInAt: timestamp("forwarding_opted_in_at", { withTimezone: true }),
+    ...timestamps(),
+  },
+  (t) => [index("project_domains_forwarding_user_id_idx").on(t.forwardingUserId), uniqueIndex("project_domains_business_id_key").on(t.businessId), uniqueIndex("project_domains_verified_domain_key").on(t.domain).where(sql`status = 'verified' and not simulated`), index("project_domains_added_by_idx").on(t.addedBy)],
+);
+export type ProjectDomain = typeof projectDomains.$inferSelect;

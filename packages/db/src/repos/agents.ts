@@ -4,7 +4,7 @@
  */
 import { AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_STOP_REASONS, AGENT_VERSION_STATES, MODEL_KEYS, personaByKey, pickPersonaKeys, uuid, ValidationError, type AgentPauseReason, type AgentStatus } from "@foundmill/shared";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentMetrics, agentSessions, agentVersions, agents, businesses, CREATED_BY_KINDS, departments, tasks, type Agent, type AgentMetric, type AgentSession, type AgentVersion } from "../schema";
 import { assertAgentsOwned, assertDepartmentsOwned } from "./_refs";
@@ -721,6 +721,22 @@ export const agentsRepo = {
   },
 
   // sessions ----------------------------------------------------------------------------------------------------------
+  /**
+   * The average cost (US cents, an Estimate) of the latest `limit` finished sessions of agents of `agentType` in this
+   * business that cost anything, and how many there were; null with none (WP-14 T1: the reserve before a session starts).
+   */
+  async recentSessionCost(db: Executor, businessId: string, agentType: string, limit: number): Promise<{ averageMinor: number | null; sessions: number }> {
+    const rows = await db
+      .select({ costMinor: agentSessions.costMinor })
+      .from(agentSessions)
+      .innerJoin(agents, eq(agents.id, agentSessions.agentId))
+      .where(and(eq(agentSessions.businessId, businessId), eq(agents.agentType, agentType), isNotNull(agentSessions.endedAt), gt(agentSessions.costMinor, 0)))
+      .orderBy(desc(agentSessions.endedAt))
+      .limit(Math.max(1, Math.min(200, Math.floor(limit))));
+    if (rows.length === 0) return { averageMinor: null, sessions: 0 };
+    return { averageMinor: rows.reduce((sum, r) => sum + Number(r.costMinor), 0) / rows.length, sessions: rows.length };
+  },
+
   async listSessions(db: Executor, businessId: string, filter: { agentId?: string; taskId?: string; openOnly?: boolean } & PageInput = {}): Promise<Page<AgentSession>> {
     const p = parseInput(PageInput, filter, "page");
     const ks = timeKeyset<AgentSession>(agentSessions.startedAt, agentSessions.id, (r) => ({ at: r.startedAt, id: r.id }));

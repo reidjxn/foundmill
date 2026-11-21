@@ -215,7 +215,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
               icon: Route,
               text: (
                 <>
-                  Your journey starts on day one. Press Continue to run the first <Term id="cycle">cycle</Term>: the team works for a while, then reports back in the Inbox.
+                  Your journey starts on day one. Press Continue to run the first <Term id="cycle">round of work</Term>: the team works for a while, then reports back in the Inbox.
                 </>
               ),
             }

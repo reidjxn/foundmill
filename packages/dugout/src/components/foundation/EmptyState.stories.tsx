@@ -15,7 +15,7 @@ const meta = {
       },
     },
   },
-  args: { icon: Inbox, children: "Inbox items appear here after the first cycle. Press Space to continue." },
+  args: { icon: Inbox, children: "Inbox items appear here after the first round of work. Press Space to continue." },
   argTypes: { icon: { control: false }, tone: { control: "select", options: ["neutral", "kit", ...DEPT_COLOUR_TOKENS] } },
 } satisfies Meta<typeof EmptyState>;
 export default meta;
@@ -27,7 +27,7 @@ export const WithAction: Story = {
     icon: Users,
     tone: "dept-1",
     title: "No agents yet",
-    children: "Hire your first agent and the Chief of Staff will plan the first cycle.",
+    children: "Hire your first agent and the Chief of Staff will plan the first round of work.",
     action: { label: "Hire agent", icon: Plus },
   },
 };

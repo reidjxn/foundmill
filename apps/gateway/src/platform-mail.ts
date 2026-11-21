@@ -25,7 +25,8 @@
  * is not shared (no Redis, or Redis down and the store counting in this process's memory) caps nothing, so the send is
  * refused until Redis answers. A count is given back when a later guard refuses, or the vendor refused outright (a 4xx:
  * nothing went out); after a timeout or a 5xx the message may have gone, so it stays counted. The sender is
- * `<project name> via <APP_NAME>` (`platformMailSenderName`). The envelope (sender, Reply-To, unsubscribe link, signed
+ * `<project name> via <APP_NAME>` (`platformMailSenderName`), from the project's own domain once it is verified there
+ * (`project_domains`), with the Foundmill address as Reply-To so replies still arrive. The envelope (sender, Reply-To, unsubscribe link, signed
  * custom args, which cover the recipient) reaches the connector in `ToolContext.platformMail`, never through the agent's
  * arguments. Every refusal is a deny with its own policy id and a plain sentence (packages/shared `PLATFORM_MAIL_REFUSALS`), audited like any deny;
  * an approval used for a refused call is given back by the pipeline.
@@ -258,6 +259,8 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
   const messageRef = randomUUID();
   const email = platformMailAddress(row.localPart, domain);
   const { projectName, fromName } = platformMailSenderName(input.business.name, row.localPart);
+  // The project's own domain, once verified (WP-08 domain plan, Path B): From is there, replies still come back here.
+  const own = await repos.projectDomains.sendingFrom(deps.db, businessId, { live: input.mode === "live" });
   return {
     ok: true,
     prepared: {
@@ -266,7 +269,7 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
       mailClass,
       release,
       envelope: {
-        from: { email, name: fromName },
+        ...(own ? { from: { email: own.email, name: fromName }, replyTo: { email, name: fromName } } : { from: { email, name: fromName } }),
         projectName,
         messageRef,
         unsubscribeUrl: platformUnsubscribeUrl(config.unsubscribeBase, platformUnsubscribeToken(secret, businessId, recipientHash)),

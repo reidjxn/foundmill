@@ -66,7 +66,7 @@ export function AutopilotChip({ state, label, detail, nextAt, onClick, guide, cl
       {hasNext ? (
         <span className="inline-flex items-center gap-1.5 text-small text-secondary" data-autopilot-next="">
           <span>
-            Next cycle{" "}
+            Next round of work{" "}
             <ProvenanceChip kind="estimate" className="tabular-nums text-primary">
               {formatDateShort(nextAt)}, {formatTime(nextAt)}
             </ProvenanceChip>
