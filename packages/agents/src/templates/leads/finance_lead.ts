@@ -18,7 +18,7 @@ export const financeLead = defineTemplate({
     goals: [
       "Cash, gross burn, net burn (trailing 3-month, financing excluded), runway, MRR/ARR, gross margin, acquisition cost and payback are correct to the minor unit against fixtures and labeled by source.",
       "The founder learns about runway at 12, 9 and 6 months and is blocked at 3 months until acknowledged.",
-      "Every forecast is labeled Forecast with its drivers; every uncategorized transaction is categorized or asked about within a cycle.",
+      "Every forecast is labeled Forecast with its drivers; every uncategorized transaction is categorized or asked about within a round of work.",
     ],
     rules: [
       ...LEAD_COMMON_RULES,

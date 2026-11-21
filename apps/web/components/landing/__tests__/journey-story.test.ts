@@ -212,7 +212,7 @@ describe("Tutorlane", () => {
 });
 
 describe("Glitchwick", () => {
-  it("reads whole in the narrowest places: chapter titles on the Ribbon's day card and the cycle 1 plan's rows", () => {
+  it("reads whole in the narrowest places: chapter titles on the Ribbon's day card and the round of work 1 plan's rows", () => {
     // The day card puts the chapter title beside a date such as "Wed 24 Sep 2025" (measured in Chromium at 1280 px).
     for (const title of GLITCHWICK.journey.chapterTitles) expect(title.length, title).toBeLessThanOrEqual(17);
     for (const p of GLITCHWICK.howItWorks.firstCyclePlan) expect(p.task.length, p.task).toBeLessThanOrEqual(27);

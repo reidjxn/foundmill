@@ -266,7 +266,7 @@ describe("SquadScreen", () => {
     const loan = await screen.findByTestId("loan-dialog");
     expect(within(loan).getByRole("button", { name: "Lend" })).toBeTruthy();
     // The consequence follows the choice: lending keeps everything; moving changes the line manager. Both reversible.
-    expect(within(loan).getByTestId("loan-consequence").textContent).toBe("It joins the other department from the next cycle and keeps its tasks, skills, tools and model.·Reversible");
+    expect(within(loan).getByTestId("loan-consequence").textContent).toBe("It joins the other department from the next round of work and keeps its tasks, skills, tools and model.·Reversible");
     await user.click(within(loan).getByRole("combobox", { name: "To department" }));
     await user.click(await screen.findByRole("option", { name: "Development" }));
     await user.click(within(loan).getByRole("checkbox", { name: /Move instead of lending/ }));

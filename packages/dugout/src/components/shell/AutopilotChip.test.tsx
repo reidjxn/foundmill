@@ -5,7 +5,7 @@ import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { AUTOPILOT_GUIDE_LINE, AutopilotChip } from "./AutopilotChip";
 
 describe("AutopilotChip", () => {
-  it("says the state in words and shows the next planned cycle with the Estimate tag", () => {
+  it("says the state in words and shows the next planned round of work with the Estimate tag", () => {
     render(<AutopilotChip state="on" label="On" nextAt="2026-10-14T15:45:00.000Z" />);
     const chip = screen.getByTestId("autopilot-chip");
     expect(chip.getAttribute("data-autopilot-state")).toBe("on");
@@ -15,7 +15,7 @@ describe("AutopilotChip", () => {
     expect(chip.querySelector("[data-provenance='estimate']")).toBeTruthy();
   });
 
-  it("leaves the next cycle out while paused or off (no forecast to show)", () => {
+  it("leaves the next round of work out while paused or off (no forecast to show)", () => {
     const { rerender } = render(<AutopilotChip state="paused" label="Paused: credits used up" nextAt="2026-10-14T15:45:00.000Z" />);
     expect(screen.getByTestId("autopilot-chip").querySelector("[data-autopilot-next]")).toBeNull();
     expect(screen.getByTestId("autopilot-chip").textContent).toContain("Paused: credits used up");
@@ -33,7 +33,7 @@ describe("AutopilotChip", () => {
   });
 
   it("defines the word Autopilot in the guided sentence, never inside the chip's own button", () => {
-    const terms = { autopilot: { id: "autopilot", word: "Autopilot", short: "The business starts its own cycles on a schedule instead of waiting for you to press Continue." } };
+    const terms = { autopilot: { id: "autopilot", word: "Autopilot", short: "The business starts its own rounds of work on a schedule instead of waiting for you to press Continue." } };
     const { container } = render(
       <GuidanceProvider value={{ terms }}>
         <AutopilotChip state="on" label="On" guide onClick={() => {}} />

@@ -33,6 +33,7 @@ import { siteSlugProblem, sitesDomain } from "@foundmill/shared/sites";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { awardPageLiveMilestone, markBilling, repos, showsBuiltOnMark, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
+  pageIsListed,
   AppError,
   FOLLOW_ERRORS,
   FOLLOW_TURNSTILE_ACTION,
@@ -106,6 +107,8 @@ export interface PageView {
   mark: boolean;
   /** Whether Follow can confirm an address here (platform mail live, or a development or test stack). */
   followAvailable: boolean;
+  /** The owner's opt-in to the public gallery (`/explore`, 0149); it shows only while the page is live. */
+  explore: boolean;
 }
 
 /** `page.publish`'s answer: published, or held with the reason and its sentence (the page stays as it was). */
@@ -162,6 +165,7 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     followers,
     mark: await showsBuiltOnMark(ctx.db, ctx.business, markBilling(ctx.env)),
     followAvailable: followAvailable(ctx.env),
+    explore: row?.exploreListed ?? false,
   };
 }
 
@@ -262,6 +266,21 @@ export async function publishPage(ctx: BusinessContext, input: { content: PageCo
   return { outcome: "published", page };
 }
 
+/**
+ * `page.setExplore`: puts the page in the public gallery or takes it out (0149), by an owner's or an admin's own press.
+ * Needs a saved page; it shows in the gallery only while the page is live.
+ */
+export async function setPageExplore(ctx: BusinessContext, input: { listed: boolean }): Promise<PageView> {
+  if (ctx.business.isDemo) throw sampleRefusal();
+  if (!canPublishPage(ctx)) throw new ForbiddenError(PAGE_PUBLISH_ROLE_MESSAGE);
+  return ctx.rls(async (tx) => {
+    const row = await repos.pages.setExplore(tx, ctx.businessId, input.listed);
+    if (!row) throw new ValidationError("Save your page first, then you can put it in the gallery.", { field: "explore" });
+    await audit(tx, ctx, { action: "page.explore_set", target: { kind: "project_page", id: row.id }, details: { listed: input.listed } });
+    return viewOf(tx, ctx, row);
+  });
+}
+
 /** `page.unpublish`: takes the page down (the draft stays). Taking down a page that is not live changes nothing. */
 export async function unpublishPage(ctx: BusinessContext): Promise<PageView> {
   if (!canPublishPage(ctx)) throw new ForbiddenError(PAGE_PUBLISH_ROLE_MESSAGE);
@@ -302,6 +321,10 @@ export interface PublicPageView {
   forWhom: string;
   stage: PageContent["stage"];
   publishedAt: Date;
+  /** When the published copy last changed (0119): the page's `dateModified` and "Updated" line. */
+  updatedAt: Date;
+  /** Whether search engines may list the page (`pageIsListed`); a page that is not listed is still public. */
+  listed: boolean;
   brandPrimary: string;
   brandSecondary: string;
   /** The logo as a `data:` URL, or null for the initials mark. */
@@ -399,6 +422,8 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     forWhom,
     stage,
     publishedAt: page.publishedAt,
+    updatedAt: page.updatedAt,
+    listed: pageIsListed({ name: page.name, content: page.content }).listed,
     brandPrimary: page.brandPrimary,
     brandSecondary: page.brandSecondary,
     logo,
@@ -408,6 +433,25 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     mark: planTier ? await showsBuiltOnMark(ctx.db, planTier, markBilling(ctx.env)) : tierShowsBuiltOnMark("free"),
     story,
   };
+}
+
+/** The gallery's size: the newest projects that opted in. */
+export const EXPLORE_LIMIT = 48;
+
+/** `publicPage.explore`: the gallery, under the same per-caller limit as a page view. Only pages whose owners opted in and that are live. */
+export async function publicExplore(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }) {
+  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PUBLIC_PAGE_LIMITS.perCaller }]);
+  return { projects: await repos.pages.public.explore(ctx.db, EXPLORE_LIMIT) };
+}
+
+/**
+ * Listed pages for the sitemap (`publicPage.listed`; WP-08 T7): address, last change and whether there is a story,
+ * paged by address. Rate-limited per caller like a page view, and only what the founders published and the listing
+ * rule lets through, so it lists nothing that is not already meant to be found.
+ */
+export async function publicListedPages(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, input: { cursor?: string | null; limit: number }) {
+  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PUBLIC_PAGE_LIMITS.perCaller }]);
+  return repos.pages.public.listed(ctx.db, { cursor: input.cursor ?? null, limit: input.limit });
 }
 
 /**

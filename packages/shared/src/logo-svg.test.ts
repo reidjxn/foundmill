@@ -260,7 +260,7 @@ describe("sanitiseSvg: render cost (use, mask and clip-path chains)", () => {
     }
   });
 
-  it("refuses reference cycles (use, gradients)", () => {
+  it("refuses reference rounds of work (use, gradients)", () => {
     expect(sanitiseSvg(wrap('<g id="a"><rect width="1" height="1"/><use href="#a"/></g>'))).toMatchObject({ ok: false, reason: expect.stringMatching(/loop/) });
     expect(sanitiseSvg(wrap('<defs><g id="b"><use href="#c"/></g><g id="c"><use href="#b"/></g></defs><use href="#b"/><rect width="1" height="1"/>'))).toMatchObject({ ok: false, reason: expect.stringMatching(/loop/) });
     expect(sanitiseSvg(wrap('<defs><linearGradient id="g1" href="#g2"/><linearGradient id="g2" href="#g1"/></defs><rect width="1" height="1" fill="url(#g1)"/>'))).toMatchObject({ ok: false, reason: expect.stringMatching(/loop/) });

@@ -28,6 +28,10 @@ export interface PlatformSecrets {
   stripeConnectClientId?: string;
   stripeConnectSecretKey?: string;
   sendgridApiKey?: string;
+  /** OpenSRS reseller username and API key (the `opensrs` connector), and which of its two hosts: test or live. */
+  opensrsUsername?: string;
+  opensrsApiKey?: string;
+  opensrsEnv?: string;
   sendgridWebhookPublicKey?: string;
   /** Shared token the Inbound Parse URL carries as `?token=`; Inbound Parse has no signature scheme. */
   sendgridInboundToken?: string;
@@ -82,6 +86,9 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   set("stripeConnectClientId", env.STRIPE_CONNECT_CLIENT_ID);
   set("stripeConnectSecretKey", env.STRIPE_CONNECT_SECRET_KEY);
   set("sendgridApiKey", env.SENDGRID_API_KEY);
+  set("opensrsUsername", env.OPENSRS_USERNAME);
+  set("opensrsApiKey", env.OPENSRS_API_KEY);
+  set("opensrsEnv", env.OPENSRS_ENV);
   set("sendgridWebhookPublicKey", env.SENDGRID_WEBHOOK_PUBLIC_KEY);
   set("sendgridInboundToken", env.SENDGRID_INBOUND_TOKEN);
   set("githubAppId", env.GITHUB_APP_ID);

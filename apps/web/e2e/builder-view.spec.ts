@@ -23,7 +23,7 @@ async function openTab(page: Page, href: string, module: string): Promise<void> 
   await settled(page);
 }
 
-const ENGINE_WORDS = /\bcycle \d+\b|\b\d[\d,.]*K? tokens\b|\bETA\b|\b\d+ (?:of \d+ )?tests? passed\b/i;
+const ENGINE_WORDS = /\b(?:cycle|round of work) \d+\b|\b\d[\d,.]*K? tokens\b|\bETA\b|\b\d+ (?:of \d+ )?tests? passed\b/i;
 
 test.describe("Builder view", () => {
   test("off: the founder's tabs, no links to the engine tabs, and the gate on a URL visit", async ({ page }) => {
@@ -82,7 +82,7 @@ test.describe("Builder view", () => {
   test("off: What changed and Live product read in the founder's words, with no PR numbers, branches or commits", async ({ page }) => {
     await openBusiness(page);
     // The Live feed on Home names no cycle and no pull request number.
-    await expect(page.getByTestId("app-shell")).not.toContainText(/\bCycle \d+|Merged PR #\d+/);
+    await expect(page.getByTestId("app-shell")).not.toContainText(/\b(?:Cycle|Round of work) \d+|Merged PR #\d+/);
     const dev = departmentBase("development");
 
     await openTab(page, `${dev}/pull-requests`, "development/pull-requests");

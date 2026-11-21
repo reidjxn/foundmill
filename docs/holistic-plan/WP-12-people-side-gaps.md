@@ -183,7 +183,7 @@ Done when: Done-when 6, and `git diff origin/main origin/claude/zealous-rubin-8q
 ### T8: The app prompt on public pages and the universal-link files            [S] [ships alone, after WP-03 T9; values need the founder]
 - [x] merged
 
-Why: A9-P2-1; CLAUDE.md "Small screens" (after launch a public page "still shows its content with a prompt to get the app, through one config value"); `docs/mobile/BACKEND_CHANGES.md` §5 (the two files do not exist).
+Why: A9-P2-1; FOUNDMILL.md "Small screens" (after launch a public page "still shows its content with a prompt to get the app, through one config value"); `docs/mobile/BACKEND_CHANGES.md` §5 (the two files do not exist).
 Who does which half: WP-03 T9 adds the one value (`NEXT_PUBLIC_STORE_LINKS`), its parser, `PublicEnv.storeLinks`, the `GetTheApp` component and its first readers (the wall's controls and the landing footer), and leaves the signed-in handover as a commented branch in `DesktopOnly`. This task passes the links to the four public page kinds and adds the two files.
 Files: create `apps/web/components/shell/PublicAppPrompt.tsx`, `apps/web/components/shell/__tests__/public-app-prompt.test.tsx`, `apps/web/lib/app-links.server.ts`, `apps/web/app/.well-known/apple-app-site-association/route.ts`, `apps/web/app/.well-known/assetlinks.json/route.ts`, `apps/web/app/__tests__/well-known.test.ts`. Modify `.env.example`, `docs/DEPLOY.md`, and one line each in `apps/web/app/p/[slug]/page.tsx`, `apps/web/app/u/[handle]/page.tsx`, `apps/web/app/m/[id]/page.tsx`, `apps/web/app/i/[token]/page.tsx`.
 Interfaces: consumes `publicEnv().storeLinks`, `StoreLinks`, `GetTheApp({ links, className })` (WP-03 T9: `packages/config/src/app-links.ts`, `packages/dugout/src/components/public/GetTheApp.tsx`), `useViewportWidth` and `isViewportTooSmall` (as `DesktopOnly` uses them). Produces `PublicAppPrompt()` (client; renders `GetTheApp` only when links are set and the window is small) and `appLinks(env): { iosAppId: string | null; android: { packageName: string; sha256: string[] } | null }` from the server values `APP_LINKS_IOS_APP_ID` (`<Team ID>.com.foundmill.app`), `APP_LINKS_ANDROID_PACKAGE`, `APP_LINKS_ANDROID_SHA256`.
@@ -268,7 +268,7 @@ Not re-decided here, and cited where used: no public counts and no ranking (NETW
 ## Starting prompt
 
 ```
-You are executing docs/holistic-plan/WP-12-people-side-gaps.md in the Foundmill repo. Read, in this order: CLAUDE.md;
+You are executing docs/holistic-plan/WP-12-people-side-gaps.md in the Foundmill repo. Read, in this order: FOUNDMILL.md;
 docs/holistic-plan/README.md (the rules for executing a work package); the work package; then, for the task you are
 on, the audit sections it cites under docs/holistic-plan/audits/ and the package CLAUDE.md files for the code you touch.
 docs/NETWORK.md §10 (the solo guard) and §15 (what not to build) bind every task.

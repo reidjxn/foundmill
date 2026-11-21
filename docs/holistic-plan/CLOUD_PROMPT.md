@@ -17,13 +17,13 @@ The plan and the skills must be in the checkout before you start. Check for all 
 - docs/holistic-plan/README.md, OUTLINE.md, WP-00 to WP-12, audits/ and skills/
 - .claude/skills/karpathy-guidelines/SKILL.md and .claude/skills/THIRD_PARTY_NOTICES.md
 
-If they are in the checkout (the branch claude/holistic-review-plan was pushed or merged), carry on. If they were uploaded to this session instead, put each file at the path above, unchanged, and make that your first pull request, titled "Docs: holistic review, plan and session skills", together with the CLAUDE.md change it describes (the outside-skills rule replaced, the Karpathy guidelines added). If any of them is missing and was not uploaded, stop and say which, because every later step cites them.
+If they are in the checkout (the branch claude/holistic-review-plan was pushed or merged), carry on. If they were uploaded to this session instead, put each file at the path above, unchanged, and make that your first pull request, titled "Docs: holistic review, plan and session skills", together with the FOUNDMILL.md change it describes (the outside-skills rule replaced, the Karpathy guidelines added). If any of them is missing and was not uploaded, stop and say which, because every later step cites them.
 
 ## Step 1: read before you build
 
 Read in this order, in full:
 
-1. CLAUDE.md. It wins over everything else here, including this prompt, except where the founder says otherwise in this session.
+1. FOUNDMILL.md. It wins over everything else here, including this prompt, except where the founder says otherwise in this session.
 2. .claude/skills/karpathy-guidelines/SKILL.md. It governs every change you make.
 3. docs/HOLISTIC_PLAN.md, then docs/holistic-plan/README.md and docs/holistic-plan/OUTLINE.md. The outline settles which package owns a change when two files disagree.
 4. docs/HOLISTIC_REVIEW.md for the reasons.
@@ -42,7 +42,7 @@ They are in .claude/skills/ and load by plain name.
 - Repo skills for their cases: new-event, new-connector, new-screen, new-agent-template, rls-test, gate.
 - Copy and pages: copywriting, copy-editing, humanizer, onboarding, signup, cro, emails, launch, pricing, product-marketing. Public pages: schema, ai-seo, seo-technical, seo-schema, seo-geo, seo-agentic, seo-page. UI: frontend-design and design-taste-frontend, always under docs/DESIGN.md.
 
-Where a copied skill disagrees with CLAUDE.md, docs/DESIGN.md or docs/DECISIONS.md, the repo's documents win. In particular, no skill's merge step applies here: you never merge.
+Where a copied skill disagrees with FOUNDMILL.md, docs/DESIGN.md or docs/DECISIONS.md, the repo's documents win. In particular, no skill's merge step applies here: you never merge.
 
 ## The order
 
@@ -94,7 +94,7 @@ The founder merges on their own schedule, so do not stop at the first open pull 
 - Change anything in production, or read, print or commit a secret.
 - Start a task marked as waiting for a WP-00 step, a go-ahead or a founder decision. Build the code path behind its switch with the mock passing, and stop there. Each package's "Decisions for the founder" section says what each decision blocks and gives a recommended default; where the package says the default may be built, build the default and flag it.
 - Re-decide anything recorded in docs/DECISIONS.md. Find entries with node scripts/decisions-index.mjs <words> and cite them by date and title.
-- Break the product rules in CLAUDE.md: solo is complete, people are an offer, the subtext rule, the product vocabulary, US English and US dates, no vendor call outside apps/gateway, no simulated result reported as done, every non-real number labeled Forecast or Estimate.
+- Break the product rules in FOUNDMILL.md: solo is complete, people are an offer, the subtext rule, the product vocabulary, US English and US dates, no vendor call outside apps/gateway, no simulated result reported as done, every non-real number labeled Forecast or Estimate.
 
 ## Keeping track across a long session
 

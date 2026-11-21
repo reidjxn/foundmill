@@ -84,7 +84,7 @@ export const PROCESSING_LINE_MIN_PX = 11;
 export function processingLineText(segments: readonly ProcessingSegment[], active: boolean, cycleNumber?: number | null, builder = false): string {
   const working = active ? segments.filter((s) => s.active).length : 0;
   if (working < 3) return processingStatusText(segments, active, cycleNumber, builder);
-  const on = builder && typeof cycleNumber === "number" && cycleNumber > 0 ? ` on cycle ${cycleNumber}` : "";
+  const on = builder && typeof cycleNumber === "number" && cycleNumber > 0 ? ` on round of work ${cycleNumber}` : "";
   return `${working} departments are working${on}`;
 }
 

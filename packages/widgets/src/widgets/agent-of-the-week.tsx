@@ -78,7 +78,7 @@ function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>)
       title="Agent of the week"
       data-widget="agent_of_the_week"
       queries={[team]}
-      empty={team.data && !agent ? { icon: Award, text: <>The first agent of the week is named after the team's first <Term id="cycle">cycle</Term>.</> } : null}
+      empty={team.data && !agent ? { icon: Award, text: <>The first agent of the week is named after the team's first <Term id="cycle">round of work</Term>.</> } : null}
       footer={
         <span>
           {PICK_WORD[settings.by]} · <Term id="wage">wage</Term> is an estimate of tokens, sandbox minutes and tool costs

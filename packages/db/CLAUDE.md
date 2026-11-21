@@ -14,7 +14,7 @@ Owns the Drizzle schema, the SQL migrations, RLS, the repositories (`repos`), th
 - Audit log: `repos.audit.append(...)` keeps the hash chain; no update or delete grants.
 - Money is `{ amountMinor, currency }`; amounts in different currencies are never added together.
 - Events go through the outbox in the caller's transaction (`writeEvent` / `writeAccountEvent` in `@foundmill/events`). An account-scoped type never goes into `events` (check `events_not_account_scoped`; `repos.events.write` refuses it).
-- People are free: no plan limit on cofounders or collaborators (root CLAUDE.md).
+- People are free: no plan limit on cofounders or collaborators (root FOUNDMILL.md).
 
 ## Read when needed
 - docs/ARCHITECTURE.md §4 Database (helpers, repos, per-table contracts for 0064–0085, migrations, tests, money, seeds), §5 Events for account events, §15 Testing. Lines are very long: grep for the section heading and read only that section, never the whole file.

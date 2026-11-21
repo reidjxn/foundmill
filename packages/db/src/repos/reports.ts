@@ -38,7 +38,8 @@ export interface OpenReport {
   targetKind: Report["targetKind"];
   reason: Report["reason"];
   note: string | null;
-  reporterUserId: string;
+  /** Null once the reporter closed their account. */
+  reporterUserId: string | null;
   reporterName: string | null;
   targetUserId: string | null;
   targetName: string | null;
@@ -163,7 +164,7 @@ export const reportsRepo = {
       reason: r.reason,
       note: r.note,
       reporterUserId: r.reporterUserId,
-      reporterName: byUser.get(r.reporterUserId)?.name ?? null,
+      reporterName: r.reporterUserId ? (byUser.get(r.reporterUserId)?.name ?? null) : null,
       targetUserId: r.targetUserId,
       targetName: r.targetUserId ? (byUser.get(r.targetUserId)?.name ?? null) : null,
       targetHandle: r.targetUserId ? (byUser.get(r.targetUserId)?.handle ?? null) : null,

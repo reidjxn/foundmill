@@ -111,7 +111,7 @@ describe("writing and publishing", () => {
     // Signed out: exactly what the page shows.
     const anon = hz.caller(null);
     const pub = await anon.publicPage.bySlug({ slug: live.slug });
-    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [], followForm: true, mark: true, story: false });
+    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, updatedAt: live.publishedAt, listed: false, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [], followForm: true, mark: true, story: false });
     // The mark is the free plan's: a paid plan removes it, for the visitor and in the founders' own view (docs/NETWORK.md F2).
     expect((await b.owner.page.get({ businessId: b.id })).mark).toBe(true);
     await repos.businesses.update(hz.db, b.id, { planTier: "pro" });
@@ -202,6 +202,26 @@ describe("writing and publishing", () => {
   });
 });
 
+describe("the gallery (publicPage.explore; 0149)", () => {
+  it("lists a live page only after an owner or an admin opts in, and a member, a viewer and a sample business cannot", async () => {
+    const b = await project("Gallery Candles");
+    const gallery = async () => (await hz.caller(null).publicPage.explore()).projects.map((p) => p.slug);
+    expect(await code(b.owner.page.setExplore({ businessId: b.id, listed: true }))).toBe("BAD_REQUEST"); // no page saved yet
+    await b.owner.page.publish({ businessId: b.id, content: page() });
+    const slug = (await b.owner.page.get({ businessId: b.id })).slug;
+    expect(await gallery()).not.toContain(slug);
+    for (const who of [b.member, b.viewer]) expect(await code(who.page.setExplore({ businessId: b.id, listed: true }))).toBe("FORBIDDEN");
+    expect((await b.admin.page.setExplore({ businessId: b.id, listed: true })).explore).toBe(true);
+    expect((await hz.caller(null).publicPage.explore()).projects.find((p) => p.slug === slug)).toEqual({
+      slug, name: b.name, pitch: page().pitch, stage: "building", brandPrimary: expect.any(String), brandSecondary: expect.any(String), publishedAt: expect.any(Date),
+    });
+    await b.owner.page.unpublish({ businessId: b.id });
+    expect(await gallery()).not.toContain(slug);
+    const demo = await project("Gallery Sample", { demo: true });
+    expect(await code(demo.owner.page.setExplore({ businessId: demo.id, listed: true }))).toBe("CONFLICT");
+  });
+});
+
 describe("the address", () => {
   it("checks the rule, the reserved words and other projects' addresses, in the founder's words", async () => {
     const a = await project("Address A");
@@ -274,6 +294,23 @@ describe("publicPage.bySlug limits", () => {
     expect((await publicPageBySlug({ ...hz.deps, clientAddress: "203.0.113.31" }, live.slug))?.name).toBe(b.name);
     expect(publicPageLimitKeys.caller(hz.deps.env, "203.0.113.30")).not.toContain("203.0.113.30");
     expect(PUBLIC_PAGE_LIMITS.perCaller.limit).toBeGreaterThanOrEqual(300);
+  });
+});
+
+describe("publicPage.listed and the view's listing (WP-08 T7)", () => {
+  it("a short page is public and not listed; a page that says enough is listed, with its last change", async () => {
+    const short = await project("Short Page");
+    const shortSlug = (await short.owner.page.publish({ businessId: short.id, content: page() })).page.slug;
+    const long = await project("Long Page");
+    const longSlug = (await long.owner.page.publish({ businessId: long.id, content: page({ about: "Small batches of candles, poured by hand in Leeds. ".repeat(9) }) })).page.slug;
+    const anon = hz.caller(null);
+    expect(await anon.publicPage.bySlug({ slug: shortSlug })).toMatchObject({ listed: false });
+    const view = await anon.publicPage.bySlug({ slug: longSlug });
+    expect(view).toMatchObject({ listed: true });
+    expect(view!.updatedAt).toBeInstanceOf(Date);
+    const all = await anon.publicPage.listed({ limit: 5000 });
+    expect(all.items.map((i) => i.slug)).toContain(longSlug);
+    expect(all.items.map((i) => i.slug)).not.toContain(shortSlug);
   });
 });
 

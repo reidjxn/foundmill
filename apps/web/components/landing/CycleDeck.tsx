@@ -144,7 +144,7 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
           <span aria-hidden className="mx-1 h-5 w-px bg-kit-on-primary/25" />
           <span className="t-display-md">Home</span>
           <span className="truncate text-small text-kit-on-primary tabular-nums">
-            Cycle {state.phase === "idle" ? state.cycle + 1 : state.cycle} · {currentChapter(todayKey)}
+            Round of work {state.phase === "idle" ? state.cycle + 1 : state.cycle} · {currentChapter(todayKey)}
           </span>
           <span className="flex-1" />
           <RunwayChip date={today} runwayMonths={deck.runwayMonths} estimate />
@@ -207,7 +207,7 @@ function InboxColumn({ business, state, decisionRef, onDecide, onOpenWin }: { bu
           <div className="flex shrink-0 items-center gap-2 rounded-panel border border-subtle/70 bg-panel-alt/60 px-2 py-2.5">
             <Avatar size={24} name={business.chief.name} agent={{ seed: business.chief.seed, dept: business.chief.dept }} status="healthy" />
             <span className="min-w-0 flex-1">
-              <span className="t-body-strong block truncate">Cycle {state.cycle} in progress</span>
+              <span className="t-body-strong block truncate">Round of work {state.cycle} in progress</span>
               <span className="block h-1.5 w-full overflow-hidden rounded-full bg-panel">
                 <span className="block h-full w-1/2 animate-sweep rounded-full bg-kit-primary" />
               </span>
@@ -334,7 +334,7 @@ function LiveColumn({ business, feed, state, progress, paused, onTogglePaused, c
       </ul>
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-subtle px-3 py-3">
         <span className="t-label">
-          This <Term id="cycle">cycle</Term>
+          This <Term id="cycle">round of work</Term>
         </span>
         <dl className="flex flex-col gap-1.5">
           <DeckStat label="Tasks done" value={`${done} of ${t.tasks}`} />

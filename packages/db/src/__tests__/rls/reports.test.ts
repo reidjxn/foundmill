@@ -214,9 +214,9 @@ describe("reports repo", () => {
     ).not.toBeNull();
   });
 
-  it("a deleted reporter takes their reports; a deleted target leaves the report with nobody named", async () => {
+  it("a deleted reporter's report is kept with nobody named; a deleted target leaves the report with nobody named", async () => {
     const dee = await h.createUser("dee@reports.test");
-    await repos.reports.file(db, {
+    const kept = await repos.reports.file(db, {
       reporterUserId: dee,
       targetKind: "person",
       targetUserId: cai,
@@ -233,13 +233,13 @@ describe("reports repo", () => {
       .service()
       .run((tx) => tx.select().from(s.reports).where(eq(s.reports.reporterUserId, cai)));
     expect(rows.filter((r) => r.targetUserId === null)).toHaveLength(1);
-    expect(
-      (
-        await h
-          .service()
-          .run((tx) => tx.select().from(s.reports).where(eq(s.reports.targetUserId, cai)))
-      ).length,
-    ).toBe(0);
+    const about = await h
+      .service()
+      .run((tx) => tx.select().from(s.reports).where(eq(s.reports.targetUserId, cai)));
+    expect(about.map((r) => [r.id, r.reporterUserId])).toEqual([[kept!.id, null]]);
+    // The operator's queue still shows it, as from a closed account.
+    const open = await repos.reports.listOpen(db);
+    expect(open.find((r) => r.id === kept!.id)).toMatchObject({ reporterUserId: null, reporterName: null });
   });
 
   it("a deleted message keeps its report and its words, and never blocks the thread's deletion or the author's", async () => {

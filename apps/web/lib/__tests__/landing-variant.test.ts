@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decideRedirect } from "@/lib/auth/redirects";
-import { CHANNEL_VARIANTS, DEFAULT_LANDING_VARIANT, LANDING_VARIANTS, landingVariant, landingVariantRoute, landingVariantSignal } from "../landing-variant";
+import { CHANNEL_VARIANTS, DEFAULT_LANDING_VARIANT, LANDING_VARIANTS, NUMBERED_LANDING_PAGES, landingVariant, landingVariantRoute, landingVariantSignal, numberedLandingVariant } from "../landing-variant";
 
 describe("landing variants (which page a signed-out `/` serves)", () => {
   it("a link's own lp wins, then the page this browser was given, then the link's channel, then the default", () => {
@@ -49,5 +49,31 @@ describe("decideRedirect: the landing page's variants", () => {
 
   it("a variant's own route is public, so the rewrite is never bounced to sign-in", () => {
     expect(decideRedirect({ pathname: "/lp/builder", authenticated: false })).toEqual({ kind: "next" });
+  });
+});
+
+describe("numbered landing pages (`/1` to `/20`)", () => {
+  it("numbers twenty distinct pages, `/1` being the default", () => {
+    expect(NUMBERED_LANDING_PAGES).toHaveLength(20);
+    expect(new Set(NUMBERED_LANDING_PAGES).size).toBe(20);
+    expect(numberedLandingVariant("/1")).toBe(DEFAULT_LANDING_VARIANT);
+    expect(numberedLandingVariant("/2")).toBe("student");
+    expect(numberedLandingVariant("/20")).toBe("idea-collector");
+  });
+
+  it("names nothing for other paths", () => {
+    for (const p of ["/0", "/21", "/01", "/2/", "/lp/2", "/", "/1a"]) expect(numberedLandingVariant(p)).toBeNull();
+  });
+
+  it("sends a signed-out visitor to `/`, which then serves the numbered page from the cookie", () => {
+    expect(decideRedirect({ pathname: "/1", authenticated: false })).toEqual({ kind: "redirect", to: "/" });
+    expect(decideRedirect({ pathname: "/7", search: "?utm_source=reels&via=abc", authenticated: false })).toEqual({ kind: "redirect", to: "/" });
+    // The redirect's cookie (`fm_lp`, set by proxy.ts) then picks the page at `/`.
+    expect(decideRedirect({ pathname: "/", authenticated: false, landingVariant: numberedLandingVariant("/7") })).toEqual({ kind: "rewrite", to: "/lp/parent" });
+    expect(decideRedirect({ pathname: "/21", authenticated: false })).toEqual({ kind: "next" });
+  });
+
+  it("shows a signed-in person the page in place", () => {
+    expect(decideRedirect({ pathname: "/7", authenticated: true, lastBusinessId: null })).toEqual({ kind: "rewrite", to: "/lp/parent" });
   });
 });

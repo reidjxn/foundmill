@@ -1,7 +1,7 @@
 /** tasks + task_edges — the Development Plan graph (BUILD §11.6; routers dev.tasks.*). */
 import type { PlannedTask } from "@foundmill/models";
 import { PLANNABLE_TASK_STATUSES, TASK_KINDS, TASK_PHASES, TASK_STATUSES, ValidationError, type TaskStatus } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { taskEdges, tasks, type Task, type TaskEdge } from "../schema";
 import { assertAgentsOwned, assertDepartmentsOwned, assertRoadmapItemsOwned } from "./_refs";
@@ -88,6 +88,26 @@ export interface PlanningCandidate extends Task {
 }
 
 export const tasksRepo = {
+  /** The latest tasks finished between two moments (WP-14 T1: the resting note's "what we finished"). */
+  async finishedBetween(db: Executor, businessId: string, input: { from: Date; to: Date; limit: number }): Promise<{ id: string; title: string; founderTitle: string | null }[]> {
+    return db
+      .select({ id: tasks.id, title: tasks.title, founderTitle: tasks.founderTitle })
+      .from(tasks)
+      .where(and(eq(tasks.businessId, businessId), eq(tasks.status, "done"), gte(tasks.endedAt, input.from), lt(tasks.endedAt, input.to)))
+      .orderBy(desc(tasks.endedAt))
+      .limit(input.limit);
+  },
+
+  /** The tasks that would run next: ready before planned, then by priority (the resting note's "what we'd do next"). */
+  async upNext(db: Executor, businessId: string, limit: number): Promise<{ id: string; title: string; founderTitle: string | null }[]> {
+    return db
+      .select({ id: tasks.id, title: tasks.title, founderTitle: tasks.founderTitle })
+      .from(tasks)
+      .where(and(eq(tasks.businessId, businessId), inArray(tasks.status, ["ready", "planned"])))
+      .orderBy(sql`case when ${tasks.status} = 'ready' then 0 else 1 end`, desc(tasks.priority), asc(tasks.createdAt))
+      .limit(limit);
+  },
+
   async list(db: Executor, businessId: string, filter: TaskListFilter = {}): Promise<Page<Task>> {
     const f = parseInput(TaskListFilter, filter, "task filter");
     const ks = timeKeyset<Task>(tasks.createdAt, tasks.id, (r) => ({ at: r.createdAt, id: r.id }));

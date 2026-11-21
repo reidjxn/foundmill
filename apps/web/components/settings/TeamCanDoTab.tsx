@@ -332,7 +332,7 @@ export function TeamCanDoTab() {
         ) : (
           <div className="flex flex-col gap-3">
             <p className="text-body text-secondary">
-              Hand the business to the Chief of Staff: <Term id="cycle">cycles</Term> run on their own, decisions within the authority you set, and what always comes to you waits in the Inbox.
+              Hand the business to the Chief of Staff: <Term id="cycle">rounds of work</Term> run on their own, decisions within the authority you set, and what always comes to you waits in the Inbox.
             </p>
             <div className="flex flex-col gap-1.5">
               <div>

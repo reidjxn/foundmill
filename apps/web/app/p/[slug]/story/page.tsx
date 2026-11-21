@@ -15,9 +15,11 @@ import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
 import { ProjectStory } from "@foundmill/dugout";
 import { pagePath } from "@foundmill/shared/project-page";
+import { storyJsonLd } from "@foundmill/shared/page-structured-data";
 import { storyDescription, storyTitle } from "@foundmill/shared/project-story";
 import { withVia } from "@foundmill/shared/via";
 import { getServerAuth } from "@/lib/auth/server";
+import { JsonLd } from "@/components/public/JsonLd";
 import { publicProjectStory } from "@/lib/public-page.server";
 
 // Read on every request: a milestone hidden, or a page taken down, is gone at once.
@@ -51,15 +53,18 @@ export default async function ProjectStoryRoute({ params }: Props) {
   const member = story.mark ? (await getServerAuth().catch(() => null)) !== null : false;
   const mark = !story.mark ? "none" : member ? "member" : "visitor";
   return (
-    <ProjectStory
-      name={story.name}
-      brandPrimary={story.brandPrimary}
-      brandSecondary={story.brandSecondary}
-      logo={story.logo}
-      milestones={story.milestones}
-      pageHref={pagePath(story.slug)}
-      mark={mark}
-      startHref={withVia("/", { kind: "project_page", ref: story.slug })}
-    />
+    <>
+      <JsonLd data={storyJsonLd({ url: story.pageUrl, storyUrl: story.storyUrl, name: storyTitle(story.name), description: storyDescription(story.name, APP_NAME) }, story.milestones)} />
+      <ProjectStory
+        name={story.name}
+        brandPrimary={story.brandPrimary}
+        brandSecondary={story.brandSecondary}
+        logo={story.logo}
+        milestones={story.milestones}
+        pageHref={pagePath(story.slug)}
+        mark={mark}
+        startHref={withVia("/", { kind: "project_page", ref: story.slug })}
+      />
+    </>
   );
 }
