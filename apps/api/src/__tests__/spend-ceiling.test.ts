@@ -83,7 +83,7 @@ describe("the credits gate on the api's model calls (S2)", () => {
       refusal(owner.plan.preview({ businessId: B, text: "Pause the ads for a week" })),
       refusal(owner.inbox.decide({ businessId: B, itemId: item.id, freeText: "Start the soft launch next Monday" })),
     ]);
-    for (const r of refusals) expect(r).toMatchObject({ code: "PAYMENT_REQUIRED", appCode: "credits_exhausted", message: expect.stringMatching(/^This month's credits are used up, so Foundmill makes no more model calls for this business\. To keep going, add your own Anthropic key in Settings › Keys/) });
+    for (const r of refusals) expect(r).toMatchObject({ code: "PAYMENT_REQUIRED", appCode: "credits_exhausted", message: expect.stringMatching(/^The team is resting: this month's team budget is used, so Foundmill makes no more model calls for this project\. To keep going, add your own Anthropic key in Settings › Keys/) });
     // Nothing was spent: no ledger row, and the decision is still open.
     expect(await ledgerRows(B)).toBe(before);
     expect((await repos.inbox.get(hz.db, B, item.id)).state).not.toBe("answered");

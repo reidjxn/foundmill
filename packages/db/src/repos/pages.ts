@@ -16,11 +16,11 @@
  * gets only what the view `public_project_pages` lists (0077). An unknown address and a page that is not published
  * answer the same: null.
  */
-import { ConflictError, isIndexNowKey, OWNER_ROLES, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, pageIsListed, readPageContent, samePageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
+import { ConflictError, isIndexNowKey, OWNER_ROLES, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, PAGE_STAGES, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, pageIsListed, readPageContent, samePageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
 import { toLogoDataUrl } from "@foundmill/shared/logo";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, integrations, memberships, projectPages, publicProjectMilestones, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
+import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, integrations, memberships, projectPages, publicExploreProjects, publicProjectMilestones, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
 import { auditRepo } from "./audit";
 import { inboxRepo } from "./inbox";
 import { toBytes } from "./logos";
@@ -356,7 +356,28 @@ export const pagesRepo = {
     return rows.map((r) => r.name.trim()).filter(Boolean);
   },
 
+  /**
+   * Puts the business's page in the gallery, or takes it out (0143). Null when the business has no page row. An owner's
+   * or an admin's to do for a client role (its own guard); the page must still be published to show.
+   */
+  async setExplore(db: Executor, businessId: string, listed: boolean): Promise<ProjectPage | null> {
+    const rows = await db.update(projectPages).set({ exploreListed: listed, updatedAt: new Date() }).where(eq(projectPages.businessId, businessId)).returning();
+    return rows[0] ?? null;
+  },
+
   public: {
+    /**
+     * The gallery (0143): the pages whose owners opted in, newest first, at most `limit`. Service connection only.
+     * `shortcut: newest first, no paging; add a cursor when more than 60 projects are listed`
+     */
+    async explore(db: Executor, limit: number): Promise<{ slug: string; name: string; pitch: string; stage: (typeof PAGE_STAGES)[number]; brandPrimary: string; brandSecondary: string; publishedAt: Date }[]> {
+      const rows = await db.select().from(publicExploreProjects).orderBy(desc(publicExploreProjects.publishedAt)).limit(Math.max(1, Math.min(60, Math.floor(limit))));
+      return rows.flatMap((r) => {
+        const stage = PAGE_STAGES.find((x) => x === r.stage);
+        return stage && r.pitch ? [{ slug: r.slug, name: r.name, pitch: r.pitch, stage, brandPrimary: r.kitPrimary, brandSecondary: r.kitSecondary, publishedAt: r.publishedAt }] : [];
+      });
+    },
+
     /** A published page by its address, as the view exposes it; null for an unknown address or a page that is not public. */
     async bySlug(db: Executor, slug: string): Promise<PublicPage | null> {
       if (!ProjectPageSlug.safeParse(slug).success) return null;

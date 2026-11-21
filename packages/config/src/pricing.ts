@@ -295,6 +295,27 @@ export function creditsAreLow(spendableMinor: number, includedMinor: number): bo
 }
 
 /**
+ * Resting, and the last task always finishes (WP-14 T1; founder, Nov 17, 2026: never stop a team mid-task because a
+ * balance ran out). Before a session on Foundmill's key starts, what is left of the month's budget is compared with a
+ * reserve for it. Below the reserve the session does not start and the team rests; what is left stays in the balance.
+ *
+ * - `minMinor`: the reserve when the agent type has no history, and its floor. The same 10 cents under which a share of
+ *   a capped round starts nothing (`MIN_SESSION_CAP_MINOR`, apps/orchestrator).
+ * - `safetyFactor`: the reserve is the recent average cost of that agent type's sessions times this (the brief's 1.5).
+ * - `sampleSessions`: how many of the type's latest finished sessions the average is taken over.
+ * - `backstopCeilingMinor`: a session already running that outgrows its reserve still finishes, spending at most this
+ *   much past an empty balance; then it stops. Booked to the usage ledger like everything else.
+ *
+ * `safetyFactor` and `backstopCeilingMinor` were approved by the founder on Nov 19, 2026 (1.5 and 50 cents). Estimates.
+ */
+export const SESSION_RESERVE = { minMinor: 10, safetyFactor: 1.5, sampleSessions: 20, backstopCeilingMinor: 50 } as const;
+
+/** The reserve for one session, in US cents: the larger of the minimum and the type's recent average times the factor. */
+export function sessionReserveMinor(recentAverageMinor: number | null, reserve: { minMinor: number; safetyFactor: number } = SESSION_RESERVE): number {
+  return Math.max(reserve.minMinor, Math.ceil(Math.max(0, recentAverageMinor ?? 0) * reserve.safetyFactor));
+}
+
+/**
  * The first round of work of a free project on Foundmill's credits (WP-09 T11, founder D6, Nov 16, 2026): its sessions
  * run one at a time under this cap, in US cents, so round 1 fits the $5.00 allowance's first-session target ($1.50,
  * D1) less what the first day spends outside sessions. An Estimate until the cost report's `firstDayPerProject` sets it.

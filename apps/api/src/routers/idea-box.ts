@@ -65,7 +65,7 @@ const waitlistShareUrl = (appUrl: string, code: string | null | undefined): stri
 
 export const waitlistRouter = router({
   /**
-   * The next batch the waitlist opens in (0145; WP-14 T15), for the public page /waitlist: the lowest-numbered batch
+   * The next batch the waitlist opens in (0150; WP-14 T15), for the public page /waitlist: the lowest-numbered batch
    * that still has places, with the places it has left, or null when the operator has set none. Signed-out readable:
    * these three numbers are what the page publishes, and nothing about any person. Real counts only.
    */

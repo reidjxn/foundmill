@@ -30,6 +30,8 @@ import { createOpenaiImagesConnector } from "./connectors/openai_images";
 import { createElevenlabsConnector } from "./connectors/elevenlabs";
 import { createOnesignalConnector } from "./connectors/onesignal";
 import { createPlatformNotifyConnector } from "./connectors/platform_notify";
+import { createSendingDomainConnector } from "./connectors/sending_domain";
+import { createOpensrsConnector } from "./connectors/opensrs";
 import { createPlatformConnector } from "./connectors/platform";
 import { createQuarantineConnector } from "./connectors/quarantine";
 import { createWebConnector } from "./connectors/web";
@@ -60,6 +62,10 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   onesignal: createOnesignalConnector,
   // Foundmill's own email to its users (packages 1.5 and 5.1): service-only, on the platform's SendGrid key.
   platform_notify: createPlatformNotifyConnector,
+  // A project's own domain at the platform's SendGrid (WP-08 domain plan): service-only, the gateway's `/v1/domains/own`.
+  sending_domain: createSendingDomainConnector,
+  // Domains registered through Foundmill on its OpenSRS reseller account (WP-08 Path A): service-only, `/v1/domains/register`.
+  opensrs: createOpensrsConnector,
   github: createGithubConnector,
   google_drive: createGoogleDriveConnector,
   gmail: createGmailConnector,
@@ -118,7 +124,7 @@ export const BUILTIN_CONNECTOR_FACTORIES = Object.freeze({
  * Connectors whose mode follows another key's switch: `platform_mail` and `platform_notify` are SendGrid underneath, so
  * they run live exactly where `sendgrid` does (`INTEGRATIONS_MODE=live` or `LIVE_CONNECTORS` naming `sendgrid`; packages/shared `platformMailMode`).
  */
-export const CONNECTOR_MODE_KEYS: Readonly<Record<string, string>> = Object.freeze({ platform_mail: "sendgrid", platform_notify: "sendgrid" });
+export const CONNECTOR_MODE_KEYS: Readonly<Record<string, string>> = Object.freeze({ platform_mail: "sendgrid", platform_notify: "sendgrid", sending_domain: "sendgrid" });
 
 /** The key whose switch decides this connector's mode (itself, unless `CONNECTOR_MODE_KEYS` names another). */
 export const modeKeyOf = (connectorKey: string): string => CONNECTOR_MODE_KEYS[connectorKey] ?? connectorKey;

@@ -47,7 +47,7 @@ export const ideaDrafts = pgTable(
 export type IdeaDraftRow = typeof ideaDrafts.$inferSelect;
 
 /**
- * 0145 — a batch the waitlist opens in (founder, 2026-11-17; WP-14 T15): its number, the UTC day it opens and its places.
+ * 0150 — a batch the waitlist opens in (founder, 2026-11-17; WP-14 T15): its number, the UTC day it opens and its places.
  * The operator writes the rows (docs/DEPLOY.md §4); the orchestrator's sweep admits from it, the public page shows it.
  * Service only: RLS on, no policy.
  */
@@ -87,9 +87,9 @@ export const waitlistEntries = pgTable(
      * after admission opens the Studio on it. Null: the card's own page.
      */
     cardThen: text("card_then", { enum: WAITLIST_CARD_THEN }),
-    /** 0145 — the batch this entry was admitted in; null when admitted by the daily number, by hand, or not yet. */
+    /** 0150 — the batch this entry was admitted in; null when admitted by the daily number, by hand, or not yet. */
     batchId: uuid("batch_id").references(() => waitlistBatches.id, { onDelete: "set null" }),
-    /** 0145 — when the founder's own personal note to this person was sent (WP-14 T15 step 5); the operator records it. */
+    /** 0150 — when the founder's own personal note to this person was sent (WP-14 T15 step 5); the operator records it. */
     personalNoteAt: tstz("personal_note_at"),
     ...timestamps(),
   },

@@ -34,6 +34,12 @@ describe("proxy redirect rules", () => {
     for (const p of ["/waitlist-admin", "/waitlistx", "/waitlist/batches"]) expect(isPublicPath(p), p).toBe(false);
   });
 
+  it("serves the gallery to anyone, signed in or out", () => {
+    expect(isPublicPath("/explore")).toBe(true);
+    expect(decideRedirect({ pathname: "/explore", authenticated: false }).kind).toBe("next");
+    expect(isFounderPath("/explore")).toBe(false);
+  });
+
   it("serves a project's public page to anyone, signed in or out, and only under /p/", () => {
     for (const p of ["/p/northwind-skincare", "/p/northwind-skincare/opengraph-image"]) {
       expect(isPublicPath(p), p).toBe(true);

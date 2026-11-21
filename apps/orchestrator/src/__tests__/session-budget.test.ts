@@ -44,6 +44,10 @@ describe("boundSpend", () => {
 
   it("is the credits left when the platform key pays and they are fewer", () => {
     expect(boundSpend({ ...task, creditsLeftMinor: 700 })).toEqual({ remainingMinor: 700, limit: "credits" });
+    // A session that outgrows what is left still finishes, up to the backstop ceiling (WP-14 T1).
+    expect(boundSpend({ ...task, creditsLeftMinor: 700, creditsBackstopMinor: 50 })).toEqual({ remainingMinor: 750, limit: "credits" });
+    expect(boundSpend({ ...task, creditsLeftMinor: 0, creditsBackstopMinor: 50 })).toEqual({ remainingMinor: 50, limit: "credits" });
+    expect(boundSpend({ ...task, creditsLeftMinor: null, creditsBackstopMinor: 50 })).toEqual({ remainingMinor: 1_500, limit: "task" });
   });
 
   it("is what is left of the monthly model budget, with or without credits (an own-key business has none)", () => {
@@ -70,7 +74,9 @@ describe("what the founder reads when a limit stops a session", () => {
   it("every limit has its own summary and reason words, in US English with no unexplained figure", () => {
     const summaries = limits.map((l) => budgetSummary(l, task));
     expect(new Set(summaries).size).toBe(limits.length);
-    for (const summary of summaries) expect(summary).toMatch(/^Blocked: /);
+    // A team out of budget is Resting, not blocked (WP-14 T1); every other limit blocks.
+    for (const [i, summary] of summaries.entries()) expect(summary).toMatch(limits[i] === "credits" ? /^Resting: / : /^Blocked: /);
+    expect(budgetSummary("credits", task)).not.toMatch(/paused|so the session stopped/);
     expect(budgetSummary("wage_cap", task)).toMatch(/wage cap/);
     expect(budgetSummary("model_budget", task)).toMatch(/monthly model budget/);
     expect(budgetSummary("task", task)).toMatch(/\$5\.00 of \$20\.00, an Estimate/);

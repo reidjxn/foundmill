@@ -298,7 +298,7 @@ export const waitlistRepo = {
    * admission is recorded as `waitlist` (`repos.admissions.record`) and `admitted_at` is set. An account that already
    * had an admission keeps it (`newAdmission` false): its entry is closed as told (`notified_at` set), so it gets no
    * "Your place is open" email and takes none of the day's number (`admittedSince` counts new admissions only). Run it
-   * inside the transaction that holds `lockOpenCount`. `batchId` (0145): the batch these places belong to; it is written
+   * inside the transaction that holds `lockOpenCount`. `batchId` (0150): the batch these places belong to; it is written
    * on new admissions only, so an account that was already in takes none of a batch's places either.
    */
   async admitNext(tx: Executor, input: { limit: number; now?: Date; batchId?: string | null }): Promise<WaitlistAdmitted[]> {
@@ -329,7 +329,7 @@ export const waitlistRepo = {
   },
 
   /**
-   * The batches that still have places (0145; WP-14 T15), lowest number first, each with the places it has left: its
+   * The batches that still have places (0150; WP-14 T15), lowest number first, each with the places it has left: its
    * `places` less `taken`, the new accounts it admitted (a count that only goes up, so a closed account gives no place back). `openOnly`: only those whose day has come (`opens_on <= day`, a UTC day
    * as `YYYY-MM-DD`), which is what the sweep admits from; without it, the next ones to open too, which is what the
    * public page shows. A real count, never an estimate.

@@ -39,7 +39,7 @@ describe("idea_drafts and waitlist_entries", () => {
       // 0113: the share code and who brought whom are the services' alone too (no client reads a code or the links).
       await expect(role().run((tx) => tx.select({ code: s.waitlistEntries.code, referredBy: s.waitlistEntries.referredByEntryId }).from(s.waitlistEntries))).rejects.toThrow(/permission denied/);
       await expect(role().run((tx) => tx.update(s.waitlistEntries).set({ referredByEntryId: null }))).rejects.toThrow(/permission denied/);
-      // 0145: the batches and which batch admitted an entry are the services' alone too (a client that could write a
+      // 0150: the batches and which batch admitted an entry are the services' alone too (a client that could write a
       // batch would open the waitlist).
       await expect(role().run((tx) => tx.select().from(s.waitlistBatches))).rejects.toThrow(/permission denied/);
       await expect(role().run((tx) => tx.insert(s.waitlistBatches).values({ number: 99, opensOn: "2026-01-01", places: 1000 }))).rejects.toThrow(/permission denied/);

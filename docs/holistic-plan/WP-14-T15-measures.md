@@ -9,7 +9,7 @@ The figures are read by hand for now. `packages/db/src/repos/metrics.ts` and `me
 ## 1. Activation by personal note against the standard email
 
 - **What:** of the people a batch admitted, the share activated within 14 days of admission, for those the founder wrote a personal note to against those who got only the "Your place on Foundmill is open" email.
-- **From:** `waitlist_entries.admitted_at`, `batch_id`, `notified_at` and `personal_note_at` (migration 0145; the operator records a note in docs/DEPLOY.md §4), joined to the person's projects.
+- **From:** `waitlist_entries.admitted_at`, `batch_id`, `notified_at` and `personal_note_at` (migration 0150; the operator records a note in docs/DEPLOY.md §4), joined to the person's projects.
 - **Readable today:** yes, from the database, once a batch has been admitted and notes recorded.
 - **How to keep it fair:** inside one batch, write to every second person in admission order (the founder's own action) rather than to the people who look most promising, or the note's effect cannot be told from the choice.
 - **Stop rule:** read it 14 days after each batch. Stop writing personal notes when, over at least 100 people with a note and 100 without, the activated share with a note is less than 5 points above the share without. Stop reading it once the founder no longer writes notes. The card by post for one batch is read the same way, once, for that batch.

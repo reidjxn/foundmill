@@ -123,7 +123,7 @@ describe("waitlistSweep", () => {
     expect((await entryOf(e.id)).notified_at).not.toBeNull();
   });
 
-  /* ---- Batches (0145; WP-14 T15) ---- */
+  /* ---- Batches (0150; WP-14 T15) ---- */
   const batch = async (number: number, opensOn: string, places: number) => (await t.h.db.insert(s.waitlistBatches).values({ number, opensOn, places }).returning())[0]!;
   const batchOf = async (id: string) => (await t.h.pg.query<{ batch_id: string | null }>("select batch_id from waitlist_entries where id = $1", [id])).rows[0]!.batch_id;
   const left = async (day: string) => (await repos.waitlist.batchesWithPlaces(t.db, { day })).map((b) => [b.number, b.placesLeft, b.open]);

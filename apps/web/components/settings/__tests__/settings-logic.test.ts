@@ -5,7 +5,7 @@ import { BUSINESS_MODES } from "@foundmill/shared/constants";
 import { SETTINGS_TABS } from "@/lib/search";
 import { BUSINESS_MODE_CARDS } from "@/components/new/commit/naming";
 import { AUTOPILOT_CONTINUE_NOTE, AUTOPILOT_HELP } from "../AutopilotSection";
-import { checkoutNotice, includedCreditsFact, periodLabel, tierAddsLine, tierFacts, tierPriceLabel } from "../BillingTab";
+import { checkoutNotice, costPerOutcomeLine, includedCreditsFact, periodLabel, teamBudgetLine, tierAddsLine, tierFacts, tierPriceLabel } from "../BillingTab";
 import { timeZoneOptions } from "../BusinessTab";
 import { glossaryRows, rowsToGlossary } from "../GlossaryTab";
 import { connectorDetail, formatSimulateResult, MANAGED_ON_KEYS_TAB, simulateInput, simulateRefusalMessage, SIMULATIONS } from "../IntegrationsTab";
@@ -30,6 +30,16 @@ describe("settings logic", () => {
     expect(tierFacts("free", "open")[4]).toBe("Opus and Sonnet with a credit pack of $20 or more, or your own Anthropic key");
     expect(includedCreditsFact("pro")).toBe("$10.00 of credits a month");
     for (const tier of ["free", "pro", "scale"] as const) expect(tierFacts(tier).join(" ")).not.toMatch(/seat|to be announced|TBD/i);
+  });
+
+  it("Billing's first line is the team budget in outcomes where there is a pace to read, and the label alone where there is none (WP-14 T3)", () => {
+    expect(teamBudgetLine({ outcomes: 4, costPerOutcomeMinor: 30, enoughFor: 12 })).toBe("This month's team budget: enough for about 12 more outcomes at your current pace");
+    expect(teamBudgetLine({ outcomes: 1, costPerOutcomeMinor: 300, enoughFor: 1 })).toBe("This month's team budget: enough for about 1 more outcome at your current pace");
+    expect(teamBudgetLine({ outcomes: 3, costPerOutcomeMinor: 160, enoughFor: 0 })).toBe("This month's team budget: less than one more outcome at your current pace");
+    // No outcomes yet: no N is invented.
+    expect(teamBudgetLine(null)).toBe("This month's team budget");
+    expect(/[0-9]/.test(teamBudgetLine(null))).toBe(false);
+    expect(costPerOutcomeLine({ outcomes: 4, costPerOutcomeMinor: 30, enoughFor: 12 }, (m) => "$" + (m / 100).toFixed(2)).startsWith("About $0.30 an outcome so far this month (4 outcomes).")).toBe(true);
   });
 
   it("lists what each plan adds from the one table in config", () => {

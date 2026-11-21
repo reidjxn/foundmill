@@ -15,8 +15,8 @@
  * booked in another currency apart, and a top-up is in US dollars only.
  */
 import { CREDIT_PACKS_MINOR, creditPackCreditsMinor, CREDITS_CURRENCY, EARLY_ACCESS_STAGE, ENTRY_PLAN, PARTNER_PLAN, planName, TIERS } from "@foundmill/config";
-import { CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, MOCK_TOP_UP_LABEL, periodRange, platformCredits, repos, settleCreditCheckout, waysToContinue } from "@foundmill/db";
-import { AppError, PLAN_TIERS, ValidationError } from "@foundmill/shared";
+import { CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, MOCK_TOP_UP_LABEL, periodOf, periodRange, platformCredits, repos, settleCreditCheckout, waysToContinue } from "@foundmill/db";
+import { AppError, PLAN_TIERS, REAL_OUTCOME_EVENT_TYPES, realOutcomes, teamBudgetEstimate, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { costByDepartment } from "../services/billing-usage";
 import { startCycle } from "../services/cycle";
@@ -57,11 +57,26 @@ export const billingRouter = router({
     return ctx.rls(async (tx) => {
       const period = currentPeriod();
       const [balance, credits, usage, partner] = await Promise.all([repos.usage.creditBalance(tx, ctx.businessId, period), platformCredits(tx, ctx.business, period), repos.usage.totals(tx, ctx.businessId, periodRange(period)), repos.partnerWaitlist.entry(tx, ctx.businessId, ctx.userId)]);
+      // The team budget in outcomes (WP-14 T3): this month's real outcomes (the north star's rule; never a sample
+      // business's, never anything simulated) against what the budget paid so far. Null with no outcome yet or nothing
+      // spent, and for a business on its own key, whose agents the budget does not pay for.
+      const now = new Date();
+      const monthStart = periodRange(period).from;
+      const outcomes = ctx.business.isDemo || ctx.business.modelBilling === "byok" ? 0 : realOutcomes(await repos.notifyFacts.eventsSince(tx, ctx.businessId, REAL_OUTCOME_EVENT_TYPES, monthStart, 2000), monthStart, now).length;
+      const teamBudget = teamBudgetEstimate({ balanceMinor: credits.balanceMinor, spentMinor: credits.spentMinor, outcomes });
       return {
         tier: ctx.business.planTier,
         modelBilling: ctx.business.modelBilling,
         /** `invite_only` or `open`: what the plans' labels and checks follow (packages/config `EARLY_ACCESS_STAGE`). */
         stage: EARLY_ACCESS_STAGE,
+        /** The budget as outcomes, an Estimate; null when there is no pace to read yet (the screen then shows dollars alone). */
+        teamBudget: teamBudget ? { ...teamBudget, label: "Estimate" as const } : null,
+        /**
+         * Resting (WP-14 T1): the month's budget is used, or what is left is too little for another task, so nothing
+         * new starts until `until` (the day the budget resets), a top-up or the founder's own key. Null otherwise. A
+         * team waiting at the platform's monthly cap is not resting.
+         */
+        resting: credits.exhausted || (ctx.business.agentsStoppedReason === "credits_exhausted" && ctx.business.agentsStoppedAt !== null && periodOf(ctx.business.agentsStoppedAt) === period) ? { until: periodRange(period).to } : null,
         /** Whether the caller is on this project's Partner waitlist (an owner or admin reads it; anyone else sees null). */
         partner: { joinedAt: partner?.createdAt ?? null },
         period,
