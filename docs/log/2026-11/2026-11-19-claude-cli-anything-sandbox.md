@@ -44,3 +44,12 @@ supersedes: []
 ## Not done
 - The template was not built and no real program ran: the unit suite uses a stand-in for Inkscape. The live eval needs `E2B_API_KEY` and the rebuilt template.
 - The sandbox's working folder is per business, not per task; it is cleared when the sandbox ends (60 minutes).
+
+## CI and deploy effects (Nov 22)
+The gateway now imports `@foundmill/sandbox`, so a change under `packages/sandbox` redeploys the gateway as
+well as the orchestrator (`railway/gateway.toml`, `scripts/railway-config.test.mjs`), and it counts as
+reaching the screens because the api imports the gateway (`scripts/ci-affected.test.mjs`). That widens what CI
+runs for a sandbox change; the founder should know. The Real Postgres failure on the first run
+(`pg_authid_rolname_index` duplicate while migrating `0124_sites`) is a role-creation race outside this
+change.
+

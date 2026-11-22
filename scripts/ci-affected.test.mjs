@@ -76,10 +76,10 @@ test("screens: true for anything apps/web, apps/api or e2e/ import, false for wh
   for (const root of ["@foundmill/web", "@foundmill/api"]) {
     for (const d of pkgs.find((p) => p.name === root).deps) assert.ok(reach.includes(d), `${root} depends on ${d}`);
   }
-  for (const f of ["apps/web/app/page.tsx", "apps/api/src/index.ts", "packages/db/src/seed/index.ts", "packages/dugout/src/x.tsx", "packages/shared/src/x.ts", "packages/connectors/src/x.ts", "packages/agents/src/prompts/x.md", "e2e/tests/golden-path.spec.ts", "scripts/e2e-shard.mjs", "scripts/test-inventory.mjs", "apps/web/e2e/shard-weights.json"]) {
+  for (const f of ["apps/web/app/page.tsx", "apps/api/src/index.ts", "packages/db/src/seed/index.ts", "packages/dugout/src/x.tsx", "packages/shared/src/x.ts", "packages/connectors/src/x.ts", "packages/sandbox/src/x.ts", "packages/agents/src/prompts/x.md", "e2e/tests/golden-path.spec.ts", "scripts/e2e-shard.mjs", "scripts/test-inventory.mjs", "apps/web/e2e/shard-weights.json"]) {
     assert.equal(affected([f]).screens, true, f);
   }
-  for (const f of ["apps/orchestrator/src/loop.ts", "apps/composer/src/x.ts", "apps/stream/src/x.ts", "packages/sandbox/src/x.ts", "evals/src/x.ts", "scripts/banned-terms.mjs", "docs/DEPLOY.md"]) {
+  for (const f of ["apps/orchestrator/src/loop.ts", "apps/composer/src/x.ts", "apps/stream/src/x.ts", "evals/src/x.ts", "scripts/banned-terms.mjs", "docs/DEPLOY.md"]) {
     assert.equal(affected([f]).screens, false, f);
   }
 });
