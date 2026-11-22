@@ -84,7 +84,7 @@ export const PROCESSING_LINE_MIN_PX = 11;
 export function processingLineText(segments: readonly ProcessingSegment[], active: boolean, cycleNumber?: number | null, builder = false): string {
   const working = active ? segments.filter((s) => s.active).length : 0;
   if (working < 3) return processingStatusText(segments, active, cycleNumber, builder);
-  const on = builder && typeof cycleNumber === "number" && cycleNumber > 0 ? ` on cycle ${cycleNumber}` : "";
+  const on = builder && typeof cycleNumber === "number" && cycleNumber > 0 ? ` on round of work ${cycleNumber}` : "";
   return `${working} departments are working${on}`;
 }
 
@@ -175,6 +175,10 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   runwayWords?: RunwayWords | null;
   cash?: Money;
   runwayEstimate?: boolean;
+  /** False: the top bar shows the date alone, with no runway words (KitBar `showRunway`). Default true. */
+  showRunway?: boolean;
+  /** False: no mode chip in the top bar (KitBar `showMode`). Default true. */
+  showMode?: boolean;
   onRunwayClick?: () => void;
   /** The business's spend line for the mode chip (KitBar `spendLineMinor`). */
   spendLineMinor?: number | null;
@@ -198,11 +202,6 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
    * use `@page-wide:`). At or over the minimum width, and without this prop, nothing changes.
    */
   phone?: boolean;
-  /**
-   * With the phone layout: draw the page's "Explain this page" button in the phone title row (WP-04 T7, Today only).
-   * The desktop tab row always draws it; on a phone only the screens that ask for it do, to keep the row short.
-   */
-  phoneExplain?: boolean;
   children?: ReactNode;
 }
 
@@ -307,6 +306,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     runwayWords,
     cash,
     runwayEstimate,
+    showRunway,
+    showMode,
     onRunwayClick,
     spendLineMinor,
     businessCurrency,
@@ -317,7 +318,6 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     viewportWidth,
     minViewportWidth = MIN_VIEWPORT_WIDTH,
     phone = false,
-    phoneExplain = false,
     className,
     style,
     children,
@@ -466,12 +466,11 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
               <h1 className="t-display-md min-w-0 flex-1 truncate" data-testid="phone-screen-title">
                 {screenTitle}
               </h1>
-              {pageActions || phoneExplain ? (
-                <div className="flex shrink-0 items-center [&_a]:min-h-tap [&_button]:min-h-tap">
-                  {pageActions}
-                  {phoneExplain ? <ExplainPageButton /> : null}
-                </div>
-              ) : null}
+              {/* "Explain this page" wherever a screen registered one (it draws nothing otherwise), as the desktop tab row does (WP-10 T3). */}
+              <div className="flex shrink-0 items-center [&_a]:min-h-tap [&_button]:min-h-tap">
+                {pageActions}
+                <ExplainPageButton />
+              </div>
             </div>
             {tabsLeading ? (
               <div className="flex shrink-0 items-stretch" data-testid="phone-tabs">
@@ -562,6 +561,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             runwayWords={runwayWords}
             cash={cash}
             runwayEstimate={runwayEstimate}
+            showRunway={showRunway}
+            showMode={showMode}
             onRunwayClick={onRunwayClick}
             businessMode={businessMode}
             spendLineMinor={spendLineMinor}

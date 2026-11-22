@@ -37,7 +37,7 @@ const H = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
 describe("holiday: histories from before decisions ran as plans", () => {
-  it("the fixtures are the old loop: decide, cycle, decide, and no plan started", () => {
+  it("the fixtures are the old loop: decide, round of work, decide, and no plan started", () => {
     expect(scheduled(fixture("legacy-holiday-until")).filter((a) => a === "holidayAutoDecide").length).toBeGreaterThanOrEqual(2);
     expect(scheduled(fixture("legacy-holiday-away")).slice(0, 3)).toEqual(["loadHoliday", "holidayCheck", "holidayAutoDecide"]);
     // The businessCycle children are the only children; no planExecution was ever started.

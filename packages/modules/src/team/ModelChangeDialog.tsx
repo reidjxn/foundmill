@@ -6,10 +6,10 @@
  */
 import { useEffect, useState } from "react";
 import { Cpu } from "lucide-react";
-import { CREDITS_CURRENCY } from "@foundmill/config";
-import { ApplyScopeDialog, Button, useAgentPersona, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, MODEL_LABELS, ModelPicker, SkeletonText, type ApplyScope, type ModelOption } from "@foundmill/dugout";
+import { CREDITS_CURRENCY, planName } from "@foundmill/config";
+import { ApplyScopeDialog, BetterModelsPrompt, Button, Checkbox, ProvenanceChip, formatMoney, useAgentPersona, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, MODEL_LABELS, ModelPicker, SkeletonText, type ApplyScope, type ModelOption } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
-import { useWidgetQuery } from "@foundmill/widgets/data";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { InlineError, agentTypeNoun, errorMessage, useAction } from "./shared";
 import type { AgentRow, ModelCompareResponse, ModelSetResponse } from "./types";
 
@@ -17,7 +17,7 @@ const MODEL_DESCRIPTIONS: Record<ModelKey, string> = {
   opus: "Deepest judgment; the default for the agent that plans the work and for department leads.",
   sonnet: "Fast and capable; the default for workers.",
   haiku: "Cheapest; classification, linking and other utility work.",
-  glm: "The free plan's model: every agent runs on it until the plan is upgraded or your own Anthropic key is connected.",
+  glm: "Low cost, from Z.ai; runs the work sessions of a free team. Any plan can choose it.",
 };
 
 /**
@@ -35,6 +35,7 @@ export function toModelOptions(compare: ModelCompareResponse, currency: string =
     wageDelta: { amountMinor: o.predictedWageMinor - base, currency: compare.currency ?? currency },
     lockedReason: o.allowed ? undefined : (o.warning ?? "Locked for this agent's route."),
     warning: o.allowed && o.warning ? o.warning : undefined,
+    ...(o.gate ? { gated: true as const } : {}),
   }));
 }
 
@@ -64,19 +65,30 @@ export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, on
   const shown = useAgentPersona().labelFor(agent ?? { name: "" });
   const compare = useWidgetQuery<ModelCompareResponse>("agent.model.compare", agent ? { agentId: agent.id } : undefined, { enabled: !!agent });
   const action = useAction();
+  const { navigate, businessId } = useWidgetData();
   const [candidate, setCandidate] = useState<ModelKey | null>(null);
+  // Retests for every agent of the type, or all, run only when chosen (WP-09 T9, TS-03 c).
+  const [retestWide, setRetestWide] = useState(false);
+  const [betterOpen, setBetterOpen] = useState(false);
   useEffect(() => {
     if (agent) {
       setCandidate(null);
+      setRetestWide(false);
       action.clearError();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset per agent
   }, [agent?.id]);
   const current = compare.data?.current ?? agent?.modelKey ?? "sonnet";
   const options = compare.data ? toModelOptions(compare.data) : [];
+  // A gated option opens the prompt instead of selecting (WP-13 T7).
+  const choose = (m: ModelKey) => {
+    if (m === current) return;
+    if (options.find((o) => o.key === m)?.gated) setBetterOpen(true);
+    else setCandidate(m);
+  };
   const apply = async (scope: ApplyScope) => {
     if (!agent || !candidate) return;
-    const result = await action.run<ModelSetResponse>("agent.model.set", { agentId: agent.id, modelKey: candidate, applyScope: scope }, { key: `model:${agent.id}` });
+    const result = await action.run<ModelSetResponse>("agent.model.set", { agentId: agent.id, modelKey: candidate, applyScope: scope, retest: scope === "agent" || retestWide }, { key: `model:${agent.id}` });
     if (result) {
       onApplied(result, candidate, scope);
       setCandidate(null);
@@ -95,7 +107,7 @@ export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, on
             <DialogDescription>Cost per month is an estimate from this month's usage. Its skills are re-tested on the new model so the ratings stay honest.</DialogDescription>
           </DialogHeader>
           <DialogBody>
-            {compare.isLoading ? <SkeletonText lines={3} /> : compare.error ? <InlineError error={errorMessage(compare.error)} /> : <ModelPicker options={options} value={current} onChange={(m) => m !== current && setCandidate(m)} disabled={action.pending !== null} />}
+            {compare.isLoading ? <SkeletonText lines={3} /> : compare.error ? <InlineError error={errorMessage(compare.error)} /> : <ModelPicker options={options} value={current} inUse={compare.data?.inUse} onChange={choose} disabled={action.pending !== null} />}
             {compare.data?.locked ? <p className="mt-2 text-small text-secondary">This agent's route is locked; only the current model is allowed.</p> : null}
             <InlineError error={action.error} className="mt-2" />
           </DialogBody>
@@ -106,6 +118,13 @@ export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, on
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <BetterModelsPrompt
+        planLabel={planName("free")}
+        open={betterOpen}
+        onOpenChange={setBetterOpen}
+        onSeePlans={() => navigate(`/b/${businessId}/settings/billing`)}
+        onConnectKey={() => navigate(`/b/${businessId}/settings/keys`)}
+      />
       {agent ? (
         <ApplyScopeDialog
           open={!!candidate}
@@ -117,9 +136,27 @@ export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, on
           typeCount={typeCount}
           allCount={allCount}
           settingLabel={`Model: ${candidate ? MODEL_LABELS[candidate] : ""}`}
+          extra={(scope) => (candidate ? <RetestNote agentId={agent.id} modelKey={candidate} scope={scope} wide={retestWide} onWide={setRetestWide} /> : null)}
           onApply={apply}
         />
       ) : null}
     </>
+  );
+}
+
+/** The retests a model change would queue and their price (Estimate), before the founder applies it (WP-09 T9). */
+function RetestNote({ agentId, modelKey, scope, wide, onWide }: { agentId: string; modelKey: ModelKey; scope: ApplyScope; wide: boolean; onWide: (on: boolean) => void }) {
+  const q = useWidgetQuery<{ agents: number; tests: number; costMinor: number }>("agent.model.retestEstimate", { agentId, modelKey, applyScope: scope });
+  if (!q.data) return null;
+  if (q.data.agents === 0) return <p className="text-small text-secondary">No skills to re-test on this model.</p>;
+  const price = <ProvenanceChip kind="estimate">{formatMoney({ amountMinor: q.data.costMinor, currency: CREDITS_CURRENCY })}</ProvenanceChip>;
+  if (scope === "agent") return <p className="text-small text-secondary" data-testid="retest-price">Re-testing its skills on the new model costs about {price}.</p>;
+  return (
+    <label className="flex items-center gap-2 text-small text-secondary">
+      <Checkbox checked={wide} onCheckedChange={(c) => onWide(c === true)} data-testid="retest-wide" />
+      <span>
+        Also re-test {q.data.agents} {q.data.agents === 1 ? "agent" : "agents"}, about {price}
+      </span>
+    </label>
   );
 }

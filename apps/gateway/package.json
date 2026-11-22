@@ -16,6 +16,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@foundmill/sandbox": "workspace:*",
+    "@e2b/desktop": "catalog:",
     "hono": "catalog:",
     "@hono/node-server": "catalog:",
     "@hono/zod-validator": "catalog:",

@@ -17,7 +17,7 @@ const SERVICES = ["api", "gateway", "orchestrator", "composer", "stream", "inges
  * dependency shows up as a diff in this test, and the Railway settings are updated with it. */
 const PACKAGES = {
   api: ["agents", "config", "connectors", "db", "entity-linker", "events", "journey", "models", "policy", "shared"],
-  gateway: ["agents", "config", "connectors", "db", "events", "journey", "models", "policy", "shared"],
+  gateway: ["agents", "config", "connectors", "db", "events", "journey", "models", "policy", "sandbox", "shared"],
   orchestrator: ["agents", "config", "connectors", "db", "entity-linker", "events", "journey", "models", "policy", "sandbox", "shared"],
   composer: ["agents", "config", "db", "entity-linker", "events", "journey", "models", "shared"],
   stream: ["agents", "config", "db", "events", "journey", "models", "shared"],
@@ -108,7 +108,8 @@ describe("Railway config files", () => {
 describe("which services a change redeploys", () => {
   it("a docs-only change redeploys nothing", () => assert.deepEqual(redeploys(["docs/PROGRESS.md"]), []));
   it("an apps/ingest change redeploys only ingest", () => assert.deepEqual(redeploys(["apps/ingest/src/index.ts"]), ["ingest"]));
-  it("a packages/sandbox change redeploys only the orchestrator", () => assert.deepEqual(redeploys(["packages/sandbox/src/worktree.ts"]), ["orchestrator"]));
+  // The gateway runs CLI-Anything programs in the sandbox (apps/gateway/src/cli-runner.ts), so it imports the package too.
+  it("a packages/sandbox change redeploys the gateway and the orchestrator", () => assert.deepEqual([...redeploys(["packages/sandbox/src/worktree.ts"])].sort(), ["gateway", "orchestrator"]));
   it("the lockfile redeploys every service", () => assert.deepEqual([...redeploys(["pnpm-lock.yaml"])].sort(), [...SERVICES].sort()));
   it("the optional negations keep Markdown and tests under a package from redeploying", () => {
     assert.deepEqual(redeploys(["packages/shared/CLAUDE.md"], { withNegation: true }), []);

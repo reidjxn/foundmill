@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, MapPin, Plug, RefreshCw, Unplug } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, StatusPill, Term, cn, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, StatusPill, Term, cn, useBuilderView, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
 import {
   normalizePostalAddress,
   PLATFORM_MAIL_APPROVAL_LINE,
@@ -39,8 +39,11 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
+import { BrowserSitesSection } from "./BrowserSitesSection";
 import { GitHubRepositoryPanel } from "./GitHubRepositoryPanel";
+import { GoogleContextPanel } from "./GoogleContextPanel";
 import { OAuthFinish } from "./OAuthFinish";
+import { OwnDomainSection } from "./OwnDomainSection";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -59,6 +62,15 @@ export const AUTH_WORD: Record<string, string> = {
   app: "Install the app",
   none: "No sign-in needed",
 };
+
+/**
+ * Which connector rows Settings lists: one that cannot be connected here (unbuilt or mock-only, `available` false) is
+ * hidden unless it is already connected, so it can still be disconnected; the custom MCP server field is Builder view's
+ * (LAUNCH_EVALUATION §2, MCP 6).
+ */
+export function visibleConnectors<T extends { key: string; available?: boolean; integration: { status: string } | null }>(rows: readonly T[], builder: boolean): T[] {
+  return rows.filter((r) => (r.available !== false || (r.integration !== null && r.integration.status !== "disconnected")) && (r.key !== "mcp_custom" || builder));
+}
 
 /** The six panel actions BUILD §13.3 names; the ingest catalogue may add more. */
 export const SIMULATIONS: { name: string; label: string; description: string }[] = [
@@ -390,7 +402,7 @@ export function PlatformMailSection({ data, businessId }: { data: PlatformMailVi
 
 export function IntegrationsTab() {
   const datePrefs = useDateFormat();
-  const { businessId, data: businessData } = useBusiness();
+  const { businessId, data: businessData, isOwner } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
@@ -442,6 +454,7 @@ export function IntegrationsTab() {
     installState &&
     connect.mutate({ businessId, connectorKey: "github", input: { installationId: Number(pendingInstallation), code: installCode, state: installState } }, { onSettled: () => router.replace(pathname ?? `/b/${businessId}/settings/integrations`) });
 
+  const builder = useBuilderView();
   if (loadFailed(list)) return <ErrorPanel title="Integrations" message={errorMessage(list.error)} onRetry={() => void list.refetch()} />;
   const rows = list.data?.catalogue ?? [];
   // One row per connector, the same wherever it appears (Stripe's own box above the list, and the list).
@@ -485,6 +498,12 @@ export function IntegrationsTab() {
                   {renewWord}
                 </Button>
               ) : null}
+              {c.key === "gmail" ? (
+                // Reading asks Google for a second, stricter permission, so it is the founder's choice, made by signing in again.
+                <Button size="sm" variant="ghost" icon={ExternalLink} loading={pending} onClick={() => connect.mutate({ businessId, connectorKey: c.key, input: { readMail: !(integ?.scopes ?? []).some((x) => x.endsWith("/gmail.readonly")) } })} data-testid="gmail-reading-toggle">
+                  {(integ?.scopes ?? []).some((x) => x.endsWith("/gmail.readonly")) ? "Turn off reading" : "Turn on reading"}
+                </Button>
+              ) : null}
               <IconButton label={`Check ${c.displayName} health`} icon={Activity} size="sm" disabled={health.isPending} onClick={() => integ && health.mutate({ businessId, integrationId: integ.id })} />
               <IconButton label={`Disconnect ${c.displayName}`} icon={Unplug} size="sm" disabled={disconnect.isPending} onClick={() => integ && disconnect.mutate({ businessId, integrationId: integ.id })} />
             </>
@@ -512,7 +531,8 @@ export function IntegrationsTab() {
   };
   // Stripe has its own box above the other connectors (founder, Nov 18, 2026), so it is listed once.
   const stripeRow = rows.find((r) => r.key === STRIPE_CONNECTOR_KEY) ?? null;
-  const listed = rows.filter((r) => r.key !== STRIPE_CONNECTOR_KEY);
+  // The hosted-browser sites (`browser_*`) are listed once, in their own section below, never as ordinary connectors.
+  const listed = visibleConnectors(rows.filter((r) => r.key !== STRIPE_CONNECTOR_KEY && !r.browser), builder);
   const keyFor = rows.find((r) => r.key === keyForKey) ?? null;
   const setKeyFor = (c: { key: string } | null) => setKeyForKey(c?.key ?? null);
 
@@ -538,6 +558,7 @@ export function IntegrationsTab() {
         </SettingsSection>
       ) : null}
       <PlatformMailSection data={platformMail.data} businessId={businessId} />
+      {platformMail.data ? <OwnDomainSection businessId={businessId} /> : null}
       <OAuthFinish businessId={businessId} connectors={rows} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
       {stripeRow ? (
         <SettingsSection wide title="Accept payments with Stripe" data-testid="stripe-payments" loading={list.isLoading}>
@@ -551,7 +572,9 @@ export function IntegrationsTab() {
           {listed.map(renderRow)}
         </ul>
       </SettingsSection>
+      {rows.some((r) => r.browser) ? <BrowserSitesSection businessId={businessId} catalogue={rows} canEdit loading={list.isLoading} /> : null}
       {rows.some((r) => r.key === "github" && r.integration && r.integration.status !== "disconnected") ? <GitHubRepositoryPanel /> : null}
+      {rows.some((r) => (r.key === "gmail" || r.key === "google_calendar") && r.integration && r.integration.status !== "disconnected") ? <GoogleContextPanel businessId={businessId} rows={rows} canEdit={isOwner} /> : null}
       <ConnectFieldsDialog
         connector={keyFor}
         pending={connect.isPending}

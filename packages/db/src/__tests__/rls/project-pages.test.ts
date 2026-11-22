@@ -23,7 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readMigrations } from "../../migrations";
 import { repos } from "../../repos";
 import * as s from "../../schema";
-import { PUBLIC_PROJECT_PAGE_COLUMNS } from "../../schema";
+import { PUBLIC_EXPLORE_PROJECT_COLUMNS, PUBLIC_PROJECT_PAGE_COLUMNS } from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
 import { createBusinessFixture, RLS_DENIED, type BusinessFixture } from "./fixtures";
 
@@ -282,16 +282,20 @@ describe("project_pages: when a page went live is the database's to record (0090
 
   it("the migration puts right the dates that cannot be real on rows written before it, and leaves the rest", async () => {
     const all = readMigrations();
-    const before = await createTestDb({ migrations: all.filter((m) => m.tag !== "0090_page_dates_recorded") });
+    // The world before 0090: 0119 rewrites 0090's guard, so later migrations are left out too.
+    const before = await createTestDb({ migrations: all.filter((m) => m.tag < "0090") });
     try {
       const page = async (slug: string, set: Partial<typeof s.projectPages.$inferInsert>) => {
         const f = await createBusinessFixture(before, slug);
         // As an owner could write it under 0077's guard, which checked who wrote and not the dates.
-        await before.asUser(f.ownerId).run((tx) => tx.insert(s.projectPages).values({ businessId: f.businessId, slug, draft: content(), ...set }));
+        // By named columns, so the columns later migrations add are not needed here.
+        await before.asUser(f.ownerId).run((tx) =>
+          tx.execute(sql`insert into project_pages (business_id, slug, draft, published, published_at, unpublished_at) values (${f.businessId}, ${slug}, ${JSON.stringify(content())}::jsonb, ${set.published ? JSON.stringify(set.published) : null}::jsonb, ${set.publishedAt?.toISOString() ?? null}::timestamptz, ${set.unpublishedAt?.toISOString() ?? null}::timestamptz)`),
+        );
         return f.businessId;
       };
       const read = async (businessId: string) => {
-        const row = (await before.db.select().from(s.projectPages).where(eq(s.projectPages.businessId, businessId)))[0]!;
+        const row = (await before.db.select({ publishedAt: s.projectPages.publishedAt, unpublishedAt: s.projectPages.unpublishedAt }).from(s.projectPages).where(eq(s.projectPages.businessId, businessId)))[0]!;
         return { publishedAt: row.publishedAt?.toISOString() ?? null, unpublishedAt: row.unpublishedAt?.toISOString() ?? null };
       };
       const neverLive = await page("old-never", { publishedAt: PAST });
@@ -386,10 +390,10 @@ describe("project_pages: what the database itself refuses", () => {
 });
 
 describe("public_project_pages: what anyone may read", () => {
-  it("exposes exactly its eight columns and nothing else", async () => {
+  it("exposes exactly its nine columns and nothing else", async () => {
     const columns = (await rows<{ column_name: string }>(sql`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'public_project_pages' order by ordinal_position`)).map((r) => r.column_name);
     expect(columns).toEqual([...PUBLIC_PROJECT_PAGE_COLUMNS]);
-    expect(columns).toEqual(["slug", "published", "published_at", "name", "logo_version", "kit_primary", "kit_secondary", "founder_names"]);
+    expect(columns).toEqual(["slug", "published", "published_at", "name", "logo_version", "kit_primary", "kit_secondary", "founder_names", "content_published_at"]);
     const row = (await h.service().execute<Record<string, unknown>>(sql`select * from public_project_pages where slug = 'bravo-page'`))[0]!;
     expect(Object.keys(row).sort()).toEqual([...PUBLIC_PROJECT_PAGE_COLUMNS].sort());
     // Nothing that identifies the row, the business or a person travels with it.
@@ -532,5 +536,67 @@ describe("the starter draft's inputs", () => {
     await h.db.update(s.ideas).set({ currentVersionId: version!.id }).where(eq(s.ideas.id, idea!.id));
     expect(await h.asUser(A.memberId).run((tx) => repos.pages.starterInputs(tx, A.businessId))).toEqual({ founderWords: "Candles that smell like a forest walk. Sold online.", visionStatement: "Bring the outdoors inside.", visionForWhom: "People in small apartments" });
     expect(await h.asUser(A.memberId).run((tx) => repos.pages.starterInputs(tx, B.businessId))).toEqual({ founderWords: null, visionStatement: null, visionForWhom: null });
+  });
+});
+
+describe("project_pages.content_published_at: when the public copy last changed (0119)", () => {
+  it("is the database's clock for a client, unchanged by a republish of the same copy, moved by a changed one; listed follows the rule", async () => {
+    const f = await createBusinessFixture(h, "seo");
+    await commit(f.businessId);
+    const long = "We bake sourdough every weekend and leave it on porches in West Asheville. ".repeat(7);
+    const first = await h.asUser(f.ownerId).run((tx) => repos.pages.publish(tx, f.businessId, { content: content({ about: long }), slug: "seo-loaf", userId: f.ownerId, at: new Date("2020-01-01T00:00:00Z") }));
+    expectRecordedNow(first.page.contentPublishedAt);
+    await h.service().execute(sql`update project_pages set content_published_at = '2026-10-07T12:00:00Z' where business_id = ${f.businessId}`);
+    // A client cannot move it on its own.
+    await h.asUser(f.ownerId).run((tx) => tx.update(s.projectPages).set({ contentPublishedAt: new Date("2030-01-01T00:00:00Z") }).where(eq(s.projectPages.businessId, f.businessId)));
+    const same = await h.asUser(f.ownerId).run((tx) => repos.pages.publish(tx, f.businessId, { content: content({ about: long }), slug: "unused", userId: f.ownerId }));
+    expect(same.page.contentPublishedAt?.toISOString()).toBe("2026-10-07T12:00:00.000Z");
+    const changed = await h.asUser(f.ownerId).run((tx) => repos.pages.publish(tx, f.businessId, { content: content({ about: `${long} Order by Thursday.` }), slug: "unused", userId: f.ownerId }));
+    expectRecordedNow(changed.page.contentPublishedAt);
+    const pub = await h.service().run((tx) => repos.pages.public.bySlug(tx, "seo-loaf"));
+    expect(pub?.updatedAt.getTime()).toBe(changed.page.contentPublishedAt!.getTime());
+    const listed = await h.service().run((tx) => repos.pages.public.listed(tx, { limit: 5000 }));
+    expect(listed.items.find((i) => i.slug === "seo-loaf")).toMatchObject({ story: false });
+    // A short page is public and not listed.
+    expect(listed.items.map((i) => i.slug)).not.toContain("alpha-candles");
+  });
+});
+
+describe("public_explore_projects: the opt-in gallery (0149)", () => {
+  it("lists a live page only after an owner or an admin opted in, and drops it when it is taken down or opted out", async () => {
+    const D = await createBusinessFixture(h, "page-explore");
+    await commit(D.businessId);
+    await h.service().run((tx) => repos.pages.publish(tx, D.businessId, { content: content({ pitch: "Gallery pitch" }), slug: "explore-page", userId: D.ownerId }));
+    const listed = async () => (await h.service().run((tx) => repos.pages.public.explore(tx, 60))).map((p) => p.slug);
+    // Public is not listed: nothing is in the gallery by default.
+    expect(await listed()).not.toContain("explore-page");
+    // A member and a viewer cannot opt in, on their own page or by writing the column directly.
+    for (const userId of [D.memberId, D.viewerId]) await expectNoEffect(h.asUser(userId).run((tx) => repos.pages.setExplore(tx, D.businessId, true)));
+    expect(await listed()).not.toContain("explore-page");
+    await h.asUser(D.adminId).run((tx) => repos.pages.setExplore(tx, D.businessId, true));
+    const card = (await h.service().run((tx) => repos.pages.public.explore(tx, 60))).find((p) => p.slug === "explore-page");
+    expect(card).toMatchObject({ slug: "explore-page", name: "PAGE-EXPLORE", pitch: "Gallery pitch", stage: "building" });
+    // The opt-in counts only while the page is live; it comes back with the page.
+    await h.asUser(D.ownerId).run((tx) => repos.pages.unpublish(tx, D.businessId, { userId: D.ownerId }));
+    expect(await listed()).not.toContain("explore-page");
+    await h.asUser(D.ownerId).run((tx) => repos.pages.publish(tx, D.businessId, { content: content(), slug: "explore-page", userId: D.ownerId }));
+    expect(await listed()).toContain("explore-page");
+    await h.asUser(D.ownerId).run((tx) => repos.pages.setExplore(tx, D.businessId, false));
+    expect(await listed()).not.toContain("explore-page");
+  });
+
+  it("another business's owner cannot opt a page in, and a page row can't be inserted already listed by a member", async () => {
+    await expectNoEffect(h.asUser(A.ownerId).run((tx) => repos.pages.setExplore(tx, B.businessId, true)));
+    expect(await h.service().run((tx) => repos.pages.public.explore(tx, 60))).not.toContainEqual(expect.objectContaining({ slug: "bravo-page" }));
+    const E = await createBusinessFixture(h, "page-explore-insert");
+    await expect(h.asUser(E.memberId).run((tx) => tx.insert(s.projectPages).values({ businessId: E.businessId, slug: "explore-insert", draft: content(), exploreListed: true }))).rejects.toThrow(/permission denied/);
+  });
+
+  it("exposes exactly the card's seven columns, to the service connection only", async () => {
+    const columns = (await rows<{ column_name: string }>(sql`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'public_explore_projects' order by ordinal_position`)).map((r) => r.column_name);
+    expect(columns).toEqual([...PUBLIC_EXPLORE_PROJECT_COLUMNS]);
+    for (const runner of [h.anon(), h.asUser(outsiderId), h.asUser(B.ownerId)]) await expect(runner.execute(sql`select slug from public_explore_projects`)).rejects.toThrow(/permission denied/);
+    const grants = await rows<{ grantee: string; privilege_type: string }>(sql`select grantee, privilege_type from information_schema.role_table_grants where table_schema = 'public' and table_name = 'public_explore_projects' and grantee <> 'postgres'`);
+    expect(grants).toEqual([{ grantee: "service_role", privilege_type: "SELECT" }]);
   });
 });

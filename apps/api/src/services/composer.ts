@@ -286,7 +286,7 @@ export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
       options: [
         option({ id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "You answer each stuck task now and the team picks the work back up in this round of work.", cost_minor: 0, reversible: true, because: "Recommended because a few answers from you unblock the most work, and nothing is spent." }),
         option({ id: "reassign", label: "Reassign them to the department lead", recommended: false, consequence: "The lead sorts them out and only brings you the ones that need your signature or money.", cost_minor: 0, reversible: true, because: "Recommended because it keeps the small calls off your desk." }),
-        option({ id: "park", label: "Park them until the next cycle", recommended: false, consequence: "Those tasks wait until the next cycle, and so does anything that depends on them.", cost_minor: 0, reversible: true, because: "Recommended because nothing is lost by waiting one cycle." }),
+        option({ id: "park", label: "Park them until the next round of work", recommended: false, consequence: "Those tasks wait until the next round of work, and so does anything that depends on them.", cost_minor: 0, reversible: true, because: "Recommended because nothing is lost by waiting one round of work." }),
       ],
       exhibit: { kind: "table", spec_ref: "tasks_by_status" },
     });
@@ -306,11 +306,11 @@ export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
   const quiet = s.customers30d === 0 && s.signups30d === 0;
   out.push({
     kind: "plan_next_cycle",
-    title: "Set the focus for the next cycle",
+    title: "Set the focus for the next round of work",
     facts: { planned_tasks: n("planned"), running_tasks: n("running"), done_tasks: n("done"), customers_30d: s.customers30d },
     options: [
-      option({ id: "product", label: "Lead with product work", recommended: quiet, consequence: "The next cycle starts from the roadmap's Now items.", cost_minor: 0, reversible: true, because: "Recommended because nobody has signed up yet, so there is nothing for distribution to amplify." }),
-      option({ id: "distribution", label: "Lead with distribution", recommended: !quiet, consequence: "The next cycle puts the live channels and customer follow-ups first.", cost_minor: 0, reversible: true, because: "Recommended because customers are arriving, and following up on them is the cheapest growth there is." }),
+      option({ id: "product", label: "Lead with product work", recommended: quiet, consequence: "The next round of work starts from the roadmap's Now items.", cost_minor: 0, reversible: true, because: "Recommended because nobody has signed up yet, so there is nothing for distribution to amplify." }),
+      option({ id: "distribution", label: "Lead with distribution", recommended: !quiet, consequence: "The next round of work puts the live channels and customer follow-ups first.", cost_minor: 0, reversible: true, because: "Recommended because customers are arriving, and following up on them is the cheapest growth there is." }),
       option({ id: "balanced", label: "Keep the current balance", recommended: false, consequence: "I plan as usual within the budget and the limit on agents working at once.", cost_minor: 0, reversible: true, because: "Recommended because the current mix is working." }),
     ],
     exhibit: { kind: "table", spec_ref: "tasks_by_status" },

@@ -49,6 +49,7 @@ export const SCHEDULES: readonly ScheduleDefinition[] = [
   { id: "mock-results-cleanup", workflowType: "mockResultsCleanup", spec: daily(30, 3), args: [{}], description: "Nightly: generated results on real projects, counted or removed (MOCK_RESULTS_CLEANUP)", triggerOnRegister: true },
   { id: "platform-metrics", workflowType: "platformMetrics", spec: daily(15, 3), args: [{}], description: "Nightly: funnel, north star, retention and agent-work counts for real projects" },
   { id: "waitlist-admissions", workflowType: "waitlistAdmissions", spec: every("15m"), args: [{}], description: "Every 15 minutes: admit today's waitlist number, then email everyone admitted" },
+  { id: "booking-reminders", workflowType: "bookingReminders", spec: every("15m"), args: [{}], description: "Every 15 minutes: the reminder email a customer gets the day before their booking" },
   { id: "page-catch-up", workflowType: "pageCatchUp", spec: daily(30, 3), args: [{ limit: 25 }], description: "Nightly: a drafted, unpublished public page and its note for up to 25 real projects that began before public pages and have none (nothing is published)" },
   { id: "business-deletion-sweep", workflowType: "businessDeletionSweep", spec: daily(45, 1), args: [{}], description: "Nightly: businesses whose scheduled deletion came due are deleted" },
 ];

@@ -2,6 +2,7 @@
  * HTTP surface on an ephemeral port: /health, /v1/narrate, /v1/refresh, /v1/commentary, /v1/chapter-title,
  * /v1/exhibits, validation and error mapping, and the credits gate's 402. The server is stopped after the suite.
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { serve } from "@hono/node-server";
 import { periodOf, repos } from "@foundmill/db";
 import { validateMarkup } from "@foundmill/entity-linker";
@@ -161,13 +162,13 @@ describe("the credits gate (SEC2 S2)", () => {
     const first = await hz.writeEvent(B, "payment.received", { amount: { amountMinor: 900, currency: "EUR" } }, [hz.B.entityId]);
     expect((await narrate(first.id)).status).toBe(200);
 
-    await repos.usage.chargeCredits(hz.db, B, periodOf(new Date()), 10_000_000, { includedMinor: 500 });
+    await spendAllCredits(hz.db, B, periodOf(new Date()));
     const booked = hz.usage.length;
     const notes = (await repos.inbox.list(hz.db, B, { limit: 500 })).items.length;
     const event = await hz.writeEvent(B, "payment.received", { amount: { amountMinor: 1200, currency: "EUR" } }, [hz.B.entityId]);
     const res = await narrate(event.id);
     expect(res.status).toBe(402);
-    expect(await res.json()).toMatchObject({ error: "credits_exhausted", message: expect.stringMatching(/^This month's credits are used up/), details: { reason: "exhausted", businessId: B } });
+    expect(await res.json()).toMatchObject({ error: "credits_exhausted", message: expect.stringMatching(/^The team is resting: this month's team budget is used/), details: { reason: "exhausted", businessId: B } });
     expect(hz.usage.length).toBe(booked);
     expect((await repos.inbox.list(hz.db, B, { limit: 500 })).items.length).toBe(notes);
   });

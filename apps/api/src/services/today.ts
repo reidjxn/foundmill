@@ -32,7 +32,7 @@
  */
 import { APPROVAL_OPTIONS, approvalSection, buildDestinationOf, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { FLAGS } from "@foundmill/config";
-import { GOAL_OPTION_IDS, REAL_OUTCOME_EVENT_TYPES, daysBetweenDays, founderTaskOf, isRealOutcome, realOutcomes, weekOutcomesWords, type WeekOutcomesWords, type FounderTask, type FounderTaskId, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { GOAL_OPTION_IDS, REAL_OUTCOME_EVENT_TYPES, TOOL_PICK_NOTE, isAdminRole, toolPickCategory, daysBetweenDays, founderTaskOf, isRealOutcome, realOutcomes, weekOutcomesWords, type WeekOutcomesWords, type FounderTask, type FounderTaskId, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
 import { pagePostDraft } from "@foundmill/shared/share-drafts";
 import { channelRowsFor } from "./channel-availability";
 import type { BusinessContext } from "../trpc";
@@ -40,6 +40,8 @@ import { autopilotStatus } from "./autopilot";
 import { cycleStatus, type CycleStatus } from "./cycle";
 import { goalAsSeenBy } from "./goals";
 import { isProjectFounder } from "./postal-address";
+import { upcomingBookingsFor, type UpcomingBooking } from "./booking";
+import { BOOKING_READY_NOTE, isBookingReadyDecision } from "@foundmill/shared/booking";
 import { idsOfItem, inboxWalls, loadRedactionSource, redactInboxItem } from "./inbox-redaction";
 
 /** How many notes Today shows (the rest wait in the Inbox behind "See all in the Inbox"). */
@@ -112,6 +114,8 @@ export interface TodayView {
    * sample business. An offer, one quiet line to Product › Public page, never a count in Needs you.
    */
   followersUpdate: { kind: "draft"; updateId: string } | { kind: "invite"; followers: number } | null;
+  /** The next three confirmed bookings (founder, Nov 22, 2026), for a reader of the CRM; empty otherwise or when there are none. */
+  upcomingBookings: UpcomingBooking[];
 }
 
 export interface WorkingNowLine {
@@ -156,6 +160,10 @@ async function quickAnswerFor(tx: DbTx, ctx: BusinessContext, item: InboxItem, a
   if (isPageReadyDecision(item.decision)) return { kind: "decision", quickOption: quick(PAGE_READY_NOTE.options.check, hasSectionAccess(ctx.membership, "product", "read")) };
   // The founders' postal address note: one tap answers it and the web opens Settings › Integrations (founders only).
   if (isPostalAddressDecision(item.decision)) return { kind: "decision", quickOption: quick(POSTAL_ADDRESS_NOTE.options.add, isProjectFounder(ctx)) };
+  // The tool scout's recommendation (founder, Nov 22, 2026): one press says yes; the sign-up itself stays the founder's.
+  if (toolPickCategory(item.decision)) return { kind: "decision", quickOption: quick(TOOL_PICK_NOTE.options.yes, isAdminRole(ctx.role)) };
+  // The booking note (founder, Nov 22, 2026): one tap answers it and the web opens the booking setup; nothing is turned on.
+  if (isBookingReadyDecision(item.decision)) return { kind: "decision", quickOption: quick(BOOKING_READY_NOTE.options.check, true) };
   return { kind: item.type === "warning" ? "warning" : "decision", quickOption: null };
 }
 
@@ -359,7 +367,7 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
   const week = hasSectionAccess(m, "development", "read");
   const autopilotNextOn = week ? await autopilotNextDay(ctx) : null;
   return ctx.rls(async (tx) => {
-    const [needsYou, facts, workingNow, real, goals, chief, firstWeek, page, postsReady, founderTask, followersUpdate] = await Promise.all([
+    const [needsYou, facts, workingNow, real, goals, chief, firstWeek, page, postsReady, founderTask, followersUpdate, upcomingBookings] = await Promise.all([
       hasSectionAccess(m, "inbox", "read") ? needsYouFor(tx, ctx) : Promise.resolve(null),
       week ? weekFactsFor(tx, ctx, { now, autopilotNextOn }) : Promise.resolve(null),
       week ? workingNowFor(tx, ctx) : Promise.resolve(null),
@@ -378,12 +386,13 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
         : Promise.resolve(null),
       founderTaskFor(tx, ctx, now),
       !ctx.business.isDemo && hasSectionAccess(m, "distribution", "read") ? followersUpdateFor(tx, ctx.businessId) : Promise.resolve(null),
+      upcomingBookingsFor(tx, ctx, now),
     ]);
     const today = dayKeyIn(now, ctx.business.timeZone);
     const projectDay = daysBetweenDays(dayKeyIn(ctx.business.createdAt, ctx.business.timeZone), today) + 1;
     const firstDay = projectDay <= 1 && !ctx.business.isDemo && !ctx.business.distributionStartedAt;
     const outcomes = weekOutcomesWords(real, (section) => hasSectionAccess(m, section, "read"), { goal: goalAsSeenBy(goals.active, ctx)?.sentence ?? null, pageNotLive: page.unpublished, work: facts?.running?.title ?? facts?.next?.title ?? null });
-    return { today, projectDay, firstDay, needsYou, week: facts ? weekPlanWords(facts) : null, workingNow, outcomes, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady: page.ready, postsReady, founderTask, followersUpdate };
+    return { today, projectDay, firstDay, needsYou, week: facts ? weekPlanWords(facts) : null, workingNow, outcomes, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady: page.ready, postsReady, founderTask, followersUpdate, upcomingBookings };
   });
 }
 

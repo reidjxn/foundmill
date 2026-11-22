@@ -72,7 +72,7 @@ You are executing one work package of docs/HOLISTIC_PLAN.md for Foundmill.
 
 Package: docs/holistic-plan/WP-<NN>-<name>.md
 
-Read, in this order: CLAUDE.md; docs/holistic-plan/README.md (the rules for executing a package); docs/holistic-plan/OUTLINE.md (boundaries between packages); the package file in full; the audit sections it cites in docs/holistic-plan/audits/; the CLAUDE.md of each package you will touch.
+Read, in this order: FOUNDMILL.md; docs/holistic-plan/README.md (the rules for executing a package); docs/holistic-plan/OUTLINE.md (boundaries between packages); the package file in full; the audit sections it cites in docs/holistic-plan/audits/; the CLAUDE.md of each package you will touch.
 
 Follow the karpathy-guidelines skill on every change. Use the executing-plans skill to work through the package's tasks in the order written. For each task: run plan-change, write the failing test the task names, make the smallest change that passes it, run verify-done, then ship-change. One task is one pull request on a branch named claude/wp<NN>-t<n>-<slug>. Never push to main and never merge.
 

@@ -7,22 +7,22 @@ describe("routing (BUILD §10.1)", () => {
     expect(ROUTES).toEqual({
       inboxComposer: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: 16_000 },
       planCompiler: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: 16_000 },
-      chiefOfStaff: { model: "opus", lowCredits: "keep", warnOnDowngrade: true, maxTokens: 16_000 },
-      departmentLead: { model: "opus", lowCredits: "sonnet", maxTokens: 16_000 },
+      chiefOfStaff: { model: "opus", lowCredits: "keep", warnOnDowngrade: true, effort: "medium", maxTokens: 16_000 },
+      departmentLead: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: 16_000 },
       leadRecommendation: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: 16_000 },
       planner: { model: "opus", lowCredits: "sonnet", effort: "low", maxTokens: 16_000 },
-      codeReview: { model: "opus", lowCredits: "keep", maxTokens: 16_000 },
-      documentReview: { model: "opus", lowCredits: "keep", maxTokens: 16_000 },
+      codeReview: { model: "opus", lowCredits: "keep", effort: "medium", maxTokens: 16_000 },
+      documentReview: { model: "opus", lowCredits: "keep", effort: "medium", maxTokens: 16_000 },
       ideation: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: 8_000 },
       ideationSlate: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: 8_000 },
       logoDesigner: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
       foundations: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
       foundationsSkeleton: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
-      skillGrader: { model: "opus", lowCredits: "sonnet", maxTokens: 16_000 },
-      coach: { model: "opus", lowCredits: "sonnet", maxTokens: 16_000 },
-      worker: { model: "sonnet", lowCredits: "haiku", maxTokens: 16_000 },
-      journeyCommentary: { model: "sonnet", lowCredits: "haiku", maxTokens: 16_000 },
-      nightlyBatch: { model: "sonnet", lowCredits: "haiku", batch: true, maxTokens: 16_000 },
+      skillGrader: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: 16_000 },
+      coach: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: 16_000 },
+      worker: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: 16_000 },
+      journeyCommentary: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: 16_000 },
+      nightlyBatch: { model: "sonnet", lowCredits: "haiku", batch: true, effort: "high", maxTokens: 16_000 },
       linker: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
       classifier: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
       categoriser: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
@@ -37,6 +37,17 @@ describe("routing (BUILD §10.1)", () => {
       designReview: { model: "opus", lowCredits: "keep", effort: "low", vision: true, maxTokens: 8_000 },
       webSearch: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
     });
+  });
+
+  it("every route writes its effort down, but the six Haiku utilities (WP-09 T6 step 1; T4 step 2 waits on its live evals)", () => {
+    const haikuUtilities = ["linker", "classifier", "categoriser", "quarantinedReader", "moderation", "founderTitle"];
+    const without = (Object.entries(ROUTES) as [string, { effort?: string }][]).filter(([, r]) => !r.effort).map(([k]) => k);
+    expect(without).toEqual(haikuUtilities);
+  });
+
+  it("a route's written effort is what its model's API default was: Opus medium, Sonnet high", () => {
+    for (const route of ["chiefOfStaff", "departmentLead", "codeReview", "documentReview", "skillGrader", "coach"] as const) expect(resolveModel(route)).toMatchObject({ modelKey: "opus", effort: "medium" });
+    for (const route of ["worker", "journeyCommentary", "nightlyBatch"] as const) expect(resolveModel(route)).toMatchObject({ modelKey: "sonnet", effort: "high" });
   });
 
   it("the goal route (the founder's Change it words) is Sonnet at low effort (founder, 2026-11-07)", () => {
@@ -78,14 +89,14 @@ describe("routing (BUILD §10.1)", () => {
     expect(up.warning).toBeUndefined();
   });
 
-  it("first-draft routes stay on Opus at low effort and ask for fast mode; the agents' own planning routes keep the API default", () => {
+  it("first-draft routes stay on Opus at low effort and ask for fast mode; the agents' own planning routes write the API default (medium) down", () => {
     for (const route of ["ideation", "ideationSlate", "logoDesigner", "foundations", "foundationsSkeleton"] as const) {
       expect(resolveModel(route)).toMatchObject({ modelKey: "opus", effort: "low", speed: "fast" });
     }
     for (const route of ["coach", "chiefOfStaff", "departmentLead"] as const) {
       const r = resolveModel(route);
       expect(r.modelKey).toBe("opus");
-      expect(r.effort).toBeUndefined();
+      expect(r.effort).toBe("medium");
       expect(r.speed).toBeUndefined();
     }
   });

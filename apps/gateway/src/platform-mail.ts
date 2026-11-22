@@ -25,7 +25,8 @@
  * is not shared (no Redis, or Redis down and the store counting in this process's memory) caps nothing, so the send is
  * refused until Redis answers. A count is given back when a later guard refuses, or the vendor refused outright (a 4xx:
  * nothing went out); after a timeout or a 5xx the message may have gone, so it stays counted. The sender is
- * `<project name> via <APP_NAME>` (`platformMailSenderName`). The envelope (sender, Reply-To, unsubscribe link, signed
+ * `<project name> via <APP_NAME>` (`platformMailSenderName`), from the project's own domain once it is verified there
+ * (`project_domains`), with the Foundmill address as Reply-To so replies still arrive. The envelope (sender, Reply-To, unsubscribe link, signed
  * custom args, which cover the recipient) reaches the connector in `ToolContext.platformMail`, never through the agent's
  * arguments. Every refusal is a deny with its own policy id and a plain sentence (packages/shared `PLATFORM_MAIL_REFUSALS`), audited like any deny;
  * an approval used for a refused call is given back by the pipeline.
@@ -34,7 +35,7 @@ import { emailLinkSecret } from "@foundmill/shared/email-links";
 import { randomUUID } from "node:crypto";
 import { repos, type Business } from "@foundmill/db";
 import { mockResultsAllowed, PLATFORM_MAIL_REFUSALS, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress, platformMailDomain, platformMailSigningSecret, PROJECT_MAIL_RELATIONSHIP_MS, projectMailClass, type Env, type MailClass, type ProjectMailPurpose } from "@foundmill/shared";
-import { DEV_PLATFORM_MAIL_SECRET, emailEntityId, platformMailContentProblem, platformMailCustomArgs, platformMailSenderName, PlatformSendMail, platformUnsubscribeToken, platformUnsubscribeUrl, suppressionHashOfEmail, type ConnectorMode, type PlatformMailEnvelope } from "@foundmill/connectors";
+import { bookingLinkSecret, DEV_PLATFORM_MAIL_SECRET, emailEntityId, platformMailContentProblem, platformMailCustomArgs, platformMailSenderName, PlatformSendMail, platformUnsubscribeToken, platformUnsubscribeUrl, suppressionHashOfEmail, type ConnectorMode, type PlatformMailEnvelope } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { DAY_MS, type RateLimitStore } from "./rate-limit";
 
@@ -65,6 +66,12 @@ export interface PlatformMailConfig {
   followCap?: number;
   /** Follow confirmations across the deployment in a UTC day (`pm:all:follow`); default `FOLLOW_CONFIRM_DAILY_CEILING`. For tests. */
   followCeiling?: number;
+  /** Booking emails a project may send in a UTC day (`pm:<id>:booking`); default `BOOKING_MAIL.dailyCap`. For tests. */
+  bookingCap?: number;
+  /** Booking emails across the deployment in a UTC day (`pm:all:booking`); default `BOOKING_MAIL.dailyCeiling`. For tests. */
+  bookingCeiling?: number;
+  /** The key a booking's manage link is signed under (`bookingLinkSecret`: SESSION_TOKEN_SECRET, shared with the api). Null: no booking email. */
+  bookingLinkSecret?: string | null;
   /**
    * The key the "Pause every email" link is signed under (`@foundmill/shared/email-links`, derived from
    * SESSION_TOKEN_SECRET under its own label; the api's `email.pause` checks it). Absent: no pause link.
@@ -92,6 +99,7 @@ export function platformMailConfig(
     ...(env.PLATFORM_SAFETY_RESERVED_DAILY_CEILING !== undefined ? { safetyReservedCeiling: env.PLATFORM_SAFETY_RESERVED_DAILY_CEILING } : {}),
     ...(env.APP_URL ? { appUrl: env.APP_URL.trim().replace(/\/+$/, "") } : {}),
     ...(pauseSecretOf(env) ? { pauseSecret: pauseSecretOf(env)! } : {}),
+    bookingLinkSecret: bookingLinkSecret({ APP_ENV: env.APP_ENV, SESSION_TOKEN_SECRET: (env as Partial<Pick<Env, "SESSION_TOKEN_SECRET">>).SESSION_TOKEN_SECRET }),
   };
 }
 
@@ -131,6 +139,9 @@ export const PLATFORM_MAIL_CEILING_KEY = "pm:all:day";
  */
 export const followConfirmDayKey = (businessId: string): string => `pm:${businessId}:follow`;
 export const FOLLOW_CONFIRM_CEILING_KEY = "pm:all:follow";
+/** Booking emails have their own day too (booking-mail.ts): replies to the customer's own action, never the project's outreach. */
+export const bookingMailDayKey = (businessId: string): string => `pm:${businessId}:booking`;
+export const BOOKING_MAIL_CEILING_KEY = "pm:all:booking";
 /**
  * At most 100 follow confirmations a project in a UTC day: twice the project's whole outbound day (50 by default), so a
  * real launch day is never cut short, while a flood that gets past the page's bot check costs at most 100 emails to
@@ -258,6 +269,8 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
   const messageRef = randomUUID();
   const email = platformMailAddress(row.localPart, domain);
   const { projectName, fromName } = platformMailSenderName(input.business.name, row.localPart);
+  // The project's own domain, once verified (WP-08 domain plan, Path B): From is there, replies still come back here.
+  const own = await repos.projectDomains.sendingFrom(deps.db, businessId, { live: input.mode === "live" });
   return {
     ok: true,
     prepared: {
@@ -266,7 +279,7 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
       mailClass,
       release,
       envelope: {
-        from: { email, name: fromName },
+        ...(own ? { from: { email: own.email, name: fromName }, replyTo: { email, name: fromName } } : { from: { email, name: fromName } }),
         projectName,
         messageRef,
         unsubscribeUrl: platformUnsubscribeUrl(config.unsubscribeBase, platformUnsubscribeToken(secret, businessId, recipientHash)),

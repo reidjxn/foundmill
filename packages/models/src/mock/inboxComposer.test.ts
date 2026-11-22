@@ -70,7 +70,7 @@ const VARIANTS: Array<Record<string, unknown>> = [
   { ...COMPOSER_INPUT, type: "decision", options: [{ id: "x", label: "Ship Friday", consequence: "Earlier feedback", cost_minor: 0, reversible: true, recommended: true }, { id: "y", label: "Ship next week", consequence: "More polish", cost_minor: 2500, reversible: true }] },
   { ...COMPOSER_INPUT, source_events: [{ id: EVENT_2, type: "contract.signed", payload: { title: "Retail agreement with Alder & Finch", entity_id: ORG_ALDER } }] },
   { ...COMPOSER_INPUT, manifest: [], source_events: [{ id: EVENT_1, type: "payment.received", payload: { customer_name: "Someone New", amount_minor: 1999, currency: "USD" } }] },
-  { ...COMPOSER_INPUT, source_events: [{ id: EVENT_2, type: "cycle.completed", payload: { title: "Cycle seven" } }], business: { name: "Ledgerly", brief: "Bookkeeping for freelancers." } },
+  { ...COMPOSER_INPUT, source_events: [{ id: EVENT_2, type: "cycle.completed", payload: { title: "Round of work seven" } }], business: { name: "Ledgerly", brief: "Bookkeeping for freelancers." } },
 ];
 
 describe("mock inbox composer (BUILD §11.3, §12.2)", () => {
@@ -185,8 +185,8 @@ describe("mock inbox composer (BUILD §11.3, §12.2)", () => {
       decision_needed: true,
       next_best_decision: { kind: "unblock_tasks", title: "Blocked tasks need a call", facts: { blocked_tasks: 3, running_tasks: 2 } },
       options: [
-        { id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "Work resumes this cycle.", cost_minor: 0, reversible: true },
-        { id: "park", label: "Park them until the next cycle", recommended: false, consequence: "Dependents wait.", cost_minor: 0, reversible: true },
+        { id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "Work resumes this round of work.", cost_minor: 0, reversible: true },
+        { id: "park", label: "Park them until the next round of work", recommended: false, consequence: "Dependents wait.", cost_minor: 0, reversible: true },
       ],
     };
     const out = (await client.complete({ route: "inboxComposer", messages: promptWith(input), schema: ComposerOutput })).json;

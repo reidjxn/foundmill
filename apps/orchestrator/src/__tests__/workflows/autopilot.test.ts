@@ -196,7 +196,7 @@ async function drive(client: Client, taskQueue: string, workflowId: string, scri
 }
 
 describe("autopilot workflow", () => {
-  it("waits for the interval, then starts a cycle through businessCycle with trigger autopilot, and again after the next interval", async () => {
+  it("waits for the interval, then starts a round of work through businessCycle with trigger autopilot, and again after the next interval", async () => {
     const w = world();
     const result = await rig.run(mocks(w), (client, taskQueue) =>
       drive(client, taskQueue, `autopilot:${B}:interval`, async (handle) => {
@@ -235,7 +235,7 @@ describe("autopilot workflow", () => {
     expect(result.outcome).toBe("stopped");
   });
 
-  it("pauses after N failed or empty cycles in a row and stops starting cycles", async () => {
+  it("pauses after N failed or empty rounds of work in a row and stops starting rounds of work", async () => {
     const w = world({ tasksPerCycle: 0, lastEndedAt: Date.parse(START) - 10 * H });
     const result = await rig.run(mocks(w), (client, taskQueue) => client.workflow.execute(autopilot, { workflowId: `autopilot:${B}:idle`, taskQueue, args: [{ businessId: B }] }));
     expect(result).toMatchObject({ outcome: "paused", pausedReason: "idle_cycles", cyclesStarted: 3 });
@@ -259,7 +259,7 @@ describe("autopilot workflow", () => {
     expect(w.cycles).toHaveLength(0);
   });
 
-  it("stops the cycle it is waiting on when Stop all agents signals it", async () => {
+  it("stops the round of work it is waiting on when Stop all agents signals it", async () => {
     const w = world({ lastEndedAt: Date.parse(START) - 10 * H });
     const result = await rig.run(
       { ...mocks(w), async startCycle() {
@@ -277,7 +277,7 @@ describe("autopilot workflow", () => {
     expect(w.pauses).toContain("kill_switch");
   });
 
-  it("yields to a founder's Continue that took the same cycle number, then starts the next cycle", async () => {
+  it("yields to a founder's Continue that took the same round of work number, then starts the next round of work", async () => {
     const w = world({ lastEndedAt: Date.parse(START) - 10 * H });
     // The founder's cycle 1 is still planning when Autopilot decides to start "cycle 1" as well.
     let release: () => void = () => undefined;
@@ -388,7 +388,7 @@ describe("Continue runs until done (Nov 7, 2026)", () => {
     expect(result).toMatchObject({ outcome: "run_ended", cyclesStarted: 2 });
   });
 
-  it("the press's own cycle starts with the input the API sent (WP-09 T11: round 1 capped), and later rounds without it", async () => {
+  it("the press's own round of work starts with the input the API sent (WP-09 T11: round 1 capped), and later rounds without it", async () => {
     const w = world({ enabled: false, tasksFor: (n) => (n <= 1 ? 1 : 0) });
     const inputOf = async (client: Client, workflowId: string) => {
       const history = await client.workflow.getHandle(workflowId).fetchHistory();
@@ -407,7 +407,7 @@ describe("Continue runs until done (Nov 7, 2026)", () => {
     expect(inputs[1]).not.toHaveProperty("maxConcurrent");
   });
 
-  it("the day's cycle cap ends the run (Continue's rounds count toward it)", async () => {
+  it("the day's round of work cap ends the run (Continue's rounds count toward it)", async () => {
     const w = world({ enabled: false, settings: { ...AUTOPILOT_DEFAULT_SETTINGS, maxCyclesPerDay: 2 } });
     const result = await rig.run(mocks(w), (client, taskQueue) => press(w, client, taskQueue, `autopilot:${B}:run-cap`, id(502), 1));
     expect(w.cycles.map((c) => c.trigger)).toEqual(["continue", "autopilot"]);
@@ -509,7 +509,7 @@ describe("Continue runs until done (Nov 7, 2026)", () => {
     expect(result.outcome).toBe("stopped");
   });
 
-  it("a press while a cycle is open waits for it (every minute) and goes on after it", async () => {
+  it("a press while a round of work is open waits for it (every minute) and goes on after it", async () => {
     // Another cycle is running when the press arrives (cycleNumber null); it ends with nothing done, so the run is done.
     const w = world({ enabled: false, open: true });
     const base = mocks(w);

@@ -77,11 +77,11 @@ export function loopStops(input: LoopStopsInput): LoopStops {
     { id: "release", when: "Putting changes live in your product", then: "The team asks you first, unless you handed this to an agent in Team › Responsibilities." },
     { id: "offline_channel", when: "A channel that can't be run automatically within its own rules", then: "The agent prepares everything and you submit it yourself." },
     { id: "credits", when: "The credits run out", then: "The team pauses and tells you in Needs you. It picks up where it stopped after a top-up or once your own key is added." },
-    { id: "holds_work", when: "A question only you can answer holds up the work", then: "The team finishes the cycle it is in and waits for your answer before starting the next one." },
+    { id: "holds_work", when: "A question only you can answer holds up the work", then: "The team finishes the round of work it is in and waits for your answer before starting the next one." },
   );
   if (input.autopilot?.enabled) {
     const n = input.autopilot.maxIdleCycles;
-    asks.push({ id: "autopilot_idle", when: `${n === 1 ? "A cycle fails" : `${n.toLocaleString("en-US")} cycles in a row fail`} or get nothing done`, then: "Autopilot pauses itself and leaves a note in the Inbox. It starts again when you turn it back on." });
+    asks.push({ id: "autopilot_idle", when: `${n === 1 ? "A round of work fails" : `${n.toLocaleString("en-US")} rounds of work in a row fail`} or get nothing done`, then: "Autopilot pauses itself and leaves a note in the Inbox. It starts again when you turn it back on." });
   }
   const stops: LoopStop[] = [
     { id: "unsubscribed", when: "Someone unsubscribes, reports spam, or their email bounces", then: "The project never emails them again." },

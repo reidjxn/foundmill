@@ -6,10 +6,10 @@
  * the row with `lockForSettlement` so a session announced twice is granted once. Rows are written with the service role
  * (app roles only read this table); the api checks the caller's role and billing section first.
  */
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { BILLING_CHECKOUT_KINDS, BILLING_CHECKOUT_MODES, BILLING_CHECKOUT_RESUME, billingCheckouts, type BillingCheckout } from "../schema";
-import { Id, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
+import { Id, maybeOne, MinorAmount, one, parseInput, rowsOf, type Executor } from "./_shared";
 
 export const CreateCheckoutInput = z.object({
   mode: z.enum(BILLING_CHECKOUT_MODES),
@@ -21,6 +21,8 @@ export const CreateCheckoutInput = z.object({
   creditsMinor: MinorAmount.positive().optional(),
   /** 0140: what the checkout unblocks once paid ('continue': the next round of work starts by itself). */
   resume: z.enum(BILLING_CHECKOUT_RESUME).nullable().optional(),
+  /** 0150: the domain a `domain` checkout pays for (required for that kind, refused for the others). */
+  domainName: z.string().min(4).max(253).optional(),
 });
 export type CreateCheckoutInput = z.input<typeof CreateCheckoutInput>;
 
@@ -47,7 +49,7 @@ export const checkoutsRepo = {
     return one(
       await db
         .insert(billingCheckouts)
-        .values({ businessId, kind: v.kind, status: "open", mode: v.mode, amountMinor: v.amountMinor, creditsMinor: v.creditsMinor ?? null, resume: v.resume ?? null, currency: "USD", createdBy: v.createdBy ?? null })
+        .values({ businessId, kind: v.kind, status: "open", mode: v.mode, amountMinor: v.amountMinor, creditsMinor: v.creditsMinor ?? null, resume: v.resume ?? null, domainName: v.domainName ?? null, currency: "USD", createdBy: v.createdBy ?? null })
         .returning(),
       "checkout",
     );
@@ -106,10 +108,50 @@ export const checkoutsRepo = {
     return Number(row?.total ?? 0);
   },
 
+  /**
+   * Whether the person who took charge of `businessId` has themselves bought a credit pack of `minMinor` US cents or more
+   * with a real payment, on any project they took charge of (#274, WP-14 A16: from the day sign-up opens such a pack opens
+   * Opus and Sonnet to a Try project). Only that person's own purchases count: a pack a cofounder bought on another of
+   * their projects does not. A simulated payment never counts.
+   */
+  async ownerHasPack(db: Executor, businessId: string, minMinor: number): Promise<boolean> {
+    const result = await db.execute(sql`
+      select 1 from billing_checkouts c join businesses b on b.id = c.business_id
+        join businesses own on own.id = ${businessId}
+       where c.status = 'paid' and c.mode = 'live' and c.amount_minor >= ${minMinor}
+         and own.created_by is not null and b.created_by = own.created_by and c.created_by = own.created_by
+       limit 1`);
+    return rowsOf(result).length > 0;
+  },
+
   /** The row, locked until the caller's transaction ends (settlement reads and writes it once). */
   async lockForSettlement(tx: Executor, businessId: string, checkoutId: string): Promise<BillingCheckout | null> {
     const rows = await tx.select().from(billingCheckouts).where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.id, checkoutId))).for("update").limit(1);
     return maybeOne(rows);
+  },
+
+  /**
+   * 0150: the one registration a paid domain checkout allows, claimed atomically. Null when the checkout is not a paid
+   * domain checkout for this business, or another press already claimed it.
+   */
+  async claimDomainOrder(db: Executor, businessId: string, checkoutId: string): Promise<BillingCheckout | null> {
+    return maybeOne(
+      await db
+        .update(billingCheckouts)
+        .set({ fulfilledAt: sql`now()` })
+        .where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.id, checkoutId), eq(billingCheckouts.kind, "domain"), eq(billingCheckouts.status, "paid"), isNull(billingCheckouts.fulfilledAt)))
+        .returning(),
+    );
+  },
+
+  /** The registry refused after the claim: the paid checkout may be tried again (or refunded), with why. */
+  async releaseDomainOrder(db: Executor, businessId: string, checkoutId: string, failure: string): Promise<void> {
+    await db.update(billingCheckouts).set({ fulfilledAt: null, failure: failure.slice(0, 500) }).where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.id, checkoutId), eq(billingCheckouts.kind, "domain")));
+  },
+
+  /** Why a claimed domain checkout's registration is in doubt; the claim stays. */
+  async noteDomainOrder(db: Executor, businessId: string, checkoutId: string, failure: string): Promise<void> {
+    await db.update(billingCheckouts).set({ failure: failure.slice(0, 500) }).where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.id, checkoutId), eq(billingCheckouts.kind, "domain")));
   },
 
   /** open → paid, with what settled it (call inside the transaction that granted the credits). */

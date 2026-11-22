@@ -34,6 +34,14 @@ function shellProps(over: Partial<AppShellProps> = {}): AppShellProps {
 }
 
 describe("AppShell", () => {
+  it("no runway words and no mode chip when both are off, and Stop all agents stays (WP-10 T2)", () => {
+    render(<AppShell {...shellProps({ showRunway: false, showMode: false })} />);
+    expect(screen.getByTestId("kitbar-date")).toBeTruthy();
+    expect(document.querySelector("[data-runway-tone]")).toBeNull();
+    expect(screen.queryByText(/Asks before|Asks over|Runs on its own|Not known yet/)).toBeNull();
+    expect(screen.getByRole("button", { name: /Stop all agents/ })).toBeTruthy();
+  });
+
   it("carries the one estimate legend, under the content and outside it, hidden until the page holds an estimate (WP-14 T7)", () => {
     render(<AppShell {...shellProps()} />);
     const legends = document.querySelectorAll("[data-estimate-legend]");
@@ -93,11 +101,11 @@ describe("AppShell", () => {
       expect(screen.getByTestId("stop-all-trigger").className).toContain("min-h-tap");
     });
 
-    it("draws Explain this page in the phone title row only with `phoneExplain` (WP-04 T7, Today)", () => {
+    it("phone mode draws Explain this page when a screen registered one, and nothing when none did (WP-10 T3)", () => {
       const page = <Explainer screenId="today" purpose="Today is the front door." action="Answer Needs you." watchFor="Continue runs the team." />;
       const { unmount } = render(
         <GuidanceProvider value={{ guidance: "on", loaded: true }}>
-          <AppShell {...shellProps({ viewportWidth: 390, phone: true, phoneExplain: true, children: page })} />
+          <AppShell {...shellProps({ viewportWidth: 390, phone: true, children: page })} />
         </GuidanceProvider>,
       );
       const row = screen.getByTestId("phone-title-row");
@@ -105,7 +113,7 @@ describe("AppShell", () => {
       unmount();
       render(
         <GuidanceProvider value={{ guidance: "on", loaded: true }}>
-          <AppShell {...shellProps({ viewportWidth: 390, phone: true, children: page })} />
+          <AppShell {...shellProps({ viewportWidth: 390, phone: true, children: <p>No explainer here</p> })} />
         </GuidanceProvider>,
       );
       expect(within(screen.getByTestId("phone-title-row")).queryByRole("button", { name: /Explain this page/ })).toBeNull();
@@ -325,14 +333,14 @@ describe("AppShell", () => {
     const tabs = { tabs: [{ id: "a", label: "Overview" }], activeId: "a" };
     render(
       <GuidanceProvider value={{ guidance: "off" }}>
-        <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } })} />
+        <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Round of work 2 started: 6 tasks ready to build" } })} />
       </GuidanceProvider>,
     );
     // Never "The team is idle" over a press that was answered.
     expect(screen.queryByRole("status", { name: "The team is idle" })).toBeNull();
-    expect(screen.getByRole("status", { name: "Cycle 2 started: 6 tasks ready to build" }).hasAttribute("data-notice")).toBe(true);
+    expect(screen.getByRole("status", { name: "Round of work 2 started: 6 tasks ready to build" }).hasAttribute("data-notice")).toBe(true);
     const line = screen.getByTestId("processing-line");
-    expect(line.textContent).toBe("Cycle 2 started: 6 tasks ready to build");
+    expect(line.textContent).toBe("Round of work 2 started: 6 tasks ready to build");
     expect(line.hasAttribute("data-notice")).toBe(true);
     expect(line.className).toMatch(/text-secondary/);
   });
@@ -353,7 +361,7 @@ describe("AppShell", () => {
     expect(PROCESSING_LINE_MIN_PX).toBe(11);
   });
 
-  it("opens the keyboard shortcuts from the sidebar's \"?\" cap and from the palette's Help row, and pauses coach marks while an overlay is open or a cycle runs (B15)", async () => {
+  it("opens the keyboard shortcuts from the sidebar's \"?\" cap and from the palette's Help row, and pauses coach marks while an overlay is open or a round of work runs (B15)", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     const { unmount } = render(<AppShell {...shellProps({ search: { items: PALETTE_ITEMS, onSelect } })} />);

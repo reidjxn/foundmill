@@ -4,6 +4,7 @@
  * does money or legal work; a business on its own key and a business above the line are unchanged; and the orchestrator's
  * per-business client sends the call with `lowCredits`, so its routine routes move while its kept routes do not.
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { lowCreditsThresholdMinor, includedCreditsMinor } from "@foundmill/config";
 import { periodOf, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
@@ -26,15 +27,13 @@ afterAll(async () => {
 
 const B = () => t.businessId;
 const period = () => periodOf(t.clock.now());
-const LINE = lowCreditsThresholdMinor(includedCreditsMinor("free"));
+// The project is on Founder (above), so the line is a fifth of Founder's month.
+const LINE = lowCreditsThresholdMinor(includedCreditsMinor("pro"));
 
-/** Sets this month's balance to exactly `minor` (the row is created with the tier's included credits first). */
+/** Sets this month's balance to exactly `minor`: the owner's shared budget and the project's own are used up first (the budget is the plan's, opened by the first charge), then `minor` is granted. */
 async function setBalance(minor: number, p: string = period()) {
-  await repos.usage.ensurePeriodCredits(t.db, B(), p, includedCreditsMinor("free"));
-  const now = (await repos.usage.creditBalance(t.db, B(), p))!;
-  const diff = minor - Number(now.balanceMinor);
-  if (diff > 0) await repos.usage.grantCredits(t.db, B(), p, diff);
-  if (diff < 0) await repos.usage.chargeCredits(t.db, B(), p, -diff);
+  await spendAllCredits(t.db, B(), p);
+  if (minor > 0) await repos.usage.grantCredits(t.db, B(), p, minor);
 }
 
 async function prepare() {

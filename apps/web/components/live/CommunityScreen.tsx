@@ -111,7 +111,8 @@ function PostMenu({ post, handlers, authorName }: { post: PostRow; handlers: Pos
   }
   if (handlers.canModerate) {
     const first = items.length > 0;
-    if (post.status !== "visible") items.push({ id: "restore", label: post.status === "pending_review" ? "Approve" : "Restore", icon: ShieldCheck, separator: first, onSelect: () => handlers.onModerate(post, "restore") });
+    // Nobody approves their own post (the api refuses it too): editing screens it again, or another moderator decides.
+    if (post.status !== "visible" && !mine) items.push({ id: "restore", label: post.status === "pending_review" ? "Approve" : "Restore", icon: ShieldCheck, separator: first, onSelect: () => handlers.onModerate(post, "restore") });
     if (post.status === "visible" && !mine) items.push({ id: "hide", label: "Hide", icon: EyeOff, separator: first, onSelect: () => handlers.onModerate(post, "hide") });
     if (!mine) items.push({ id: "remove", label: "Remove", icon: Trash2, danger: true, onSelect: () => handlers.onModerate(post, "remove") });
   }
@@ -347,7 +348,7 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
             </div>
           </Panel>
           <div className="flex min-w-0 flex-col gap-gutter @page-wide:col-span-4">
-            {canModerate ? <ModerationPanel queue={queue} restricted={restricted} loading={queueQ.isLoading} error={queueQ.error ? errorMessage(queueQ.error) : undefined} onRetry={() => void queueQ.refetch()} people={people} onModerate={postHandlers.onModerate} onRestore={(userId) => memberAction(userId, "restore")} /> : null}
+            {canModerate ? <ModerationPanel queue={queue} restricted={restricted} viewerId={viewer.userId} loading={queueQ.isLoading} error={queueQ.error ? errorMessage(queueQ.error) : undefined} onRetry={() => void queueQ.refetch()} people={people} onModerate={postHandlers.onModerate} onRestore={(userId) => memberAction(userId, "restore")} /> : null}
             <Panel title="About" data-testid="community-about">
               {community.descriptionMd.trim() ? (
                 <Markdown variant="body" images={false} entities={false}>
@@ -435,6 +436,7 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
 function ModerationPanel({
   queue,
   restricted,
+  viewerId,
   loading,
   error,
   onRetry,
@@ -444,6 +446,7 @@ function ModerationPanel({
 }: {
   queue: readonly QueueItem[];
   restricted: readonly { userId: string; status: string; name: string | null }[];
+  viewerId: string;
   loading: boolean;
   error?: string;
   onRetry: () => void;
@@ -482,9 +485,13 @@ function ModerationPanel({
           {q.reasons.length ? <p className="mt-1 text-small text-secondary">Reported for: {q.reasons.map(reportReasonLabel).join(", ").toLowerCase()}</p> : null}
           {q.post.screening?.decision === "hold" && q.post.screening.flags.length ? <p className="mt-1 text-small text-secondary">Held by moderation: {q.post.screening.flags.join(", ").replace(/_/g, " ")}</p> : null}
           <div className="mt-1.5 flex flex-wrap gap-1">
-            <Button size="sm" icon={ShieldCheck} onClick={() => onModerate(q.post, "restore")}>
-              {q.post.status === "visible" ? "Keep it" : q.post.status === "hidden" ? "Restore" : "Approve"}
-            </Button>
+            {q.post.authorUserId === viewerId ? (
+              <p className="text-small text-secondary" data-testid="moderation-own-post">Your own post: edit it to have it screened again, or another moderator decides.</p>
+            ) : (
+              <Button size="sm" icon={ShieldCheck} onClick={() => onModerate(q.post, "restore")}>
+                {q.post.status === "visible" ? "Keep it" : q.post.status === "hidden" ? "Restore" : "Approve"}
+              </Button>
+            )}
             {q.post.status !== "hidden" ? (
               <Button size="sm" variant="ghost" icon={EyeOff} onClick={() => onModerate(q.post, "hide")}>
                 Hide

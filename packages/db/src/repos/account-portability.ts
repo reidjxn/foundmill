@@ -27,6 +27,10 @@ export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "account_events.user_id": { export: true, onDelete: "cascade", omit: ["idempotency_key"] },
   // 0140 (WP-09 T16): the person's entry plan; the Stripe ids stay with the services, as the client grant has it.
   "account_plans.user_id": { export: true, onDelete: "cascade", omit: ["stripe_customer_id", "stripe_subscription_id"] },
+  "owner_plans.user_id": { export: true, onDelete: "cascade", note: "when the person was invited, and the first Founder or Studio price they paid (WP-14 T14)" },
+  // 0164: the owner's shared included budget for a month (WP-14, founder Nov 19, 2026).
+  "owner_credits.user_id": { export: true, onDelete: "cascade", note: "the month's included team budget shared by the person's projects" },
+  "partner_waitlist.user_id": { export: true, onDelete: "cascade", note: "the Partner waitlist entry and the consent given (WP-14 T14)" },
   // 0138 (WP-09 T2): model calls the person made before a project; the costs are the platform's, read by service only.
   "account_usage.user_id": { export: false, onDelete: "cascade", note: "the platform's metered cost of calls before a project, an Estimate for Foundmill's cost report" },
   "account_outbox.user_id": { export: false, onDelete: "cascade", note: "the delivery queue of the person's own events; the events themselves are exported" },
@@ -72,8 +76,9 @@ export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "post_reports.resolved_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   // 0136 reports (WP-12 T4): the person's own reports go into their export, without how an operator handled them (the
   // reporter never reads that back); a report about the person is never theirs to read, since it would name who
-  // reported them, and on closing it stays for safety with their id cleared, as 0136 decided.
-  "reports.reporter_user_id": { export: true, onDelete: "cascade", omit: ["resolved_by", "resolution", "resolved_at"] },
+  // reported them, and on closing it stays for safety with their id cleared, as 0136 decided. A closed account's own
+  // reports stay too, for the operator, with the reporter cleared (founder, Nov 18, 2026; 0137).
+  "reports.reporter_user_id": { export: true, onDelete: "set null", omit: ["resolved_by", "resolution", "resolved_at"] },
   "reports.target_user_id": { export: false, onDelete: "set null", note: "a report about the person: never shown to them (it would name who reported them); kept for safety with the person's id cleared" },
   "reports.resolved_by": { export: false, onDelete: "set null", note: "the operator who resolved a report; the report is kept, the id is cleared" },
   "posts.author_user_id": { export: true, onDelete: "cascade", omit: ["screening", "moderated_by", "moderation_note"] },
@@ -82,6 +87,8 @@ export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "project_pages.published_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "project_pages.updated_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "project_postal_addresses.updated_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
+  "project_domains.forwarding_user_id": { export: false, onDelete: "set null", note: "the founder who gets a copy of the domain's mail; cleared with them, and forwarding stops" },
+  "project_domains.added_by": { export: false, onDelete: "set null", note: "who added the project's own domain; the project keeps the domain, the id is cleared" },
   "saved_table_views.user_id": { export: true, onDelete: "cascade" },
   "showcase_consents.user_id": { export: true, onDelete: "cascade" },
   "showcase_requests.requested_by_user_id": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },

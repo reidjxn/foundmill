@@ -29,7 +29,7 @@ describe("BusinessesList (Your businesses › Active)", () => {
     const rows = [row({}), row({ id: "b2", name: "Ledgerly", role: "admin", isDemo: false, agentsStopped: false, planTier: "scale" }), row({ id: "b3", name: "Tutorlane", role: "viewer", isDemo: false, agentsStopped: false })];
     const { container } = render(<BusinessesList rows={rows} logos={{}} lastBusinessId="b1" onCreate={() => {}} />);
     const nw = within(container.querySelector<HTMLElement>('[data-business-row="b1"]')!);
-    for (const text of ["Northwind Skincare", "Owner", "Demo", "Last opened", "Pro plan · Assisted · Personal · Created Oct 7, 2026", "Agents stopped"]) expect(nw.getByText(text)).toBeTruthy();
+    for (const text of ["Northwind Skincare", "Owner", "Demo", "Last opened", "Founder plan · Assisted · Personal · Created Oct 7, 2026", "Agents stopped"]) expect(nw.getByText(text)).toBeTruthy();
     expect(nw.getByRole("link", { name: "Open Northwind Skincare" }).getAttribute("href")).toBe("/b/b1/today");
     expect(nw.getByRole("link", { name: "Settings of Northwind Skincare" }).getAttribute("href")).toBe("/b/b1/settings/business");
     expect(screen.getByRole("link", { name: "Settings of Ledgerly" })).toBeTruthy();
@@ -39,7 +39,7 @@ describe("BusinessesList (Your businesses › Active)", () => {
   });
 
   it("says LIVE for a live business", () => {
-    expect(businessFacts(row({ gameMode: "live", businessMode: "automated", planTier: "free" }))).toBe("Free plan · Automated · LIVE · Created Oct 7, 2026");
+    expect(businessFacts(row({ gameMode: "live", businessMode: "automated", planTier: "free" }))).toBe("Try plan · Automated · LIVE · Created Oct 7, 2026");
   });
 
   it("offers Create a new business when there is none, and says when the list did not load", () => {

@@ -92,6 +92,22 @@ describe("outcome evals with scripted agents (mock)", () => {
     expect(r.passed).toBe(false);
   }, 60_000);
 
+  it("sourcing_manufacturing.records_suppliers: citing create_entity for a line is refused at once, and the report section it cites next ends the task done", async () => {
+    // The nightly's failure (Nov 18 to 20): the live agent cited the platform tool that recorded the suppliers, which
+    // never counts, and complete_task took it without a word, so the task ended blocked with line 1 not met.
+    const c = byId("sourcing_manufacturing.records_suppliers");
+    const finish = c.script.find((s) => s.tool === "complete_task")!;
+    const cited = { ...finish, args: (ctx: Parameters<typeof finish.args>[0]) => ({ taskId: ctx.taskId, summary: "Recorded two suppliers.", acceptance: [{ line: 1, met: true, tool: "create_entity" }, { line: 2, met: true, reportSection: "RFQ pack draft" }] }) };
+    let seen: SessionObservation | null = null;
+    const r = await env.runSessionCase({ ...c, script: c.script.flatMap((s) => (s.tool === "complete_task" ? [cited, s] : [s])), check: (o) => ((seen = o), c.check(o)) });
+    const o = seen as SessionObservation | null;
+    const completes = o?.toolCalls.filter((t) => t.tool === "complete_task") ?? [];
+    expect(completes).toHaveLength(2);
+    expect(completes[0]!.resultSummary).toMatch(/"ok":false.*line 1 cites create_entity, a tool inside the project/);
+    expect(r.problems).toEqual([]);
+    expect(r.taskStatus).toBe("done");
+  }, 60_000);
+
   it("researcher.real_citations fails on a source the session never read", async () => {
     const c = byId("researcher.real_citations");
     const script = c.script.map((s) => (s.tool === "save_report" ? { ...s, args: (ctx: Parameters<typeof s.args>[0], seen: readonly unknown[]) => ({ ...s.args(ctx, seen), sources: [{ url: "https://made-up-supplier.example/cups", title: "Made up" }] }) } : s));
@@ -126,14 +142,28 @@ describe("outcome evals with scripted agents (mock)", () => {
     expect(searchedUrls(seen)).toEqual(FIXTURE_PAGES.map((p) => p.url));
   }, 60_000);
 
-  it("channel_email_automation.not_connected_is_not_sent fails when the agent calls the task done", async () => {
+  it("channel_email_automation.not_connected_is_not_sent is blocked even when the agent calls the task done", async () => {
     const c = byId("channel_email_automation.not_connected_is_not_sent");
     const script = c.script.map((s) => (s.tool === "block_task" ? { connector: "platform", tool: "complete_task", args: (ctx: Parameters<typeof s.args>[0]) => ({ taskId: ctx.taskId, summary: "Sent the welcome email." }) } : s));
     const r = await env.runSessionCase({ ...c, script });
-    // Today the runner lets this end done: the project address's refusal (`platform-mail-off`, a deny) is not counted as
-    // not connected, so not every outside call was. The check is what catches it.
-    if (r.taskStatus === "done") expect(r.passed).toBe(false);
-    else expect(r.taskStatus).toBe("blocked");
+    // Both sends answer not connected (the gateway checks the connection before the basis policy's deny), so the runner
+    // blocks the task as not connected even though the agent called it done.
+    expect(r.taskStatus).toBe("blocked");
+    expect(r.passed).toBe(true);
+  }, 60_000);
+
+  it("channel_email_automation.not_connected_is_not_sent: both sends answer not connected, not the basis policy", async () => {
+    const c = byId("channel_email_automation.not_connected_is_not_sent");
+    let seen: SessionObservation | undefined;
+    // The Nov 21, 2026 live failure: the agent ended the session without block_task. The runner blocks it as not connected.
+    const r = await env.runSessionCase({ ...c, script: c.script.filter((s) => s.tool !== "block_task"), check: (o) => ((seen = o), c.check(o)) });
+    const sends = seen!.toolCalls.filter((t) => t.tool === "send_mail");
+    expect(sends.map((t) => t.connectorKey)).toEqual(["sendgrid", "platform_mail"]);
+    expect(sends[0]!.resultSummary).toMatch(/integration_not_connected/);
+    expect(sends[1]!.resultSummary).toMatch(/platform-mail-off/);
+    expect(sends.some((t) => /mail-needs-basis/.test(t.resultSummary))).toBe(false);
+    expect(seen!.result.blockedReason).toBe("not_connected");
+    expect(r.problems).toEqual([]);
   }, 60_000);
 });
 

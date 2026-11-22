@@ -68,7 +68,7 @@ export type ModuleKey = (typeof MODULE_KEYS)[number];
 export const MODULE_TABS: Record<ModuleKey, readonly { slug: string; title: string }[]> = {
   product: [{ slug: "vision", title: "Vision" }, { slug: "specification", title: "Specification" }, { slug: "public-page", title: "Public page" }, { slug: "roadmap", title: "Roadmap" }, { slug: "changes", title: "Changes" }, { slug: "sources", title: "Sources" }, { slug: "research", title: "Research" }],
   development: [{ slug: "training-ground", title: "Live sessions" }, { slug: "plan", title: "Plan" }, { slug: "pull-requests", title: "Pull requests" }, { slug: "code", title: "Code" }, { slug: "environments", title: "Environments" }, { slug: "specialists", title: "Specialists" }],
-  distribution: [{ slug: "formation", title: "Board" }, { slug: "channels", title: "Channels" }, { slug: "leads", title: "Leads" }, { slug: "campaigns", title: "Campaigns" }, { slug: "creative", title: "Creative" }, { slug: "attribution", title: "Attribution" }],
+  distribution: [{ slug: "first-ten", title: "First ten" }, { slug: "formation", title: "Board" }, { slug: "channels", title: "Channels" }, { slug: "leads", title: "Leads" }, { slug: "campaigns", title: "Campaigns" }, { slug: "creative", title: "Creative" }, { slug: "attribution", title: "Attribution" }],
   finance: [{ slug: "overview", title: "Overview" }, { slug: "pnl", title: "Profit and loss" }, { slug: "cash", title: "Cash" }, { slug: "runway", title: "Runway" }, { slug: "wage-bill", title: "Payroll" }, { slug: "cap-table", title: "Cap table" }],
   team: [{ slug: "squad", title: "Agents" }, { slug: "staff", title: "Staff" }, { slug: "responsibilities", title: "Responsibilities" }, { slug: "health", title: "Health" }, { slug: "hierarchy", title: "Hierarchy" }, { slug: "recruitment", title: "Recruitment" }],
   legal: [{ slug: "entity", title: "Entity" }, { slug: "incorporate", title: "Incorporate" }, { slug: "compliance", title: "Compliance" }, { slug: "contracts", title: "Contracts" }, { slug: "ip", title: "IP" }, { slug: "policies", title: "Policies" }, { slug: "regulatory", title: "Regulatory" }],
@@ -103,7 +103,7 @@ export const FOUNDER_TAB_TITLES: Partial<Record<ModuleKey, Readonly<Record<strin
 export const DEFAULT_TABS: Readonly<Record<ModuleKey, readonly string[]>> = {
   product: ["specification", "public-page", "roadmap"],
   development: ["pull-requests", "environments"],
-  distribution: ["leads", "campaigns"],
+  distribution: ["first-ten", "creative"],
   finance: ["overview", "runway"],
   team: ["squad", "recruitment"],
   legal: ["entity", "compliance"],
@@ -256,7 +256,7 @@ export type SkillAddedBy = (typeof SKILL_ADDED_BY)[number];
 export const AGENT_VERSION_STATES = ["draft", "live", "retired"] as const;
 export type AgentVersionState = (typeof AGENT_VERSION_STATES)[number];
 
-export const TASK_KINDS = ["code", "research", "channel", "specialist", "legal", "finance", "ops"] as const;
+export const TASK_KINDS = ["code", "research", "channel", "specialist", "legal", "finance", "ops", "tool_need"] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export const TASK_STATUSES = ["planned", "ready", "running", "paused", "blocked", "review", "merging", "done", "failed", "stopped"] as const;
@@ -478,6 +478,7 @@ export const EVENT_TYPES = [
   "product.research_drafted",
   "goal.proposed", "goal.approved", "goal.change_requested", "goal.achieved",
   "page.published", "page.unpublished", "page.followed",
+  "booking.confirmed", "booking.canceled", "booking.rescheduled", "booking.no_show",
   "site.release_created", "site.published", "site.unpublished",
   "guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off",
   "push.sent",
@@ -491,6 +492,7 @@ export const EVENT_TYPES = [
   "share.opened",
   "referral.arrived",
   "post.drafted",
+  "post.published",
   "quiz.approved", "quiz.published", "quiz.unpublished",
   "positioning.approved",
   "update.drafted", "update.sent",

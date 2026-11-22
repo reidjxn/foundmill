@@ -9,7 +9,7 @@ import { LONG, NORTHWIND_BUSINESS_ID, chooseTableView, devApi, openBusiness, ope
  */
 const D = `/b/${NORTHWIND_BUSINESS_ID}/d`;
 const TABS = {
-  distribution: ["formation", "channels", "leads", "campaigns", "creative", "attribution"],
+  distribution: ["first-ten", "formation", "channels", "leads", "campaigns", "creative", "attribution"],
   finance: ["overview", "pnl", "cash", "runway", "wage-bill", "cap-table"],
   legal: ["entity", "incorporate", "compliance", "contracts", "ip", "policies", "regulatory"],
 } as const;

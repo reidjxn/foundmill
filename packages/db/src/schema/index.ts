@@ -40,4 +40,8 @@ export * from "./task-reports";
 export * from "./reports";
 export * from "./sites";
 export * from "./pay-links";
+export * from "./tool-needs";
+export * from "./booking";
+export * from "./browser-steps";
+export * from "./plans";
 export * from "./updates";

@@ -76,12 +76,12 @@ test.describe("switch business and Your businesses", () => {
 
     const northwind = page.locator(`[data-business-row="${NORTHWIND_BUSINESS_ID}"]`);
     await expect(northwind).toBeVisible({ timeout: LONG });
-    for (const text of ["Northwind Skincare", "Owner", "Demo", "Pro plan", "Last opened"]) await expect(northwind).toContainText(text);
+    for (const text of ["Northwind Skincare", "Owner", "Demo", "Founder plan", "Last opened"]) await expect(northwind).toContainText(text);
     await expect(northwind).toContainText(/(Augmented|Assisted|Automated)/);
     await expect(northwind).toContainText(/(LIVE|Personal)/);
     await expect(northwind).toContainText(/Created [A-Z][a-z]{2} \d{1,2}, \d{4}/);
     await expect(northwind.getByRole("link", { name: "Settings of Northwind Skincare" })).toHaveAttribute("href", `/b/${NORTHWIND_BUSINESS_ID}/settings/business`);
-    await expect(page.locator(`[data-business-row="${LEDGERLY_BUSINESS_ID}"]`)).toContainText("Scale plan");
+    await expect(page.locator(`[data-business-row="${LEDGERLY_BUSINESS_ID}"]`)).toContainText("Studio plan");
     await expect(page.getByTestId("businesses-create")).toHaveAttribute("href", "/new");
     // The owner belongs to both demos for real: nothing is listed under "Example" (example-business.spec.ts covers an example viewer).
     await expect(page.getByTestId("example-businesses")).toHaveCount(0);

@@ -50,11 +50,11 @@ export const googleHeaders = (token: string): Record<string, string> => ({ autho
  * (offline access, so a refresh token comes back, and `prompt=consent`, so a reconnect gets one again); with the code
  * Google sent back it exchanges it.
  */
-export async function googleOAuthConnect(input: unknown, deps: GoogleAuthDeps, opts: { businessId: string; scopes: string[]; label: string; newId: () => string }): Promise<IntegrationRecord> {
+export async function googleOAuthConnect(input: unknown, deps: GoogleAuthDeps, opts: { businessId: string; scopes: string[]; label: string; newId: () => string; /** Gmail: the token holds only what this consent asked for, so reading never rides in on another project's grant. */ exactScopes?: boolean }): Promise<IntegrationRecord> {
   if (!hasAuthorizationCode(input)) {
     const start = consentStartOf(input, opts.label);
     if (!deps.secrets.googleClientId) throw new ConfigError(deps.connectorKey, "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET", "create a client ID for a web application in the Google Cloud console");
-    const url = authorizeUrl(GOOGLE_AUTHORIZE_URL, { client_id: deps.secrets.googleClientId, redirect_uri: start.redirectUri, response_type: "code", scope: ["openid", "email", ...opts.scopes].join(" "), access_type: "offline", prompt: "consent", include_granted_scopes: "true", state: start.state });
+    const url = authorizeUrl(GOOGLE_AUTHORIZE_URL, { client_id: deps.secrets.googleClientId, redirect_uri: start.redirectUri, response_type: "code", scope: ["openid", "email", ...opts.scopes].join(" "), access_type: "offline", prompt: "consent", ...(opts.exactScopes ? {} : { include_granted_scopes: "true" }), state: start.state });
     return consentRecord(deps.connectorKey, opts.businessId, url, { now: deps.now, newId: opts.newId });
   }
   const code = input as { code: string; redirectUri?: string };

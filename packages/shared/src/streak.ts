@@ -80,11 +80,13 @@ export function dailyStreak(f: StreakFacts): Streak {
   return { current, best, visitedToday, atRisk: !visitedToday && current > 0, milestone, week };
 }
 
-/** The panel's and the brief's words for a streak. */
-export function streakWords(s: Pick<Streak, "current" | "best" | "visitedToday" | "atRisk" | "milestone">): { headline: string; line: string } {
+/**
+ * The panel's words for a streak. Never an at-risk line: the streak shows only the days opened and nothing grades the
+ * person (founder, Nov 19, 2026, WP-10 decision 6).
+ */
+export function streakWords(s: Pick<Streak, "current" | "best" | "milestone">): { headline: string; line: string } {
   const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
   if (s.current === 0) return { headline: "Start a streak today", line: s.best > 0 ? `Your best so far is ${days(s.best)} in a row.` : "Open your business each day to build one. Vacation days never break it." };
-  if (s.atRisk) return { headline: `${days(s.current)} in a row`, line: `Open your business today to make it ${days(s.current + 1)}.` };
   if (s.milestone) return { headline: `${days(s.current)} in a row`, line: `You reached ${days(s.milestone)} today. ${s.current >= s.best ? "Your best yet." : `Your best is ${days(s.best)}.`}` };
   return { headline: `${days(s.current)} in a row`, line: s.current >= s.best ? "Your best yet. Come back tomorrow to keep it going." : `Your best is ${days(s.best)}. Come back tomorrow to keep it going.` };
 }

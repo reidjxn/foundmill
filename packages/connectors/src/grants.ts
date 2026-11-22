@@ -48,11 +48,18 @@ import { tinkTools } from "./connectors/tink/tools";
 import { voyageTools } from "./connectors/voyage/tools";
 import { openaiImagesTools } from "./connectors/openai_images/tools";
 import { elevenlabsTools } from "./connectors/elevenlabs/tools";
+import { cliTools } from "./connectors/cli_anything/tools";
 import { onesignalTools } from "./connectors/onesignal/tools";
 import { platformNotifyTools } from "./connectors/platform_notify/tools";
+import { sendingDomainTools } from "./connectors/sending_domain/tools";
+import { opensrsTools } from "./connectors/opensrs/tools";
 import { webTools } from "./connectors/web/tools";
 import { e2bTools } from "./connectors/e2b/tools";
 import { platformMailTools } from "./connectors/platform_mail/tools";
+import { HUBSPOT_MCP, NOTION_MCP, SHOPIFY_MCP } from "./remote-mcp/servers";
+import { remoteToolList } from "./remote-mcp/build";
+import { BROWSER_SITES } from "./browser-sites";
+import { BROWSER_TOOL_LIST, browserConnectorKey } from "./connectors/browser/tools";
 
 const names = (tools: readonly { name: string }[]) => Object.freeze(tools.map((t) => t.name));
 
@@ -64,6 +71,8 @@ const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: Pol
   elevenlabs: elevenlabsTools,
   onesignal: onesignalTools,
   platform_notify: platformNotifyTools,
+  sending_domain: sendingDomainTools,
+  opensrs: opensrsTools,
   github: githubTools,
   google_drive: googleDriveTools,
   gmail: gmailTools,
@@ -99,6 +108,19 @@ const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: Pol
   web: webTools,
   quarantine: quarantineTools,
   platform_mail: platformMailTools,
+  cli_inkscape: cliTools("inkscape"),
+  cli_libreoffice: cliTools("libreoffice"),
+  cli_ffmpeg: cliTools("ffmpeg"),
+  cli_gimp: cliTools("gimp"),
+  notion_mcp: remoteToolList(NOTION_MCP),
+  hubspot_mcp: remoteToolList(HUBSPOT_MCP),
+  shopify_mcp: remoteToolList(SHOPIFY_MCP),
+  mcp_custom: [
+    { name: "list_remote_tools", hints: {} },
+    { name: "call_unlisted_tool", hints: { contactsThirdParty: true, irreversible: true } },
+  ],
+  // The hosted browser: the same tools on every site of the site list.
+  ...Object.fromEntries(BROWSER_SITES.map((s) => [browserConnectorKey(s.key), BROWSER_TOOL_LIST])),
 };
 
 /** Every tool the gateway serves, by connector: the registry's connectors plus the built-ins (platform, web, quarantine). */
@@ -172,9 +194,13 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "pulls.review": ["get_pull_request", "read_file"],
     "pulls.merge": ["merge_pr"],
   },
-  gmail: { "drafts.create": ["create_draft"], "threads.read": ["list_messages", "get_message", "list_labels"] },
-  google_calendar: { "events.list": ["list_calendars", "list_events", "get_event", "find_free_slots"], "events.create": ["create_event", "update_event", "find_free_slots"] },
+  gmail: { "drafts.create": ["create_draft"], "drafts.read": ["list_drafts", "get_draft"], "threads.read": ["list_messages", "get_message", "list_labels"] },
+  google_calendar: { "events.list": ["list_calendars", "list_events", "get_event", "find_free_slots"], "events.create": ["add_event", "create_event", "update_event", "find_free_slots"] },
   google_drive: { "files.list": ["search_files", "get_file"], "files.read": ["get_file", "export_text", "read_doc"], "files.write": ["create_doc", "append_to_doc"] },
+  // The vendors' own MCP servers (founder, 2026-11-19): a skill gets a server's tools only through the capability it names.
+  notion_mcp: { "pages.search": ["notion_search"], "pages.read": ["notion_search", "notion_fetch"], "pages.write": ["notion_create_pages", "notion_update_page"] },
+  hubspot_mcp: { "crm.read": ["get_user_details", "search_crm_objects", "get_crm_objects", "discover_hubspot_schema"], "crm.write": ["manage_crm_objects"] },
+  shopify_mcp: { "catalog.read": ["search_catalog", "get_product"] },
   notion: { "pages.search": ["search", "query_data_source"], "pages.read": ["get_page", "get_page_content", "query_data_source"], "pages.write": ["create_page", "append_paragraphs"] },
   opencorporates: { "companies.search": ["search_companies", "get_company"] },
   companies_house: { "companies.search": ["search_companies"], "companies.read": ["get_company"], "officers.list": ["list_officers"] },
@@ -189,6 +215,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     // A charge reports how much of it was refunded.
     "refunds.list": ["list_charges"],
     "invoices.list": ["list_invoices", "get_invoice"],
+    // A payment link the founder can see and approve first (WP-07 T8): one template holds it.
+    "payments.links.create": ["create_payment_link"],
   },
   sendgrid: {
     "mail.send": ["send_mail", "list_verified_senders", "check_suppression"],
@@ -262,11 +290,22 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "positioning.propose": ["propose_positioning_change"],
     // A draft update to the project's followers (WP-08 T3): the founders check it and press Send; the tool never sends.
     "updates.draft": ["draft_follower_update"],
+    // The tool scout (founder, Nov 22, 2026): any agent says what is missing; the Chief of Staff and the leads recommend.
+    "tools.need": ["raise_tool_need"],
+    "tools.scout": ["read_tool_need", "recommend_tool"],
+    // Foundmill's own booking (founder, Nov 22, 2026): leads draft the setup for the founder to check; they read bookings without addresses or answers.
+    "booking.setup": ["booking_setup"],
+    "booking.read": ["list_bookings"],
   },
   web: { search: ["search_web"], fetch: ["fetch_page"] },
   quarantine: { read_untrusted: ["read_untrusted"] },
   // The project's Foundmill sending address (package 1.5): one message to one person, from the project.
   platform_mail: { "mail.send": ["send_mail"] },
+  // CLI-Anything programs: make files in the working copy; release_output asks the founder before a file is used.
+  cli_inkscape: { "vector.make": ["new_document", "add_rect", "add_circle", "add_star", "add_polygon", "add_text", "set_fill", "export"], "files.release": ["release_output"] },
+  cli_libreoffice: { "documents.make": ["new_document", "add_heading", "add_paragraph", "add_slide", "set_cell", "export"], "files.release": ["release_output"] },
+  cli_ffmpeg: { "media.make": ["convert", "trim", "extract_audio", "poster"], "files.release": ["release_output"] },
+  cli_gimp: { "images.make": ["new_image", "draw_text", "draw_rect", "scale", "export"], "files.release": ["release_output"] },
 };
 
 /**
@@ -306,12 +345,14 @@ export const NOT_YET_SERVED: Readonly<Record<string, Readonly<Record<string, str
  * Connectors only the platform itself calls, from a service route of the gateway (never an agent session): `openai_images`
  * makes the faces of anthropomorphic agents on the platform key (`POST /v1/personas/portrait`); `onesignal` pushes to
  * founders' own phones from the mobile app (`POST /v1/push/send`); `platform_notify` emails a person from Foundmill
- * itself about their own project (`POST /v1/notify/email`); `elevenlabs` speaks an agent's turn and transcribes the founder's
+ * itself about their own project (`POST /v1/notify/email`); `sending_domain` adds and checks a project's own domain at the
+ * platform's SendGrid for the founders (`POST /v1/domains/own`); `opensrs` registers a domain for the founder on Foundmill's reseller account
+ * (`POST /v1/domains/register`); `elevenlabs` speaks an agent's turn and transcribes the founder's
  * on a Team call (`POST /v1/speech/synthesize` and `/v1/speech/transcribe`). A grant on one resolves to nothing, the gateway refuses
  * it on `/v1/call` and `/mcp/:connector` whatever a session token says, and the api neither lists it in
  * Settings › Integrations nor connects it for a business.
  */
-export const SERVICE_ONLY_CONNECTORS: ReadonlySet<string> = new Set(["openai_images", "onesignal", "platform_notify", "elevenlabs"]);
+export const SERVICE_ONLY_CONNECTORS: ReadonlySet<string> = new Set(["openai_images", "onesignal", "platform_notify", "sending_domain", "opensrs", "elevenlabs"]);
 
 /** Why a grant on a service-only connector resolves to nothing (`ResolvedGrants.unresolved`). */
 export const SERVICE_ONLY_REASON = "the platform calls this connector itself; agents never do";

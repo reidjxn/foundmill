@@ -177,6 +177,14 @@ describe("LiveModelClient.complete", () => {
     expect(body.max_tokens).toBe(THINKING_MAX_TOKENS);
   });
 
+  it("a numbered cacheSystem puts the one breakpoint on that block, so the blocks after it change freely (WP-09 T9)", async () => {
+    const { fetch, calls } = fakeFetch([() => message("Done.")]);
+    const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch, sleep: noSleep });
+    await client.complete({ route: "chiefOfStaff", system: ["The agent's prompt", "## Training\nThis test"], cacheSystem: 0, messages: [{ role: "user", content: "Go." }] });
+    const system = calls[0]!.body.system as { cache_control?: unknown }[];
+    expect(system.map((b) => b.cache_control ?? null)).toEqual([{ type: "ephemeral" }, null]);
+  });
+
   it("keeps every closed route schema on structured outputs; only open maps and untyped values go to the prompt", () => {
     expect(structuredOutputFor(PlanOutput)).toMatchObject({ kind: "prompt", gaps: ["$defs.__schema0.params: open-ended object"] });
     expect(structuredOutputFor(QuarantinedReaderOutput)).toMatchObject({ kind: "prompt", gaps: ["$: open-ended object"] });
@@ -250,7 +258,8 @@ describe("LiveModelClient.complete", () => {
     expect(result.text).toBe("Just prose.");
     expect(result.json).toBeUndefined();
     expect(result.stopReason).toBe("max_tokens");
-    expect(calls[0]!.body.output_config).toBeUndefined();
+    // The route's effort is written down (WP-09 T6 step 1): `worker` sends Sonnet 5.5's own default, `high`.
+    expect(calls[0]!.body.output_config).toEqual({ effort: "high" });
   });
 
   it("throws a typed refusal error for schema requests instead of retrying", async () => {

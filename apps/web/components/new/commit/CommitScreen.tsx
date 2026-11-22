@@ -271,6 +271,7 @@ export function spendCapSummary(spendCap: string, currency: string): string {
   const typed = spendCap.trim();
   if (!typed) return "No spend cap";
   const minor = Math.round(Number(typed.replace(/[\s,_]/g, "")) * 100);
+  if (minor === 0) return "Asks you before any spend";
   return Number.isFinite(minor) ? `Asks you above ${formatMoney({ amountMinor: minor, currency })}` : "Spend cap to fix";
 }
 
@@ -617,7 +618,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
               )}
               {creditsNotice ? (
                 <div data-testid="commit-credits-notice" className="mt-3 flex flex-col items-start gap-1.5">
-                  <StatusPill tone="warn">Team starts paused</StatusPill>
+                  <StatusPill tone="warn">Team starts resting</StatusPill>
                   <p className="text-small text-pretty text-secondary">{creditsNotice}</p>
                 </div>
               ) : null}
@@ -879,7 +880,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                     <div className="flex flex-col gap-1">
                       <Label htmlFor="run-on-autopilot">Overnight shift</Label>
                       <p id="run-on-autopilot-hint" className="text-small text-secondary">
-                        Off unless you turn it on. With it on, the team runs one <Term id="cycle">cycle</Term> every third night while you sleep, at about 2 AM your time, with a budget of $0.45 (Estimate). Continue keeps its own limits. It never answers notes for you: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and it pauses itself when <Term id="credits">credits</Term> run out. Change it any time in Settings › What the team can do.
+                        Off unless you turn it on. With it on, the team runs one <Term id="cycle">round of work</Term> every third night while you sleep, at about 2 AM your time, with a budget of $0.45 (Estimate). Continue keeps its own limits. It never answers notes for you: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and it pauses itself when <Term id="credits">credits</Term> run out. Change it any time in Settings › What the team can do.
                       </p>
                     </div>
                   </div>

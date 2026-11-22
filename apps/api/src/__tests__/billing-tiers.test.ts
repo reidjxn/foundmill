@@ -35,11 +35,12 @@ describe("credits are US dollars", () => {
       expect(opened.checkout).toMatchObject({ currency: "USD", amountMinor });
       return owner.billing.checkout.completeMock({ businessId: hz.A.businessId, checkoutId: opened.checkout.id });
     };
-    // The first thing in the month: the period starts with what the tier includes, and the top-up comes on top of it.
+    // The project's own balance holds what it bought; the owner's included budget (shared by all their projects) sits apart.
     const included = includedCreditsMinor("free");
-    expect((await buy(2_500)).balance).toMatchObject({ grantedMinor: included + 2_500, balanceMinor: included + 2_500, currency: "USD" });
+    expect((await buy(2_500)).balance).toMatchObject({ grantedMinor: 2_500, balanceMinor: 2_500, currency: "USD" });
+    expect((await owner.billing.plan({ businessId: hz.A.businessId })).credits).toMatchObject({ balanceMinor: included + 2_500 });
     // Later top-ups only add their own amount.
-    expect((await buy(500, "usd")).balance).toMatchObject({ grantedMinor: included + 3_000 });
+    expect((await buy(500, "usd")).balance).toMatchObject({ grantedMinor: 3_000 });
   });
 
   it("plan and usage report US dollar costs and list spend in another currency apart", async () => {
@@ -102,8 +103,8 @@ describe("concurrent agents (TIERS.maxConcurrentAgents)", () => {
     });
     expect(await open()).toBe(before);
     expect((await repos.tasks.get(hz.db, A, task.id)).status).toBe("ready");
-    // A larger tier has room for it.
-    await repos.businesses.update(hz.db, A, { planTier: "pro" });
+    // Studio adds more agents at once (Founder runs as many as Try, WP-14 T14): it has room for it.
+    await repos.businesses.update(hz.db, A, { planTier: "scale" });
     try {
       const started = await owner.dev.tasks.start({ businessId: A, taskId: task.id });
       expect(started.session.taskId).toBe(task.id);

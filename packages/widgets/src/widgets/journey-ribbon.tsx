@@ -31,6 +31,7 @@ import { registerWidget, type WidgetProps } from "../registry";
 import { toRibbonDepartments, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
 import { routes } from "../shared/routes";
+import { runwayFigure } from "../shared/runway";
 import { addDays } from "../shared/time";
 import type { FinanceOverview, ForecastRecord, ForecastSeriesPoint, RibbonResponse, RoadmapListResponse, RoundupResponse } from "../shared/types";
 
@@ -201,7 +202,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
   }, [digestDay, data, depts, loadedDays]);
 
   const empty = data && data.rows.length === 0 && data.conversions.length === 0 && depts.length === 0;
-  const runwayMonths = finance.data?.runway.months ?? null;
+  const runwayMonths = runwayFigure(finance.data);
 
   return (
     <WidgetFrame
@@ -215,7 +216,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
               icon: Route,
               text: (
                 <>
-                  Your journey starts on day one. Press Continue to run the first <Term id="cycle">cycle</Term>: the team works for a while, then reports back in the Inbox.
+                  Your journey starts on day one. Press Continue to run the first <Term id="cycle">round of work</Term>: the team works for a while, then reports back in the Inbox.
                 </>
               ),
             }

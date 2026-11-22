@@ -232,18 +232,17 @@ export function signoffNeedsNotes(optionId: string, notes: string): boolean {
   return optionId === "request_changes" && notes.trim().length === 0;
 }
 
-/** "Expires in 5 days", "Expires today", "Expires tomorrow": the deadline beside "Your decision"; null without one or once expired. */
-export function decisionDeadline(decision: unknown, now = new Date()): string | null {
+/**
+ * What happens if the founder does nothing, beside "Your decision": "If you do nothing by Nov 20, Juno waits." The date
+ * comes from the caller's formatter (the person's own date format); null without a deadline or once it has passed.
+ */
+export function decisionDeadline(decision: unknown, agentName: string, formatDate: (d: Date) => string, now = new Date()): string | null {
   const v = (decision as { expires_at?: unknown } | null | undefined)?.expires_at;
   if (typeof v !== "string") return null;
   const t = Date.parse(v);
   if (!Number.isFinite(t) || t < now.getTime()) return null;
-  const day = (ms: number) => Math.floor(ms / 86_400_000);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const days = day(t - startOfToday);
-  if (days <= 0) return "Expires today";
-  if (days === 1) return "Expires tomorrow";
-  return `Expires in ${days} days`;
+  const sameDay = new Date(t).toDateString() === now.toDateString();
+  return `If you do nothing ${sameDay ? "today" : `by ${formatDate(new Date(t))}`}, ${agentName} waits.`;
 }
 
 /**
@@ -583,6 +582,12 @@ export function moduleTab(departments: readonly DepartmentForLinks[], moduleKey:
 export function taskHref(businessId: string, departments: readonly DepartmentForLinks[], taskId: string): string | null {
   const t = moduleTab(departments, "development", "plan");
   return t ? `${routes.department(businessId, t.slug, t.tab)}?task=${encodeURIComponent(taskId)}` : null;
+}
+
+/** A website session on Working now (Development › Live sessions); `?site=` opens its live view. Null without a development department. */
+export function browserSessionHref(businessId: string, departments: readonly DepartmentForLinks[], siteKey: string): string | null {
+  const t = moduleTab(departments, "development", "training-ground");
+  return t ? `${routes.department(businessId, t.slug, t.tab)}?site=${encodeURIComponent(siteKey)}` : null;
 }
 
 /** The slice of `inbox.get`'s `approval` the reading pane needs (audit FR-01). */

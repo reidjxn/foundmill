@@ -12,7 +12,7 @@ import { CreditsExhaustedError } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { silentLog } from "../services/log";
 import { createApiModelClient } from "../services/models";
-import { createApiHarness, type ApiHarness } from "./harness";
+import { createApiHarness, spendAllCredits, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
 beforeAll(async () => {
@@ -23,11 +23,8 @@ afterAll(() => hz.close());
 const period = () => periodOf(new Date());
 const ledger = async (businessId: string) => (await repos.usage.list(hz.db, businessId, { limit: 500 })).items.length;
 const ask = { route: "planCompiler" as const, schema: PlanOutput, messages: [{ role: "user" as const, content: "```json\n" + JSON.stringify({ reply: "Pause the ads until Monday", agents: [], action_types: [] }) + "\n```" }] };
-/** Uses up this month's credits of a business on credits (the included credits first, as the first charge would). */
-const useUp = async (businessId: string) => {
-  const { balance } = await repos.usage.ensurePeriodCredits(hz.db, businessId, period(), includedCreditsMinor("free"));
-  await repos.usage.chargeCredits(hz.db, businessId, period(), Number(balance.balanceMinor));
-};
+/** Uses up this month's credits of a business on credits: the owner's shared budget first, then its own balance. */
+const useUp = (businessId: string) => spendAllCredits(hz.db, businessId, period());
 
 describe("the API's platform-key calls stop when the credits do", () => {
   it("a business with credits left runs; once they are used up the call is refused before it is sent, and nothing is booked", async () => {
@@ -42,7 +39,7 @@ describe("the API's platform-key calls stop when the credits do", () => {
     expect(refused).toBeInstanceOf(CreditsExhaustedError);
     expect(refused).toMatchObject({ code: "credits_exhausted", status: 402, details: { reason: "exhausted", businessId: A, period: period(), balanceMinor: 0 } });
     // This harness sells no credits (topUps off), so the sentence names the own key and the date, never a top-up (WP-09 T13).
-    expect((refused as Error).message).toMatch(/add your own Anthropic key in Settings › Keys/);
+    expect((refused as Error).message).toMatch(/^The team is resting: this month's team budget is used.*add your own Anthropic key in Settings › Keys/);
     expect((refused as Error).message).toMatch(/wait for next month's credits on [A-Z][a-z]{2} 1, \d{4}/);
     expect((refused as Error).message).not.toMatch(/Top up|add credits/i);
     expect(await ledger(A)).toBe(before);
@@ -62,7 +59,7 @@ describe("the API's platform-key calls stop when the credits do", () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     await expect(owner.agent.conversation.send({ businessId: A, subject: { kind: "agent", id: hz.A.agentId }, text: "Is the supplier invoice due?" })).rejects.toMatchObject({
       code: "PAYMENT_REQUIRED",
-      message: expect.stringMatching(/used up/),
+      message: expect.stringMatching(/The team is resting/),
       cause: { code: "credits_exhausted" },
     });
   });

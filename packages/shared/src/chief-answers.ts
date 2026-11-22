@@ -171,7 +171,7 @@ const noFullStop = (s: string): string => s.trim().replace(/[.!?\s]+$/, "");
 /** A title in quotes: a closing full stop goes, a question mark stays ("“Ready to start selling?”"). */
 const quoted = (title: string): string => `“${title.trim().replace(/[.\s]+$/, "")}”`;
 /** A plan failure already names itself ("This round's plan could not run: …"); the answer says "did not finish" once. */
-const failureWords = (failure: string): string => noFullStop(failure.replace(/^This (?:cycle|round)'s plan could not run:\s*/i, ""));
+const failureWords = (failure: string): string => noFullStop(failure.replace(/^This (?:cycle|round(?: of work)?)'s plan could not run:\s*/i, ""));
 const things = (n: number): string => `${formatCount(n)} ${n === 1 ? "note" : "notes"}`;
 const list = (items: readonly string[]): string => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`);
 

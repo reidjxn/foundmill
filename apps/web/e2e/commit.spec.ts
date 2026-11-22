@@ -86,8 +86,8 @@ test.describe("commit", () => {
     await expect(summary.locator("[data-summary]")).toHaveCount(5);
     await expect(summary.locator('[data-summary="game-mode"]')).toHaveText("Personal");
     await expect(summary.locator('[data-summary="business-mode"]')).toHaveText("Assisted");
-    // The careful defaults (WP-14 T11): a 5.00 cap for each action in the project's currency, and Autopilot off.
-    await expect(summary.locator('[data-summary="spend-cap"]')).toHaveText(/^Asks you above \D{1,3}5\.00$/);
+    // The careful defaults (WP-14 T11; founder, 2026-11-22): a cap of 0, so every spend asks, and Autopilot off.
+    await expect(summary.locator('[data-summary="spend-cap"]')).toHaveText("Asks you before any spend");
     await expect(summary.locator('[data-summary="autopilot"]')).toHaveText("Autopilot off");
     // Labeled lines, not bare chips (first-time founder report, Nov 8, 2026): each choice says what it is about.
     for (const label of ["Where it runs", "Who decides", "Kind of business", "On a schedule"]) await expect(summary).toContainText(label);
@@ -119,7 +119,7 @@ test.describe("commit", () => {
     await expect(page.locator('[data-option="personal"]')).toHaveAttribute("data-selected", "true");
     // The choice is named in plain words ("Personal or live"), not the internal "game mode".
     await expect(page.getByRole("radiogroup", { name: "Personal or live" })).toBeVisible();
-    await expect(page.getByLabel(/Spend cap per action/)).toHaveValue("5");
+    await expect(page.getByLabel(/Spend cap per action/)).toHaveValue("0");
     // A LIVE start asks for the 18+ confirmation only until it is on record: a founder who has given it is not asked
     // again (the seed with a profile), one who has not is asked.
     await page.locator('[data-option="live"] button[role="radio"]').click();
@@ -135,11 +135,11 @@ test.describe("commit", () => {
     const credits = page.getByTestId("commit-credits-line");
     if (await credits.count()) await expect(credits).toHaveText("Your team starts with this month's included credits.");
     await openMore(page);
-    // Each default: Assisted, Personal, 5.00 for each action, the overnight shift off, the initials mark (no logo chosen).
+    // Each default: Assisted, Personal, a cap of 0, the overnight shift off, the initials mark (no logo chosen).
     await expect(page.locator('[data-option="assisted"]')).toHaveAttribute("data-selected", "true");
     await expect(page.locator('[data-option="personal"]')).toHaveAttribute("data-selected", "true");
     const cap = page.getByLabel(/Spend cap per action/);
-    await expect(cap).toHaveValue("5");
+    await expect(cap).toHaveValue("0");
     const toggle = page.getByTestId("run-on-autopilot");
     const chip = page.getByTestId("how-it-runs-summary").locator('[data-summary="autopilot"]');
     await expect(page.getByTestId("autopilot-choice")).toContainText("Overnight shift");
@@ -307,12 +307,12 @@ test.describe("commit", () => {
     await inboxRow(page, FIRST_NOTE).click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "update", { timeout: LONG });
     await expect(page.getByTestId("decision-bar")).toHaveCount(0);
-    // The spend cap per action Commit starts on (5.00, WP-14 T11) is kept on the business, editable in Settings › What the team can do.
+    // The spend cap per action Commit starts on (0, founder 2026-11-22) is kept on the business, editable in Settings › What the team can do.
     const mode = await openSettings(page, "mode", bid);
-    await expect(mode.getByTestId("spend-cap-form").getByLabel("Amount per purchase")).toHaveValue("5", { timeout: LONG });
-    // A new business starts on the free plan with this month's included credits, in US dollars.
+    await expect(mode.getByTestId("spend-cap-form").getByRole("radio", { name: "Always ask" })).toBeChecked({ timeout: LONG });
+    // A new project shares the owner's one team budget for the month (their plan's: Studio for the dev owner), in US dollars.
     const billing = await openSettings(page, "billing", bid);
-    await expect(billing.getByTestId("credits-balance")).toContainText("$5.00", { timeout: LONG });
+    await expect(billing.getByTestId("credits-balance")).toContainText(/\$[\d.,]+ left of \$[\d.,]+/, { timeout: LONG });
   });
 
   test("double-clicking Start my project sends one commit and creates one business", async ({ page, playwright }) => {

@@ -50,7 +50,7 @@ export function TeamSection() {
         title="Hire them. Train them. Watch them get better."
         lede={
           <>
-            Every department has a lead agent and the specialists it needs. Each agent has attribute ratings from 1 to 20, earned in tests and on real tasks, and is trained between <Term id="cycle">cycles</Term>. Ratings only move with evidence.
+            Every department has a lead agent and the specialists it needs. Each agent has attribute ratings from 1 to 20, earned in tests and on real tasks, and is trained between <Term id="cycle">rounds of work</Term>. Ratings only move with evidence.
           </>
         }
       />

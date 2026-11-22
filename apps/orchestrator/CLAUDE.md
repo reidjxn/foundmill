@@ -1,6 +1,6 @@
 # apps/orchestrator (`@foundmill/orchestrator`)
 
-The Temporal worker: business cycles, Autopilot and Automated mode, agent sessions, approval waits, channel engines, training, vacations, playbooks, incorporation, journeys, imports, foundations, the Source Watcher and the periodic schedules. It calls no vendor itself and serves no screens.
+The Temporal worker: business rounds of work, Autopilot and Automated mode, agent sessions, approval waits, channel engines, training, vacations, playbooks, incorporation, journeys, imports, foundations, the Source Watcher and the periodic schedules. It calls no vendor itself and serves no screens.
 
 ## Invariants
 - Workflows (`src/workflows/*.ts`) are pure and bundled: `@temporalio/workflow`, local pure modules and `import type` only, never Node APIs. All I/O is in activities (`src/activities/*.ts`).

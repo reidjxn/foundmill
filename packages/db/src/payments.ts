@@ -57,12 +57,13 @@ export interface SettleCheckoutInput {
   /** The entry plan's checkout (0140): the subscription Stripe created, and its customer and paid period. */
   subscription?: { stripeSubscriptionId: string | null; stripeCustomerId: string | null; currentPeriodEnd: Date | null };
   /** The kind the paid session says it was for (its metadata); omitted by the mock completion, which reads the row. */
-  kind?: "credits" | "subscription";
+  kind?: "credits" | "subscription" | "domain";
 }
 
 export type SettleCheckoutResult =
   | { outcome: "granted"; checkout: BillingCheckout; balance: CreditBalance; resumed: Pick<ResumeBusinessResult, "reason" | "agentIds"> | null }
   | { outcome: "subscribed"; checkout: BillingCheckout }
+  | { outcome: "domain_paid"; checkout: BillingCheckout }
   | { outcome: "duplicate"; checkout: BillingCheckout }
   | { outcome: "mismatch"; checkout: BillingCheckout; reason: string }
   | { outcome: "unknown" };
@@ -95,6 +96,18 @@ export async function settleCreditCheckout(db: Executor, input: SettleCheckoutIn
       });
       return { outcome: "mismatch" as const, checkout: row, reason };
     }
+    // A domain checkout (0150) grants nothing: it lets the domain's one registration run (`claimDomainOrder`).
+    if (row.kind === "domain") {
+      const checkout = await repos.checkouts.markPaid(tx, input.businessId, row.id, { paidAt: input.paidAt, paidEventId: input.eventId, grantedPeriod: null, creditBalanceId: null });
+      await repos.audit.append(tx, input.businessId, {
+        actorKind: input.actor.kind,
+        actorId: input.actor.kind === "user" ? (input.actor.id ?? null) : null,
+        action: "billing.domain_paid",
+        target: { kind: "billing_checkout", id: row.id },
+        details: { domain: row.domainName, amountMinor: Number(row.amountMinor), currency: row.currency, mode: row.mode, externalId: row.externalId, eventId: input.eventId, ...(row.mode === "mock" ? { label: MOCK_TOP_UP_LABEL } : {}) },
+      });
+      return { outcome: "domain_paid" as const, checkout };
+    }
     // The entry plan's checkout (0140) grants no credits itself: the account's plan becomes active, and the month's
     // included credits come as they always do. It needs the person who opened it.
     if (row.kind === "subscription") {
@@ -124,10 +137,11 @@ export async function settleCreditCheckout(db: Executor, input: SettleCheckoutIn
     const period = periodOf(input.paidAt);
     // A credit pack can carry more credit than its price (0140); a top-up carries what was paid.
     const creditsMinor = Number(row.creditsMinor ?? row.amountMinor);
-    // A top-up comes on top of the month's included credits: the period's row starts with them when the top-up is the
-    // first thing in the month (a team paused at the end of last month makes no charge to create it).
+    // A top-up comes on top of the month's included credits. The included budget is the owner's, shared by all their
+    // projects (0164), so the project's row opens with nothing included; a business with no recorded owner opens with
+    // its own plan's (a team paused at the end of last month makes no charge to create the row).
     const business = await repos.businesses.get(tx, input.businessId, { includeArchived: true });
-    await repos.usage.ensurePeriodCredits(tx, input.businessId, period, includedCreditsMinor(business.planTier));
+    await repos.usage.ensurePeriodCredits(tx, input.businessId, period, business.createdBy ? 0 : includedCreditsMinor(business.planTier));
     const balance = await repos.usage.grantCredits(tx, input.businessId, period, creditsMinor, row.currency);
     // Bought credit lasts 12 months (founder, 2026-11-13; 0098): the lot carries it over from month to month.
     await repos.usage.addCreditLot(tx, input.businessId, { amountMinor: creditsMinor, purchasedAt: input.paidAt, checkoutId: row.id });

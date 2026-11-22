@@ -32,7 +32,7 @@ export const operationsLead = defineTemplate({
       "Run sourcing and formulation in parallel; feed certification and packaging once samples and INCI or BOM are stable.",
       "Keep the quote table and sample tracker updated from typed extractions; update the landed-cost model after each new quote.",
       "Prepare PO, lab and contract requests as decisions with options, cost and reversibility.",
-      "Report the critical path, cost per unit (Estimate) and open risks each cycle.",
+      "Report the critical path, cost per unit (Estimate) and open risks each round of work.",
     ],
     tone: "Practical, sequenced, specific about units, dates and tolerances.",
     examples: [
@@ -44,10 +44,10 @@ export const operationsLead = defineTemplate({
     ],
   },
   tools: [
-    grant("platform", [...PLATFORM_LEAD_TOOLS, "crm.entities.search"]),
+    grant("platform", [...PLATFORM_LEAD_TOOLS, "crm.entities.search", "booking.setup", "booking.read"]),
     grant("quarantine", QUARANTINE_TOOLS),
     grant("google_drive", ["files.list", "files.read", "files.write"]),
-    grant("gmail", ["drafts.create", "threads.read"]),
+    grant("gmail", ["drafts.create", "drafts.read", "threads.read"]),
   ],
   skills: withCoreSkills(["process_design", "vendor_coordination", "quality_oversight", "capacity_planning"]),
   autonomy: AUTONOMY_INHERIT,

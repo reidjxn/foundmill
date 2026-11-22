@@ -36,7 +36,9 @@ export const REAL_OUTCOME_PREDICATE = `(
           or (e.type = 'mail.sent'        and e.payload->>'simulated' = 'false')
           or (e.type = 'page.followed'    and e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-page')
           or (e.type = 'payment.received' and e.actor->>'kind' = 'webhook')
-          or (e.type = 'lead.replied'     and e.actor->>'kind' = 'webhook' and e.payload->>'sentiment' in ('positive','neutral'))))`;
+          or (e.type = 'booking.confirmed' and e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-booking')
+          or (e.type = 'lead.replied'     and e.actor->>'kind' = 'webhook' and e.payload->>'sentiment' in ('positive','neutral'))
+          or (e.type = 'post.published'   and e.payload->>'visited' = 'true' and (e.actor->>'kind' = 'user' or (e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-page')))))`;
 
 /** The first page a person published, per project (the funnel's step and the north star's one-time page). */
 const FIRST_PAGES = `select e.business_id, min(e.occurred_at) as at
@@ -149,7 +151,8 @@ select (select percentile_cont(0.5) within group (order by extract(epoch from c.
           or (e.type = 'mail.sent'        and e.payload->>'simulated' = 'false')
           or (e.type = 'page.followed'    and e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-page')
           or (e.type = 'payment.received' and e.actor->>'kind' = 'webhook')
-          or (e.type = 'lead.replied'     and e.actor->>'kind' = 'webhook' and e.payload->>'sentiment' in ('positive','neutral')))
+          or (e.type = 'lead.replied'     and e.actor->>'kind' = 'webhook' and e.payload->>'sentiment' in ('positive','neutral'))
+          or (e.type = 'post.published'   and e.payload->>'visited' = 'true' and (e.actor->>'kind' = 'user' or (e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-page'))))
 ), people as (
   select business_id, count(*) as n from memberships
    where source <> 'example' and (expires_at is null or expires_at > :as_of_end) group by 1
@@ -316,7 +319,7 @@ select (select count(*) from updates)::int as updates,
     text: `select count(*)::int as simulated_outcomes_excluded
   from events e join businesses b on b.id = e.business_id
  where ${REAL_OUTSIDE}
-   and e.type in ('page.published', 'mail.sent', 'page.followed', 'payment.received', 'lead.replied')
+   and e.type in ('page.published', 'mail.sent', 'page.followed', 'payment.received', 'lead.replied', 'post.published')
    and e.occurred_at >= date_trunc('week', (:as_of_end - interval '1 day') at time zone 'utc') at time zone 'utc' - interval '11 weeks'
    and e.occurred_at < :as_of_end
    and ((e.actor->>'kind' = 'system' and e.actor->>'id' = 'simulate') or (e.payload ? 'simulated' and e.payload->>'simulated' is distinct from 'false'))`,

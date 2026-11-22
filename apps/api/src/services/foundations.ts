@@ -33,8 +33,9 @@ import {
   type FoundationsProgressView,
   type FoundationsVisionRecord,
 } from "@foundmill/agents";
+import { connectorKeysFor } from "@foundmill/connectors";
 import { FoundationsSupersededError, draftFoundationsStaged, runProjectPageStep, type ProjectPageStore } from "@foundmill/agents/foundations-steps";
-import { repos, type BusinessFoundationsRow, type Db, type DbTx, type Source } from "@foundmill/db";
+import { raiseStageToolNeeds, repos, type BusinessFoundationsRow, type Db, type DbTx, type Source } from "@foundmill/db";
 import { PRICING_CURRENCY, type ModelClient } from "@foundmill/models";
 import type { FoundationsDoor, FoundationsRunner, FoundationsStatus } from "@foundmill/shared";
 import { writeEventRow } from "./events";
@@ -252,6 +253,9 @@ export function projectPageStore(db: Db, businessId: string, authorAgentId: stri
             payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: usage.costMinor, currency: PRICING_CURRENCY } },
           }),
       });
+      // The page has its first draft: what this kind of business needs at that point (booking, for a service) is raised
+      // once for the Chief of Staff (founder, Nov 22, 2026).
+      if (out.written) await raiseStageToolNeeds(db, businessId, "page_drafted", connectorKeysFor);
       return { written: out.written, inboxItemId: out.item?.id ?? null };
     },
   };

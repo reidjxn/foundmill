@@ -11,16 +11,19 @@
  *   the gateway, as mock connectors run in the api. Simulated payments exist only where ALLOW_MOCK_PAYMENTS allows them
  *   (by default development and test), and the credits they grant never pay for a live model call: free credits must
  *   never pay for the platform's Anthropic spend (SEC2 S10).
- * - **Paid tiers** (Pro, Scale) are not on sale: their prices are still "to be announced" (§19) and there is no
- *   subscription checkout, so choosing one is refused outside development and test (where seeded demos and tests switch
- *   freely). Moving down to Free is always allowed.
+ * - **Plans** (Founder, Studio) are not on sale: no subscription is charged while sign-up is invite-only
+ *   (`EARLY_ACCESS_STAGE`, packages/config; WP-14 T14) and there is no subscription checkout (WP-09 T16 builds it before
+ *   sign-up opens), so choosing one is refused outside development and test (where seeded demos and tests switch
+ *   freely). Moving down to Try is always allowed and is one action, as canceling must be (CLAUDE.md, Never).
+ *   `assertSubscriptionChargingOpen` is the gate every subscription charge passes: nothing gets past it while the stage
+ *   is `invite_only`. Partner is never chosen here: its only action is joining its waitlist (`billing.partner.join`).
  * - **The entry plan** (WP-09 T16; founder, 2026-11-17): while `PAID_ENTRY` is on, a project's AI runs (Continue, an
  *   approval's cycle, cycle 1 at commit, the overnight shift) need an owner with the $5-a-month plan, opened here as a
  *   subscription checkout (`startCreditCheckout` with `kind: "subscription"`) and settled only by the webhook (or the
  *   simulated payment where those are allowed). Top-ups are then sold as the credit packs (`CREDIT_PACKS_MINOR`). With
  *   the switch off nothing of this is offered and nothing is gated: sign-up is by invitation and free.
  */
-import { APP_NAME, CREDIT_PACKS_MINOR, creditPackCreditsMinor, ENTRY_PLAN, PRICE_TBA_LABEL, TIERS, TOP_UP_OPTIONS_MINOR, type TierKey } from "@foundmill/config";
+import { APP_NAME, CREDIT_PACKS_MINOR, creditPackCreditsMinor, EARLY_ACCESS_STAGE, ENTRY_PLAN, planName, subscriptionChargingOpen, TIERS, tierIsPaid, TOP_UP_OPTIONS_MINOR, type EarlyAccessStage, type TierKey } from "@foundmill/config";
 import { postEntryPlanRequest, repos, type BillingCheckout, type Db, type Executor } from "@foundmill/db";
 import { allowMockPayments, AppError, paidEntryLive, platformBillingMode, type Env } from "@foundmill/shared";
 import type { ApiGatewayClient } from "./gateway";
@@ -138,20 +141,30 @@ export interface TierAvailability {
   reason: string | null;
 }
 
-const isPaidTier = (tier: TierKey) => TIERS[tier].priceMonthly !== null;
-
-/** Whether `tier` can be chosen here (see the module comment). */
-export function tierAvailability(env: Pick<Env, "APP_ENV">, tier: TierKey): TierAvailability {
-  if (!isPaidTier(tier) || testMode(env)) return { tier, available: true, reason: null };
-  const price = TIERS[tier].priceMonthly as string | number | null;
-  return {
-    tier,
-    available: false,
-    reason: typeof price === "number" ? "Paid tiers open once their subscription checkout is ready." : `${PRICE_TBA_LABEL}: paid tiers open once their prices are set. Until then a business runs on Free, with your own Anthropic key.`,
-  };
+/** Why Founder and Studio cannot be chosen yet, true of the stage: nothing here promises a date or that anything stays free. */
+export function plansClosedReason(stage: EarlyAccessStage = EARLY_ACCESS_STAGE): string {
+  return stage === "open"
+    ? `${planName("pro")} and ${planName("scale")} open once their checkout is ready. Until then your own Anthropic key works on every plan.`
+    : `${APP_NAME} is free while in early access, so there is nothing to choose yet: every plan has everything listed here. ${planName("pro")} and ${planName("scale")} open when sign-up opens. Your own Anthropic key works on every plan.`;
 }
 
-/** Refuses a paid tier that is not on sale (412). */
+/** Whether `tier` can be chosen here (see the module comment). */
+export function tierAvailability(env: Pick<Env, "APP_ENV">, tier: TierKey, stage: EarlyAccessStage = EARLY_ACCESS_STAGE): TierAvailability {
+  if (!tierIsPaid(tier) || testMode(env)) return { tier, available: true, reason: null };
+  return { tier, available: false, reason: plansClosedReason(stage) };
+}
+
+export const SUBSCRIPTIONS_CLOSED_MESSAGE = `No subscription is charged while ${APP_NAME} is in early access.`;
+
+/**
+ * The gate every subscription charge passes, whatever opens it (WP-09 T16's checkout, a webhook, a renewal): refused
+ * (412) while sign-up is invite-only. There is no way around it in configuration: the stage is a constant in code.
+ */
+export function assertSubscriptionChargingOpen(stage: EarlyAccessStage = EARLY_ACCESS_STAGE): void {
+  if (!subscriptionChargingOpen(stage)) throw new AppError("subscriptions_closed", SUBSCRIPTIONS_CLOSED_MESSAGE, 412);
+}
+
+/** Refuses Founder or Studio while it is not on sale (412). */
 export function assertTierAvailable(env: Pick<Env, "APP_ENV">, tier: TierKey): void {
   const a = tierAvailability(env, tier);
   if (!a.available) throw new AppError("tier_unavailable", a.reason ?? "This tier is not available", 412);
@@ -171,8 +184,8 @@ export interface StartedCheckout {
 }
 
 /** The Billing tab of `businessId`, where Stripe sends the founder back (`{ checkout }` names the row). */
-export function billingReturnUrls(appUrl: string, businessId: string, checkoutId: string): { successUrl: string; cancelUrl: string } {
-  const base = new URL(`/b/${businessId}/settings/billing`, appUrl);
+export function billingReturnUrls(appUrl: string, businessId: string, checkoutId: string, tab: "billing" | "integrations" = "billing"): { successUrl: string; cancelUrl: string } {
+  const base = new URL(`/b/${businessId}/settings/${tab}`, appUrl);
   base.searchParams.set("checkout", checkoutId);
   const cancel = new URL(base);
   cancel.searchParams.set("canceled", "1");
@@ -189,13 +202,14 @@ const gatewayFailureMessage = (err: unknown): string => {
 /** Opens a top-up of `amountMinor` USD cents for `businessId` (see the module comment). The caller checked the owner. */
 export async function startCreditCheckout(
   deps: StartCheckoutDeps,
-  input: { businessId: string; userId: string; email: string | null; amountMinor: number; kind?: "credits" | "subscription"; creditsMinor?: number | null; resume?: "continue" | null },
+  input: { businessId: string; userId: string; email: string | null; amountMinor: number; kind?: "credits" | "subscription" | "domain"; creditsMinor?: number | null; resume?: "continue" | null; domainName?: string },
 ): Promise<StartedCheckout> {
   const availability = topUpAvailability(deps.env);
   if (!availability.available) throw new AppError("payments_unavailable", availability.reason ?? MOCK_PAYMENTS_OFF_MESSAGE, 412);
   const kind = input.kind ?? "credits";
-  const row = await repos.checkouts.create(deps.db, input.businessId, { kind, mode: availability.mode, amountMinor: input.amountMinor, createdBy: input.userId, ...(input.creditsMinor ? { creditsMinor: input.creditsMinor } : {}), ...(input.resume ? { resume: input.resume } : {}) });
-  const { successUrl, cancelUrl } = billingReturnUrls(deps.env.APP_URL, input.businessId, row.id);
+  const row = await repos.checkouts.create(deps.db, input.businessId, { kind, mode: availability.mode, amountMinor: input.amountMinor, createdBy: input.userId, ...(input.creditsMinor ? { creditsMinor: input.creditsMinor } : {}), ...(input.resume ? { resume: input.resume } : {}), ...(input.domainName ? { domainName: input.domainName } : {}) });
+  // A domain's payment returns to Settings › Integrations, where its registration finishes.
+  const { successUrl, cancelUrl } = billingReturnUrls(deps.env.APP_URL, input.businessId, row.id, kind === "domain" ? "integrations" : "billing");
   if (availability.mode === "mock") {
     // Simulated: no vendor is called, so the gateway is not needed. The checkout page is the Billing tab itself.
     const checkout = await repos.checkouts.attachSession(deps.db, input.businessId, row.id, { mode: "mock", externalId: `cs_mock_${row.id.replace(/-/g, "")}`, checkoutUrl: successUrl, expiresAt: new Date(Date.now() + MOCK_CHECKOUT_TTL_MS) });
@@ -203,7 +217,7 @@ export async function startCreditCheckout(
   }
   let created;
   try {
-    created = await deps.gateway.createCheckout({ businessId: input.businessId, checkoutId: row.id, kind, amountMinor: input.amountMinor, currency: "USD", description: kind === "subscription" ? ENTRY_PLAN_DESCRIPTION : CHECKOUT_DESCRIPTION, successUrl, cancelUrl, ...(input.email ? { customerEmail: input.email } : {}) });
+    created = await deps.gateway.createCheckout({ businessId: input.businessId, checkoutId: row.id, kind, amountMinor: input.amountMinor, currency: "USD", description: kind === "subscription" ? ENTRY_PLAN_DESCRIPTION : kind === "domain" ? `${input.domainName} for one year` : CHECKOUT_DESCRIPTION, successUrl, cancelUrl, ...(input.email ? { customerEmail: input.email } : {}) });
   } catch (err) {
     const message = gatewayFailureMessage(err);
     await repos.checkouts.markFailed(deps.db, input.businessId, row.id, message);

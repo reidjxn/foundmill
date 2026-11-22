@@ -341,7 +341,7 @@ export const PENDING_EVIDENCE: readonly { skillKey: string; templateKey: string 
 
 ### T9: Hire writes measured ratings; adding a skill shows its evidence   [M] [after T8]
 
-**Why:** TS-02 (a) and (c), TS-09 ("Untested" advice), CLAUDE.md "Label every non-real number".
+**Why:** TS-02 (a) and (c), TS-09 ("Untested" advice), FOUNDMILL.md "Label every non-real number".
 
 **Files:** `packages/db/src/hire.ts`, `packages/db/src/repos/skills.ts` (backfill step), `apps/api/src/services/skills.ts` (`addedSkillView`, `libraryView`), `apps/api/src/routers/agent.ts` (`agent.profile.get`), `packages/shared/src/terms.ts:561` (Potential); tests `idea-commit.test.ts`, `agent-profile.test.ts`, `agent-skills.test.ts`, Playwright `agent-profile.spec.ts`.
 
@@ -554,7 +554,7 @@ Done when: a newly hired coding agent lists both skills, a code task loads both 
 ```
 You are executing work package WP-06 "Skills for every role" for Foundmill.
 
-Read first, in this order: CLAUDE.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-06-skills-for-every-role.md
+Read first, in this order: FOUNDMILL.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-06-skills-for-every-role.md
 (the whole file); packages/agents/CLAUDE.md and the CLAUDE.md of each package a task touches; the sections of
 docs/holistic-plan/audits/a3b-templates-skills-team.md that the task you are starting cites (grep for the finding id).
 

@@ -20,7 +20,7 @@ const REASON: Record<AgentStopReason, string> = AGENT_STOP_REASON_WORDS;
 const HINT: Record<AgentStopReason, string | null> = {
   kill_switch: null,
   key_revoked: "Storing a new key in Settings › Keys resumes the team by itself.",
-  credits_exhausted: "Credits are the prepaid balance that pays for the team's AI usage. A top-up in Settings › Billing, or your own key in Settings › Keys, resumes the team by itself.",
+  credits_exhausted: "The team is resting: this month's team budget is used. Nothing was stopped part-way. It picks up when the budget resets, after a top-up in Settings › Billing, or on your own key in Settings › Keys.",
 };
 
 /** Null while the team runs. */

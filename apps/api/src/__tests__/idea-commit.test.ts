@@ -5,7 +5,7 @@ import { agentPrincipal, evaluate } from "@foundmill/policy";
 import { CHANNEL_KEYS, FIRST_DAY_PROMISE, OLD_FIRST_DAY_WORDS, emptyWhy } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BOARD_FIRST_DECISION_LINE, welcomeNote } from "../services/commit";
-import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
+import { createApiHarness, fakeTemporalClient, spendAllCredits, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
 const temporal = fakeTemporalClient();
@@ -15,7 +15,7 @@ beforeAll(async () => {
 afterAll(() => hz.close());
 
 describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
-  it("creates the full structure with default mode assisted and, for a founder with a budget, starts the first cycle", async () => {
+  it("creates the full structure with default mode assisted and, for a founder with a budget, starts the first round of work", async () => {
     const userId = await hz.h.createUser("founder@test.local");
     const caller = hz.caller({ userId, email: "founder@test.local" });
     // A founder with a budget: the first cycle starts at commit, as before WP-04 T3.
@@ -117,6 +117,9 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(audit.items).toHaveLength(1);
     const committed = await repos.ideas.get(hz.db, userId, idea.id);
     expect(committed.businessId).toBe(bid);
+    // WP-14 T14 (A12): a person who takes charge while sign-up is invite-only is marked, with the day they joined, as
+    // never billed the Founder fee. No price is stored: nothing is charged.
+    expect(await repos.ownerPlans.get(hz.db, userId)).toMatchObject({ invitedAt: expect.any(Date), priceTier: null, priceMinor: null });
 
     // First businessCycle started on (fake) Temporal with the deterministic id.
     expect(result.cycle?.queued).toBe(true);
@@ -181,7 +184,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     await expect(other.idea.commit(input)).rejects.toThrow(/not found/);
   });
 
-  it("a founder with no budget (WP-04 T3, D1): one ready task, no finance or legal task, and no cycle at commit; the page and the plan still draft on the first open", async () => {
+  it("a founder with no budget (WP-04 T3, D1): one ready task, no finance or legal task, and no round of work at commit; the page and the plan still draft on the first open", async () => {
     const userId = await hz.h.createUser("nobudget@test.local");
     const caller = hz.caller({ userId, email: "nobudget@test.local" });
     await caller.founder.profile.update({ confirmAdult: true, displayName: "Noa", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low", budgetMinor: null });
@@ -239,62 +242,71 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(evaluate({ principal: uncapped, tool: spend, business: { id: business.id, businessMode: "assisted", holidayActive: false }, context: { amountMinor: 1 } }).outcome).toBe("allow");
   });
 
-  it("Commit's careful defaults (WP-14 T11, A4): a 5.00 cap and the overnight shift off start no cycle for a founder with no budget (D1), and the cap is the line a spend is asked above", async () => {
+  it("Commit's careful defaults (WP-14 T11; founder, 2026-11-22): a cap of 0 and the overnight shift off start no round of work for a founder with no budget (D1), and a $1 spend in Assisted asks first", async () => {
     const userId = await hz.h.createUser("careful-defaults@test.local");
     const caller = hz.caller({ userId, email: "careful-defaults@test.local" });
     // No budget on the profile.
     await caller.founder.profile.update({ confirmAdult: true, displayName: "Cara", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
     const idea = (await caller.idea.generate({ prompt: "plant care reminders for offices" })).ideas[0]!;
-    // What the Commit screen sends when nothing is changed: Assisted, Personal, 5.00, Autopilot off (no overnight shift).
-    const result = await caller.idea.commit({ ideaId: idea.id, name: "Careful Line", archetype: "b2b_saas", gameMode: "personal", businessMode: "assisted", spendCapMinor: 500, autopilot: false });
-    // D1 stands: a commit with no budget starts no cycle, whatever the cap.
+    // What the Commit screen sends when nothing is changed: Assisted, Personal, a cap of 0, Autopilot off (no overnight shift).
+    const result = await caller.idea.commit({ ideaId: idea.id, name: "Careful Line", archetype: "b2b_saas", gameMode: "personal", businessMode: "assisted", currency: "USD", spendCapMinor: 0, autopilot: false });
+    // D1 stands: a commit with no budget starts no cycle.
     expect(result.cycle).toBeNull();
     expect(result.autopilot ?? null).toBeNull();
     const business = await repos.businesses.get(hz.db, result.business.id);
-    expect(business.spendCapMinor).toBe(500);
+    expect(business.spendCapMinor).toBe(0);
     expect(business.businessMode).toBe("assisted");
     expect(business.autopilotEnabled).toBe(false);
-    // What the cap means in Assisted (flagged in the pull request): a spending action of 5.00 or less runs without
-    // asking, where WP-04 D4's 0 asked for every cent; anything above asks. Automated is held to the same line.
+    // No spending action runs without the founder's approval, whatever the amount: $1 asks (it ran under #301's 5.00).
     const agent = { id: result.chiefOfStaffId, departmentIds: [], agentType: "channel_paid_ads", modelKey: "sonnet" as const, autonomy: {} };
     const spend = { connector: "meta_ads", name: "set_daily_budget", spendsMoney: true };
-    for (const businessMode of ["assisted", "automated"] as const) {
+    for (const businessMode of ["assisted", "augmented"] as const) {
       const principal = agentPrincipal(agent, { businessMode, businessSpendCapMinor: business.spendCapMinor ?? null, holidayActive: false, holidayBudgetMinor: null });
       const at = (amountMinor: number) => evaluate({ principal, tool: spend, business: { id: business.id, businessMode, holidayActive: false }, context: { amountMinor } }).outcome;
-      expect(at(501), businessMode).toBe("ask");
-      expect(at(500), businessMode).toBe("allow");
+      expect(at(100), businessMode).toBe("ask");
+      expect(at(1), businessMode).toBe("ask");
     }
   });
 
-  it("starts on the free tier with this month's included credits in US dollars, keeps the spend cap, and takes charge of a second business on the free plan: no business limit; the second starts with nothing included (one credit pool a month per founder, SEC2 S6)", async () => {
+  it("starts on the free tier with this month's team budget in US dollars, keeps the spend cap, and holds one project on Try; a Founder owner's projects share one budget (founder, Nov 19, 2026)", async () => {
     const userId = await hz.h.createUser("tier@test.local");
     const caller = hz.caller({ userId, email: "tier@test.local" });
-    await caller.founder.profile.update({ confirmAdult: true, displayName: "Ada", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Ada", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "moderate" });
     const generated = await caller.idea.generate({ prompt: "invoicing for dog groomers" });
-    const [first, second] = generated.ideas;
+    const [first, second, third] = generated.ideas;
 
     const result = await caller.idea.commit({ ideaId: first!.id, name: "Tier One", archetype: "b2b_saas", gameMode: "personal", currency: "USD", spendCapMinor: 5_000 });
     const bid = result.business.id;
     expect(await repos.businesses.get(hz.db, bid)).toMatchObject({ planTier: "free", modelBilling: "credits", spendCapMinor: 5_000 });
     const period = new Date().toISOString().slice(0, 7);
-    expect(await repos.usage.creditBalance(hz.db, bid, period)).toMatchObject({ grantedMinor: includedCreditsMinor("free"), balanceMinor: includedCreditsMinor("free"), currency: "USD" });
+    // The project's own balance holds only what it bought; the included budget is the owner's.
+    expect(await repos.usage.creditBalance(hz.db, bid, period)).toMatchObject({ grantedMinor: 0, balanceMinor: 0, currency: "USD" });
     const plan = await caller.billing.plan({ businessId: bid });
-    expect(plan).toMatchObject({ tier: "free", modelBilling: "credits", creditsCurrency: "USD", includedCreditsMinor: includedCreditsMinor("free"), credits: { currency: "USD", exhausted: false }, usage: { currency: "USD" } });
+    expect(plan).toMatchObject({ tier: "free", modelBilling: "credits", creditsCurrency: "USD", includedCreditsMinor: includedCreditsMinor("free"), credits: { currency: "USD", balanceMinor: includedCreditsMinor("free"), exhausted: false }, usage: { currency: "USD" } });
     expect((await repos.audit.list(hz.db, bid, { action: "idea.commit" })).items[0]?.details).toMatchObject({ spendCapMinor: 5_000, planTier: "free", modelBilling: "credits", includedCreditsMinor: includedCreditsMinor("free") });
 
-    // No business limit on any plan for now (founder, 2026-10-16): the second commit succeeds while the first is active.
+    // Try holds one project (A14): a second is refused with a plain way on, and the first is kept.
+    await expect(caller.idea.commit({ ideaId: second!.id, name: "Tier Two", archetype: "b2b_saas", gameMode: "personal" })).rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringMatching(/Try holds 1 project and you have 1\. You keep it\. Founder holds up to 5: change plan in Settings › Billing/) });
+    expect((await repos.businesses.listForUser(hz.db, userId)).map((b) => b.id)).toEqual([bid]);
+
+    // On Founder a second project starts, shares the one budget (it is not resting), and a project that spends it all
+    // leaves the next one resting from its first minute, with the Inbox saying why and what to do.
+    await repos.businesses.update(hz.db, bid, { planTier: "pro" });
     const again = await caller.idea.commit({ ideaId: second!.id, name: "Tier Two", archetype: "b2b_saas", gameMode: "personal" });
     expect(again.business).toMatchObject({ planTier: "free", spendCapMinor: null });
-    expect((await repos.businesses.listForUser(hz.db, userId)).map((b) => b.id).sort()).toEqual([bid, again.business.id].sort());
-    expect((await caller.founder.businesses.list()).businesses.map((b) => b.name)).toEqual(["Tier One", "Tier Two"]);
-    // Never a second included credit in the same month (SEC2 S6): the new business starts with nothing included,
-    // stopped like any team whose credits ran out, and the Inbox says why and what to do.
-    expect(await repos.usage.creditBalance(hz.db, again.business.id, period)).toMatchObject({ grantedMinor: 0, balanceMinor: 0 });
-    expect(await repos.businesses.stopState(hz.db, again.business.id)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
-    const warning = (await repos.inbox.list(hz.db, again.business.id, { limit: 50 })).items.find((i) => i.subject === CREDITS_EXHAUSTED_SUBJECT);
-    expect(warning?.bodyMd).toMatch(/this month's already went to another business you took charge of\. What stopped: /);
-    expect((await caller.founder.businesses.allowance()).includedCredits).toMatchObject({ places: 1, taken: 1 });
-    expect((await caller.billing.plan({ businessId: again.business.id })).includedCreditsMinor).toBe(0);
+    expect((await caller.founder.businesses.list()).businesses.map((b) => b.name).sort()).toEqual(["Tier One", "Tier Two"]);
+    expect(await repos.businesses.stopState(hz.db, again.business.id)).toMatchObject({ stopped: false });
+    expect((await caller.billing.plan({ businessId: again.business.id })).resting).toBeNull();
+    await spendAllCredits(hz.db, bid, period);
+    const last = await caller.idea.commit({ ideaId: third!.id, name: "Tier Three", archetype: "b2b_saas", gameMode: "personal" });
+    expect(await repos.usage.creditBalance(hz.db, last.business.id, period)).toMatchObject({ grantedMinor: 0, balanceMinor: 0 });
+    expect(await repos.businesses.stopState(hz.db, last.business.id)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
+    const warning = (await repos.inbox.list(hz.db, last.business.id, { limit: 50 })).items.find((i) => i.subject === CREDITS_EXHAUSTED_SUBJECT);
+    expect(warning?.bodyMd).toMatch(/We've used this month's team budget\./);
+    expect(warning?.bodyMd).toMatch(/add your own Anthropic key in Settings › Keys/);
+    // The resting state is visible on Billing, with the day the budget resets.
+    expect((await caller.billing.plan({ businessId: last.business.id })).resting).toMatchObject({ until: expect.any(Date) });
+    expect((await caller.founder.businesses.allowance()).includedCredits).toMatchObject({ remainingMinor: 0 });
   });
 
   it("a commit that read the idea before another commit landed (READ COMMITTED) still builds nothing and answers with the first business", async () => {
@@ -419,7 +431,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(survey.relevance).toMatchObject({ summary: "Two in three clinics still book by phone.", provenance: "Estimate", origin: { kind: "concept_card", ideaId: idea.id } });
   });
 
-  it("the Board's item never promises that nothing is spent before the decision: the first cycle starts at commit (audit api-services-13)", async () => {
+  it("the Board's item never promises that nothing is spent before the decision: the first round of work starts at commit (audit api-services-13)", async () => {
     expect(BOARD_FIRST_DECISION_LINE).toMatch(/started on the basics/);
     expect(BOARD_FIRST_DECISION_LINE).not.toMatch(/spends anything/);
     const archetypeCopy = JSON.stringify(getArchetypeSeed("b2b_saas"));

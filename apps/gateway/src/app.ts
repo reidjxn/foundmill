@@ -6,6 +6,7 @@
  *   GET  /v1/connectors            catalogue: phase, auth kind, tools, policyHints (public within the private network)
  *   POST /v1/session-tokens        service JWT → session JWT for one agent session
  *   POST /v1/integrations/connect  service JWT (api) → connect a business's integration: App installations verified, a vendor's secret sealed here (integrations.ts)
+ *   POST /v1/browser/*             service JWT (api) → the hosted browser's sessions for the founder: list, take over, hand back, stop (browser.ts)
  *   POST /v1/integrations/health   service JWT (api) → that integration's health check (integrations.ts)
  *   POST /v1/models/anthropic/:businessId/v1/messages  service JWT (api, composer) → the call on the business's own Anthropic key (model-proxy.ts)
  *   POST /v1/integrations/disconnect service JWT (api) → withdraw the vendor-side access before the api disconnects (a Stripe sign-in)
@@ -15,12 +16,15 @@
  *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
  *   POST /v1/billing/portal-sessions  service JWT (api) → Stripe's customer portal for an entry-plan subscriber (billing.ts)
  *   POST /v1/domains/check         service JWT (api) → registry answers for up to 8 domain names (domains.ts)
+ *   POST /v1/domains/own           service JWT (api) → add, check or remove a project's own domain (sending-domain.ts)
+ *   POST /v1/domains/register      service JWT (api) → quote, register or set up a domain on OpenSRS (registered-domain.ts)
  *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key in one character style (portraits.ts)
  *   POST /v1/speech/synthesize     service JWT (api) → one agent turn spoken in a speech accent, for Team call (speech.ts)
  *   POST /v1/speech/transcribe     service JWT (api) → one recording of the founder transcribed, for Team call (speech.ts)
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
  *   POST /v1/turnstile/verify              service JWT (api) → the idea box's bot check (turnstile.ts)
  *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
+ *   POST /v1/platform-mail/booking         service JWT (api, orchestrator) → a booking's email to its customer (booking-mail.ts)
  *   POST /v1/platform-mail/answer-reply    service JWT (api) → a founder's answer to a reply the project received (reply-answer.ts)
  *   POST /v1/platform-mail/send-update     service JWT (api) → the founders' update to their followers, one press (follower-update.ts)
  *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts; an invitation: notify-address-email.ts; a founder notice: notify-founder-notice.ts; the waitlist's place is open: notify-account-email.ts)
@@ -39,15 +43,19 @@ import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
 import { apiServiceTokenMode, bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifyServiceTokenFor, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { GatewayError, safeError, type GatewayDeps } from "./pipeline";
 import { connectIntegration, integrationHealth, releaseAccount, releaseIntegration } from "./integrations";
+import { BrowserProjectRequest, BrowserSiteRequest, BrowserStopRequest, handBackBrowser, listBrowserSessions, stopBrowserSessions, takeOverBrowser } from "./browser";
 import { KEYS_VALIDATE_ROUTE, ValidateKeyRequest, validateFounderKey } from "./keys";
 import { MAX_OWN_KEY_MODELS_BODY_BYTES, OWN_KEY_MODELS_ROUTE, proxyOwnKeyMessage } from "./model-proxy";
 import { lookupRegistry, REGISTRY_LOOKUP_ROUTE, RegistryLookupRequest } from "./registry-lookup";
 import { CreateCheckoutRequest, CreatePortalRequest, createPlatformCheckout, createPlatformPortal } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
+import { handleOwnDomain, OWN_DOMAIN_ROUTE, OwnDomainRequest } from "./sending-domain";
+import { handleRegisterDomain, REGISTER_DOMAIN_ROUTE, RegisterDomainRequest } from "./registered-domain";
 import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
 import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, streamSpeech, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
+import { BOOKING_MAIL_ROUTE, BOOKING_MAIL_SERVICES, BookingMailRequest, sendBookingMail } from "./booking-mail";
 import { ANSWER_REPLY_ROUTE, AnswerReplyRequest, answerReply } from "./reply-answer";
 import { SEND_UPDATE_ROUTE, SendUpdateRequest, sendFollowerUpdate } from "./follower-update";
 import { TURNSTILE_ROUTE, TurnstileVerifyRequest, verifyTurnstile } from "./turnstile";
@@ -129,6 +137,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   // A recording of up to 8 MiB travels as base64 in JSON.
   app.use(SPEECH_TRANSCRIBE_ROUTE, limit(MAX_TRANSCRIBE_BODY_BYTES));
   app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(BOOKING_MAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(ANSWER_REPLY_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(SEND_UPDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(NOTIFY_EMAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
@@ -172,6 +181,12 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   // Connecting an integration is the api's job alone (it checked settings administration and the founder's signed state).
   app.use("/v1/integrations/*", async (c, next) => {
     if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api connects integrations", 403);
+    await next();
+  });
+  // The hosted browser's founder routes: the api alone, after its membership check (browser.ts).
+  app.use("/v1/browser/*", requireService);
+  app.use("/v1/browser/*", async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks about browser sessions", 403);
     await next();
   });
   // Foundmill's own billing: only the api opens a checkout (after its owner check).
@@ -289,6 +304,19 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     return c.json(await sendFollowConfirmation(deps, parsed.data, c.var.service.svc));
   });
 
+  // A booking's emails to its customer (founder, Nov 22, 2026): the api (made, canceled, moved) and the orchestrator's
+  // reminder pass ask (booking-mail.ts).
+  app.use(BOOKING_MAIL_ROUTE, requireService);
+  app.use(BOOKING_MAIL_ROUTE, async (c, next) => {
+    if (!BOOKING_MAIL_SERVICES.includes(c.var.service.svc)) throw new GatewayError("forbidden_service", "Only the api and the orchestrator ask for a booking email", 403);
+    await next();
+  });
+  app.post(BOOKING_MAIL_ROUTE, async (c) => {
+    const parsed = BookingMailRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, a booking id and the kind of email", 400);
+    return c.json(await sendBookingMail(deps, parsed.data, c.var.service.svc));
+  });
+
   // A founder's answer to a reply the project received (WP-08 T2): only the api asks, from Customers (reply-answer.ts).
   app.use(ANSWER_REPLY_ROUTE, requireService);
   app.use(ANSWER_REPLY_ROUTE, async (c, next) => {
@@ -359,6 +387,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   });
 
   app.post("/v1/domains/check", async (c) => c.json(await checkDomains(deps, CheckDomainsRequest.parse(await c.req.json()))));
+  app.post(OWN_DOMAIN_ROUTE, async (c) => c.json(await handleOwnDomain(deps, OwnDomainRequest.parse(await c.req.json()))));
+  app.post(REGISTER_DOMAIN_ROUTE, async (c) => c.json(await handleRegisterDomain(deps, RegisterDomainRequest.parse(await c.req.json()))));
 
   app.post("/v1/billing/checkout-sessions", async (c) => {
     const input = CreateCheckoutRequest.parse(await c.req.json());
@@ -431,6 +461,12 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.post("/v1/integrations/health", async (c) => c.json(await integrationHealth(deps, IntegrationHealthRequest.parse(await c.req.json()), c.var.service.svc)));
   app.post("/v1/integrations/disconnect", async (c) => c.json(await releaseIntegration(deps, IntegrationHealthRequest.parse(await c.req.json()), c.var.service.svc)));
   app.post("/v1/integrations/release", async (c) => c.json(await releaseAccount(deps, ReleaseAccountRequest.parse(await c.req.json()), c.var.service.svc)));
+
+  // --- the hosted browser: what the founder watches, takes over, hands back and stops (browser.ts) ----------------
+  app.post("/v1/browser/sessions", async (c) => c.json(listBrowserSessions(deps, BrowserProjectRequest.parse(await c.req.json()).businessId)));
+  app.post("/v1/browser/takeover", async (c) => c.json(await takeOverBrowser(deps, BrowserSiteRequest.parse(await c.req.json()), c.var.service.svc)));
+  app.post("/v1/browser/handback", async (c) => c.json(await handBackBrowser(deps, BrowserSiteRequest.parse(await c.req.json()), c.var.service.svc)));
+  app.post("/v1/browser/stop", async (c) => c.json(await stopBrowserSessions(deps, BrowserStopRequest.parse(await c.req.json()), c.var.service.svc)));
 
   // --- session auth -------------------------------------------------------------------------------------------
   const requireSession = async (c: { req: { header(name: string): string | undefined }; set(key: "session", value: SessionToken): void }, next: () => Promise<void>) => {

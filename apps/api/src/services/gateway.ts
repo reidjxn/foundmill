@@ -15,7 +15,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { ELEVENLABS_SPEECH_TIMEOUT_MS, ELEVENLABS_TRANSCRIPTION_TIMEOUT_MS, OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
-import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type ReplyNotSent, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
+import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type OwnDomainRecord, type ReplyNotSent, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
 export const TOKEN_ISSUER = "foundmill-gateway";
@@ -40,6 +40,20 @@ export interface GatewayConnectResult {
   integrationId: string | null;
   /** The sealed credential: its row id and a four-character hint (`redactSecret`); null when there was none. */
   credential: { stored: true; credentialId: string; hint: string } | null;
+}
+
+/** One running hosted-browser session as the gateway tells the founder's screens (apps/gateway browser.ts). The live view is the page itself: it travels to the member's browser and is never stored. */
+export interface GatewayBrowserSession {
+  siteKey: string;
+  siteName: string;
+  liveViewUrl: string | null;
+  url: string | null;
+  startedAt: string;
+  steps: number;
+  held: { why: "founder" | "request" | "hard_gate" | "sign_in"; note: string } | null;
+  signIn: boolean;
+  /** The recorded mock's session: nothing outside was touched. */
+  simulated: boolean;
 }
 
 /** A founder's own Anthropic key, checked by the gateway with Anthropic (apps/gateway keys.ts `ValidateKeyResponse`). */
@@ -83,7 +97,7 @@ export interface GatewayHealth {
 export interface GatewayCheckoutRequest {
   businessId: string;
   checkoutId: string;
-  kind: "credits" | "subscription";
+  kind: "credits" | "subscription" | "domain";
   amountMinor: number;
   currency: "USD";
   description: string;
@@ -99,6 +113,25 @@ export interface GatewayCheckout {
 }
 
 /** One domain's answer, as the `domains` connector gives it (packages/connectors `DomainAnswer`). */
+/** A project's own domain as the gateway wrote it (`project_domains`), after an add, a check or a remove. */
+export interface GatewayOwnDomain {
+  mode: "mock" | "live";
+  simulated: boolean;
+  domain: { domain: string; senderLocalPart: string; records: OwnDomainRecord[]; status: "pending" | "verified"; checkedAt: string | null; verifiedAt: string | null } | null;
+}
+
+export type GatewayOwnDomainRequest =
+  | { action: "add"; businessId: string; userId: string; domain: string; senderLocalPart: string; siteHost: string | null }
+  | { action: "check"; businessId: string; siteHost: string | null }
+  | { action: "remove"; businessId: string };
+
+export type GatewayRegisterDomainRequest =
+  | { action: "quote"; businessId: string; domain: string }
+  | { action: "register"; businessId: string; userId: string; checkoutId: string; siteHost: string | null }
+  | { action: "setup"; businessId: string; siteHost: string | null };
+
+export type GatewayRegisterDomainResult = { mode: "mock" | "live"; simulated: boolean } & ({ quote: { domain: string; available: boolean; priceMinor: number | null } } | { domain: (NonNullable<GatewayOwnDomain["domain"]> & { source?: string }) | null });
+
 export interface GatewayDomainAnswer {
   domain: string;
   status: "available" | "taken" | "unknown";
@@ -212,6 +245,13 @@ export interface GatewayConfirmFollowRequest {
 
 /** Sent (on the mock: simulated, nothing left), or not, and why; never an error for "not sent". */
 export type GatewayConfirmFollowResult = { sent: true; simulated: boolean } | { sent: false; reason: string };
+/** A booking's email to its customer (`POST /v1/platform-mail/booking`): ids and the kind, never words or an address. */
+export interface GatewayBookingMailRequest {
+  businessId: string;
+  bookingId: string;
+  kind: "confirmation" | "reminder" | "canceled" | "rescheduled";
+}
+export type GatewayBookingMailResult = { sent: true; simulated: boolean } | { sent: false; reason: string };
 
 /** A founder's answer to a reply the project received (WP-08 T2): ids and the words, never an address. */
 export interface GatewayAnswerReplyRequest {
@@ -326,6 +366,12 @@ export interface ApiGatewayClient {
   health(businessId: string, connector: string): Promise<GatewayHealth>;
   /** Withdraws the vendor-side access of a connection before it is disconnected (a Stripe sign-in); false when there was none. */
   disconnect?(businessId: string, connector: string): Promise<{ released: boolean }>;
+  /** The hosted browser's running sessions for a project (Working now), and the founder's controls over them. */
+  browserSessions?(businessId: string): Promise<{ sessions: GatewayBrowserSession[] }>;
+  browserTakeOver?(businessId: string, siteKey: string): Promise<{ held: boolean }>;
+  browserHandBack?(businessId: string, siteKey: string): Promise<{ handedBack: boolean }>;
+  /** Ends one site's session, or every session of the project when `siteKey` is absent (Stop all agents). */
+  browserStop?(businessId: string, siteKey?: string, timeoutMs?: number): Promise<{ stopped: number }>;
   /** After a sign-in was replaced and saved: withdraws the previous account's access, which the gateway does only when no project holds it. */
   release?(businessId: string, connector: string, externalAccountId: string): Promise<{ released: boolean }>;
   /** A founder's own Anthropic key, checked with Anthropic (a one-token call, then the routed models); asked only with live models. */
@@ -337,6 +383,10 @@ export interface ApiGatewayClient {
   createPortal?(input: { businessId: string; customerId: string; returnUrl: string }): Promise<{ mode: "mock" | "live"; url: string }>;
   /** Registry answers for up to eight domain names, on behalf of one founder (the gateway's rate-limit scope). */
   checkDomains(ownerKey: string, domains: string[]): Promise<GatewayDomainAnswer[]>;
+  /** Add, check or remove a project's own domain (SendGrid's domain authentication and DNS, in the gateway). */
+  ownDomain?(input: GatewayOwnDomainRequest): Promise<GatewayOwnDomain>;
+  /** Quote, register or set up a domain on OpenSRS (Path A), in the gateway. */
+  registerDomain?(input: GatewayRegisterDomainRequest): Promise<GatewayRegisterDomainResult>;
   /**
    * The AI-generated face for one persona catalog key in one character style (humans when not given). The gateway builds
    * the prompt from the style and the key (a key outside the catalog is a 400 `unknown_persona`, a style outside
@@ -352,6 +402,8 @@ export interface ApiGatewayClient {
   sendPush(input: GatewayPushRequest): Promise<GatewayPushResult>;
   /** The follow confirmation email (package 1.6): fixed words, from the project's Foundmill address, on a service path. */
   confirmFollow(input: GatewayConfirmFollowRequest): Promise<GatewayConfirmFollowResult>;
+  /** A booking's email to its customer (founder, Nov 22, 2026): fixed words from the project's address. Absent (test doubles): not sent. */
+  bookingMail?(input: GatewayBookingMailRequest): Promise<GatewayBookingMailResult>;
   /**
    * Email from Foundmill to a person about their own project (packages 1.5 and 5.1): the gateway resolves the address,
    * re-checks the person, the note and the day's counts, builds the words and sends; the api's notify pass asks.
@@ -455,14 +507,21 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     connect: (businessId, connector, input) => post<GatewayConnectResult>("/v1/integrations/connect", { businessId, connector, input }),
     health: async (businessId, connector) => (await post<{ health: GatewayHealth }>("/v1/integrations/health", { businessId, connector })).health,
     disconnect: (businessId, connector) => post<{ released: boolean }>("/v1/integrations/disconnect", { businessId, connector }),
+    browserSessions: (businessId) => post<{ sessions: GatewayBrowserSession[] }>("/v1/browser/sessions", { businessId }),
+    browserTakeOver: (businessId, siteKey) => post<{ held: boolean }>("/v1/browser/takeover", { businessId, siteKey }),
+    browserHandBack: (businessId, siteKey) => post<{ handedBack: boolean }>("/v1/browser/handback", { businessId, siteKey }),
+    browserStop: (businessId, siteKey, stopTimeoutMs) => post<{ stopped: number }>("/v1/browser/stop", { businessId, ...(siteKey ? { siteKey } : {}) }, stopTimeoutMs ?? timeoutMs),
     release: (businessId, connector, externalAccountId) => post<{ released: boolean }>("/v1/integrations/release", { businessId, connector, externalAccountId }),
     createCheckout: (input) => post<GatewayCheckout>("/v1/billing/checkout-sessions", input),
     createPortal: (input) => post<{ mode: "mock" | "live"; url: string }>("/v1/billing/portal-sessions", input),
     checkDomains: async (ownerKey, domains) => (await post<{ results: GatewayDomainAnswer[] }>("/v1/domains/check", { ownerKey, domains })).results,
+    ownDomain: (input) => post<GatewayOwnDomain>("/v1/domains/own", input),
+    registerDomain: (input) => post<GatewayRegisterDomainResult>("/v1/domains/register", input),
     generatePortrait: (personaKey, businessId, style) => post<GatewayPortrait>("/v1/personas/portrait", { personaKey, ...(style ? { style } : {}), ...(businessId ? { businessId } : {}) }, Math.max(timeoutMs, PORTRAIT_TIMEOUT_MS)),
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
     confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    bookingMail: (input) => post<GatewayBookingMailResult>("/v1/platform-mail/booking", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     // Up to 50 messages in sequence: the press waits for them (the client's timeout, at least a minute).
     sendUpdate: (input) => post<GatewaySendUpdateResult>("/v1/platform-mail/send-update", input, Math.max(timeoutMs, 60_000)),
     answerReply: (input) => post<GatewayAnswerReplyResult>("/v1/platform-mail/answer-reply", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),

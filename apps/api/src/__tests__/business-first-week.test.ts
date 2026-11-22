@@ -38,7 +38,7 @@ describe("business.firstWeek.get", () => {
     await expect(hz.caller({ userId: stranger }).business.firstWeek.get({ businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("flips as a note from an agent is opened, the founder writes to an agent, a cycle completes and the page is published", async () => {
+  it("flips as a note from an agent is opened, the founder writes to an agent, a round of work completes and the page is published", async () => {
     const { businessId } = hz.B;
     const owner = hz.caller({ userId: hz.B.ownerId });
     const before = await owner.business.firstWeek.get({ businessId });
@@ -70,5 +70,22 @@ describe("business.firstWeek.get", () => {
     // Another business's flags did not move with B's.
     const other = await hz.caller({ userId: hz.A.ownerId }).business.firstWeek.get({ businessId: hz.A.businessId });
     expect(other.conversationReplySent).toBe(false);
+  });
+});
+
+describe("business.get stageFacts (WP-10 T1)", () => {
+  it("answers the stage the tabs read, and refuses another business's member", async () => {
+    const { businessId } = hz.A;
+    const facts = (await hz.caller({ userId: hz.A.ownerId }).business.get({ businessId })).stageFacts;
+    expect(Object.keys(facts).sort()).toEqual(["bankConnected", "distributionStarted", "entityExists", "firstPayment", "pageLive", "people", "roundCompleted"]);
+    expect(facts.distributionStarted).toBe(true);
+    expect(facts.pageLive).toBe(false);
+    expect(facts.people).toBeGreaterThan(0);
+    await expect(hz.caller({ userId: hz.B.ownerId }).business.get({ businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("is true after a page is published and a round finishes (the earlier case did both on this business)", async () => {
+    const facts = (await hz.caller({ userId: hz.B.ownerId }).business.get({ businessId: hz.B.businessId })).stageFacts;
+    expect(facts).toMatchObject({ pageLive: true, roundCompleted: true });
   });
 });

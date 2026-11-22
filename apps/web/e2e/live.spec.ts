@@ -159,6 +159,10 @@ test.describe("live pages from the sidebar", () => {
     await expect(heldPost.getByTestId("post-status")).toHaveText("Held for review");
     // The founder owns this community, so the review queue lists it; removing it as its author clears it.
     await expect(page.getByTestId("moderation-panel")).toContainText(held, { timeout: LONG });
+    // Nobody approves their own post: the queue offers no Approve for it.
+    const ownItem = page.getByTestId("moderation-item").filter({ hasText: held });
+    await expect(ownItem.getByTestId("moderation-own-post")).toBeVisible();
+    await expect(ownItem.getByRole("button", { name: "Approve" })).toHaveCount(0);
     await heldPost.getByTestId("post-menu").click();
     await page.getByRole("menuitem", { name: /Delete/ }).click();
     await expect(feed.getByTestId("feed-post").filter({ hasText: held })).toHaveCount(0, { timeout: LONG });

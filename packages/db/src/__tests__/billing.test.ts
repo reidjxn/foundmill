@@ -11,7 +11,8 @@ import { creditsAreLow, includedCreditsMinor, LOW_CREDITS_FLOOR_MINOR, LOW_CREDI
 import { CreditsExhaustedError } from "@foundmill/shared";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { agentWorkFunding, assertPlatformCredits, bookUsage as bookUsageAtCost, chargesCredits, fundingOfRow, checkPlatformCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, waysToContinue, CREDITS_LOW_AUDIT_ACTION, CREDITS_LOW_SUBJECT, includedCreditsFor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits } from "../billing";
+import { sql } from "drizzle-orm";
+import { agentWorkFunding, assertPlatformCredits, bookUsage as bookUsageAtCost, chargesCredits, fundingOfRow, checkPlatformCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, restBeforeSession, restingNoteBody, RESTING_SUBJECT, waysToContinue, CREDITS_LOW_AUDIT_ACTION, CREDITS_LOW_SUBJECT, includedCreditsFor, monthlyBudgetMinor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits } from "../billing";
 import { BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, loadByokApiKey } from "../byok";
 import { resumeBusinessAgents, stopBusinessAgents } from "../controls";
 import { settleCreditCheckout } from "../payments";
@@ -27,6 +28,7 @@ beforeAll(async () => {
 });
 afterAll(() => r?.close());
 
+const h = (q: ReturnType<typeof sql>) => r.db.execute(q);
 const PERIOD = "2026-10";
 const at = (d: number, month = 9) => new Date(Date.UTC(2026, month, d, 12));
 const FREE_INCLUDED = includedCreditsMinor("free");
@@ -106,12 +108,12 @@ describe("bookUsage", () => {
     const note = await repos.inbox.get(r.db, A(), last.credits!.noteId!);
     expect(note.type).toBe("warning");
     expect(note.subject).toBe(CREDITS_EXHAUSTED_SUBJECT);
-    // The founder's wording (Nov 17, 2026): no plan named, the date next month's credits arrive, the own key.
-    expect(note.bodyMd).toMatch(/^You've used all your included AI! It is back on [A-Z][a-z]{2} 1\. To keep going now, connect your own Anthropic key\./);
-    // What stopped, what still works, and the ways on (WP-09 T13). No top-up is named unless the caller says one can be bought.
-    expect(note.bodyMd).toContain(CREDITS_ZERO_STOPPED);
-    expect(note.bodyMd).toContain(CREDITS_ZERO_STILL_WORKS);
-    expect(note.bodyMd).not.toMatch(/Top up|add credits/i);
+    // The Chief of Staff's note (WP-14 T1): the plan by its name, never "free"; the own key always offered; a top-up
+    // and a change of plan only where they can be had (neither on this server, at this stage); the day the budget resets.
+    expect(note.bodyMd).toMatch(/^We've used this month's team budget\./);
+    expect(note.bodyMd).toMatch(/You can add your own Anthropic key in Settings › Keys \(billed by Anthropic, not by us\) or let us rest until Nov 1, 2026, when your budget resets\./);
+    expect(note.bodyMd).toMatch(/You're on Try, which includes \$5\.00 of team budget a month/);
+    expect(note.bodyMd).not.toMatch(/free plan|top up in|change plan|paused/i);
     expect(note.bodyMd).toMatch(/Estimate/);
     const audit = await repos.audit.list(r.db, A(), { action: "billing.credits_exhausted" });
     expect(audit.items).toHaveLength(1);
@@ -129,12 +131,38 @@ describe("bookUsage", () => {
     expect((await repos.usage.creditBalance(r.db, r.B.businessId, PERIOD))?.spentMinor).toBe(125);
   });
 
-  it("where credits can be bought, the warning offers them first, then the founder's own key and the date (WP-09 T13)", async () => {
+  it("where a top-up can be bought the note names it first, and a change of plan once plans are on sale; the own key is offered either way", async () => {
+    const nextOn = new Date(Date.UTC(2026, 11, 1));
+    expect(waysToContinue({ topUps: false, nextCreditsOn: nextOn, voice: "rest" })).toBe("You can add your own Anthropic key in Settings › Keys (billed by Anthropic, not by us) or let us rest until Dec 1, 2026, when your budget resets.");
+    expect(waysToContinue({ nextCreditsOn: nextOn, topUps: true, plans: true, voice: "rest" })).toBe("You can top up in Settings › Billing, change plan, add your own Anthropic key in Settings › Keys (billed by Anthropic, not by us), or let us rest until Dec 1, 2026, when your budget resets.");
+    const body = restingNoteBody({ planTier: "pro", finished: ["Draft the landing page", "Research three suppliers"], next: ["Write the first post"], leftMinor: 16, nextOn, topUps: true });
+    expect(body).toMatch(/^We've used this month's team budget\. Here's what we finished, and here's what we'd do next\. You can top up in Settings › Billing, add your own Anthropic key/);
+    expect(body).toContain("**Finished this month**\n- Draft the landing page\n- Research three suppliers");
+    expect(body).toContain("**What we'd do next**\n- Write the first post");
+    expect(body).toContain("You're on Founder, which includes $10.00 of team budget a month.");
+    expect(body).toContain("$0.16 is left: too little to finish another task, so it stays in your balance.");
+    // With nothing on record the note claims no list.
+    expect(restingNoteBody({ planTier: "free", finished: [], next: [], leftMinor: 0, nextOn })).not.toMatch(/Here's what we finished|Finished this month|is left/);
+  });
+
+  it("the note lists what was finished this month and what comes next from the task records, and a service that sells top-ups names one", async () => {
     const B = r.B.businessId;
     await repos.businesses.update(r.db, B, { planTier: "pro" });
-    const done = await bookUsage(r.db, B, { ...tokens(includedCreditsMinor("pro") + 1, "credits", 3, 11), agentId: r.B.agentId }, { topUps: true });
-    expect(done.credits).toMatchObject({ exhausted: "now", balance: { period: "2026-12", balanceMinor: 0 } });
-    expect((await repos.inbox.get(r.db, B, done.credits!.noteId!)).bodyMd).toMatch(/^You've used all your included AI! It is back on Jan 1\. To keep going now, connect your own Anthropic key\. Or add credits in Settings › Billing\./);
+    const finished = await repos.tasks.create(r.db, B, { kind: "ops", title: "Write the welcome email", status: "ready" });
+    await h(sql`update tasks set status = 'done', ended_at = '2026-12-02T10:00:00Z' where id = ${finished.id}`);
+    const earlier = await repos.tasks.create(r.db, B, { kind: "ops", title: "Something from last month", status: "ready" });
+    await h(sql`update tasks set status = 'done', ended_at = '2026-11-20T10:00:00Z' where id = ${earlier.id}`);
+    await repos.tasks.create(r.db, B, { kind: "ops", title: "Publish the page", status: "ready" });
+    {
+      const done = await bookUsage(r.db, B, { ...tokens(includedCreditsMinor("pro") + 1, "credits", 3, 11), agentId: r.B.agentId }, { topUps: true });
+      expect(done.credits).toMatchObject({ exhausted: "now", balance: { period: "2026-12", balanceMinor: 0 } });
+      const body = (await repos.inbox.get(r.db, B, done.credits!.noteId!)).bodyMd;
+      expect(body).toMatch(/You can top up in Settings › Billing, add your own Anthropic key in Settings › Keys \(billed by Anthropic, not by us\), or let us rest until Jan 1, 2027, when your budget resets\./);
+      expect(body).toContain("- Write the welcome email");
+      expect(body).toContain("- Publish the page");
+      expect(body).not.toContain("Something from last month");
+      expect(body).toContain("You're on Founder");
+    }
   });
 
   it("a business on its own key pays for the platform key's calls with its credits: its team keeps working, and one note says what waits (SEC2 S2)", async () => {
@@ -179,7 +207,7 @@ describe("bookUsage", () => {
 });
 
 describe("included credits: one pool a month per founder (SEC2 S6)", () => {
-  it("archiving a business and taking charge of another never grants a second included credit in the same month", async () => {
+  it("one included budget a month per owner, shared by all their projects: archiving and taking charge again never yields a second one (founder, Nov 19, 2026)", async () => {
     const founder = await r.h.createUser("bill-pool@test.local");
     const open = async (name: string) => {
       const b = await repos.businesses.create(r.db, { name, createdBy: founder });
@@ -190,28 +218,56 @@ describe("included credits: one pool a month per founder (SEC2 S6)", () => {
     const charge = (businessId: string, costMinor: number, month: number) => bookUsage(r.db, businessId, { kind: "tokens", modelKey: "sonnet", quantity: 100, unit: "tokens", costMinor, billedTo: "credits", occurredAt: in2027(4, month) });
 
     const first = await open("Pool First");
-    expect(await includedCreditsFor(r.db, first, "2027-05")).toBe(FREE_INCLUDED);
-    expect((await charge(first.id, 10, 4)).credits?.balance).toMatchObject({ period: "2027-05", grantedMinor: FREE_INCLUDED });
+    // A project with a recorded owner opens its own balance with nothing included: the budget is the owner's.
+    expect(await includedCreditsFor(r.db, first, "2027-05")).toBe(0);
+    expect(await monthlyBudgetMinor(r.db, first)).toBe(FREE_INCLUDED);
+    expect(await platformCredits(r.db, first, "2027-05")).toMatchObject({ includedMinor: FREE_INCLUDED, balanceMinor: FREE_INCLUDED, exhausted: false });
+    expect((await charge(first.id, 10, 4)).credits?.balance).toMatchObject({ period: "2027-05", balanceMinor: FREE_INCLUDED - 10, grantedMinor: FREE_INCLUDED });
     await repos.businesses.archive(r.db, first.id);
 
-    // The free plan's included credits cover one business a month: a second business this month gets nothing included.
+    // A second project this month shares what is left: it does not start with a second budget, nor with nothing.
     const second = await open("Pool Second");
-    expect(await includedCreditsFor(r.db, second, "2027-05")).toBe(0);
-    expect(await platformCredits(r.db, second, "2027-05")).toMatchObject({ includedMinor: 0, balanceMinor: 0, exhausted: true });
-    const empty = await charge(second.id, 1, 4);
-    expect(empty.credits).toMatchObject({ exhausted: "now", balance: { grantedMinor: 0, balanceMinor: 0 } });
+    expect(await platformCredits(r.db, second, "2027-05")).toMatchObject({ balanceMinor: FREE_INCLUDED - 10, exhausted: false });
+    const used = await charge(second.id, FREE_INCLUDED - 10, 4);
+    expect(used.credits).toMatchObject({ exhausted: "now", balance: { balanceMinor: 0 } });
     expect(await repos.businesses.agentsStopped(r.db, second.id)).toBe(true);
+    expect(await repos.usage.ownerCredits(r.db, founder, "2027-05")).toMatchObject({ grantedMinor: FREE_INCLUDED, balanceMinor: 0, spentMinor: FREE_INCLUDED });
     await expect(assertPlatformCredits(r.db, second.id, { live: false, now: in2027(20, 4) })).rejects.toMatchObject({ code: "credits_exhausted", details: { reason: "exhausted", period: "2027-05" } });
 
-    // Next month the business that holds the place gets its credits (the archived one charges nothing).
-    expect((await charge(second.id, 1, 5)).credits?.balance).toMatchObject({ period: "2027-06", grantedMinor: FREE_INCLUDED });
-    expect(await includedCreditsFor(r.db, first, "2027-06")).toBe(0);
-    // A month's stop for used-up credits does not hold the next month's calls back.
+    // A third project sees the same empty budget (it is shared) and is refused too.
+    const third = await open("Pool Third");
+    expect(await platformCredits(r.db, third, "2027-05")).toMatchObject({ balanceMinor: 0, exhausted: true });
+    await expect(assertPlatformCredits(r.db, third.id, { live: false, now: in2027(20, 4) })).rejects.toMatchObject({ code: "credits_exhausted" });
+
+    // What a project bought is its own: with the shared budget gone, it alone keeps working on its top-up.
+    await repos.usage.grantCredits(r.db, second.id, "2027-05", 200);
+    expect(await platformCredits(r.db, second, "2027-05")).toMatchObject({ balanceMinor: 200, exhausted: false });
+    expect((await charge(second.id, 50, 4)).credits?.balance).toMatchObject({ balanceMinor: 150 });
+    expect(await platformCredits(r.db, third, "2027-05")).toMatchObject({ balanceMinor: 0, exhausted: true });
+
+    // Next month the owner has a new budget, whichever project charges first; a month's stop does not hold it back.
+    expect((await charge(second.id, 1, 5)).credits?.balance).toMatchObject({ period: "2027-06", grantedMinor: FREE_INCLUDED, balanceMinor: FREE_INCLUDED - 1 });
     await expect(assertPlatformCredits(r.db, second.id, { live: false, now: in2027(20, 5) })).resolves.toMatchObject({ ok: true });
 
-    // On Scale every business gets its included credits.
+    // The budget is the owner's plan's: Studio includes more.
     await repos.businesses.update(r.db, second.id, { planTier: "scale" });
-    expect(await includedCreditsFor(r.db, { ...first, planTier: "scale" }, "2027-06")).toBe(includedCreditsMinor("scale"));
+    expect(await monthlyBudgetMinor(r.db, second)).toBe(includedCreditsMinor("scale"));
+  });
+
+  it("two projects of one owner charging at once never spend the shared budget twice", async () => {
+    const founder = await r.h.createUser("bill-race@test.local");
+    const open = async (name: string) => {
+      const b = await repos.businesses.create(r.db, { name, createdBy: founder });
+      await repos.memberships.add(r.db, b.id, { userId: founder, role: "owner" });
+      return b;
+    };
+    const a = await open("Race A");
+    const b = await open("Race B");
+    const each = Math.floor(FREE_INCLUDED / 2);
+    const charge = (businessId: string) => bookUsage(r.db, businessId, { kind: "tokens", modelKey: "sonnet", quantity: 100, unit: "tokens", costMinor: each, billedTo: "credits", occurredAt: new Date(Date.UTC(2027, 7, 4, 12)) });
+    await Promise.all([charge(a.id), charge(b.id), charge(a.id), charge(b.id)]);
+    // Four charges of half the budget: the budget stops at zero and records what the projects drew, never more than it held.
+    expect(await repos.usage.ownerCredits(r.db, founder, "2027-08")).toMatchObject({ grantedMinor: FREE_INCLUDED, balanceMinor: 0, spentMinor: FREE_INCLUDED });
   });
 });
 
@@ -236,7 +292,8 @@ describe("the platform-key gate (SEC2 S2, S10)", () => {
 
     // Credits from a simulated payment only: they pay for mock calls, never for live ones.
     const gate = await repos.businesses.create(r.db, { name: "Gate Mock Only", createdBy: founder, planTier: "scale" });
-    // The month opened with nothing included (the founder's pool was used): a top-up that opens a period would also grant the tier's included credits.
+    // The owner's shared budget for the month is used up, so only the simulated top-up is left.
+    await h(sql`insert into owner_credits (user_id, period, granted_minor, balance_minor, spent_minor) values (${founder}, ${period}, ${includedCreditsMinor("scale")}, 0, ${includedCreditsMinor("scale")}) on conflict (user_id, period) do update set balance_minor = 0`);
     await repos.usage.ensurePeriodCredits(r.db, gate.id, period, 0);
     const checkout = await repos.checkouts.create(r.db, gate.id, { mode: "mock", amountMinor: 2500 });
     const settled = await settleCreditCheckout(r.db, { businessId: gate.id, checkoutId: checkout.id, externalId: null, eventId: `mock:${checkout.id}`, amountMinor: 2500, currency: "USD", mode: "mock", paidAt: now, actor: { kind: "user", id: founder } });
@@ -307,8 +364,8 @@ describe("low credits (the credit saver)", () => {
     const sept = (d: number) => new Date(Date.UTC(2027, 8, d, 12));
     const lowNotes = async () => (await repos.inbox.list(r.db, business.id, { limit: 200 })).items.filter((n) => n.subject === CREDITS_LOW_SUBJECT);
 
-    // Above the line: nothing.
-    expect((await charge(business.id, 300, sept(2))).credits?.lowNoteId).toBeNull();
+    // Above the line (a fifth of Founder's $10.00): nothing.
+    expect((await charge(business.id, includedCreditsMinor("pro") - 200, sept(2))).credits?.lowNoteId).toBeNull();
     expect(await lowNotes()).toHaveLength(0);
     // The first charge below it: one note from the Chief of Staff.
     const first = await charge(business.id, 150, sept(3));
@@ -320,7 +377,9 @@ describe("low credits (the credit saver)", () => {
     expect(notes[0]!.bodyMd).toMatch(/down to \$0\.50 \(an Estimate in US dollars\)/);
     expect(notes[0]!.bodyMd).toMatch(/routine work now runs on a lighter, lower-cost model/);
     expect(notes[0]!.bodyMd).toMatch(/Replies to you, plans, the Chief of Staff, anything that goes outside the business, and money and legal work keep their usual model/);
-    expect(notes[0]!.bodyMd).toMatch(/top up in Settings → Billing, or add your own Anthropic key in Settings → Keys/);
+    // No top-up can be bought on this server, so none is named; the own key always is.
+    expect(notes[0]!.bodyMd).toMatch(/To keep everything on its usual model, add your own Anthropic key in Settings → Keys/);
+    expect(notes[0]!.bodyMd).toMatch(/the team finishes the task it is on and rests until you add your key/);
     expect(notes[0]!.bodyMd).toMatch(/Oct 1, 2027/);
     expect(await repos.businesses.agentsStopped(r.db, business.id)).toBe(false);
     // Later charges below the line, and a top-up and a second fall, tell nothing new this month.
@@ -330,7 +389,7 @@ describe("low credits (the credit saver)", () => {
     expect(await lowNotes()).toHaveLength(1);
     expect((await repos.audit.list(r.db, business.id, { action: CREDITS_LOW_AUDIT_ACTION })).items).toHaveLength(1);
     // Next month tells again.
-    const october = await charge(business.id, FREE_INCLUDED - 20, new Date(Date.UTC(2027, 9, 2, 12)));
+    const october = await charge(business.id, includedCreditsMinor("pro") - 20, new Date(Date.UTC(2027, 9, 2, 12)));
     expect(october.credits?.lowNoteId).not.toBeNull();
     expect(await lowNotes()).toHaveLength(2);
   });
@@ -363,9 +422,8 @@ describe("low credits (the credit saver)", () => {
     expect(await repos.businesses.agentsStopped(r.db, business.id)).toBe(true);
     const note = await repos.inbox.get(r.db, business.id, done.credits!.noteId!);
     expect(note).toMatchObject({ subject: CREDITS_EXHAUSTED_SUBJECT, blocksContinue: true });
-    expect(note.bodyMd).toMatch(/It is back on Jan 1\. To keep going now, connect your own Anthropic key\./);
-    expect(note.bodyMd).toMatch(/after next month's credits arrive, press Resume agents/);
-    expect(note.bodyMd).not.toMatch(/Top up|add credits/i);
+    expect(note.bodyMd).toMatch(/add your own Anthropic key in Settings › Keys \(billed by Anthropic, not by us\) or let us rest until Jan 1, 2028, when your budget resets/);
+    expect(note.bodyMd).toMatch(/on Jan 1, 2028, press Resume agents/);
     await expect(assertPlatformCredits(r.db, business.id, { live: false, now: new Date(Date.UTC(2027, 11, 20)) })).rejects.toMatchObject({ code: "credits_exhausted" });
   });
 });
@@ -390,12 +448,12 @@ describe("who funds the work (0104)", () => {
 
   it("a claim that the founder's own plan paid is checked against the business: with the flag off it is charged like any other row (finding 4)", async () => {
     const A = r.A.businessId;
-    const before = Number((await repos.usage.creditBalance(r.db, A, "2028-09"))?.balanceMinor);
+    const before = (await platformCredits(r.db, await repos.businesses.get(r.db, A), "2028-09")).balanceMinor;
     // Business A is not on its own plan, and the flag is off: the claim is not believed.
     const claimed = await bookUsage(r.db, A, { ...row("credits"), funding: { source: "own_plan", provider: "openai" } });
     expect(claimed.entry.details).toMatchObject({ funding: { source: "foundmill_credits" } });
     expect(claimed.credits).not.toBeNull();
-    expect(Number((await repos.usage.creditBalance(r.db, A, "2028-09"))?.balanceMinor)).toBe(before - 30);
+    expect((await platformCredits(r.db, await repos.businesses.get(r.db, A), "2028-09")).balanceMinor).toBe(before - 30);
     // A row that says own_plan in its details (written by anything) is still charged while the flag is off.
     const forged = { billedTo: "credits" as const, kind: "tokens" as const, currency: "USD", details: { funding: { source: "own_plan", provider: "openai" } } };
     expect(chargesCredits(forged)).toBe(true);
@@ -508,5 +566,63 @@ describe("waysToContinue (WP-09 T13)", () => {
     expect(waysToContinue({ topUps: false, nextCreditsOn: on })).toBe("To keep going, add your own Anthropic key in Settings › Keys (billed by Anthropic, not by us) or wait for next month's credits on Dec 1, 2026.");
     expect(waysToContinue({ topUps: true, nextCreditsOn: on, ownKey: true })).toBe("To keep going, add credits in Settings › Billing or wait for next month's credits on Dec 1, 2026.");
     expect(waysToContinue({ topUps: false, nextCreditsOn: on, ownKey: true })).toBe("To keep going, wait for next month's credits on Dec 1, 2026.");
+
+  });
+});
+
+describe("resting before a session that would not fit (WP-14 T1)", () => {
+  it("rests the team once, books nothing, keeps what is left, and says so in one note; a second call and a team on its own key change nothing", async () => {
+    const founder = await r.h.createUser("bill-rest@test.local");
+    const business = await repos.businesses.create(r.db, { name: "Rest Early", createdBy: founder });
+    await repos.memberships.add(r.db, business.id, { userId: founder, role: "owner" });
+    await repos.agents.create(r.db, business.id, { name: "Chief", agentType: "chief_of_staff", layer: "assistant", modelKey: "opus" });
+    // The stop is stamped with the real clock, so this test runs in the real month.
+    const now = new Date();
+    const month = now.toISOString().slice(0, 7);
+    const nextOn = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+    // 9 cents left of the month: under a 10-cent reserve.
+    await bookUsage(r.db, business.id, { kind: "tokens", modelKey: "haiku", quantity: 100, unit: "tokens", costMinor: FREE_INCLUDED - 9, billedTo: "credits", occurredAt: now });
+    const rows = async () => Number(((await h(sql`select count(*)::int as n from usage_ledger where business_id = ${business.id}`)) as unknown as { rows: { n: number }[] }).rows[0]!.n);
+    const before = await rows();
+    const rested = await restBeforeSession(r.db, business.id, { reserveMinor: 10, now });
+    expect(rested).toMatchObject({ rested: true, noteId: expect.any(String) });
+    expect(await rows()).toBe(before);
+    expect(await repos.usage.ownerCredits(r.db, founder, month)).toMatchObject({ balanceMinor: 9 });
+    expect(await repos.businesses.stopState(r.db, business.id)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
+    const note = await repos.inbox.get(r.db, business.id, rested.noteId!);
+    expect(note).toMatchObject({ subject: RESTING_SUBJECT, blocksContinue: true });
+    expect(note.bodyMd).toContain("$0.09 is left: too little to finish another task, so it stays in your balance.");
+    expect(note.bodyMd).toContain(`let us rest until ${nextOn}, when your budget resets`);
+    // Resting already: no second note, no second audit row.
+    expect(await restBeforeSession(r.db, business.id, { reserveMinor: 10, now })).toEqual({ rested: true, noteId: null });
+    expect((await repos.inbox.list(r.db, business.id, { limit: 50 })).items.filter((n) => n.subject === RESTING_SUBJECT)).toHaveLength(1);
+    expect((await repos.audit.list(r.db, business.id, { action: "billing.credits_exhausted" })).items).toHaveLength(1);
+    expect((await repos.audit.list(r.db, business.id, { action: "billing.credits_exhausted" })).items[0]!.details).toMatchObject({ resting: true, leftMinor: 9, reserveMinor: 10 });
+    // The platform-key gate says Resting, with the day, and offers the key.
+    const refused = await assertPlatformCredits(r.db, business.id, { live: false, now }).catch((e: unknown) => e);
+    expect((refused as Error).message).toMatch(/^The team is resting: this month's team budget is used.*add your own Anthropic key.*next month's credits on [A-Z][a-z]{2} 1, \d{4}\.$/);
+    expect((refused as Error).message).toContain(`next month's credits on ${nextOn}`);
+    // A business on its own key never rests this way.
+    const own = await repos.businesses.create(r.db, { name: "Rest Own Key", createdBy: await r.h.createUser("bill-rest-own@test.local"), modelBilling: "byok" });
+    expect(await restBeforeSession(r.db, own.id, { reserveMinor: 10, now })).toEqual({ rested: false, noteId: null });
+    expect(await repos.businesses.agentsStopped(r.db, own.id)).toBe(false);
+  });
+
+  it("the reserve's average is taken over the type's own finished, costed sessions in this business", async () => {
+    const business = await repos.businesses.create(r.db, { name: "Reserve Avg", createdBy: await r.h.createUser("bill-avg@test.local") });
+    const worker = await repos.agents.create(r.db, business.id, { name: "Dev", agentType: "engineer", layer: "worker", modelKey: "sonnet" });
+    const other = await repos.agents.create(r.db, business.id, { name: "Writer", agentType: "copywriter", layer: "worker", modelKey: "sonnet" });
+    expect(await repos.agents.recentSessionCost(r.db, business.id, "engineer", 20)).toEqual({ averageMinor: null, sessions: 0 });
+    const session = async (agentId: string, costMinor: number, ended: boolean) => {
+      const s = await repos.agents.createSession(r.db, business.id, { agentId });
+      await h(sql`update agent_sessions set cost_minor = ${costMinor}, ended_at = ${ended ? sql`now()` : sql`null`} where id = ${s.id}`);
+    };
+    await session(worker.id, 10, true);
+    await session(worker.id, 20, true);
+    await session(worker.id, 0, true);
+    await session(worker.id, 500, false);
+    await session(other.id, 900, true);
+    expect(await repos.agents.recentSessionCost(r.db, business.id, "engineer", 20)).toEqual({ averageMinor: 15, sessions: 2 });
+    expect(await repos.agents.recentSessionCost(r.db, r.A.businessId, "engineer", 20)).toMatchObject({ sessions: expect.any(Number) });
   });
 });

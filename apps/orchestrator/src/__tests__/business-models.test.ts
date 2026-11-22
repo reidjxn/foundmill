@@ -5,6 +5,7 @@
  * credits; under MODEL_MODE=mock it gets a mock client that books to `byok`. A platform-key call for a business whose
  * credits are used up is refused before it is made (SEC2 S2), and a top-up lifts that at once.
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { BYOK_CREDENTIAL_KIND, periodOf, repos } from "@foundmill/db";
 import { batchEnded, collectBatch, createModelClient, ModelRequestError, submitBatch, type ModelClient, type UsageEvent } from "@foundmill/models";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
@@ -103,11 +104,11 @@ describe("createBusinessModelClient", () => {
     const platform = createModelClient({ mode: "mock", onUsage: (e) => void events.push(e) });
     const client = createBusinessModelClient(platform, { db: t.db, vault: null, mode: "mock", onUsage: (e) => void events.push(e), ttlMs: 0 });
     const period = periodOf(new Date());
-    await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+    await spendAllCredits(t.db, t.businessId, period);
     try {
       const refused = await client.complete(ask(t.businessId)).catch((e: unknown) => e);
       expect(refused).toBeInstanceOf(ModelRequestError);
-      expect(refused).toMatchObject({ code: "request", status: 402, apiErrorType: "credits_exhausted", message: expect.stringMatching(/credits are used up/) });
+      expect(refused).toMatchObject({ code: "request", status: 402, apiErrorType: "credits_exhausted", message: expect.stringMatching(/^The team is resting: this month's team budget is used/) });
       expect(events).toHaveLength(0);
       // A call with no business has nothing to charge; a business on its own key runs on its key, credits or not.
       await client.complete(ask(undefined));

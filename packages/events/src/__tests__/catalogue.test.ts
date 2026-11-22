@@ -317,7 +317,7 @@ describe("event catalogue", () => {
     // The events the catalogue marks as real outside results say so in their own words. Pinned: adding one is a decision.
     const counts = (doc: string) => /the north star counts it/i.test(doc);
     const real = EVENT_TYPES.filter((t) => counts(EVENTS[t].doc));
-    expect(real).toEqual(["page.published", "page.followed", "site.published"]);
+    expect(real).toEqual(["page.published", "page.followed", "booking.confirmed", "site.published"]);
     expect(real).not.toContain("share.opened");
     const doc = EVENTS["share.opened"].doc;
     expect(doc).toMatch(/not an outside result and the north star does not count it/);
@@ -354,6 +354,22 @@ describe("event catalogue", () => {
     expect(decl.doc).toMatch(/Nothing was launched, scheduled, published or measured/);
     expect(decl.doc).toMatch(/not an outside action or result/);
     expect(decl.doc).not.toMatch(/the north star counts it/i);
+  });
+
+  it("post.published: the founder said they posted a team draft; ids, network and the pasted address, never the words", () => {
+    const decl = EVENTS["post.published"];
+    expect(decl.scope).toBe("business");
+    expect(decl.narratable).toBe(false);
+    expect([...decl.consumers]).toEqual(["stream", "metrics"]);
+    expect(EVENT_TYPES.indexOf("post.published")).toBeGreaterThan(EVENT_TYPES.indexOf("post.drafted"));
+    const fixture = EVENT_FIXTURES["post.published"];
+    expect(parsePayload("post.published", fixture)).toEqual(fixture);
+    expect(Object.keys(parsePayload("post.published", { ...fixture, text: "Maple Bakes has a page now." })).sort()).toEqual(["assetId", "network", "source", "url", "visited"]);
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("post.published", { ...fixture, ...patch });
+    expect(bad({ assetId: "nope" })).toThrow(ValidationError);
+    expect(bad({ source: "friend" })).toThrow(ValidationError);
+    expect(bad({ url: "not a link" })).toThrow(ValidationError);
+    expect(bad({ visited: "yes" })).toThrow(ValidationError);
   });
 
   it("quiz.approved, quiz.published, quiz.unpublished: a founder's own press on the page quiz; ids and its shape, never the words or a count", () => {

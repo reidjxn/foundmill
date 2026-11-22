@@ -93,9 +93,10 @@ const Env = z.object({
   TEMPORAL_NAMESPACE: z.string().default("default"),
   TEMPORAL_TASK_QUEUE: z.string().default("foundmill"),
   E2B_API_KEY: z.string().optional(),
+  /** The E2B desktop template the gateway's hosted browser starts from (Chrome, Node); empty = E2B's "desktop" (founder, Nov 22, 2026). */
+  E2B_BROWSER_TEMPLATE: z.string().optional(),
   /** The E2B template the orchestrator's acceptance sandboxes start from; empty means E2B's `base` (docs/DEPLOY.md §5). */
   E2B_TEMPLATE: z.string().optional(),
-  BROWSERBASE_API_KEY: z.string().optional(),
   KMS_KEY_ID: z.string().optional(),
   DEV_MASTER_KEY: z.string().optional(),
   SESSION_TOKEN_SECRET: z.string().optional(),
@@ -128,6 +129,10 @@ const Env = z.object({
     .optional()
     .transform((v) => v === "1" || v === "true"),
   SENDGRID_API_KEY: z.string().optional(),
+  /** OpenSRS reseller (domains registered through Foundmill, WP-08 Path A): gateway only. `test` is horizon.opensrs.net. */
+  OPENSRS_USERNAME: z.string().optional(),
+  OPENSRS_API_KEY: z.string().optional(),
+  OPENSRS_ENV: z.enum(["test", "live"]).optional(),
   SENDGRID_WEBHOOK_PUBLIC_KEY: z.string().optional(),
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_APP_PRIVATE_KEY: z.string().optional(),
@@ -272,6 +277,12 @@ const Env = z.object({
   /** Notion public integration (OAuth) client. */
   NOTION_CLIENT_ID: z.string().optional(),
   NOTION_CLIENT_SECRET: z.string().optional(),
+  // Remote MCP servers (founder, 2026-11-19): PKCE verifiers derive from MCP_OAUTH_SECRET (32+ characters); one OAuth client per vendor.
+  MCP_OAUTH_SECRET: z.string().optional(),
+  NOTION_MCP_CLIENT_ID: z.string().optional(),
+  HUBSPOT_MCP_CLIENT_ID: z.string().optional(),
+  HUBSPOT_MCP_CLIENT_SECRET: z.string().optional(),
+  SHOPIFY_MCP_CLIENT_ID: z.string().optional(),
   /** Dropbox Sign API key; a business's own key takes precedence. */
   DROPBOX_SIGN_API_KEY: z.string().optional(),
   /**

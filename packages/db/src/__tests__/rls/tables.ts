@@ -10,7 +10,7 @@
  * Tables with a nullable business_id, user-owned tables, the social tables and `project_pages` (one row per business)
  * have their own suites.
  */
-import { CHANNEL_KEYS } from "@foundmill/shared";
+import { CHANNEL_KEYS, TOOL_CATEGORIES } from "@foundmill/shared";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
 import { newPostCode } from "../../repos/post-attributions";
 import * as s from "../../schema";
@@ -44,6 +44,28 @@ const take = (pool: string[], who: string): string => {
   const id = pool.pop();
   if (!id) throw new Error(`${who} sample: fixture pool exhausted`);
   return id;
+};
+
+/** One row per business per category (0154): each insert of a business takes the next category. */
+const toolCategoryCursor = new Map<string, number>();
+const nextToolCategory = (businessId: string) => {
+  const n = toolCategoryCursor.get(businessId) ?? 0;
+  toolCategoryCursor.set(businessId, n + 1);
+  const category = TOOL_CATEGORIES[n];
+  if (!category) throw new Error("tool_needs sample: categories exhausted");
+  return category;
+};
+
+/**
+ * 0161: a held booking an hour long at its own hour, so no two samples overlap (`bookings_no_overlap`). It keeps its own
+ * count: a call of the shared `counter` would shift the channel keys the `channels` samples cycle through.
+ */
+let bookingHour = 0;
+const heldBooking = (f: BusinessFixture) => {
+  if (!f.bookingServiceId) throw new Error("bookings sample: the fixture has no booking service");
+  const start = new Date(Date.UTC(2027, 0, 1) + ++bookingHour * 3_600_000);
+  const end = new Date(start.getTime() + 3_600_000);
+  return { serviceId: f.bookingServiceId, status: "held", startsAt: start, endsAt: end, busy: `[${start.toISOString()},${end.toISOString()})`, holdExpiresAt: new Date("2027-01-01T00:10:00Z") };
 };
 
 const spec = <T extends TenantTable>(name: string, table: T, write: WriteMode, sample: TenantTableSpec["sample"], patch?: Record<string, unknown>): TenantTableSpec => ({
@@ -150,6 +172,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("credit_lots", s.creditLots, "service", () => ({ amountMinor: 2500, remainingMinor: 2500, purchasedAt: new Date("2026-11-13T00:00:00Z"), expiresAt: new Date("2027-11-13T00:00:00Z") })),
   // 0033 credit top-ups through Stripe Checkout (written by the api and the ingest webhook with the service role)
   spec("billing_checkouts", s.billingCheckouts, "service", () => ({ mode: "mock", amountMinor: 5000, currency: "USD" })),
+  // 0150: a project's place on the Partner waitlist; services write, owners and admins read (WP-14 T14).
+  spec("partner_waitlist", s.partnerWaitlist, "service", (f) => ({ userId: [f.ownerId, f.adminId, f.memberId, f.viewerId][counter() % 4], consentedAt: new Date("2026-11-17T00:00:00Z") })),
   // 0053 saved session recordings (the orchestrator writes them with the service role when a session finishes)
   spec("session_recordings", s.sessionRecordings, "service", (f) => ({ sessionId: f.sessionId, events: [{ id: "1-0", event: { kind: "note", at: "2026-10-12T09:00:00.000Z", level: "info", source: "agent", text: "Started" } }], eventCount: 1, bytes: 90 })),
   // 0010 legal
@@ -180,6 +204,15 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("team_call_turns", s.teamCallTurns, "append", (f) => ({ callId: f.teamCallId, seq: 1000 + counter(), speaker: "founder", userId: f.memberId, via: "typed", text: uniq("What is on our list?") }), { text: "tampered" }),
   spec("team_call_actions", s.teamCallActions, "append", (f) => ({ callId: f.teamCallId, position: 1000 + counter(), actionType: "create_task", title: uniq("Draft the launch email"), status: "not_filed", reason: "Example" }), { title: "tampered" }),
   // 0131: the founder's own payment links; owner and admin write (WP-07 T7).
+  // 0154 the tool scout's memory (written by the gateway's platform tools and the api with the service role)
+  spec("tool_needs", s.toolNeeds, "service", (f) => ({ category: nextToolCategory(f.businessId), reason: "Customers need a way to pay." })),
+  // 0161 booking (written by the api with the service role; one setup row per business, a second insert of the
+  // generated suite runs only as an app role, which is refused before the unique key is reached)
+  spec("booking_settings", s.bookingSettings, "service", () => ({ timeZone: "America/New_York" })),
+  spec("booking_services", s.bookingServices, "service", () => ({ name: "Lesson", durationMin: 60, currency: "USD" })),
+  spec("bookings", s.bookings, "service", heldBooking),
+  // 0162 the hosted browser's write steps (written by the gateway's browser tools with the service role)
+  spec("browser_steps", s.browserSteps, "service", (f) => ({ agentId: f.agentId, sessionId: crypto.randomUUID(), siteKey: "example.test", tool: "browser_click", target: "Save button", class: "reversible", why: "Save the draft.", url: "https://example.test/edit" })),
   spec("pay_links", s.payLinks, "admin", () => ({ key: uniq("pay").toLowerCase(), label: "Starter", url: `https://buy.stripe.com/${uniq("test")}`, source: "pasted" }), { archivedAt: new Date("2026-11-16T00:00:00Z") }),
 ];
 
@@ -189,7 +222,7 @@ export const TENANT_TABLES: TenantTableSpec[] = [
  * generic suite checks a collaborator reads none of their rows and everyone else reads them as before. 0110 adds
  * `task_reports`: what an agent found, which the event walls hide from a collaborator in `task.completed.summary`.
  */
-export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations", "task_reports"];
+export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "partner_waitlist", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations", "task_reports"];
 /**
  * Admin- or service-written tables a collaborator still reads, each for a screen of theirs (0094's header gives the
  * reasons). Named so a change to the list is a decision.
@@ -206,6 +239,31 @@ export const COLLABORATOR_CLOSED_MONEY_LEGAL: readonly string[] = ["transactions
  * (`conversions`, read through `member_conversions` with `amount_minor` null; rls/collaborator-finance.test.ts).
  */
 export const COLLABORATOR_READS_THROUGH_VIEW: readonly string[] = ["conversions"];
+
+/**
+ * Tables with RLS on and no policy: only the service role reads or writes them, on purpose (the advisor's lint 0008,
+ * "RLS enabled, no policy"). rls/advisors.test.ts fails when a table joins or leaves this list without an edit here.
+ */
+export const SERVICE_ONLY_TABLES: readonly string[] = [
+  "account_admissions", // 0091
+  "account_usage", // 0138
+  "account_outbox", // 0085
+  "attributions", // 0088
+  "credentials", // 0011
+  "domain_registrants", // 0150
+  "founder_cancel_links", // 0097
+  "idea_drafts", // 0086
+  "waitlist_entries", // 0086
+  "person_handle_releases", // 0080
+  "owner_plans", // 0144
+  "persona_portraits", // 0067
+  "project_update_deliveries", // 0134
+  "reports", // 0136
+  "site_address_holds", // 0130
+  "platform_metric_days", // 0109
+  "retired_mail_local_parts", // 0078
+  "waitlist_batches", // 0153
+];
 
 /** Keeps the catalogue honest: every spec must name the table its Drizzle object points at. */
 export const expectedTableNames = () => TENANT_TABLES.map((t) => t.name);
@@ -241,6 +299,8 @@ export const NON_TENANT_TABLES = [
   // role, RLS on, no policy); covered by rls/idea-drafts.test.ts.
   "idea_drafts",
   "waitlist_entries",
+  // 0153: the batches the waitlist opens in (platform-scoped, no business_id; service only); same test file.
+  "waitlist_batches",
   "ideas",
   "idea_versions",
   "idea_comparisons",
@@ -266,6 +326,10 @@ export const NON_TENANT_TABLES = [
   "project_pages",
   // 0078: business-scoped, one row per business, written by services only; covered by rls/project-mail.test.ts.
   "project_mail",
+  // 0147: business-scoped, one row per business, written by services only; covered by rls/project-domains.test.ts.
+  "project_domains",
+  // 0150: business-scoped, service role only (no app-role grant or policy); covered by rls/domain-registrants.test.ts.
+  "domain_registrants",
   // 0078: a platform table (no business_id: the project it belonged to is gone), service role only; covered by rls/project-mail.test.ts.
   "retired_mail_local_parts",
   // 0101: business-scoped, one row per business, founders only; covered by rls/project-postal-address.test.ts.
@@ -291,6 +355,10 @@ export const NON_TENANT_TABLES = [
   // anonymous counts, written by services only; covered by rls/page-quizzes.test.ts.
   "page_quizzes",
   "page_quiz_counts",
+  // 0150: what a plan knows about its owner (account-scoped, service role only); covered by rls/owner-plans.test.ts.
+  "owner_plans",
+  // 0164: the owner's shared included budget (account-scoped, service role only); covered by rls/owner-credits.test.ts.
+  "owner_credits",
   // 0091: admissions (user-owned, service role only) and invitations (business-scoped, but its token hash and address
   // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
   "account_admissions",

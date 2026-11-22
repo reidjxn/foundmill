@@ -24,6 +24,8 @@ function run(mode: BusinessMode, t: Partial<ToolCtxInput> = {}, ctx: CallContext
 const TOOLS = {
   internalDraft: { connector: "notion", name: "write_page" },
   codeOnBranch: { connector: "github", name: "push_branch" },
+  releaseFile: { connector: "cli_inkscape", name: "release_output", contactsThirdParty: true },
+  unlistedRemote: { connector: "notion_mcp", name: "call_unlisted_tool", contactsThirdParty: true, irreversible: true },
   mergeToMain: { connector: "github", name: "merge_pr", irreversible: true },
   /** An irreversible step that is not a release: the mode rules alone decide it. */
   deleteBranch: { connector: "github", name: "delete_branch", irreversible: true },
@@ -45,7 +47,10 @@ const TABLE: Row[] = [
   { name: "internal draft", tool: TOOLS.internalDraft, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   { name: "code on a branch", tool: TOOLS.codeOnBranch, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   // Going live is the founder's one tap in every mode (decision 2026-11-01).
+  { name: "releasing a made file", tool: TOOLS.releaseFile, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "cli-release-asks-founder" },
   { name: "merge to the default branch", tool: TOOLS.mergeToMain, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "release-asks-founder" },
+  // A remote MCP tool on no list asks in every mode, automated included (founder, 2026-11-19).
+  { name: "remote MCP tool on no list", tool: TOOLS.unlistedRemote, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "unlisted-remote-tool-asks" },
   { name: "send email (external)", tool: TOOLS.sendEmail, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
   { name: "ad spend within threshold", tool: TOOLS.adSpend, ctx: { amountMinor: 10_000 }, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
   { name: "ad spend at threshold (boundary)", tool: TOOLS.adSpend, ctx: { amountMinor: THRESHOLD }, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },

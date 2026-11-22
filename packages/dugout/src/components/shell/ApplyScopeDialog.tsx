@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { Bot, Layers, Users } from "lucide-react";
 import { Button } from "../foundation/Button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../foundation/Dialog";
@@ -24,6 +24,8 @@ export interface ApplyScopeDialogProps {
   /** The choice the dialog opens on (default "agent"). */
   defaultScope?: ApplyScope;
   onApply: (scope: ApplyScope) => void | Promise<void>;
+  /** What the chosen scope would also do, under the options (a model change: its retests and their price). */
+  extra?: (scope: ApplyScope) => ReactNode;
 }
 
 /** Option copy for a scope. Exported for tests. */
@@ -47,7 +49,7 @@ export function applyScopeCopy(scope: ApplyScope, ctx: Pick<ApplyScopeDialogProp
 const SCOPE_ICON = { agent: Bot, type: Layers, all: Users } as const;
 
 /** Used by model, autonomy and negotiation settings (BUILD §5.4): three radio cards, the whole card the target. Enter applies, Esc cancels. */
-export function ApplyScopeDialog({ open, onOpenChange, agentName, agentType, typeCount, allCount, settingLabel, defaultScope = "agent", onApply }: ApplyScopeDialogProps) {
+export function ApplyScopeDialog({ open, onOpenChange, agentName, agentType, typeCount, allCount, settingLabel, defaultScope = "agent", onApply, extra }: ApplyScopeDialogProps) {
   const [scope, setScope] = useState<ApplyScope>(defaultScope);
   const [busy, setBusy] = useState(false);
   const baseId = useId();
@@ -79,6 +81,7 @@ export function ApplyScopeDialog({ open, onOpenChange, agentName, agentType, typ
               return <RadioCard key={s} id={`${baseId}-${s}`} value={s} label={copy.label} description={copy.description} icon={SCOPE_ICON[s]} />;
             })}
           </RadioGroup>
+          {extra ? <div className="mt-3">{extra(scope)}</div> : null}
         </DialogBody>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>

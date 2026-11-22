@@ -18,7 +18,7 @@ export interface PlanFailureDetails {
 }
 
 /** What a planning failure tells the founder when it is transient (a rate limit or an outage after every retry). */
-export const PLAN_FAILED_MESSAGE = "The Chief of Staff could not draft this cycle's plan: the model service was busy or its answer could not be read, even after three tries. Press Continue to try again.";
+export const PLAN_FAILED_MESSAGE = "The Chief of Staff could not draft this round of work's plan: the model service was busy or its answer could not be read, even after three tries. Press Continue to try again.";
 
 /*
  * The Inbox words the cycle writes (founder, Nov 8, 2026: Builder view). A note is stored once and read by everyone,

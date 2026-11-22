@@ -1,0 +1,48 @@
+# Go-to-market evals against a live model, every night (WP-08 T12; evals/src/go-to-market.ts lists the suites).
+# This calls the Anthropic API on the repository secret ANTHROPIC_API_KEY and costs money: the cap is $2 a night
+# (Estimate; replace it with WP-09's measured number). Run by hand only when the founder asks.
+name: Go-to-market evals (nightly, live)
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: evals-go-to-market
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  go-to-market:
+    name: Go-to-market evals (live model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: true
+      APP_ENV: test
+      INTEGRATIONS_MODE: mock
+      MODEL_MODE: live
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TURBO_TELEMETRY_DISABLED: 1
+      DO_NOT_TRACK: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fail if the model key is missing (the suites would otherwise skip and look green)
+        run: test -n "$ANTHROPIC_API_KEY" || { echo "ANTHROPIC_API_KEY is not set for this repository"; exit 1; }
+      - name: Go-to-market suites against the live model
+        run: >-
+          pnpm --filter @foundmill/evals exec vitest run
+          src/__tests__/positioning.eval.test.ts
+          src/__tests__/post-draft.eval.test.ts
+          src/__tests__/channel-creative.eval.test.ts
+          src/__tests__/project-page.eval.test.ts
+          --reporter=verbose

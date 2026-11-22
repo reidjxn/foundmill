@@ -61,11 +61,14 @@ const BUDGETS: Array<[path: string, input: (businessId: string) => unknown, trip
   ["journey.ribbon", (b) => ({ businessId: b, from: monthAgo(), to: today() }), 6],
   // Eight reads on one connection in one transaction, the business taken from the access lookup (was 10 here, up to
   // eight connections in production, the business read twice).
-  ["business.autopilot.get", (b) => ({ businessId: b }), 4],
+  // One more read for the owner's shared team budget (0164).
+  ["business.autopilot.get", (b) => ({ businessId: b }), 5],
   ["dev.tasks.list", (b) => ({ businessId: b }), 4],
   ["dev.sessions.list", (b) => ({ businessId: b, limit: 200 }), 4],
   ["team.agents.list", (b) => ({ businessId: b }), 5],
-  ["billing.plan", (b) => ({ businessId: b }), 4],
+  // The month's real outcomes are one more read (WP-14 T3), as the Partner waitlist entry was one (WP-14 T14).
+  // And one for the owner's shared team budget (0164).
+  ["billing.plan", (b) => ({ businessId: b }), 6],
   ["product.roadmap.list", (b) => ({ businessId: b }), 4],
   ["product.foundations.get", (b) => ({ businessId: b }), 4],
   ["distribution.channels.list", (b) => ({ businessId: b }), 4],

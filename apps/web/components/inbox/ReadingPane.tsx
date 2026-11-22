@@ -29,6 +29,7 @@ import {
   Callout,
   Chip,
   DecisionBar,
+  DecisionLead,
   DeptChip,
   EntityLink,
   InfoTip,
@@ -51,6 +52,7 @@ import {
   type MetricTileProps,
 } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
+import { BOOKING_READY_NOTE, isBookingReadyDecision } from "@foundmill/shared/booking";
 import { PAGE_READY_NOTE, isPageReadyDecision } from "@foundmill/shared/project-page";
 import { isShowcaseConsentDecision } from "@foundmill/shared/showcase";
 import { POSTAL_ADDRESS_NOTE, isPostalAddressDecision } from "@foundmill/shared/platform-mail";
@@ -137,7 +139,7 @@ export function tilesWithTerms(tiles: readonly MetricTileProps[]): MetricTilePro
 
 /** What the header's status word means, in one sentence, and the term whose "Learn more" explains it. */
 export function statusWordTip(word: string): { termId: string; text: string } | null {
-  if (word === "Needs your answer") return { termId: "cycle", text: "The team cannot carry on with this until you answer; the next cycle waits for it." };
+  if (word === "Needs your answer") return { termId: "cycle", text: "The team cannot carry on with this until you answer; the next round of work waits for it." };
   if (word === "Needs your go-ahead") return { termId: "hard_gate", text: "You chose; the plan is written and nothing in it runs until you say go." };
   return null;
 }
@@ -299,7 +301,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const senderLabelled = agentSender !== null && agentPersona.hasPersona(agentSender);
   const department = persona ? departments.find((d) => d.id === persona.departmentId) : undefined;
   const dates = headerDates(item, decisions[0]?.decidedAt ?? null);
-  const { formatDate, formatDateTime } = useFormatters();
+  const { formatDate, formatDateShort, formatDateTime } = useFormatters();
   const hydrated = useHydrated();
   // The founder's own notes carry the founder's initials, as they do in the list ("AD"), never the letters of "You".
   const founderQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
@@ -388,6 +390,9 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       else if (isPageReadyDecision(item.decision) && res.decision.chosenOption === PAGE_READY_NOTE.options.check) {
         // "Check it and publish" (package 1.3): straight to Product › Public page, where the founder publishes.
         router.push(moduleTabHref(businessId, departments, "product", "public-page"));
+      } else if (isBookingReadyDecision(item.decision) && res.decision.chosenOption === BOOKING_READY_NOTE.options.check) {
+        // "Check it and turn it on" (founder, Nov 22, 2026): straight to the Booking panel on Product › Public page.
+        router.push(`${moduleTabHref(businessId, departments, "product", "public-page")}?panel=booking`);
       } else if (isPostalAddressDecision(item.decision) && res.decision.chosenOption === POSTAL_ADDRESS_NOTE.options.add) {
         // "Add it in Settings" (US CAN-SPAM): straight to Settings › Integrations, where the founder enters the address.
         router.push(routes.settings(businessId, "integrations"));
@@ -474,6 +479,9 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const desk = useRef<AgentConversationHandle>(null);
   const showDesk = hasAgentDesk(item.type);
   const agentName = agentSender ? agentPersona.nameFor(agentSender) : "the Chief of Staff";
+  // The suggestion leads while guidance is on and the decision is still open (the sticky bar stays for a long note).
+  const recommendedOption = options.find((o) => o.recommended);
+  const lead = guided && options.length >= 2 && recommendedOption && !isAnswered ? { recommended: recommendedOption, others: options.filter((o) => o !== recommendedOption) } : null;
   useEffect(() => {
     if (!showDesk) return;
     const onKey = (e: KeyboardEvent) => {
@@ -592,6 +600,18 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           ) : null}
         </div>
 
+        {/* The ask before the evidence (WP-10 T10): the suggestion, its cost and the buttons come before anything to read. */}
+        {lead ? (
+          <DecisionLead
+            agentName={agentName}
+            recommended={lead.recommended}
+            others={lead.others}
+            onChoose={onChoose}
+            onAsk={showDesk ? () => desk.current?.openWrite() : undefined}
+            disabled={locked}
+          />
+        ) : null}
+
         {won ? (
           <Panel title={<Term id="customer_update">Customer Update</Term>} span={12} actions={<Chip tone="gold">Win</Chip>} data-testid="customer-update">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -604,6 +624,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           </Panel>
         ) : null}
 
+        {lead ? <h2 className="t-label text-secondary">Why</h2> : null}
         <InboxNote bodyMd={item.bodyMd} />
 
         {/* A founder's own showcase ask (0103): watched and answered here, signed in. */}
@@ -704,7 +725,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           onAsk={showDesk ? () => desk.current?.openWrite() : undefined}
           askLabel={`Ask ${agentName}`}
           askDescription="Talk it through first"
-          deadline={decisionDeadline(item.decision) ?? undefined}
+          deadline={decisionDeadline(item.decision, agentName, formatDateShort) ?? undefined}
           disabled={item.state === "archived" || readOnly || cannotAnswer}
           executing={decide.isPending || confirm.isPending}
           answered={answered}

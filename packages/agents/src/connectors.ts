@@ -22,6 +22,11 @@ export const PLATFORM_CONNECTOR_KEYS = [
   "quarantine",
   /** The project's Foundmill sending address (package 1.5): mail.send, one message to one person from the project. */
   "platform_mail",
+  /** Open-source programs run in the project's sandbox through CLI-Anything (founder, 2026-11-19): files stay in a working copy until a founder approves. */
+  "cli_inkscape",
+  "cli_libreoffice",
+  "cli_ffmpeg",
+  "cli_gimp",
 ] as const;
 
 export const THIRD_PARTY_CONNECTOR_KEYS = [
@@ -101,10 +106,12 @@ export const PLATFORM_BASE_TOOLS: [string, ...string[]] = [
   "docs.read",
   // WP-06 T4: the agent's own skills, read in full on demand (the prompt carries their index).
   "skills.read",
+  // The tool scout (founder, Nov 22, 2026): any agent says which kind of tool the project is missing.
+  "tools.need",
 ];
 
 /** Extra platform tools for leads: they create tasks and assign them (BUILD §9.9 "Leads assign; workers report"). */
-export const PLATFORM_LEAD_TOOLS: [string, ...string[]] = [...PLATFORM_BASE_TOOLS, "tasks.create", "tasks.assign", "tasks.reprioritise", "tasks.update", "budgets.read"];
+export const PLATFORM_LEAD_TOOLS: [string, ...string[]] = [...PLATFORM_BASE_TOOLS, "tasks.create", "tasks.assign", "tasks.reprioritise", "tasks.update", "budgets.read", "tools.scout"];
 
 /**
  * What a code session can do in its workspace: read and write files (the SDK's own tools), and have its work saved and

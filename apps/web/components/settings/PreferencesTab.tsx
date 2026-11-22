@@ -250,7 +250,7 @@ export function BuilderViewSection() {
       (err: unknown) => t.failed(err, "Preference not saved"),
     );
   return (
-    <SettingsSection title="Builder view" data-testid="builder-view-panel">
+    <SettingsSection title={<Term id="builder_view">Builder view</Term>} data-testid="builder-view-panel">
       <div className="flex items-start gap-3" data-testid="builder-view-choice">
         <Switch id="builder-view-switch" checked={on} onCheckedChange={(next) => void change(next)} aria-describedby="builder-view-switch-hint" data-testid="builder-view-switch" />
         <div className="flex flex-col gap-1">

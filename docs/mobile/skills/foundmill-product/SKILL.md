@@ -21,7 +21,7 @@ Hard gates that no mode ever automates: moving money, signing, filings that need
 
 ## 2. The core loop
 
-**Read the Inbox → decide (one tap or a few words) → press Continue → the team works → new notes land.** Continue runs cycle after cycle until nothing is left to do. Only a hard stop holds it (credits used up, a revoked key, Stop all agents). Decisions wait in "Needs you" and never block the team.
+**Read the Inbox → decide (one tap or a few words) → press Continue → the team works → new notes land.** Continue runs round of work after round of work until nothing is left to do. Only a hard stop holds it (credits used up, a revoked key, Stop all agents). Decisions wait in "Needs you" and never block the team.
 
 Every screen of the mobile app serves that loop. The two most-used gestures in the app are *answer a note* and *press Continue*.
 
@@ -29,7 +29,7 @@ Every screen of the mobile app serves that loop. The two most-used gestures in t
 
 Five tabs, left to right: **Today · Inbox · Team · Journey · Business**. The **Continue** pill floats above the tab bar on Today and Inbox. The top slab shows the current business (tap the logo to switch; a seeded business carries the quiet caption "Sample business" under its name) and the "what the team can do" chip.
 
-The Business tab is organized by the founder's **areas**, as the web's sidebar is since Nov 9, 2026: **Plan, Customers, Money, Product** (Team is its own tab). Each area opens on **one plain sentence** from the same facts as its tiles (`business.areas.words`; the figure's label, Estimate or Forecast, is a chip after the words) and a tab bar of the area's inline tabs with the rest behind "More detail". Departments are labels inside their area ("Formulation Lab is part of Product."); the backend skill carries the mapping. The phone never shows Builder view (the web's switch that reveals the engine): no cycle numbers, no code, health or hierarchy tabs, ratings always with their band word.
+The Business tab is organized by the founder's **areas**, as the web's sidebar is since Nov 9, 2026: **Plan, Customers, Money, Product** (Team is its own tab). Each area opens on **one plain sentence** from the same facts as its tiles (`business.areas.words`; the figure's label, Estimate or Forecast, is a chip after the words) and a tab bar of the area's inline tabs with the rest behind "More detail". Departments are labels inside their area ("Formulation Lab is part of Product."); the backend skill carries the mapping. The phone never shows Builder view (the web's switch that reveals the engine): no round of work numbers, no code, health or hierarchy tabs, ratings always with their band word.
 
 **One help control on every screen: the Chief of Staff.** A ghost button with the Chief of Staff's portrait in each screen's header opens a sheet: "What's happening?", "What's blocking us?", "Why am I seeing this?" (answered by `chiefOfStaff.answer` from Today's facts, no model call, instant) and "Ask something else…" (opens the conversation). The web's separate "Explain this page" button is folded into "Why am I seeing this?" here, so a screen never has two help controls; that row follows the "Explain things as I go" switch, the rest of the sheet always shows. Hidden when the business has no Chief of Staff.
 
@@ -52,7 +52,7 @@ Vertical stack, pull to refetch:
 7. **Live now**: a horizontal strip of agents currently working (portrait, name, what they are doing, a thin progress line). Tap to open the agent; long-press to Nudge.
 8. **Latest from the team**: the last three notes as compact rows.
 
-Continue sits above the tab bar. Its states come from `cycle.continueState`. **Continue always answers in words**: within a second of a press the label reads "Starting the next round of work…", then the toast shows `business.continue().summary.plainHeadline` ("The next round of work started: 3 tasks ready to build"); the long-press sheet shows "Last round cost $0.52 · Estimate" from `cycle.status().lastCost`; when `business.get().orchestrator.reachable` is false the idle sheet says the service that runs the team's work is not reachable and that a press writes one note while no agent works. A founder reads "round of work", never "cycle N".
+Continue sits above the tab bar. Its states come from `cycle.continueState`. **Continue always answers in words**: within a second of a press the label reads "Starting the next round of work…", then the toast shows `business.continue().summary.plainHeadline` ("The next round of work started: 3 tasks ready to build"); the long-press sheet shows "Last round cost $0.52 · Estimate" from `cycle.status().lastCost`; when `business.get().orchestrator.reachable` is false the idle sheet says the service that runs the team's work is not reachable and that a press writes one note while no agent works. A founder reads "round of work", never "round of work N".
 
 ## 5. Inbox
 
@@ -147,7 +147,7 @@ Departments can be renamed, merged, split and reordered on the web; the app rend
 6. Agents keep the name the founder chose, everywhere, with their role beside it.
 7. The house rules block appears wherever the team's limits are described.
 8. Viewers and advisors see everything they may read and no write controls. Example-business members are viewers.
-8b. The phone is a founder surface: never the engine's words (cycle numbers, tokens, test counts, pull-request numbers, code tabs). "Round of work", "quality checks", "a finished change".
+8b. The phone is a founder surface: never the engine's words (round of work numbers, tokens, test counts, pull-request numbers, code tabs). "Round of work", "quality checks", "a finished change".
 8c. One help control per screen: the Chief of Staff (section 3).
 9. Nothing in the app can move money, sign, accept terms, delete permanently or change security settings, for the founder or for an agent. Those always link to the web with a sentence saying why.
 10. Never render raw event payloads, ids, enum values or mode names to a founder.

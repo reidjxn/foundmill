@@ -71,6 +71,8 @@ export const SHOPIFY_RATE_LIMITS = { perMinute: 120, perDay: 40_000 };
 export interface ShMoneySet { shop_money: { amount: string; currency_code: string } }
 export interface ShLineItem { id?: number; title: string; sku?: string | null; quantity: number; price: string; variant_id?: number | null }
 export interface ShOrder {
+  /** True for an order placed with a test or bogus gateway: no money moved. */
+  test?: boolean;
   id: number; name: string; created_at: string; financial_status?: string | null; fulfillment_status?: string | null; cancelled_at?: string | null; currency: string; total_price: string; subtotal_price?: string | null; total_price_set?: ShMoneySet;
   customer?: { id: number; email?: string | null; first_name?: string | null; last_name?: string | null; orders_count?: number | null } | null; email?: string | null; line_items: ShLineItem[]; discount_codes?: { code: string }[]; source_name?: string | null; landing_site?: string | null; referring_site?: string | null; tags?: string;
 }

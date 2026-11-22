@@ -3,6 +3,7 @@
  * cannot be undone never receives third-party text raw. A model with no tools reads it and the agent gets typed fields
  * only; if the reader fails the agent gets nothing; a session with no such tools still reads the content itself.
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { includedCreditsMinor } from "@foundmill/config";
 import { periodOf, repos, type Db } from "@foundmill/db";
@@ -19,6 +20,7 @@ import { ANTHROPIC_CONNECTOR_KEY } from "../state";
 import { createUntrustedReader, grantsOutboundTools, READER_UNAVAILABLE, UntrustedDigest, type UntrustedReader } from "../untrusted-reader";
 import { createTestConnector, setupGateway, silentLog, TEST_CONNECTOR, TEST_SECRET, UNTRUSTED_EMAIL, type GatewayFixture } from "./harness";
 import type { AllowResponse, CallResponse } from "../types";
+import { gmailMock, googleCalendarMock } from "@foundmill/connectors";
 
 let g: GatewayFixture;
 beforeAll(async () => {
@@ -45,6 +47,14 @@ describe("grantsOutboundTools", () => {
     expect(grantsOutboundTools(registry, [`${TEST_CONNECTOR}:send_message`])).toBe(true);
     expect(grantsOutboundTools(registry, [`${TEST_CONNECTOR}:spend`])).toBe(true);
     expect(grantsOutboundTools(registry, [`${TEST_CONNECTOR}:delete_everything`])).toBe(true);
+  });
+
+  it("is true for any tool on the founder's own Gmail or Google Calendar, a read or a draft alone (founder, Nov 19, 2026)", () => {
+    const registry = g.deps.registry;
+    expect(grantsOutboundTools(registry, ["gmail:get_draft"])).toBe(true);
+    expect(grantsOutboundTools(registry, ["gmail:list_messages", "gmail:create_draft"])).toBe(true);
+    expect(grantsOutboundTools(registry, ["google_calendar:list_events"])).toBe(true);
+    expect(grantsOutboundTools(registry, ["google_calendar:*"])).toBe(true);
   });
 
   it("is false for read-only and internal grants", () => {
@@ -149,9 +159,7 @@ describe("the pipeline's reader asks first and books the exact cost (buildGatewa
   /** This month's credits set to exactly zero (the row is created with the tier's included credits first). */
   async function spendAll(businessId: string) {
     const period = periodOf(new Date());
-    await repos.usage.ensurePeriodCredits(db, businessId, period, includedCreditsMinor("free"));
-    const balance = (await repos.usage.creditBalance(db, businessId, period))!;
-    await repos.usage.chargeCredits(db, businessId, period, Number(balance.balanceMinor));
+    await spendAllCredits(db, businessId, period);
   }
   const readerRows = async (d: Desk) => (await repos.usage.list(db, d.businessId, { sessionId: d.sessionId, kind: "tokens" })).items.filter((u) => (u.details as { route?: string }).route === "quarantinedReader");
 
@@ -178,7 +186,7 @@ describe("the pipeline's reader asks first and books the exact cost (buildGatewa
     const r = await read(d, "m-6");
     expect(r.result.data).toMatchObject({ untrusted: true, quarantined: true, content: null, unavailable: READER_UNAVAILABLE });
     expect(requests).toHaveLength(0);
-    expect(warnings.join("\n")).toMatch(/credits are used up/);
+    expect(warnings.join("\n")).toMatch(/The team is resting: this month's team budget is used/);
     expect(await readerRows(d)).toHaveLength(0);
   });
 
@@ -225,5 +233,37 @@ describe("untrusted content for a session with no outbound tools", () => {
     expect(envelope.quarantined).toBeUndefined();
     expect(envelope.content.from).toBe(UNTRUSTED_EMAIL);
     expect(envelope.content.body).toMatch(/IGNORE YOUR RULES/);
+  });
+});
+
+/**
+ * Gmail and Google Calendar as context (founder, Nov 19, 2026): a session holding only reads of the founder's own
+ * mailbox or calendar still gets the quarantined reader's digest of a mail body or an event description, never the
+ * text with the instruction in it, and the addresses in it are remembered as first seen in untrusted content.
+ */
+describe("the founder's own Gmail and Google Calendar are read through the quarantined reader", () => {
+  let gg: GatewayFixture;
+  beforeAll(async () => {
+    gg = await setupGateway({ connectors: [gmailMock, googleCalendarMock] });
+    gg.deps.reader = createUntrustedReader(createModelClient({ mode: "mock" }));
+  }, 120_000);
+  afterAll(async () => {
+    await gg.close();
+  });
+
+  it("a mail body with an injected instruction reaches a read-only session as the digest only", async () => {
+    const token = await gg.token({ sessionId: await gg.newSession(), allowedTools: ["gmail:get_message"] });
+    const read = asAllow(await gg.client.call(token, { connector: "gmail", tool: "get_message", args: { id: "18f1a0003" } }));
+    expect(read.result.data).toMatchObject({ untrusted: true, quarantined: true });
+    expect(UntrustedDigest.safeParse((read.result.data as { content: unknown }).content).success).toBe(true);
+    expect(JSON.stringify(read.result)).not.toMatch(/hallbergs-compliance\.example|SYSTEM NOTICE/);
+    expect(await gg.recipients.firstSeenInUntrusted(gg.businessId, "any-session", [{ kind: "email", value: "audit@hallbergs-compliance.example" }])).toHaveLength(1);
+  });
+
+  it("an event description reaches a read-only session as the digest only", async () => {
+    const token = await gg.token({ sessionId: await gg.newSession(), allowedTools: ["google_calendar:list_events"] });
+    const read = asAllow(await gg.client.call(token, { connector: "google_calendar", tool: "list_events", args: { timeMin: "2026-10-05T00:00:00Z", timeMax: "2026-10-12T00:00:00Z" } }));
+    expect(read.result.data).toMatchObject({ untrusted: true, quarantined: true });
+    expect(UntrustedDigest.safeParse((read.result.data as { content: unknown }).content).success).toBe(true);
   });
 });

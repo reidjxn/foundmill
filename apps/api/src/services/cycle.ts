@@ -318,7 +318,7 @@ export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult
   // The stop, the Continue state and the cycle status are read at once (one wave of independent reads; until 2026-10-15
   // the status was read three times, one after another). A stopped team is still refused first.
   const first = cycleStatus(ctx);
-  const [stop, ready] = await Promise.allSettled([assertAgentsRunning(ctx, "the next cycle"), Promise.all([continueStateFor(ctx, first), first])]);
+  const [stop, ready] = await Promise.allSettled([assertAgentsRunning(ctx, "the next round of work"), Promise.all([continueStateFor(ctx, first), first])]);
   if (stop.status === "rejected") {
     if (stop.reason instanceof AgentsStoppedError) await noteRefusedPress(ctx, "stopped");
     throw stop.reason;
@@ -574,7 +574,7 @@ export async function runLocalCycleStep(ctx: BusinessContext, cycleNumber: numbe
     await audit(tx, ctx, {
       action: CONTINUE_ACTION,
       target: { kind: "cycle", id: cycleId },
-      details: { cycleNumber, mode: "local", workflowId, reason, readyTasks: dispatchable.length, inboxItemId: item.id, note: "No orchestrator reachable: one in-process cycle step ran (no agent sessions were started)." },
+      details: { cycleNumber, mode: "local", workflowId, reason, readyTasks: dispatchable.length, inboxItemId: item.id, note: "No orchestrator reachable: one in-process round of work step ran (no agent sessions were started)." },
     });
   });
   return { item, status: await cycleStatus(ctx), cycleId };
@@ -600,7 +600,7 @@ export interface PauseResult {
 export async function pauseCycle(ctx: BusinessContext, status?: CycleStatus): Promise<PauseResult> {
   const s = await reconcileCycle(ctx, status);
   const runEnded = s.run ? (await endRun(ctx, s.run, "paused", { signal: true }), true) : false;
-  if (!s.running) return runEnded ? { paused: false, runEnded, workflow: null, pausedTasks: 0, reason: "no cycle is running; no new cycle starts on its own", status: await cycleStatus(ctx) } : { paused: false, runEnded, workflow: null, pausedTasks: 0, reason: "no cycle is running", status: s };
+  if (!s.running) return runEnded ? { paused: false, runEnded, workflow: null, pausedTasks: 0, reason: "no round of work is running; no new round of work starts on its own", status: await cycleStatus(ctx) } : { paused: false, runEnded, workflow: null, pausedTasks: 0, reason: "no round of work is running", status: s };
   if (s.paused) return { paused: true, runEnded, workflow: null, pausedTasks: 0, reason: "already paused", status: runEnded ? await cycleStatus(ctx) : s };
   const workflow = s.workflowId ? await ctx.temporal.signal(s.workflowId, "pause", { by: ctx.userId, taskIds: s.activeTaskIds }) : null;
   const pausedTaskIds = await ctx.rls(async (tx) => {
@@ -628,10 +628,10 @@ export interface ResumeResult {
  * stopped: the tasks Stop all agents paused wait for the resume of the agents, not of a cycle.
  */
 export async function resumeCycle(ctx: BusinessContext, status?: CycleStatus): Promise<ResumeResult> {
-  await assertAgentsRunning(ctx, "the cycle");
+  await assertAgentsRunning(ctx, "the round of work");
   const s = await reconcileCycle(ctx, status);
-  if (!s.running) return { resumed: false, workflow: null, resumedTasks: 0, reason: "no cycle is running", status: s };
-  if (!s.paused) return { resumed: false, workflow: null, resumedTasks: 0, reason: "the cycle is not paused", status: s };
+  if (!s.running) return { resumed: false, workflow: null, resumedTasks: 0, reason: "no round of work is running", status: s };
+  if (!s.paused) return { resumed: false, workflow: null, resumedTasks: 0, reason: "the round of work is not paused", status: s };
   const workflow = s.workflowId ? await ctx.temporal.signal(s.workflowId, "resume", { by: ctx.userId, taskIds: s.pausedTaskIds }) : null;
   const resumedTasks = await ctx.rls(async (tx) => {
     let n = 0;

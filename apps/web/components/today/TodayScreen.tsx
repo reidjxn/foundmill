@@ -37,13 +37,14 @@
  */
 import { emptyWhy } from "@foundmill/shared/empty-why";
 import type { FounderTask } from "@foundmill/shared/founder-task";
+import { BOOKING_READY_NOTE } from "@foundmill/shared/booking";
 import { PAGE_READY_NOTE } from "@foundmill/shared/project-page";
 import { POSTAL_ADDRESS_NOTE } from "@foundmill/shared/platform-mail";
 import { PROJECT_UPDATE_WORDS } from "@foundmill/shared/project-updates";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from "react";
-import { Explainer, FirstWeekTimeline, FounderTaskPanel, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekOutcomes, WeekPlan, WorkingNowStrip, formatDateTime, isViewportTooSmall, useAgentPersona, useDateFormat, useToast, useViewportWidth, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
+import { Explainer, FirstWeekTimeline, FounderTaskPanel, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, UpcomingBookingsStrip, WeekOutcomes, WeekPlan, WorkingNowStrip, formatDateTime, isViewportTooSmall, useAgentPersona, useDateFormat, useToast, useViewportWidth, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
 // Deep imports, not the barrel: the barrel registers every widget, which Today does not draw (WP-10 T13).
 import { routes } from "@foundmill/widgets/shared/routes";
 import { moduleHref, moduleTabHref } from "@foundmill/widgets/shared/departments";
@@ -51,6 +52,7 @@ import { cashTile, customersWeekTile, runwayTile, unavailableTile, type StatusTi
 import type { FinanceOverview, RibbonResponse } from "@foundmill/widgets/shared/types";
 import { useGlossary, useToday } from "@foundmill/widgets/data";
 import { recentRibbonInput } from "@foundmill/widgets/shared/ribbon";
+import { businessTimeZone } from "@foundmill/shared/time-zone";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
@@ -146,6 +148,8 @@ export function TodayScreen() {
       setPendingId(row.id);
       // The page note's one tap (package 1.3) opens Product › Public page, where the founder checks and publishes it.
       const opensPage = row.quickOption.id === PAGE_READY_NOTE.options.check;
+      // The booking note's one tap opens the same tab at its Booking panel (founder, Nov 22, 2026).
+      const opensBooking = row.quickOption.id === BOOKING_READY_NOTE.options.check;
       // The postal address note's one tap opens Settings › Integrations, where a founder enters the address.
       const opensSettings = row.quickOption.id === POSTAL_ADDRESS_NOTE.options.add;
       decide.mutate(
@@ -154,7 +158,9 @@ export function TodayScreen() {
           onSuccess: () =>
             opensPage
               ? router.push(moduleTabHref(businessId, departments, "product", "public-page"))
-              : opensSettings
+              : opensBooking
+                ? router.push(`${moduleTabHref(businessId, departments, "product", "public-page")}?panel=booking`)
+                : opensSettings
                 ? router.push(routes.settings(businessId, "integrations"))
                 : toast({ title: "Answered", description: row.quickOption!.label, tone: "good" }),
         },
@@ -311,6 +317,11 @@ export function TodayScreen() {
     "public-page": (
       <>
         {pageReady ? <PublicPageNote span={12} href={moduleTabHref(businessId, departments, "product", "public-page")} /> : null}
+        {todayQ.data?.upcomingBookings?.length ? (
+          <div className="col-span-12 min-w-0" data-testid="today-bookings">
+            <UpcomingBookingsStrip bookings={todayQ.data.upcomingBookings} timeZone={businessTimeZone(business?.business.timeZone)} href={`${routes.crm(businessId)}?view=bookings`} />
+          </div>
+        ) : null}
         {todayQ.data?.followersUpdate ? (
           <PublicPageNote
             span={12}
@@ -321,7 +332,7 @@ export function TodayScreen() {
         ) : null}
       </>
     ),
-    "post-ready": todayQ.data?.postsReady ? <PostReadyNote span={12} waiting={todayQ.data.postsReady.count} href={`${moduleTabHref(businessId, departments, "distribution", "creative")}?asset=${todayQ.data.postsReady.assetId}`} /> : null,
+    "post-ready": todayQ.data?.postsReady && !phone ? <PostReadyNote span={12} waiting={todayQ.data.postsReady.count} href={`${moduleTabHref(businessId, departments, "distribution", "creative")}?asset=${todayQ.data.postsReady.assetId}`} /> : null,
     week: (
       <WeekPlan
         span={12}
@@ -352,7 +363,8 @@ export function TodayScreen() {
       <HomeFoundations />
       <PageGrid flush stack data-order={order.join(" ")}>
         {todayQ.data ? <WeekOutcomes span={12} headline={todayQ.data.outcomes.headline} detail={todayQ.data.outcomes.detail} toward={todayQ.data.outcomes.toward} /> : null}
-        <WorkingNowStrip span={12} lines={workingNow} href={moduleTabHref(businessId, departments, "development", "training-ground")} />
+        {/* The Working now tab is desktop only: on a phone the strip names the work and links nowhere (Session 9). */}
+        <WorkingNowStrip span={12} lines={workingNow} href={phone ? undefined : moduleTabHref(businessId, departments, "development", "training-ground")} />
         {order.map((id) => (
           <Fragment key={id}>{sections[id]}</Fragment>
         ))}
