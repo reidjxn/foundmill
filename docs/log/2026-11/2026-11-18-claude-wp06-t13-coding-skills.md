@@ -13,14 +13,20 @@ WP-06 T13 (founder, Nov 18, 2026). Every role that writes code now comes with tw
 Both are rewritten in Foundmill's words to the authoring spec, credited in `packages/agents/skills/THIRD_PARTY_NOTICES.md`, and pass the same screen as an upload.
 The terse skill says in its first section that it is never for anything a person reads, and that founder notes, reports, Needs you items, replies, email, the public page, code, comments, commits and pull request text stay in plain full sentences. A test checks that sentence.
 
-- **Defaults.** Both skills are defaults for the eleven templates with "code" in `taskKinds`, from release 2 (`default_since: 2`). T6's mechanism attaches them at hire and at commit. The boot backfill gives existing coding agents only these two, once, and never re-adds one a founder removed. A role that writes no code gets nothing new.
+- **Defaults.** Both skills are defaults for the eleven templates with "code" in `taskKinds`, from release 4
+  (`default_since: 4`; main took releases 2 and 3 for the tool scout and the CLI-Anything skills first). T6's
+  mechanism attaches them at hire and at commit. The boot backfill gives existing coding agents only these two,
+  once, and never re-adds one a founder removed. A role that writes no code gets nothing new.
 - **Generator.** `scripts/build-skill-library.mjs` reads two optional front matter fields: `default_since` (a whole number, 1 when absent) and `load: always`. The catalog carries `loadAlways: true` on the two new skills only.
 - **Preloading.** `selectSkills` takes `preloadAlways`. On a code task, it loads the `loadAlways` bodies first, outside `maxBodies` but within the 24,000-character preload budget. The cached prefix through the Skills index does not change.
 - **The test switch.** `SKILLS_PRELOAD` (orchestrator, "off" by default, or "split") and `SKILLS_PRELOAD_FROM` (an ISO date). With "split", `skillsPreloadHalf` puts each business in a stable half by the last hex digit of its id. A code session in the "on" half loads both bodies.
   Every code session in the test, on or off, records `skills_preload` on its token rows: the partial rows `SessionCredits` books as it goes, and the closing row.
 - **The verdict.** `repos.metrics.skillsPreloadComparison` averages each half's code sessions on real projects over the window. It reports how many, average input tokens, average output tokens and average cost per code task, counting every token row of a session.
   On the night that closes the seventh day from `SKILLS_PRELOAD_FROM`, the nightly numbers raise one operator note: an error log `{ alert: "skills_preload_verdict" }`, the same path as `first_plan_slow`. It says "keep on" only when both halves ran and the "on" half cost less per code task, otherwise "turn off".
-- **Tests.** Agents: library counts, release 2, the coding defaults, the terse skill's full-sentence rule, preload on, off and non-code, the char budget, the stable split. Db: the comparison on PGlite, and the backfill from release 1 to 2. Orchestrator: the prompt with and without the preload, partial rows tagged, the note raised on exactly one night, the verdict.
+- **Tests.** Agents: library counts, release 4, the coding defaults, the terse skill's full-sentence rule, preload
+  on, off and non-code, the char budget, the stable split. Db: the comparison on PGlite, and the backfill to the
+  next release. Orchestrator: the prompt with and without the preload, partial rows tagged, the note raised on
+  exactly one night, the verdict.
   Evals: a coding hire carries both, and its code task loads both only with the preload on.
 
 ## Decisions
