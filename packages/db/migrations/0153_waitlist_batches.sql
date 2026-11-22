@@ -1,4 +1,4 @@
--- 0150 — the waitlist opens in batches (founder, 2026-11-17; docs/holistic-plan/WP-14-behavior-brief.md A7 and T15).
+-- 0153 — the waitlist opens in batches (founder, 2026-11-17; docs/holistic-plan/WP-14-behavior-brief.md A7 and T15).
 -- This replaces "no admission in weekly cohorts" and "no public counts" (2026-11-12, answers 4 and 7) for the waitlist
 -- only. (0135 to 0140 are assigned to open pull requests: #285, #208, Stripe Connect, #251.)
 --

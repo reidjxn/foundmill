@@ -6,7 +6,7 @@ areas: [db, api, orchestrator, web, docs]
 supersedes: ["Three invitation admissions a UTC day per inviter (2026-11-13), for three in total", "Credits for both sides of an invitation (docs/NETWORK.md F6 and L7)", "No admission in weekly cohorts (2026-11-12, answer 7), for the waitlist", "No public counts (2026-11-12, answer 4), for the waitlist page", "Indexing follows SIGNUP_OPEN (wp03-founder-decisions), for /waitlist only"]
 ---
 ## What changed
-- Migration 0150: `waitlist_batches` (number, UTC day, places; service only, RLS on with no policy), `waitlist_entries.batch_id` and `waitlist_entries.personal_note_at`.
+- Migration 0153: `waitlist_batches` (number, UTC day, places; service only, RLS on with no policy), `waitlist_entries.batch_id` and `waitlist_entries.personal_note_at`.
 - Step 5: `personal_note_at` records that the founder's own personal note was sent; the operator sets it (docs/DEPLOY.md §4). Foundmill sends nothing.
 - Step 6: `docs/holistic-plan/WP-14-T15-measures.md` defines the three measures, where each figure comes from, and a stop rule for each.
 - `repos.waitlist.batchesWithPlaces` returns the batches that still have places with a real count of what is left; `admitNext` takes a `batchId`.
@@ -62,8 +62,8 @@ WP-12 T3 (the private arrivals count) and T8 are on main. The only gap was the `
 ### No prices are defined here
 The landing session reported an agreement with WP-09 that T15 would create `packages/config/src/price-test.ts`. This session's instructions give the prices to T14, so it was not created; the coordinating session was told.
 
-### The migration is 0150
-It was 0141, then 0136, and is 0150 at the merge of main on Nov 21 (0141 to 0144 and 0147 to 0149 landed there first), per the launch plan: a session takes the next free number when it rebases.
+### The migration is 0153
+It was 0141, then 0136, and is 0153 at the merge of main on Nov 22 (0141 to 0144 and 0147 to 0150 are on main; open branches hold 0150 to 0152), per the launch plan: a session takes the next free number when it rebases.
 
 ## Not done
 - Indicative prices: `components/waitlist/IndicativePrices.tsx` is the slot and renders nothing. T14 (session "wp14-money") fills it from its pricing config.

@@ -1,11 +1,11 @@
 /**
  * `POST /v1/domains/register` (WP-08 domain plan, Path A): only the api asks; a quote is OpenSRS's cost plus $3; a mock
- * registration writes the row with the founder as owner and every record set; a live registration is refused until the
- * founder can pay for it; nothing simulated is written for a person's project on staging.
+ * registration runs only for a paid domain checkout (0150), once, with the founder as owner and every record set, and
+ * never on a simulated payment when OpenSRS is live; nothing simulated is written for a person's project on staging.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createOpensrsConnector, createRegistry, MOCK_COM_COST_MINOR, opensrsMock, sendingDomainMock } from "@foundmill/connectors";
-import { repos, type Db } from "@foundmill/db";
+import { repos, settleCreditCheckout, type Db } from "@foundmill/db";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { createGatewayApp } from "../app";
 import type { GatewayDeps } from "../pipeline";
@@ -20,6 +20,14 @@ let A: string;
 let USER: string;
 const OWNER = { firstName: "Maya", lastName: "Lee", address1: "12 Elm Street", city: "Springfield", state: "IL", postalCode: "62701", country: "US", phone: "+1.2175550123", email: "maya@example.com" };
 const PRICE = MOCK_COM_COST_MINOR + 300;
+
+/** A domain checkout for acme-goods.com with the founder's details: open, or paid on the mock. */
+async function order(status: "open" | "paid"): Promise<string> {
+  const c = await repos.checkouts.create(db, A, { kind: "domain", mode: "mock", amountMinor: PRICE, domainName: "acme-goods.com", createdBy: USER });
+  await repos.domainRegistrants.put(db, A, c.id, OWNER);
+  if (status === "paid") await settleCreditCheckout(db, { businessId: A, checkoutId: c.id, externalId: null, eventId: `mock:${c.id}`, amountMinor: PRICE, currency: "USD", mode: "mock", paidAt: new Date(), actor: { kind: "user", id: USER } });
+  return c.id;
+}
 
 beforeAll(async () => {
   h = await createTestDb();
@@ -52,23 +60,28 @@ describe("registering a domain through the gateway", () => {
     expect((await post(appFor(), { action: "quote", businessId: A, domain: "acme-goods.com" })).body.quote).toEqual({ domain: "acme-goods.com", available: true, priceMinor: PRICE });
   });
 
-  it("a live registration is refused until the founder can pay for it; nothing is written", async () => {
-    const res = await post(appFor({ live: true }), { action: "register", businessId: A, userId: USER, domain: "acme-goods.com", owner: OWNER, priceMinor: PRICE, siteHost: null });
-    expect(res.status).toBe(409);
+  it("registers nothing without a paid domain checkout, and never on a simulated payment when OpenSRS is live", async () => {
+    const open = await order("open");
+    expect((await post(appFor(), { action: "register", businessId: A, userId: USER, checkoutId: open, siteHost: null })).body.error?.code).toBe("not_paid");
+    const mockPaid = await order("paid");
+    expect((await post(appFor({ live: true }), { action: "register", businessId: A, userId: USER, checkoutId: mockPaid, siteHost: null })).body.error?.code).toBe("not_paid");
     expect(await repos.projectDomains.get(db, A)).toBeNull();
   });
 
   it("nothing simulated for a person's project on staging", async () => {
-    expect((await post(appFor({ appEnv: "staging" }), { action: "register", businessId: A, userId: USER, domain: "acme-goods.com", owner: OWNER, priceMinor: PRICE, siteHost: null })).status).toBe(409);
+    expect((await post(appFor({ appEnv: "staging" }), { action: "register", businessId: A, userId: USER, checkoutId: await order("paid"), siteHost: null })).status).toBe(409);
   });
 
-  it("a mock registration writes the row with its records, as the founder's", async () => {
-    const res = await post(appFor(), { action: "register", businessId: A, userId: USER, domain: "acme-goods.com", owner: OWNER, priceMinor: PRICE, siteHost: "acme.foundmill.app" });
+  it("a mock registration writes the row with its records, as the founder's, once per payment", async () => {
+    const paid = await order("paid");
+    const res = await post(appFor(), { action: "register", businessId: A, userId: USER, checkoutId: paid, siteHost: "acme.foundmill.app" });
     expect(res.status).toBe(200);
     expect(res.body.domain).toMatchObject({ domain: "acme-goods.com", source: "registered", priceMinor: PRICE });
     expect(res.body.domain?.records.map((r) => r.purpose)).toEqual(["sending", "sending", "sending", "sending", "site", "inbound", "dmarc"]);
     const row = await repos.projectDomains.get(db, A);
     expect(row).toMatchObject({ addedBy: USER, simulated: true, registrarOrderId: expect.stringMatching(/^mock-/) });
+    expect(await repos.domainRegistrants.get(db, A, paid)).toBeNull();
+    expect((await post(appFor(), { action: "register", businessId: A, userId: USER, checkoutId: paid, siteHost: null })).status).toBe(409);
   });
 
   it("a registered domain is never replaced or removed by the own-domain route", async () => {

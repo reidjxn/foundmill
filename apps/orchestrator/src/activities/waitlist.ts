@@ -1,6 +1,6 @@
 /**
  * The waitlist's sweep (WP-03 T2; schedule `waitlist-admissions`, every 15 minutes). Two steps:
- *   (a) admit the open batches' places, then today's number. A batch (0150; WP-14 T15; the operator's row in
+ *   (a) admit the open batches' places, then today's number. A batch (0153; WP-14 T15; the operator's row in
  *       `waitlist_batches`) is open from its UTC day until its places are taken: each sweep admits into it, in the
  *       waitlist's order, as many as it has left, so someone who joins while places remain is let in by the next sweep.
  *       A batch's admissions count in the day's `waitlist` admissions, so they come off today's number too; the number

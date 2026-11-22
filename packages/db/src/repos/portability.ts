@@ -165,6 +165,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
 /** Business-scoped tables left out of the archive, with the reason the archive states. */
 export const EXPORT_EXCLUDED_TABLES: Readonly<Record<string, string>> = {
   credentials: "Credentials and connector tokens are never exported (ciphertext or plaintext).",
+  domain_registrants: "One founder's own name, address and phone between paying for a domain and registering it; deleted once registered, and never readable by the other founders.",
   webhooks: "Webhook endpoints and their secret references are connector plumbing, not business data.",
   events: "The internal event log; the audit log and the Inbox in this archive record what happened.",
   outbox: "The event delivery queue (internal).",
