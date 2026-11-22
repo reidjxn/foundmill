@@ -243,6 +243,8 @@ export const SESSION_SCOPE_POLICY_ID = "session-scope";
 /** A tool its connector declares no policy hints for is refused: a missing entry must not read as "internal, never asks". */
 export const MISSING_POLICY_HINTS_POLICY_ID = "missing-policy-hints";
 export const HARD_GATE_POLICY_ID = "hard-gate";
+/** The Cedar policy that refuses mail to someone with no basis (15-mail-basis.cedar); on an unconnected connector "not connected" answers first. */
+export const MAIL_NEEDS_BASIS_POLICY_ID = "mail-needs-basis";
 /** The Cedar policy that forbids a call the gateway recognised as a security-settings change (security-settings.ts). */
 export const SECURITY_SETTINGS_POLICY_ID = "hard-gate-security-settings";
 export const AUDIT_ACTION_TOOL_CALL = "tool.call";
@@ -423,7 +425,28 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
     const policyInput = await buildPolicyInput(deps, session, req, loaded, args);
     const decision = evaluate(policyInput, deps.policyEngine ?? getPolicyEngine());
 
-    if (decision.outcome === "deny") return deny(deps, session, req, loaded, decision, args, log);
+    // A connector that cannot run here (not connected, or the project's Foundmill address off) is answered as that,
+    // before the founder is asked. On a deny it is answered so only when the deny is the basis rule alone
+    // (`mail-needs-basis`), so the agent learns mail is not connected; every other deny (untrusted or suppressed
+    // recipient, spend cap, hard gate) keeps its own answer. Cedar's deny is audited either way.
+    const notRunnable = async (cedarDeny?: EvaluateResult): Promise<ToolCallResult | null> => {
+      const refused = connectionRefusal(deps, loaded, modeFor(deps, connector.key));
+      if (refused) {
+        if (cedarDeny) await appendAudit(deps, session, req, { outcome: "deny", reasons: cedarDeny.reasons, policyIds: cedarDeny.policyIds, errorCode: refused.code });
+        throw refused;
+      }
+      // The project's Foundmill address switched off here: refused as `allow` would refuse it, before anyone is asked.
+      const mailOff = connector.key === PLATFORM_MAIL_KEY ? platformMailSwitchRefusal({ config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, mode: modeFor(deps, connector.key) }) : null;
+      if (!mailOff) return null;
+      const reasons = [mailOff.reason];
+      const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons: [...reasons, ...(cedarDeny?.reasons ?? [])], policyIds: [mailOff.policyId, ...(cedarDeny?.policyIds ?? [])] });
+      log.info({ policyId: mailOff.policyId }, "tool call refused: Foundmill sending address");
+      return { status: 403, body: { outcome: "deny", reasons, policyIds: [mailOff.policyId], costMinor: 0, auditId: audit.id } };
+    };
+    if (decision.outcome === "deny") {
+      const basisOnly = decision.policyIds.length > 0 && decision.policyIds.every((id) => id === MAIL_NEEDS_BASIS_POLICY_ID);
+      return (basisOnly ? await notRunnable(decision) : null) ?? deny(deps, session, req, loaded, decision, args, log);
+    }
     if (decision.outcome === "ask") {
       // The founder already approved this very call (0030): it runs once under that approval instead of asking again,
       // whether the session still waiting retries it or the next session on the task makes it. The approval covers the
@@ -434,17 +457,7 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
         log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
         return runUnderApproval(deps, session, req, loaded, decision, args, log, now, granted);
       }
-      const refused = connectionRefusal(deps, loaded, modeFor(deps, connector.key));
-      if (refused) throw refused;
-      // The project's Foundmill address switched off here: refused as `allow` would refuse it, before anyone is asked.
-      const mailOff = connector.key === PLATFORM_MAIL_KEY ? platformMailSwitchRefusal({ config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, mode: modeFor(deps, connector.key) }) : null;
-      if (mailOff) {
-        const reasons = [mailOff.reason];
-        const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [mailOff.policyId] });
-        log.info({ policyId: mailOff.policyId }, "tool call refused before asking: Foundmill sending address");
-        return { status: 403, body: { outcome: "deny", reasons, policyIds: [mailOff.policyId], costMinor: 0, auditId: audit.id } };
-      }
-      return ask(deps, session, req, loaded, decision, args, log, now);
+      return (await notRunnable()) ?? ask(deps, session, req, loaded, decision, args, log, now);
     }
     return allow(deps, session, req, loaded, decision, args, log, now);
   };

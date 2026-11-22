@@ -280,7 +280,7 @@ describe("the vocabulary and the suppression rule", () => {
     const gone = await h.asUser(A.ownerId).run((tx) => tx.delete(s.suppressionList).where(eq(s.suppressionList.emailHash, bounced)).returning({ id: s.suppressionList.id }));
     expect(gone).toHaveLength(0);
     expect(await repos.channels.isHardSuppressed(h.db, A.businessId, bounced)).toBe(true);
-    const [policy] = ((await h.db.execute(sql`select qual, with_check from pg_policies where tablename = 'suppression_list' and policyname = 'suppression_list_write'`)) as unknown as { rows: { qual: string; with_check: string }[] }).rows;
+    const [policy] = ((await h.db.execute(sql`select qual, with_check from pg_policies where tablename = 'suppression_list' and policyname = 'suppression_list_update'`)) as unknown as { rows: { qual: string; with_check: string }[] }).rows;
     for (const reason of HARD_SUPPRESSION_REASONS) {
       expect(policy!.qual).toContain(reason);
       expect(policy!.with_check).toContain(reason);

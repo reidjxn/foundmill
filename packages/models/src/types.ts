@@ -67,8 +67,11 @@ export interface CompleteRequest<T = unknown> {
   temperature?: number;
   /** A refusal comes back as the answer (`stopReason: "refusal"`) instead of throwing `ModelOutputError("refusal")`. */
   allowRefusal?: boolean;
-  /** Put a prompt-cache breakpoint on the system blocks (BUILD §10.4: brief + instructions are cached). */
-  cacheSystem?: boolean;
+  /**
+   * Put a prompt-cache breakpoint on the system blocks (BUILD §10.4: brief + instructions are cached): `true` on the
+   * last block, a number on that block (0 is the first non-empty one), so the blocks after it change without a new write.
+   */
+  cacheSystem?: boolean | number;
   /** Per-agent model choice (BUILD §11.10 "Model selection"); subject to the route's lock/warn rules. */
   /**
    * The account is not on a paid plan: the call runs on Haiku 5.5 whatever the route (`ResolveOptions.freePlan`). Set by

@@ -31,7 +31,7 @@ export interface ModelChange {
  * agent gets a retest run on a draft copy of its live version (`repos.training.createModelRetest`), whose Promote makes
  * the copy live on the new model. An agent already on the model has nothing new to retest.
  */
-export async function changeAgentModels(tx: Executor, businessId: string, targets: readonly Agent[], modelKey: ModelKey, requestedBy: string | null): Promise<ModelChange> {
+export async function changeAgentModels(tx: Executor, businessId: string, targets: readonly Agent[], modelKey: ModelKey, requestedBy: string | null, opts: { retest?: boolean } = {}): Promise<ModelChange> {
   const change: ModelChange = { updated: [], skipped: [], warnings: [], retests: [], superseded: [] };
   for (const agent of targets) {
     const r = resolveModel(routeOf(agent), modelKey);
@@ -42,9 +42,10 @@ export async function changeAgentModels(tx: Executor, businessId: string, target
     if (r.warning) change.warnings.push(`${agent.name}: ${r.warning}`);
     await repos.agents.setModel(tx, businessId, agent.id, modelKey);
     change.updated.push(agent.id);
-    // An agent already on this model has nothing new to retest. GLM-5.3 Flash (Z.ai's endpoint, work sessions only) has no
-    // retest path: a training run's calls go through the Anthropic client.
-    if (agent.modelKey === modelKey || modelKey === "glm") continue;
+    // An agent already on this model has nothing new to retest; `retest: false` changes the model and queues none.
+    // GLM-5.3 Flash (Z.ai's endpoint, work sessions only) has no retest path: a training run's calls go through the
+    // Anthropic client.
+    if (agent.modelKey === modelKey || modelKey === "glm" || opts.retest === false) continue;
     const { retest, superseded } = await repos.training.createModelRetest(tx, businessId, agent.id, { modelKey, requestedBy });
     change.superseded.push(...superseded.map((run) => run.id));
     if (retest) change.retests.push(retest.run.id);
