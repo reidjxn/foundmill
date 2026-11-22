@@ -43,5 +43,6 @@ export * from "./pay-links";
 export * from "./tool-needs";
 export * from "./booking";
 export * from "./founder-actions";
+export * from "./browser-steps";
 export * from "./plans";
 export * from "./updates";

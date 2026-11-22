@@ -48,6 +48,8 @@ export const CEDAR_SCHEMA: SchemaJson<string> = {
             contract: bool,
             /** This call changes a security setting (e.g. a DNS record that routes or authenticates the domain's email): a hard gate. */
             securitySettings: bool,
+            /** The gateway could not classify what this call would do: it asks first in every mode. */
+            unclassified: bool,
             /** Creates an immutable or customer-visible record that brings money in (a finalized invoice, a payment page). */
             paymentRecord: bool,
             askAlways: bool,

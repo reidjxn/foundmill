@@ -1,5 +1,5 @@
 /**
- * Founder-executed requests (0162 `founder_actions`; founder, 2026-11-22). Service connection only for writes; a member
+ * Founder-executed requests (0163 `founder_actions`; founder, 2026-11-22). Service connection only for writes; a member
  * reads through RLS.
  *
  * - `prepare` records the exact payload and its hash for the founder to press. Preparing the same payload while one is

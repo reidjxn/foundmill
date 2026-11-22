@@ -584,6 +584,12 @@ export function taskHref(businessId: string, departments: readonly DepartmentFor
   return t ? `${routes.department(businessId, t.slug, t.tab)}?task=${encodeURIComponent(taskId)}` : null;
 }
 
+/** A website session on Working now (Development › Live sessions); `?site=` opens its live view. Null without a development department. */
+export function browserSessionHref(businessId: string, departments: readonly DepartmentForLinks[], siteKey: string): string | null {
+  const t = moduleTab(departments, "development", "training-ground");
+  return t ? `${routes.department(businessId, t.slug, t.tab)}?site=${encodeURIComponent(siteKey)}` : null;
+}
+
 /** The slice of `inbox.get`'s `approval` the reading pane needs (audit FR-01). */
 export interface ApprovalLike {
   outcome: "approved" | "rejected" | "expired" | null;

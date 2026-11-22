@@ -27,44 +27,41 @@ Recorded in docs/log/2026-11/ (find them with `node scripts/decisions-index.mjs 
 
 All by the coordinating session on the founder's word (reported by that session, not checked here): `domains` (Nov 16) and `web` (Nov 17) added to `LIVE_CONNECTORS` on the gateway, api and orchestrator; `OPERATOR_USER_IDS` set on the api to the founder's one account (Nov 17); the `sites` service and its domain (WP-00 S9, above); `LIVE_MODE` is 1 on the api and stays so (founder, Nov 17).
 
-## Open pull requests and branches (Nov 20)
+## Open pull requests and branches (Nov 22)
 
 | Pull request | What | State |
 | --- | --- | --- |
-| #238 | WP-11 T4, T5, T7: the database advisors as tests | migrations are now 0145 to 0147 (renumbered twice: #244 took 0143 and #300 took 0144); the founder merges |
 | #303 (draft) | WP-14 T9: share a Customer Update as a card | open, Session 5 |
-| #330 | WP-09 T9: training says a true price | open, Session 4 |
-| #332 | WP-14 T15: the waitlist in batches, three named invitations | open (renumber its migration at rebase) |
-| #334 | Session 2: effort per route, sessions told their effort, the model dialog by plan | open |
-| #336 | Session 12: the streak shows the days opened (WP-10 decision 6) | open |
-| #341 | Session 14, Path B: send from a domain the founder already owns | open |
-| #333 | this file | open |
+| #358 | One included budget per owner and project limits at every stage (WP-14) | open, Session 3 |
+| #365 | People and community safety before sign-up opens (M1 to L3) | open |
 
-Merged since Nov 19, 7 PM: #319 (round of work), #244, #300, #337, #338 and #340 (twenty landing pages at /1 to /20, a numbered link showing the bare domain), #339 (Session 15: Gmail and Google Calendar as context), #335 and #343 (the founder's answers in the launch plan), #342 (the flaky guidance-host test). A ready pull request now merges itself once the required checks pass (#335).
+Merged since Nov 20: #238 (WP-11 T4, T5, T7), #330 (WP-09 T9), #332 (WP-14 T15), #334 (Session 2), #336 (the streak), #341, #351 and #356 (domains: Path B, Path A on OpenSRS, paying for a domain before it is registered), #344 and #352 (Resting; Billing's team budget in outcomes), #345 (the idea box shows the page, 390 px journey tested), #346 (the opt-in gallery at /explore), #347 (remote MCP in the gateway: Notion, HubSpot, a custom server; the Gmail scope split), #348 (the console by stage), #349 and #350, #353 (CLI-Anything in the sandbox), #354 (First ten; `create_payment_link` mock-first), #355 (WP-11 T6, T9), #357 (the three red specs), #359 and #363 (below), #361, #362 (community safety H1 to H4), #364 (Commit's spend cap starts at 0 again).
 
-Nov 22 (reported by the session "Foundmill: tool scout, booking, patents"): #359 merged, the tool scout (Part A): a tool catalog as data (`packages/connectors/src/tool-catalog.ts`), the `tool_need` task kind, the `tool_needs` table (migration 0154), the platform tools `raise_tool_need`, `read_tool_need` and `recommend_tool`, the `tool_scout` skill, a regulated-money flag read at take charge, and five evals; it also fixed two tests that were red on main (`areas.test.ts`, `explainers.test.ts`). Still to come from that session, each its own pull request: Part B (Foundmill's own booking, migration 0155; WP-08 T6's help text stops naming booking vendors) and Part C (patents through Lightbringer and founder-executed tools, migration 0156, a draft because Lightbringer's MCP has no tool that files or pays: the founder decides). #238's migrations (0151 to 0153) sit below these numbers.
+Nov 22 (reported by the session "Foundmill: tool scout, booking, patents"): #359, the tool scout (Part A): a tool catalog as data, the `tool_need` task kind, the `tool_needs` table (migration 0154), the platform tools `raise_tool_need`, `read_tool_need` and `recommend_tool`, the `tool_scout` skill and five evals.
+#363, booking of our own, free on every plan, with no booking vendor (Part B): migration 0161 (`booking_settings`, `booking_services`, `bookings`, an exclusion constraint against double booking, `btree_gist`), the pages `/p/<slug>/book` and `/p/<slug>/book/manage`, a Booking panel on Product > Public page, Bookings in Customers, upcoming bookings on Today, a 15-minute `booking-reminders` schedule, the agent tools `booking_setup` and `list_bookings`, and the events `booking.confirmed` (a real outcome when real), `booking.canceled`, `booking.rescheduled` and `booking.no_show`. Not built: deposits through Stripe, a Meet link, a booking link on a project's site, group classes. WP-08 T6 (the pay or booking button with a pasted link) is still not started.
+Part C (patents through Lightbringer and founder-executed tools) will open as a draft for the founder to decide, because Lightbringer's MCP has no tool that files or pays.
 
-Branches pushed with no pull request: `claude/wp14-t1-resting` (WP-14 T1) and `claude/wp14-t3-team-budget` (T3), both Session 3. `claude/landing-daylight` is not wanted: it landed as #218 and its three commits only restate it.
+`claude/landing-daylight` is not wanted: it landed as #218. Both Session 3 branches landed (#344, #352).
 
 ## The launch plan's sessions (docs/holistic-plan/LAUNCH_EVALUATION.md)
 
 | Session | Work | Owns | State |
 | --- | --- | --- | --- |
-| 1 | Consolidate: #238, #319, STATUS | `docs/holistic-plan/STATUS.md` | this change |
-| 2 | Models: WP-09 T6, T7; WP-13 T7 | `packages/models/src/routing.ts` | pull request open (#334) |
-| 3 | Plans and money: #300 (merged), WP-14 T1, T3, one budget per owner, project limits | | #300 merged; T1 and T3 next |
-| 4 | Skills: #330, WP-06 T13, T11, T10 | | #330 open |
-| 4b | CLI-Anything in the sandbox: the E2B template, the connector with its mock, wrappers, staged outputs and approval, default skills for Design, Product and Marketing; an eval where a Design agent makes a logo file and the founder's approval puts it on the page | `infra/e2b/`, `packages/sandbox/` | not started |
-| 5 | Go-to-market: #244 (merged), #303, WP-08 T4, T5, T6, T8, T12 | | #303 open |
-| 5b | MCP in the gateway, starting with Notion; the Settings cleanup and Builder view's custom MCP field; then Gmail's scope split (send and compose first, read later) | `apps/gateway/src/pipeline.ts`, `apps/gateway/src/mcp.ts` | not started |
-| 6 | Wave 2: the console by stage (WP-10 T1 to T4, T10) | | not started |
-| 7 | Wave 2: waitlist and people (WP-14 T15, #332) | | #332 open |
-| 8 | Wave 2: data (WP-11 T6, T9) | | not started |
-| 9, 10 | Wave 3: the first shareable thing at 390 px; cards and the gallery | | not started |
+| 1 | Consolidate: #238, #319, STATUS | `docs/holistic-plan/STATUS.md` | done: #238, #319 and #333 merged; STATUS kept current |
+| 2 | Models: WP-09 T6, T7; WP-13 T7 | `packages/models/src/routing.ts` | merged (#334) |
+| 3 | Plans and money: #300 (merged), WP-14 T1, T3, one budget per owner, project limits |  | #300, #344 and #352 merged; the one budget per owner and project limits are #358, open |
+| 4 | Skills: #330, WP-06 T13, T11, T10 |  | #330 merged; WP-06 T13, T11, T10 not checked here |
+| 4b | CLI-Anything in the sandbox: the E2B template, the connector with its mock, wrappers, staged outputs and approval, default skills for Design, Product and Marketing; an eval where a Design agent makes a logo file and the founder's approval puts it on the page | `infra/e2b/`, `packages/sandbox/` | merged (#353) |
+| 5 | Go-to-market: #244 (merged), #303, WP-08 T4, T5, T6, T8, T12 |  | #244 and #354 merged; #303 open; WP-08 T6, T8, T12 not started |
+| 5b | MCP in the gateway, starting with Notion; the Settings cleanup and Builder view's custom MCP field; then Gmail's scope split (send and compose first, read later) | `apps/gateway/src/pipeline.ts`, `apps/gateway/src/mcp.ts` | merged (#347) |
+| 6 | Wave 2: the console by stage (WP-10 T1 to T4, T10) |  | merged (#348) |
+| 7 | Wave 2: waitlist and people (WP-14 T15, #332) |  | merged (#332) |
+| 8 | Wave 2: data (WP-11 T6, T9) |  | merged (#355) |
+| 9, 10 | Wave 3: the first shareable thing at 390 px; cards and the gallery |  | Session 9 merged (#345); Session 10's gallery merged (#346); cards (Open Graph images, Share progress card) not checked |
 | 11 | Wave 4: production, live keys, Google's verification, founder zero | | not started |
-| 12 | The streak shows the days opened; the morning email drops its streak line | | pull request open (#336) |
+| 12 | The streak shows the days opened; the morning email drops its streak line |  | merged (#336) |
 | 13 | WP-11 T3, T8, T10 | | merged (#337); its production steps wait for Session 11 |
-| 14 | Domains: Path B, then Path A on OpenSRS (the reseller account opens Nov 22) | | Path B pull request open (#341) |
+| 14 | Domains: Path B, then Path A on OpenSRS (the reseller account opens Nov 22) |  | Path B (#341), Path A (#351) and paying first (#356) merged; the OpenSRS reseller account (the founder opened it Nov 22) gates the live calls |
 | 15 | Gmail and Google Calendar as context | | merged (#339); needs Session 5b's scope split for reading the inbox |
 
 | Package | Task | Name | State | Waits on |
@@ -172,7 +169,7 @@ Branches pushed with no pull request: `claude/wp14-t1-resting` (WP-14 T1) and `c
 | WP-07 | T5 | Screening, Publish, the Site tab and the note in Needs you | merged (#263) |  |
 | WP-07 | T6 | The waitlist form | merged (#271) |  |
 | WP-07 | T7 | The pay button, with a link the founder pastes | merged (#276) |  |
-| WP-07 | T8 | `create_payment_link`, so the team can make the link | waiting | a WP-00 step (S8) |
+| WP-07 | T8 | `create_payment_link`, so the team can make the link | merged (#354) | mock-first; the live link waits on WP-00 S8 |
 | WP-07 | T9 | The Planner builds for a site; first builds; the demo task | merged (#271) |  |
 | WP-07 | T10 | The proof: idea to published site to a sign-up in Customers | merged (#271) |  |
 | WP-07 | T11 | A founder who has a repository can choose it without Builder view | merged (#236) |  |
@@ -180,8 +177,8 @@ Branches pushed with no pull request: `claude/wp14-t1-resting` (WP-14 T1) and `c
 | WP-08 | T1 | The positioning record, read by every marketing call | merged (#241, #261) |  |
 | WP-08 | T2 | A reply to the project is kept and can be answered | merged (#267) | behind the mail switch; WP-00 S1 and S2 are done, so it can go on |
 | WP-08 | T3 | Write to your followers | merged (#278) |  |
-| WP-08 | T4 | The first post, by tap, with a recorded outcome | not started |  |
-| WP-08 | T5 | The first ten conversations | not started |  |
+| WP-08 | T4 | The first post, by tap, with a recorded outcome | not started | #354 made a visited post count (D1); the rest is not checked |
+| WP-08 | T5 | The first ten conversations | merged (#354) | as titled in #354: "First ten"; not checked against the diff |
 | WP-08 | T6 | A price, a pay or booking button and "Ask a question" on the page | not started | a WP-00 step (see the package) |
 | WP-08 | T7 | The project page for search engines and AI readers | merged (#244) | took migration 0143 |
 | WP-08 | T8 | Two page tools, so the SEO and GEO agents can work on the hosted page | not started | #241 is merged, so it can start |
@@ -194,10 +191,10 @@ Branches pushed with no pull request: `claude/wp14-t1-resting` (WP-14 T1) and `c
 | WP-09 | T3 | The gateway's model calls ask first and book the exact cost | merged (#225) |  |
 | WP-09 | T4 | Haiku routes on `claude-haiku-5-5`, and a price table that is true | merged (#322) | the price table and the batch suites; #326 is the hand-run workflow for the live checks |
 | WP-09 | T5 | Refusals are handled once, and Opus and Sonnet calls fall back on the server | merged (#322) |  |
-| WP-09 | T6 | Effort is written down for every route, then lowered where a sweep holds | not started | Session 2 |
-| WP-09 | T7 | Sessions are told their effort and their limits | not started | Session 2 |
+| WP-09 | T6 | Effort is written down for every route, then lowered where a sweep holds | merged (#334) |  |
+| WP-09 | T7 | Sessions are told their effort and their limits | merged (#334) |  |
 | WP-09 | T8 | A batch client in `packages/models` | merged (#322) |  |
-| WP-09 | T9 | Training says a true price, checks it against the balance, and grades for less | pull request open (#330) | Session 4 |
+| WP-09 | T9 | Training says a true price, checks it against the balance, and grades for less | merged (#330) |  |
 | WP-09 | T10 | Training tests on the batch path | not started |  |
 | WP-09 | T11 | The first round of a free project fits the allowance | merged (#254) | the report sets the cap later |
 | WP-09 | T12 | The overnight numbers come from the report | merged (#251) | every third night, keep $0.15 |
@@ -205,28 +202,28 @@ Branches pushed with no pull request: `claude/wp14-t1-resting` (WP-14 T1) and `c
 | WP-09 | T14 | Allowance and prices are config, and the numbers are the founder's | merged (#251) | the numbers are the founder's |
 | WP-09 | T15 | Decision record: a fourth model key | superseded | by the free-plan-on-GLM rule (WP-13 plan, Nov 16) |
 | WP-09 | T16 | A checkout for the Pro plan | merged (#251, #325) | behind `PAID_ENTRY`; the plan goes first and canceling is one press (#325); production waits on WP-00 S8 |
-| WP-10 | T1 | Tabs and sidebar by stage | not started |  |
-| WP-10 | T2 | Top bar by stage | not started |  |
-| WP-10 | T3 | "Explain this page" wherever a first-timer lands | not started |  |
-| WP-10 | T4 | Definitions for the first words | not started |  |
+| WP-10 | T1 | Tabs and sidebar by stage | merged (#348) |  |
+| WP-10 | T2 | Top bar by stage | merged (#348) |  |
+| WP-10 | T3 | "Explain this page" wherever a first-timer lands | merged (#348) |  |
+| WP-10 | T4 | Definitions for the first words | merged (#348) |  |
 | WP-10 | T5 | Type, contrast and focus tokens | merged (#246, #268) | #268 fixes a regression |
 | WP-10 | T6 | Amend DESIGN.md for the thesis | merged (#246) |  |
 | WP-10 | T7 | Accessibility checked by a machine | merged (#265) |  |
 | WP-10 | T8 | The skills picker and an agent's skills panel: the look | merged (#316) |  |
 | WP-10 | T9 | Ratings a first-timer can read | merged (#265) |  |
-| WP-10 | T10 | The ask before the evidence | not started |  |
+| WP-10 | T10 | The ask before the evidence | merged (#348) |  |
 | WP-10 | T11 | Settings opens on five basics | merged (#265) |  |
 | WP-10 | T12 | States that lose or hide information | merged (#265) |  |
 | WP-10 | T13 | Today's bundle, dead code and a token scanner | merged (#265) |  |
 | WP-11 | T1 | Real Postgres in CI | merged (#147) |  |
 | WP-11 | T2 | A failed migration fails readiness | merged (#148) |  |
 | WP-11 | T3 | Backup and restore runbook | merged (#337) | the runbook is written; no step has run on production |
-| WP-11 | T4 | Advisor test, pinned service-only tables, `search_path` migration | pull request open (#238) | with T5 and T7; the conflict is fixed and its migrations are renumbered 0143 to 0145 (Nov 19) |
-| WP-11 | T5 | Migration: `auth.uid()` once per statement | pull request open (#238) |  |
-| WP-11 | T6 | Migration: split the `for all` write policies | not started |  |
-| WP-11 | T7 | Migration: six foreign-key indexes | pull request open (#238) |  |
+| WP-11 | T4 | Advisor test, pinned service-only tables, `search_path` migration | merged (#238) | migrations 0157 to 0159, after T6's 0156 |
+| WP-11 | T5 | Migration: `auth.uid()` once per statement | merged (#238) |  |
+| WP-11 | T6 | Migration: split the `for all` write policies | merged (#355) | `0156_split_write_policies` |
+| WP-11 | T7 | Migration: six foreign-key indexes | merged (#238) |  |
 | WP-11 | T8 | `bak_20261013` and the production schema check | merged (#337) | the schema check is written; dropping `bak_20261013` runs in Session 11 with the founder watching |
-| WP-11 | T9 | Demo data out of every cross-project number | not started |  |
+| WP-11 | T9 | Demo data out of every cross-project number | merged (#355) |  |
 | WP-11 | T10 | Measure the api under 100 Today loads | merged (#337) | the load-test script; running it against production waits for Session 11 |
 | WP-11 | T11 | Gateway: who may mint what; a tool without hints is refused | merged (#242) |  |
 | WP-11 | T12 | An api-only service token secret | merged (#256) |  |
@@ -254,14 +251,14 @@ Branches pushed with no pull request: `claude/wp14-t1-resting` (WP-14 T1) and `c
 | WP-13 | T4 | Free projects' agent sessions run on GLM | merged (#284, #314) | #314 took the free plan's readers, agents, notes and planners off Haiku 5.5 (it failed the injection bar) |
 | WP-13 | T5 | Free web search through Z.ai's Web Search API | merged (#260) | on Haiku 5.5 instead of Z.ai (founder, Nov 16); production switch is WP-00 S6 |
 | WP-13 | T6 | The $600 monthly cap, and slowing down at it | merged (#283) | the sessions' part is in T4 |
-| WP-13 | T7 | The model dialog shows GLM, and Anthropic models offer an upgrade | not started | Session 2; at opening its copy says "buy a credit pack" (Nov 17) |
+| WP-13 | T7 | The model dialog shows GLM, and Anthropic models offer an upgrade | merged (#334) | the model dialog by plan |
 | WP-13 | T8 | Evals on GLM-5.3 Flash | merged (#298) | platform suites run as the free plan does (#298); the GLM session cost run (#283: $0.0068 a session); #314 followed the Haiku 5.5 result |
-| WP-13 | T9 | The privacy policy names Z.ai | merged (#260) | the DPA and SCCs are the founder's (Z3) |
+| WP-13 | T9 | The privacy policy names Z.ai | merged (#260) | no special DPA needed (founder, Nov 22): Foundmill relies on Z.ai's published terms (Additional Terms for API Services 3(b), Terms IV.7, and the Data Processing Addendum for API Services); no AI-labeling change; no routing change for finance or legal agents on the free plan |
 | WP-13 | T11 | The api and composer use a founder's own Anthropic key | merged (#286) | the composer needs `COMPOSER_SERVICE_TOKEN_SECRET` (composer and gateway) and `GATEWAY_URL` on Railway |
-| WP-13 | T10 | Switch it on | not started | T4 to T9, T11; setup Z2 |
-| WP-14 | T1 | Resting, and the last task always finishes | branch pushed, no pull request | `claude/wp14-t1-resting`; Session 3 lands it after T14 |
+| WP-13 | T10 | Switch it on | not started | T4 to T9, T11; setup Z2; no longer waits on Z.ai paperwork (founder, Nov 22) |
+| WP-14 | T1 | Resting, and the last task always finishes | merged (#344) | a team out of budget finishes the task it is on; approved numbers: factor 1.5, 50 cents past an empty balance |
 | WP-14 | T2 | Quick fit before the ideas, sharpen after; time and where you live before take charge | merged (#299) |  |
-| WP-14 | T3 | Team budget, outcomes first, on Billing | branch pushed, no pull request | `claude/wp14-t3-team-budget`; Session 3 lands it after T1 |
+| WP-14 | T3 | Team budget, outcomes first, on Billing | merged (#352) |  |
 | WP-14 | T4 | Outcomes first on Today | merged (#291) | the line says "real outcomes", not "approved" |
 | WP-14 | T5 | Show the work | merged (#291) | effort is in "What your team did today" and the weekly review |
 | WP-14 | T6 | Named agents on by default for first-time founders | merged (#305) |  |
@@ -273,7 +270,7 @@ Branches pushed with no pull request: `claude/wp14-t1-resting` (WP-14 T1) and `c
 | WP-14 | T12 | Four measures | merged (#296) | Resting and the shares read zero until T1, T14 and T9 write the events named in `PENDING_SOURCES` |
 | WP-14 | T13 | The plan document | merged (#288) | docs only |
 | WP-14 | T14 | Plans, prices, companies and what each plan includes | merged (#300) | migration 0144 `owner_plans`; one budget per owner and project limits per plan are Session 3's next step (founder, Nov 19) |
-| WP-14 | T15 | The waitlist in batches, and invitations to give | branch pushed, no pull request | `claude/wizardly-turing-skic24`; its migration 0141 collides with main's `0141_skill_defaults.sql`; Session 7 renumbers and lands it |
+| WP-14 | T15 | The waitlist in batches, and invitations to give | merged (#332) |  |
 
 ## Unknown, for the founder or the session that owns each
 

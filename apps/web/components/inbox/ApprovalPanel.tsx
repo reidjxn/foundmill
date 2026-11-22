@@ -11,12 +11,14 @@
  * links to the Plan with the same entity-link style Team › Agents uses for it. A batched note (several campaign
  * launches, one decision) lists each request with its own "what exactly" behind an expander.
  */
+import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, TriangleAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { BuilderOnly, EntityLink, Field, Icon, KeyValueList, Panel, StatusPill, Textarea, fieldDescribedBy, formatMoney, useAgentPersona, type KeyValueItem } from "@foundmill/dugout";
+import { BuilderOnly, EntityLink, Field, HardGateNote, Icon, KeyValueList, Panel, StatusPill, Textarea, fieldDescribedBy, formatMoney, useAgentPersona, type KeyValueItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import type { RouterOutputs } from "@/lib/trpc";
-import { approvalLockedReason, approvalStatus, taskHref, type DepartmentForLinks } from "./logic";
+import { useTRPC } from "@/lib/trpc-react";
+import { approvalLockedReason, approvalStatus, browserSessionHref, taskHref, type DepartmentForLinks } from "./logic";
 import { describeRequest, toolKeyOf } from "./request";
 
 type ApprovalView = NonNullable<RouterOutputs["inbox"]["get"]["approval"]>;
@@ -55,6 +57,29 @@ export interface ApprovalPanelProps {
 
 const REASON_ID = "approval-reason";
 const HIDDEN = <span className="text-secondary">Hidden by your section permissions</span>;
+
+/**
+ * The page a hosted-browser hard stop was about (founder, Nov 22, 2026): the screenshot from before the press, the
+ * address and any amount, and a way to the session on Working now. Nothing here presses anything on the site.
+ */
+function BrowserHardStop({ businessId, stepId, href }: { businessId: string; stepId: string; href: string | null }) {
+  const trpc = useTRPC();
+  const router = useRouter();
+  const step = useQuery(trpc.browserStep.get.queryOptions({ businessId, stepId }, { staleTime: 5 * 60_000, retry: false }));
+  if (step.isError) return null;
+  return (
+    <HardGateNote
+      siteName={step.data?.siteName ?? "the site"}
+      label={step.data?.target ?? "this control"}
+      address={step.data?.url ?? ""}
+      amount={step.data?.amount ?? null}
+      screenshotDataUrl={step.data?.screenshotDataUrl ?? null}
+      loading={step.isLoading}
+      simulated={step.data?.simulated ?? false}
+      onOpenSite={() => href && router.push(href)}
+    />
+  );
+}
 
 export function ApprovalPanel({ approval, businessId, departments, reason, onReasonChange, answered }: ApprovalPanelProps) {
   const router = useRouter();
@@ -161,6 +186,7 @@ export function ApprovalPanel({ approval, businessId, departments, reason, onRea
             <WhatRows what={what} />
           )}
         </section>
+        {approval.browserStep ? <BrowserHardStop businessId={businessId} stepId={approval.browserStep.stepId} href={browserSessionHref(businessId, departments, approval.browserStep.siteKey)} /> : null}
         <KeyValueList items={items} />
         {/* The system's own words (the call, the rule, the arguments) are Builder view's. */}
         <BuilderOnly>

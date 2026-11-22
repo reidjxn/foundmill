@@ -94,6 +94,8 @@ import { bookingRepo } from "./booking";
 export { BookingServiceInput, BookingSetupInput, type BookingSetup, type PublicBookingPage } from "./booking";
 import { founderActionsRepo } from "./founder-actions";
 export { PrepareFounderActionInput } from "./founder-actions";
+import { browserStepsRepo } from "./browser-steps";
+export { RecordBrowserStepInput, type BrowserStepListed } from "./browser-steps";
 export { RaiseToolNeedInput, RecommendToolInput, ToolPickInput, toolNeedTask, type RaiseToolNeedResult, type ToolNeedHeld } from "./tool-needs";
 import { ownerPlansRepo, partnerWaitlistRepo } from "./owner-plans";
 
@@ -188,6 +190,7 @@ export const repos = {
   toolNeeds: toolNeedsRepo,
   booking: bookingRepo,
   founderActions: founderActionsRepo,
+  browserSteps: browserStepsRepo,
   ownerPlans: ownerPlansRepo,
   partnerWaitlist: partnerWaitlistRepo,
 } as const;

@@ -93,9 +93,10 @@ const Env = z.object({
   TEMPORAL_NAMESPACE: z.string().default("default"),
   TEMPORAL_TASK_QUEUE: z.string().default("foundmill"),
   E2B_API_KEY: z.string().optional(),
+  /** The E2B desktop template the gateway's hosted browser starts from (Chrome, Node); empty = E2B's "desktop" (founder, Nov 22, 2026). */
+  E2B_BROWSER_TEMPLATE: z.string().optional(),
   /** The E2B template the orchestrator's acceptance sandboxes start from; empty means E2B's `base` (docs/DEPLOY.md §5). */
   E2B_TEMPLATE: z.string().optional(),
-  BROWSERBASE_API_KEY: z.string().optional(),
   KMS_KEY_ID: z.string().optional(),
   DEV_MASTER_KEY: z.string().optional(),
   SESSION_TOKEN_SECRET: z.string().optional(),

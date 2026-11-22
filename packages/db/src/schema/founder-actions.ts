@@ -1,5 +1,5 @@
 /**
- * 0162 — founder-executed actions: a request an agent prepared, the exact payload with its hash, what the note showed,
+ * 0163 — founder-executed actions: a request an agent prepared, the exact payload with its hash, what the note showed,
  * and what became of the founder's press. Members read; only the services write.
  */
 import { index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";

@@ -211,8 +211,10 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("booking_settings", s.bookingSettings, "service", () => ({ timeZone: "America/New_York" })),
   spec("booking_services", s.bookingServices, "service", () => ({ name: "Lesson", durationMin: 60, currency: "USD" })),
   spec("bookings", s.bookings, "service", heldBooking),
-  // 0162 founder-executed requests (written by the gateway with the service role)
+  // 0163 founder-executed requests (written by the gateway with the service role)
   spec("founder_actions", s.founderActions, "service", () => ({ connectorKey: "lightbringer_mcp", tool: "request_patent_preparation", payload: { invention_id: uniq("inv") }, payloadHash: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""), summary: { title: "Ask Lightbringer to prepare your patent filing", lines: [], facts: {} } })),
+  // 0162 the hosted browser's write steps (written by the gateway's browser tools with the service role)
+  spec("browser_steps", s.browserSteps, "service", (f) => ({ agentId: f.agentId, sessionId: crypto.randomUUID(), siteKey: "example.test", tool: "browser_click", target: "Save button", class: "reversible", why: "Save the draft.", url: "https://example.test/edit" })),
   spec("pay_links", s.payLinks, "admin", () => ({ key: uniq("pay").toLowerCase(), label: "Starter", url: `https://buy.stripe.com/${uniq("test")}`, source: "pasted" }), { archivedAt: new Date("2026-11-16T00:00:00Z") }),
 ];
 

@@ -61,7 +61,9 @@ import { grantsOutboundTools, READER_UNAVAILABLE, type UntrustedReader } from ".
 import { decideFirstParty, FIRST_PARTY_REPO_TOOLS, type RepoMetadataCache } from "./code-repository";
 import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
-import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
+import { AGENTS_STOPPED_POLICY_ID, BUSINESS_ARCHIVED_POLICY_ID, checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
+import type { BrowserSessions } from "@foundmill/connectors";
+import { stopBrowserSessions } from "./browser";
 import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
 import { ownSenderUnsubscribeUrl, platformMailSwitchRefusal, preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
 import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallRequestParsed, type CallResponse, type DenyResponse, type RateLimitedResponse } from "./types";
@@ -120,6 +122,8 @@ export interface GatewayDeps {
   recipientBasis?: RecipientBasisCheck;
   /** The idea box's bot check (turnstile.ts); no secret: mock on a development stack, refused elsewhere. */
   turnstile?: TurnstileConfig;
+  /** The hosted browser's live sessions (browser.ts); null or absent without the provider's key. */
+  browserSessions?: BrowserSessions | null;
 }
 
 const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();
@@ -419,6 +423,8 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
       const { policyId, reasons } = e.denial;
       const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [policyId] });
       log.warn({ reasons, policyIds: [policyId] }, "tool call refused: agent or club state");
+      // Stop all agents also ends the project's browser sessions; the api asks for that too (`/v1/browser/stop`).
+      if (policyId === AGENTS_STOPPED_POLICY_ID || policyId === BUSINESS_ARCHIVED_POLICY_ID) await stopBrowserSessions(deps, { businessId }, "gateway").catch(() => undefined);
       return { status: 403, body: { outcome: "deny", reasons, policyIds: [policyId], costMinor: 0, auditId: audit.id } };
     }
     throw e;
@@ -606,7 +612,10 @@ export function policyAmountMinor(input: { spendsMoney: boolean; declaredMinor: 
 
 async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, args: unknown): Promise<EvaluateInputInput> {
   const { connector, tool, business, agent } = loaded;
-  const hints = connector.policyHints[tool.name] ?? {};
+  // The hosted browser reads the step from the page (the element behind the ref): a change the founder can undo runs,
+  // one that sends asks, one that pays or agrees is a hard gate. Unreadable: the tool's own, strictest hints stand.
+  const stepHints = connector.stepHints ? await connector.stepHints(tool.name, args, session.businessId).catch(() => null) : null;
+  const hints = stepHints ?? connector.policyHints[tool.name] ?? {};
   const attrs = toolAttributes(connector.key, tool.name);
   const autonomy = agentAutonomy(agent, business.businessMode);
 
@@ -618,6 +627,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     requiresKitMode: hints.requiresKitMode ?? false,
     irreversible: hints.irreversible ?? false,
     hardGate: hints.hardGate ?? false,
+    unclassified: hints.unclassified ?? false,
     finance: attrs.finance,
     contract: attrs.contract,
     paymentRecord: attrs.paymentRecord,
@@ -780,6 +790,9 @@ async function hardGateDescriptor(deps: GatewayDeps, session: SessionToken, load
     reason: "hard_gate",
   };
   try {
+    // A step read from the page (the hosted browser) is described only while it still reads as a hard gate: the page
+    // may have moved since the policy saw it, and nothing but a description may come out of this call.
+    if (loaded.connector.stepHints && loaded.connector.policyHints[loaded.tool.name]?.hardGate !== true && (await loaded.connector.stepHints(loaded.tool.name, args, session.businessId).catch(() => null))?.hardGate !== true) return fallback;
     const ctx: ToolContext = { businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId, integration: placeholderIntegration(loaded, modeFor(deps, loaded.connector.key)), log, mode: modeFor(deps, loaded.connector.key) };
     const result = await loaded.connector.callTool(loaded.tool.name, args, ctx);
     if (result.error?.code === "hard_gate" && result.data && typeof result.data === "object") return result.data as HumanActionDescriptor;
@@ -797,6 +810,10 @@ function placeholderIntegration(loaded: Loaded, mode: ConnectorMode): Integratio
 }
 
 async function queueApproval(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, hardGate: boolean, humanAction?: HumanActionDescriptor): Promise<{ id: string; approvedByAgent: boolean }> {
+  // A hard stop on a website (the hosted browser) is the founder's own press, and the founder hears of it in the Inbox
+  // like an ask. What it stores is what the founder needs (the site, the address, the words on the button, the amount,
+  // the step whose screenshot shows the page), never the ref: a hard gate is denied before any approval is used.
+  const websiteStop = hardGate && humanAction !== undefined && loaded.connector.stepHints !== undefined;
   const amount = req.context.amountMinor !== undefined && req.context.amountMinor > 0 ? { amountMinor: req.context.amountMinor, currency: req.context.currency ?? loaded.agent.currency } : null;
   const summary = humanAction ? `${humanAction.title}: ${humanAction.instructions}`.slice(0, 1000) : `${loaded.agent.name} wants to run ${loaded.connector.displayName} › ${loaded.tool.name}${req.context.recipient ? ` for ${req.context.recipient}` : ""}`.slice(0, 1000);
   return deps.db.transaction(async (tx) => {
@@ -808,7 +825,7 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
       ...(hardGate ? { taskId: null } : {}),
       connectorKey: loaded.connector.key,
       tool: loaded.tool.name,
-      args: argsObject(args),
+      args: argsObject(websiteStop ? humanAction.args : args),
       reasons: decision.reasons,
       ...(amount ? { amountMinor: amount.amountMinor, currency: amount.currency } : {}),
       // Routed by Team › Responsibilities (AC-11.9.2); a hard gate is always the founder's, never routed.
@@ -847,7 +864,7 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
     });
     // The founder answers an "ask" in the Inbox (audit FR-01): one decision item names the agent, the task, the call
     // and its amount, and its Approve or Reject reaches the session waiting on it. A hard gate stays a note.
-    if (!hardGate) {
+    if (!hardGate || websiteStop) {
       const { item } = await openApprovalItem(tx, session.businessId, approval, { agentId: session.agentId, agentName: loaded.agent.name, connectorName: loaded.connector.displayName, sourceEventIds: [requested.id] });
       await writeGatewayEvent(tx, {
         businessId: session.businessId,
@@ -862,6 +879,9 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
 
 function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: EvaluateResult) {
   const hints = loaded.connector.policyHints[loaded.tool.name] ?? {};
+  // A step on a website is read from the page, not from a list: only the founder approves one, never an agent the
+  // Responsibilities matrix names (security review, Nov 22, 2026).
+  if (loaded.connector.stepHints) return null;
   // A merge is a merge whatever its amount: checked before the spend threshold, so a merge carrying an amount is not routed as spend.
   if (loaded.connector.key === "github" && loaded.tool.name === "merge_pr") return "merge_to_main" as const;
   // An invoice or payment page is the founder's to approve (founder, Nov 16, 2026): never routed as spend, so an agent

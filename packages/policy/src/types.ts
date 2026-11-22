@@ -50,6 +50,8 @@ export const ToolCtx = z.object({
   contract: z.boolean().default(false),
   /** True when this call changes a security setting (BUILD §2.2). Decided by the gateway from the call's arguments, not by the agent. */
   securitySettings: z.boolean().default(false),
+  /** True when the gateway could not classify what this call would do (a hosted-browser step with no readable target): asks in every mode. */
+  unclassified: z.boolean().default(false),
   /**
    * True when this call creates an immutable or customer-visible record that brings money in (a finalized invoice, a
    * payment page). Decided by the gateway (`PAYMENT_RECORD_TOOLS`), never by the agent. Automated mode asks for it unless

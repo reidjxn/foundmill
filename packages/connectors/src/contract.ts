@@ -114,6 +114,8 @@ export interface PolicyHint {
    * `POST /v1/founder-actions/execute`). It is in no agent's tool list, and the policy forbids it without `founderPress`.
    */
   founderExecuted?: boolean;
+  /** What the call would do could not be classified (a hosted-browser step): it asks first in every mode. */
+  unclassified?: boolean;
 }
 export type PolicyHints = Record<string, PolicyHint>;
 
@@ -313,6 +315,13 @@ export interface Connector<Cfg = unknown> {
    */
   estimateCostMinor?: (name: string, args: unknown) => number | null;
   policyHints: PolicyHints;
+  /**
+   * The hints of one call, read from what the call would act on (the hosted browser: the element behind a ref on the
+   * page as it was last read). The gateway uses them in place of the tool's own `policyHints` entry for that call.
+   * Null: the tool's own entry stands. A connector that declares this gives its tools the strictest entry a call of
+   * theirs can have, so a call it cannot read asks first.
+   */
+  stepHints?(name: string, args: unknown, businessId: string): Promise<PolicyHint | null>;
   mock: Connector<Cfg>; // same surface, deterministic fixtures
 }
 

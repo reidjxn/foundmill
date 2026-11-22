@@ -1,5 +1,5 @@
 /**
- * Founder-executed requests (0162; founder, Nov 22, 2026): one open request per payload, the hash is computed here and
+ * Founder-executed requests (0163; founder, Nov 22, 2026): one open request per payload, the hash is computed here and
  * never taken from a caller, and `claim` lets exactly one press through.
  */
 import { founderActionPayloadHash } from "@foundmill/shared";
