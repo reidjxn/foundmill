@@ -17,9 +17,8 @@ import {
   prompts,
   restoredWorkspaceNote,
   runDeterministicChecks,
-  allChecksPassed,
 } from "@foundmill/agents";
-import { type ChatMessage, type ModelClient, ModelOutputError, type RouteKey, SkillGradeOutput, createModelClient, gateModelClient } from "@foundmill/models";
+import { type ChatMessage, type Effort, type ModelClient, type ModelKey, ModelOutputError, type RouteKey, SkillGradeOutput, createModelClient, gateModelClient } from "@foundmill/models";
 import type { TypedReadInjectionCase } from "./injection/typed-reads";
 import { ActionPlanOutput, type GoldenTask, type GoldenTaskResult, type InjectionCase, type InjectionCaseResult, OUTPUT_SCHEMAS } from "./types";
 
@@ -76,7 +75,7 @@ export interface HarnessOptions {
 
 const GRADER_PROMPT = prompts.skillGraderPrompt.render({});
 
-function graderMessages(task: Pick<GoldenTask, "prompt" | "rubric">, output: string, checks: Array<{ kind: string; passed: boolean; detail?: string }>): ChatMessage[] {
+function graderMessages(task: Pick<GoldenTask, "prompt" | "rubric">, output: string, checks: ReadonlyArray<{ kind: string; passed: boolean; detail?: string }>): ChatMessage[] {
   const rubric = task.rubric.map((c, i) => `${i + 1}. ${c}`).join("\n");
   const checkLines = checks.length ? checks.map((c) => `- ${c.kind}: ${c.passed ? "passed" : "FAILED"}${c.detail ? ` (${c.detail})` : ""}`).join("\n") : "- none";
   return [
@@ -90,6 +89,31 @@ function graderMessages(task: Pick<GoldenTask, "prompt" | "rubric">, output: str
 export function weightedScore(lines: ReadonlyArray<{ score: number }>, fallback: number): number {
   if (lines.length === 0) return fallback;
   return lines.reduce((s, l) => s + l.score, 0) / lines.length;
+}
+
+/**
+ * The grader's score for one agent output: the lower of its overall score and its rubric lines' mean, 0 when a
+ * deterministic check failed. `modelOverride` and `effort` grade with another model (the grader-agreement eval, WP-09 T9).
+ */
+export async function gradeGoldenOutput(
+  client: ModelClient,
+  task: Pick<GoldenTask, "id" | "prompt" | "rubric">,
+  output: string,
+  checks: ReadonlyArray<{ kind: string; passed: boolean; detail?: string }>,
+  opts: { route?: RouteKey; modelOverride?: ModelKey; effort?: Effort } = {},
+): Promise<{ score: number; grade: z.infer<typeof SkillGradeOutput>; costMinor: number }> {
+  const graded = await client.complete({
+    route: opts.route ?? "skillGrader",
+    system: GRADER_PROMPT,
+    messages: graderMessages(task, output, checks),
+    schema: SkillGradeOutput,
+    scope: `eval:${task.id}:grader${opts.modelOverride ? `:${opts.modelOverride}` : ""}`,
+    ...(opts.modelOverride ? { modelOverride: opts.modelOverride } : {}),
+    ...(opts.effort ? { effort: opts.effort } : {}),
+  });
+  const graderScore = Math.min(graded.json.score, weightedScore(graded.json.lines, graded.json.score));
+  // A failed deterministic check is authoritative (BUILD §12.5): the score is 0.
+  return { score: checks.every((c) => c.passed) ? graderScore : 0, grade: graded.json, costMinor: graded.cost.costMinorInt };
 }
 
 /** Run one golden task end to end: agent → deterministic checks → grader. Never throws; errors land in `error`. */
@@ -117,17 +141,9 @@ export async function runGoldenTask(task: GoldenTask, opts: HarnessOptions): Pro
       policyViolations: [],
     });
 
-    const graded = await opts.client.complete({
-      route: opts.graderRoute ?? "skillGrader",
-      system: GRADER_PROMPT,
-      messages: graderMessages(task, result.text, checkResults),
-      schema: SkillGradeOutput,
-      scope: `eval:${task.id}:grader`,
-    });
-    costMinor += graded.cost.costMinorInt;
-    const graderScore = Math.min(graded.json.score, weightedScore(graded.json.lines, graded.json.score));
-    const score = allChecksPassed(checkResults) ? graderScore : 0;
-    return { ...base, score, passed: score >= threshold, checks: checkResults, grader: graded.json, outputText: result.text, costMinor, durationMs: Date.now() - started };
+    const graded = await gradeGoldenOutput(opts.client, task, result.text, checkResults, { route: opts.graderRoute });
+    costMinor += graded.costMinor;
+    return { ...base, score: graded.score, passed: graded.score >= threshold, checks: checkResults, grader: graded.grade, outputText: result.text, costMinor, durationMs: Date.now() - started };
   } catch (err) {
     return { ...base, score: 0, passed: false, durationMs: Date.now() - started, error: err instanceof Error ? err.message : String(err) };
   }

@@ -240,7 +240,8 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
             messages: [{ role: "user", content: `${test.task.prompt}\n\n\`\`\`json\n${JSON.stringify({ task: { id: test.id, title: test.task.title, kind: template.taskKinds[0] ?? "ops" }, fixtures: test.task.fixtures })}\n\`\`\`` }],
             modelOverride: route.modelKey,
             // The agent's whole system prompt (about 3k tokens) is the same on every test: written once, then read (audit BF-15).
-            cacheSystem: true,
+            // The breakpoint sits on it, block 0, so the per-test block after it never forces a new write (WP-09 T9).
+            cacheSystem: 0,
             scope: `training:${agent.id}`,
             attribution,
             // A refusal is the candidate's answer here, scored below, never an error that ends the run (WP-09 T5).
