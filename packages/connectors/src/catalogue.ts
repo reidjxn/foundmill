@@ -13,6 +13,7 @@ import { createCompaniesHouseConnector } from "./connectors/companies_house";
 import { createDomainsConnector } from "./connectors/domains";
 import { createDropboxSignConnector } from "./connectors/dropbox_sign";
 import { createE2bConnector } from "./connectors/e2b";
+import { createFfmpegConnector, createGimpConnector, createInkscapeConnector, createLibreofficeConnector } from "./connectors/cli_anything";
 import { createEcbRatesConnector } from "./connectors/ecb_rates";
 import { createGithubConnector } from "./connectors/github";
 import { createGmailConnector } from "./connectors/gmail";
@@ -125,6 +126,11 @@ export const BUILTIN_CONNECTOR_FACTORIES = Object.freeze({
   quarantine: createQuarantineConnector,
   // A project's Foundmill sending address (package 1.5): the platform's own SendGrid account, nothing to connect.
   platform_mail: createPlatformMailConnector,
+  // Open-source programs the team drives in the project's sandbox (CLI-Anything, founder 2026-11-19): nothing to connect.
+  cli_inkscape: createInkscapeConnector,
+  cli_libreoffice: createLibreofficeConnector,
+  cli_ffmpeg: createFfmpegConnector,
+  cli_gimp: createGimpConnector,
 } satisfies Record<string, ConnectorFactory>);
 
 /**

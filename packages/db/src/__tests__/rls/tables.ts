@@ -56,6 +56,18 @@ const nextToolCategory = (businessId: string) => {
   return category;
 };
 
+/**
+ * 0161: a held booking an hour long at its own hour, so no two samples overlap (`bookings_no_overlap`). It keeps its own
+ * count: a call of the shared `counter` would shift the channel keys the `channels` samples cycle through.
+ */
+let bookingHour = 0;
+const heldBooking = (f: BusinessFixture) => {
+  if (!f.bookingServiceId) throw new Error("bookings sample: the fixture has no booking service");
+  const start = new Date(Date.UTC(2027, 0, 1) + ++bookingHour * 3_600_000);
+  const end = new Date(start.getTime() + 3_600_000);
+  return { serviceId: f.bookingServiceId, status: "held", startsAt: start, endsAt: end, busy: `[${start.toISOString()},${end.toISOString()})`, holdExpiresAt: new Date("2027-01-01T00:10:00Z") };
+};
+
 const spec = <T extends TenantTable>(name: string, table: T, write: WriteMode, sample: TenantTableSpec["sample"], patch?: Record<string, unknown>): TenantTableSpec => ({
   name,
   table,
@@ -194,6 +206,11 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   // 0131: the founder's own payment links; owner and admin write (WP-07 T7).
   // 0154 the tool scout's memory (written by the gateway's platform tools and the api with the service role)
   spec("tool_needs", s.toolNeeds, "service", (f) => ({ category: nextToolCategory(f.businessId), reason: "Customers need a way to pay." })),
+  // 0161 booking (written by the api with the service role; one setup row per business, a second insert of the
+  // generated suite runs only as an app role, which is refused before the unique key is reached)
+  spec("booking_settings", s.bookingSettings, "service", () => ({ timeZone: "America/New_York" })),
+  spec("booking_services", s.bookingServices, "service", () => ({ name: "Lesson", durationMin: 60, currency: "USD" })),
+  spec("bookings", s.bookings, "service", heldBooking),
   spec("pay_links", s.payLinks, "admin", () => ({ key: uniq("pay").toLowerCase(), label: "Starter", url: `https://buy.stripe.com/${uniq("test")}`, source: "pasted" }), { archivedAt: new Date("2026-11-16T00:00:00Z") }),
 ];
 
@@ -220,6 +237,31 @@ export const COLLABORATOR_CLOSED_MONEY_LEGAL: readonly string[] = ["transactions
  * (`conversions`, read through `member_conversions` with `amount_minor` null; rls/collaborator-finance.test.ts).
  */
 export const COLLABORATOR_READS_THROUGH_VIEW: readonly string[] = ["conversions"];
+
+/**
+ * Tables with RLS on and no policy: only the service role reads or writes them, on purpose (the advisor's lint 0008,
+ * "RLS enabled, no policy"). rls/advisors.test.ts fails when a table joins or leaves this list without an edit here.
+ */
+export const SERVICE_ONLY_TABLES: readonly string[] = [
+  "account_admissions", // 0091
+  "account_usage", // 0138
+  "account_outbox", // 0085
+  "attributions", // 0088
+  "credentials", // 0011
+  "domain_registrants", // 0150
+  "founder_cancel_links", // 0097
+  "idea_drafts", // 0086
+  "waitlist_entries", // 0086
+  "person_handle_releases", // 0080
+  "owner_plans", // 0144
+  "persona_portraits", // 0067
+  "project_update_deliveries", // 0134
+  "reports", // 0136
+  "site_address_holds", // 0130
+  "platform_metric_days", // 0109
+  "retired_mail_local_parts", // 0078
+  "waitlist_batches", // 0153
+];
 
 /** Keeps the catalogue honest: every spec must name the table its Drizzle object points at. */
 export const expectedTableNames = () => TENANT_TABLES.map((t) => t.name);
@@ -313,7 +355,7 @@ export const NON_TENANT_TABLES = [
   "page_quiz_counts",
   // 0150: what a plan knows about its owner (account-scoped, service role only); covered by rls/owner-plans.test.ts.
   "owner_plans",
-  // 0157: the owner's shared included budget (account-scoped, service role only); covered by rls/owner-credits.test.ts.
+  // 0162: the owner's shared included budget (account-scoped, service role only); covered by rls/owner-credits.test.ts.
   "owner_credits",
   // 0091: admissions (user-owned, service role only) and invitations (business-scoped, but its token hash and address
   // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.

@@ -36,6 +36,7 @@ export const REAL_OUTCOME_PREDICATE = `(
           or (e.type = 'mail.sent'        and e.payload->>'simulated' = 'false')
           or (e.type = 'page.followed'    and e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-page')
           or (e.type = 'payment.received' and e.actor->>'kind' = 'webhook')
+          or (e.type = 'booking.confirmed' and e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-booking')
           or (e.type = 'lead.replied'     and e.actor->>'kind' = 'webhook' and e.payload->>'sentiment' in ('positive','neutral'))
           or (e.type = 'post.published'   and e.payload->>'visited' = 'true' and (e.actor->>'kind' = 'user' or (e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-page')))))`;
 

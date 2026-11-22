@@ -138,3 +138,12 @@ Files that two sessions could both touch have one owner each: `packages/models/s
 
 - **Spending backstops (WP-00 S13):** Anthropic Console monthly limit about $750 (above the product's own $600 cap); E2B team monthly limit about $100; Redis `maxmemory 256mb` with `noeviction` (set on Railway on Nov 20, so a full Redis refuses writes instead of dropping rate-limit and people-limit counters). The founder sets the Anthropic and E2B limits in their dashboards.
 - **Session 16** fixes the nightly outcome eval `sourcing_manufacturing.records_suppliers`, which failed on Nov 18, 19 and 20.
+
+### The founder's answers of Nov 22, 2026 (Z.ai, WP-13 Z3)
+
+After speaking to a lawyer (reported by the coordinating session):
+1. No special DPA is needed. Foundmill relies on Z.ai's published terms: the Additional Terms for API Services 3(b) and Terms IV.7 (no use of API customers' content to develop or improve their services), and the Data Processing Addendum for API Services at the end of their privacy policy (content is processed in real time and not stored, 4(b)).
+2. No AI-labeling change. Terms III.5 means not claiming AI-generated work is human-made, which Foundmill does not do, and GLM adds its own markings.
+3. No routing change for finance or legal agents on the free plan. They give general help, not professional advice, so Additional Terms 1(f)(iii) and (iv) do not apply.
+
+The free plan's switch (WP-13 T10) no longer waits on Z.ai paperwork.

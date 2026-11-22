@@ -13,7 +13,7 @@ Session 3 of the launch plan (plans and money). Founder's answers of Nov 19, 202
 This closes the open item in the WP-14 T14 log ("A15 read loosely").
 
 ## What changed
-- **Migration 0157 `owner_credits`** (account-scoped: user, month, granted, balance, spent, USD only). A person's row opens
+- **Migration 0162 `owner_credits`** (account-scoped: user, month, granted, balance, spent, USD only). A person's row opens
   on their first charge of the month with their plan's budget and is shared by every project they took charge of
   (`businesses.created_by`, the meaning `includedCreditsFor` already had). Reads: a member who is not a collaborator of one
   of the owner's projects (policy `owner_credits_select`, security-definer helper `fm_shares_owner_budget`, granted to
@@ -55,7 +55,7 @@ This closes the open item in the WP-14 T14 log ("A15 read loosely").
   own balance for the tests of the used-up state.
 - `billing.plan` and `business.autopilot.get` read one more row (the shared budget): the round-trip ceilings in
   `round-trips.test.ts` are 5.
-- The migration number is the next free one at the time of writing (0157, after main's 0156).
+- The migration number is the next free one at the time of writing (0162, after main's 0161).
 
 ## Not done
 - A plan change in the middle of a month does not change that month's budget (the row keeps what it opened with).

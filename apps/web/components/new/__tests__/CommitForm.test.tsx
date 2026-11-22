@@ -286,7 +286,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(chips()).toEqual([
       ["game-mode", "Personal"],
       ["business-mode", "Assisted"],
-      ["spend-cap", "Asks you above €5.00"],
+      ["spend-cap", "Asks you before any spend"],
       ["archetype", "B2B SaaS"],
       ["autopilot", "Autopilot off"],
     ]);
@@ -321,6 +321,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getByTestId("commit-form").dataset.businessMode).toBe("automated");
     expect(spendCapSummary(" 1,000 ", "USD")).toBe("Asks you above $1,000.00");
     expect(spendCapSummary("abc", "USD")).toBe("Spend cap to fix");
+    expect(spendCapSummary("0", "USD")).toBe("Asks you before any spend");
   });
 
   it("asks for the archetype inside More options when the card has none", () => {
@@ -336,8 +337,8 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(document.querySelector('[data-option="personal"]')?.getAttribute("data-selected")).toBe("true");
     expect(document.querySelector('[data-option="b2b_saas"]')?.getAttribute("data-selected")).toBe("true");
     expect((screen.getByLabelText(/Business name/) as HTMLInputElement).value).toBe("Ledgerly");
-    // The careful defaults (WP-14 T11, A4): a 5.00 cap for each action, the overnight shift off, the initials mark.
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("5");
+    // The careful defaults (WP-14 T11; founder, 2026-11-22): a cap of 0, so every spend asks, the overnight shift off, the initials mark.
+    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("0");
     expect(screen.getByRole("switch", { name: "Overnight shift" }).getAttribute("aria-checked")).toBe("false");
     expect(screen.getByTestId("autopilot-choice").textContent).toContain("Off unless you turn it on.");
     expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/Screen, not legal clearance/);
@@ -422,20 +423,20 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     for (const id of ["reassure-name", "reassure-logo", "reassure-how-it-runs", "reassure-archetype", "reassure-mode"]) expect(screen.queryByTestId(id)).toBeNull();
     // Information stays: the credits line, the chips and the example lines are not tutoring.
     expect(screen.getByTestId("commit-credits-line")).toBeTruthy();
-    expect(screen.getByTestId("how-it-runs-summary").textContent).toContain("Asks you above €5.00");
+    expect(screen.getByTestId("how-it-runs-summary").textContent).toContain("Asks you before any spend");
     expect(document.querySelectorAll("[data-mode-example]")).toHaveLength(3);
     // Panel titles carry the defined words as plain text when guidance is off, never a broken underline.
     expect(screen.getByTestId("archetype-panel").querySelector('[data-term="archetype"]')?.getAttribute("data-guided")).toBe("off");
   });
-  it("keeps the careful cap when the mode changes, drops to 0 for Augmented, and never overwrites what the founder typed", () => {
+  it("keeps the cap at 0 in every mode, and never overwrites what the founder typed", () => {
     renderForm();
     const cap = () => (screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value;
     fireEvent.click(screen.getByLabelText(/Automated/));
-    expect(cap()).toBe("5");
+    expect(cap()).toBe("0");
     fireEvent.click(screen.getByLabelText(/Augmented/));
     expect(cap()).toBe("0");
     fireEvent.click(screen.getByLabelText(/Assisted/));
-    expect(cap()).toBe("5");
+    expect(cap()).toBe("0");
     fireEvent.change(screen.getByLabelText(/Spend cap per action/), { target: { value: "75" } });
     fireEvent.click(screen.getByLabelText(/Augmented/));
     expect(cap()).toBe("75");
@@ -446,7 +447,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     await act(async () => {
       fireEvent.click(screen.getByTestId("take-charge"));
     });
-    expect(onCommit.mock.calls[0]![0]).toMatchObject({ businessMode: "assisted", gameMode: "personal", spendCapMinor: 500, currency: "EUR", autopilot: false, logo: null });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ businessMode: "assisted", gameMode: "personal", spendCapMinor: 0, currency: "EUR", autopilot: false, logo: null });
     expect(onCommit.mock.calls[0]![0]).not.toHaveProperty("overnight");
     // Change two: the cap and the overnight shift.
     fireEvent.change(screen.getByLabelText(/Spend cap per action/), { target: { value: "40" } });
@@ -575,7 +576,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
       fireEvent.click(screen.getByTestId("take-charge-bottom"));
     });
     expect(onCommit).toHaveBeenCalledTimes(1);
-    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", confirmAdult: true, archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 500, kit: { primary: "#1b4fd8" } });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", confirmAdult: true, archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 0, kit: { primary: "#1b4fd8" } });
   });
 
   it("does not ask again for a LIVE start once the founder's 18+ confirmation is on record, and never for Personal", async () => {

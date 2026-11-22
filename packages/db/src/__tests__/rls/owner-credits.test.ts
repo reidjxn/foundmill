@@ -1,5 +1,5 @@
 /**
- * 0157 — the owner's shared included budget (founder, Nov 19, 2026): `owner_credits` is account-scoped. A person who is
+ * 0162 — the owner's shared included budget (founder, Nov 19, 2026): `owner_credits` is account-scoped. A person who is
  * a member (not a collaborator) of a project the owner took charge of reads the owner's row, as they read that
  * project's own credits; nobody else does; no client role writes it, the owner included: the budget cannot be topped
  * up by hand. One row a person and month, never below zero, US dollars only, and it goes with the account.

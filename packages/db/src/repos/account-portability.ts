@@ -28,7 +28,7 @@ export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   // 0140 (WP-09 T16): the person's entry plan; the Stripe ids stay with the services, as the client grant has it.
   "account_plans.user_id": { export: true, onDelete: "cascade", omit: ["stripe_customer_id", "stripe_subscription_id"] },
   "owner_plans.user_id": { export: true, onDelete: "cascade", note: "when the person was invited, and the first Founder or Studio price they paid (WP-14 T14)" },
-  // 0157: the owner's shared included budget for a month (WP-14, founder Nov 19, 2026).
+  // 0162: the owner's shared included budget for a month (WP-14, founder Nov 19, 2026).
   "owner_credits.user_id": { export: true, onDelete: "cascade", note: "the month's included team budget shared by the person's projects" },
   "partner_waitlist.user_id": { export: true, onDelete: "cascade", note: "the Partner waitlist entry and the consent given (WP-14 T14)" },
   // 0138 (WP-09 T2): model calls the person made before a project; the costs are the platform's, read by service only.

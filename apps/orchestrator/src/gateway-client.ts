@@ -96,6 +96,14 @@ export interface AccountEmailRequest {
 /** Sent (on the mock: simulated), or not, with the gateway's reason and a plain sentence; never an error for "not sent". */
 export type NotifyEmailResponse = { sent: true; simulated: boolean; eventId: string | null } | { sent: false; reason: string; message: string };
 
+/** A booking's email to its customer (`POST /v1/platform-mail/booking`): ids and the kind, never words or an address. */
+export interface BookingMailRequest {
+  businessId: string;
+  bookingId: string;
+  kind: "confirmation" | "reminder" | "canceled" | "rescheduled";
+}
+export type BookingMailResponse = { sent: true; simulated: boolean } | { sent: false; reason: string };
+
 export interface GatewayClient {
   readonly baseUrl: string;
   mintSessionToken(input: MintSessionTokenRequest): Promise<MintSessionTokenResponse>;
@@ -109,6 +117,8 @@ export interface GatewayClient {
   call(sessionToken: string, request: GatewayCallRequest, options?: { timeoutMs?: number }): Promise<GatewayCallResponse>;
   /** Asks for one email to a person, authenticated as this service (the api or the orchestrator). "Not sent" is an answer, not an error. */
   notifyEmail(input: NotifyEmailRequest): Promise<NotifyEmailResponse>;
+  /** Asks for a booking's email to its customer (the reminder pass). "Not sent" is an answer, not an error. */
+  bookingMail(input: BookingMailRequest): Promise<BookingMailResponse>;
   /** The same route for an email about the account itself (the orchestrator's only). */
   accountEmail(input: AccountEmailRequest): Promise<NotifyEmailResponse>;
   health(): Promise<{ ok: boolean; mode?: "mock" | "live" }>;
@@ -305,6 +315,7 @@ export function createGatewayClient(options: GatewayClientOptions): GatewayClien
     mintSessionToken: (input) => request<MintSessionTokenResponse>("POST", "/v1/session-tokens", { body: input, token: signServiceToken(options.serviceSecret, serviceName, DEFAULT_SERVICE_TOKEN_TTL_SECONDS, options.now) }),
     call: (sessionToken, body, opts) => request<GatewayCallResponse>("POST", "/v1/call", { body, token: sessionToken, okStatuses: [200, 403, 429], ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) }),
     notifyEmail: (input) => request<NotifyEmailResponse>("POST", "/v1/notify/email", { body: input, token: signServiceToken(options.serviceSecret, serviceName, DEFAULT_SERVICE_TOKEN_TTL_SECONDS, options.now) }),
+    bookingMail: (input) => request<BookingMailResponse>("POST", "/v1/platform-mail/booking", { body: input, token: signServiceToken(options.serviceSecret, serviceName, DEFAULT_SERVICE_TOKEN_TTL_SECONDS, options.now) }),
     accountEmail: (input) => request<NotifyEmailResponse>("POST", "/v1/notify/email", { body: input, token: signServiceToken(options.serviceSecret, serviceName, DEFAULT_SERVICE_TOKEN_TTL_SECONDS, options.now) }),
     async downloadArchive(sessionToken, body, opts) {
       const controller = new AbortController();
@@ -349,6 +360,9 @@ export function createOfflineGatewayClient(baseUrl = "http://gateway.offline"): 
       // Like every offline answer, a mock one: recorded, never sent.
       notifyEmails.push(input);
       return { sent: true, simulated: true, eventId: null };
+    },
+    async bookingMail() {
+      return { sent: true, simulated: true };
     },
     async accountEmail(input) {
       accountEmails.push(input);

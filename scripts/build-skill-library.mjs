@@ -33,6 +33,7 @@ const REQUIRED = [
 ];
 /** Fields that must be present but may be empty. */
 const MAY_BE_EMPTY = ["default_for"];
+/** Optional: the defaults release that first attached the skill (WP-06 T6); absent means 1. */
 const ALLOW_SUFFIX = / # us-english-allow$/;
 const GROUPS = ["craft", "judgement", "execution"];
 

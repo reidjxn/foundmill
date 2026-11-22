@@ -6,7 +6,7 @@
  * once each.
  */
 import { cache } from "react";
-import { createApiClient, SERVER_LIMITS, type RouterOutputs } from "./trpc";
+import { appErrorCode, createApiClient, SERVER_LIMITS, trpcErrorCode, type RouterOutputs } from "./trpc";
 import { retryDroppedRead } from "./trpc-server";
 
 export type PublicProjectPage = NonNullable<RouterOutputs["publicPage"]["bySlug"]>;
@@ -45,3 +45,36 @@ export type PublicPageQuiz = NonNullable<RouterOutputs["publicQuiz"]["bySlug"]>;
  * failure leaves the quiz out rather than the page.
  */
 export const publicPageQuiz = cache(async (slug: string): Promise<PublicPageQuiz | null> => publicApi().publicQuiz.bySlug.query({ slug }).catch(() => null));
+
+export type PublicBookingSetup = RouterOutputs["publicBooking"]["get"];
+export type PublicManagedBooking = RouterOutputs["publicBooking"]["manage"];
+
+/**
+ * The live booking setup of the page at `slug` (founder, Nov 22, 2026), or null when booking is not open there: not set
+ * up, off, or the page not public. Any other failure rejects as the API does.
+ */
+export const publicBookingSetup = cache(async (slug: string): Promise<PublicBookingSetup | null> => {
+  try {
+    return await publicApi().publicBooking.get.query({ slug });
+  } catch (err) {
+    if (appErrorCode(err) === "booking_closed" || trpcErrorCode(err) === "NOT_FOUND") return null;
+    throw err;
+  }
+});
+
+/** What the customer's link shows, or null for a link that is not valid. Any other failure rejects as the API does. */
+export async function publicManagedBooking(token: string): Promise<PublicManagedBooking | null> {
+  try {
+    return await publicApi().publicBooking.manage.query({ token });
+  } catch (err) {
+    if (appErrorCode(err) === "booking_not_found" || trpcErrorCode(err) === "NOT_FOUND") return null;
+    throw err;
+  }
+}
+
+/** Like the project page, but for the optional pieces on it: never fails the page. Null when booking is not live. */
+export const publicBookingBlock = cache(async (slug: string): Promise<Pick<PublicBookingSetup, "services"> | null> =>
+  publicApi()
+    .publicBooking.block.query({ slug })
+    .catch(() => null),
+);

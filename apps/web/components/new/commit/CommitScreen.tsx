@@ -271,6 +271,7 @@ export function spendCapSummary(spendCap: string, currency: string): string {
   const typed = spendCap.trim();
   if (!typed) return "No spend cap";
   const minor = Math.round(Number(typed.replace(/[\s,_]/g, "")) * 100);
+  if (minor === 0) return "Asks you before any spend";
   return Number.isFinite(minor) ? `Asks you above ${formatMoney({ amountMinor: minor, currency })}` : "Spend cap to fix";
 }
 

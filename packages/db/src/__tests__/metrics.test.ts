@@ -131,10 +131,21 @@ describe("repos.metrics.snapshot", () => {
   });
 
   it("isRealOutcome and the SQL agree on every fixture event", async () => {
+    // Booking (founder, Nov 22, 2026), after the snapshots above so their counts stand: a visitor's booking is real;
+    // a test booking and one not written by the public route are not.
+    const { rows: owners } = (await h.db.execute(sql`select business_id from events limit 1`)) as unknown as { rows: { business_id: string }[] };
+    const facts = { bookingId: "00000000-0000-4000-8000-0000000000b1", serviceId: "00000000-0000-4000-8000-0000000000b2", entityId: null, startsAt: "2026-11-20T15:00:00.000Z" };
+    for (const [actor, payload] of [
+      [{ kind: "system", id: "public-booking" }, facts],
+      [{ kind: "system", id: "public-booking" }, { ...facts, simulated: true }],
+      [{ kind: "user", id: "00000000-0000-4000-8000-0000000000b3" }, facts],
+    ] as const) {
+      await h.db.execute(sql`insert into events (business_id, type, occurred_at, actor, payload) values (${owners[0]!.business_id}, 'booking.confirmed', '2026-11-13T10:00:00Z', ${JSON.stringify(actor)}::jsonb, ${JSON.stringify(payload)}::jsonb)`);
+    }
     const rows = (await h.db.execute(sql.raw(`select e.type, e.actor, e.payload, ${REAL_OUTCOME_PREDICATE} as real from events e`))).rows as { type: string; actor: { kind: string; id: string }; payload: Record<string, unknown>; real: boolean }[];
     expect(rows.length).toBeGreaterThan(20);
     for (const r of rows) expect(r.real, `${r.type} ${JSON.stringify(r.actor)} ${JSON.stringify(r.payload)}`).toBe(isRealOutcome(r));
-    expect(rows.filter((r) => r.real).map((r) => r.type).sort()).toEqual(["page.followed", "page.published", "page.published", "page.published", "page.published", "payment.received"]);
+    expect(rows.filter((r) => r.real).map((r) => r.type).sort()).toEqual(["booking.confirmed", "page.followed", "page.published", "page.published", "page.published", "page.published", "payment.received"]);
   });
 
   it("every query is printable SQL with the window end written in, and names are unique", () => {
