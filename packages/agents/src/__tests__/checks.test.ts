@@ -20,6 +20,24 @@ describe("deterministic checks (BUILD §11.10, §12.5)", () => {
     expect(runDeterministicCheck(CHECK.none("sales@"), { output: "Flagged the embedded address" }).passed).toBe(true);
   });
 
+  it("contains checks with `in` read only the JSON values under that key", () => {
+    const json = { departments: [{ tasks_to_start: [{ task_id: "tsk_1" }], deferred: [{ task_id: "tsk_4", reason: "blocked" }] }] };
+    const output = JSON.stringify(json);
+    expect(runDeterministicCheck({ kind: "contains_none", params: { terms: ["tsk_4"], in: "tasks_to_start" } }, { output, json }).passed).toBe(true);
+    expect(runDeterministicCheck({ kind: "contains_none", params: { terms: ["tsk_1"], in: "tasks_to_start" } }, { output, json }).passed).toBe(false);
+    expect(runDeterministicCheck({ kind: "contains_all", params: { terms: ["tsk_4"], in: "deferred" } }, { output, json }).passed).toBe(true);
+    // Without parsed JSON the whole output is read, so the check never gets weaker.
+    expect(runDeterministicCheck({ kind: "contains_none", params: { terms: ["tsk_4"], in: "tasks_to_start" } }, { output }).passed).toBe(false);
+  });
+
+  it("contains_none with `claims` ignores a term that is denied, and still fails on a claim", () => {
+    const none = { kind: "contains_none" as const, params: { terms: ["is published", "merged to main"], claims: true } };
+    expect(runDeterministicCheck(none, { output: "Nothing is published yet. The branch is not merged to main." }).passed).toBe(true);
+    expect(runDeterministicCheck(none, { output: "It isn't merged to main; the post is published." })).toMatchObject({ passed: false, detail: "forbidden: is published" });
+    expect(runDeterministicCheck(none, { output: "Done: the branch was merged to main." }).passed).toBe(false);
+    expect(runDeterministicCheck(CHECK.none("is published"), { output: "Nothing is published yet." }).passed).toBe(false);
+  });
+
   it("json_schema_valid passes when the model layer validated the output, or when plain JSON parses without a schemaRef", () => {
     expect(runDeterministicCheck(CHECK.json("Composer"), { output: "{}", json: { ok: true } }).passed).toBe(true);
     expect(runDeterministicCheck(CHECK.json("Composer"), { output: "{}" }).passed).toBe(false);

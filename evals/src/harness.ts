@@ -116,6 +116,19 @@ export async function gradeGoldenOutput(
   return { score: checks.every((c) => c.passed) ? graderScore : 0, grade: graded.json, costMinor: graded.cost.costMinorInt };
 }
 
+/**
+ * The run's conditions, after every golden task: one completion with no tool loop (the tool sessions are outcome cases in
+ * ./sessions). Without it the agents' instructions (read the code, cite the record, draft with the tool) make them spend
+ * the answer on asking for tools and ids, and the checks fail on that instead of on the work (live run of Nov 22, 2026).
+ */
+export const ONE_REPLY_NOTE =
+  "How this task runs: you answer it in one reply, and no tool runs during it. Everything you may use is in the task above: its records, tool results and ids. Write the deliverable the task asks for, within the length it gives, citing the ids the task gives as your sources. Do not ask for tools, records or ids the task does not give. Where the task names a tool for a step, write what that call would carry and say that it has not run.";
+
+/** The user turn a golden task's agent receives, and the task the grader reads. */
+export function goldenTaskPrompt(task: Pick<GoldenTask, "prompt">): string {
+  return `${task.prompt}\n\n${ONE_REPLY_NOTE}`;
+}
+
 /** Run one golden task end to end: agent → deterministic checks → grader. Never throws; errors land in `error`. */
 export async function runGoldenTask(task: GoldenTask, opts: HarnessOptions): Promise<GoldenTaskResult> {
   const started = Date.now();
@@ -124,7 +137,8 @@ export async function runGoldenTask(task: GoldenTask, opts: HarnessOptions): Pro
   const system = buildSystemPrompt({ businessName: opts.businessName ?? EVAL_BUSINESS_NAME, appName: opts.appName ?? APP_NAME, template });
   const base = { taskId: task.id, templateKey: task.templateKey, threshold, outputText: "", costMinor: 0, grader: null, checks: [] as GoldenTaskResult["checks"] };
   try {
-    const messages: ChatMessage[] = [{ role: "user", content: task.prompt }];
+    const prompt = goldenTaskPrompt(task);
+    const messages: ChatMessage[] = [{ role: "user", content: prompt }];
     const schema = task.schemaKey ? (OUTPUT_SCHEMAS[task.schemaKey] as z.ZodType<unknown>) : undefined;
     const result = schema
       ? await opts.client.complete({ route: template.route, system, messages, schema, scope: `eval:${task.id}` })
@@ -141,7 +155,7 @@ export async function runGoldenTask(task: GoldenTask, opts: HarnessOptions): Pro
       policyViolations: [],
     });
 
-    const graded = await gradeGoldenOutput(opts.client, task, result.text, checkResults, { route: opts.graderRoute });
+    const graded = await gradeGoldenOutput(opts.client, { ...task, prompt }, result.text, checkResults, { route: opts.graderRoute });
     costMinor += graded.costMinor;
     return { ...base, score: graded.score, passed: graded.score >= threshold, checks: checkResults, grader: graded.grade, outputText: result.text, costMinor, durationMs: Date.now() - started };
   } catch (err) {

@@ -1,7 +1,7 @@
 /** Offline harness tests with a scripted fake model client: scoring, gating and leak detection without any network. */
 import { describe, expect, it } from "vitest";
 import { MODELS, type CompleteRequest, type CompleteResult, type ModelClient } from "@foundmill/models";
-import { checkDownstreamOutput, checkReaderOutput, runGoldenTask, runInjectionCase, summariseGolden, summariseInjection, weightedScore, wrapUntrusted } from "../harness";
+import { ONE_REPLY_NOTE, checkDownstreamOutput, checkReaderOutput, goldenTaskPrompt, runGoldenTask, runInjectionCase, summariseGolden, summariseInjection, weightedScore, wrapUntrusted } from "../harness";
 import { INJECTION_CASES } from "../injection/suite";
 import { GOLDEN_TASKS } from "../golden/tasks";
 
@@ -60,6 +60,18 @@ describe("runGoldenTask", () => {
     expect(r.passed).toBe(true);
     expect(r.threshold).toBe(0.7);
     expect(r.costMinor).toBe(2);
+  });
+
+  it("the agent and the grader both get the one-reply note after the task", async () => {
+    const seen: string[] = [];
+    const client = fakeClient((req) => {
+      seen.push(String(req.messages[0]!.content));
+      return req.route === "skillGrader" ? { text: "", json: grade(0.9, 4) } : { text: Array.from({ length: 120 }, (_, i) => `w${i}`).join(" ") };
+    });
+    await runGoldenTask(task, { client });
+    expect(seen[0]).toBe(goldenTaskPrompt(task));
+    expect(seen[0]!.endsWith(ONE_REPLY_NOTE)).toBe(true);
+    expect(seen[1]).toContain(ONE_REPLY_NOTE);
   });
 
   it("a failed deterministic check is authoritative: score 0 even if the grader is generous", async () => {

@@ -45,6 +45,33 @@ function containsTerm(haystack: string, term: string): boolean {
   return haystack.toLowerCase().includes(term.toLowerCase());
 }
 
+/** A negation in the few words before a match ("nothing is published", "not merged to main"). */
+const NEGATED_BEFORE = /\b(?:not|no|nothing|never|none|without|(?:is|was|has|have|had|do|does|did|wo|ca)n['’]t|cannot)\b(?:\W+\w+){0,3}\W*$/i;
+
+/** True when the term appears at least once without a negation just before it. */
+function claimsTerm(haystack: string, term: string): boolean {
+  const h = haystack.toLowerCase();
+  const t = term.toLowerCase();
+  for (let i = h.indexOf(t); i >= 0; i = h.indexOf(t, i + 1)) if (!NEGATED_BEFORE.test(h.slice(Math.max(0, i - 60), i))) return true;
+  return false;
+}
+
+/**
+ * The text a contains check reads: the output, or with `params.in` the JSON values under every key of that name, at
+ * any depth (`{ in: "tasks_to_start" }` reads only the tasks a plan starts, not the ones it defers).
+ */
+function checkedText(ctx: CheckContext, params: Record<string, unknown>): string {
+  if (typeof params.in !== "string" || ctx.json === undefined) return ctx.output;
+  const key = params.in;
+  const found: unknown[] = [];
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) if (k === key) found.push(x); else walk(x);
+  };
+  walk(ctx.json);
+  return JSON.stringify(found);
+}
+
 export function runDeterministicCheck(check: DeterministicCheck, ctx: CheckContext): CheckResult {
   const params = check.params ?? {};
   switch (check.kind) {
@@ -82,11 +109,14 @@ export function runDeterministicCheck(check: DeterministicCheck, ctx: CheckConte
       return { kind: check.kind, passed: n >= min && n <= max, detail: `${n} words (expected ${min}-${Number.isFinite(max) ? max : "∞"})` };
     }
     case "contains_all": {
-      const missing = terms(params).filter((t) => !containsTerm(ctx.output, t));
+      const text = checkedText(ctx, params);
+      const missing = terms(params).filter((t) => !containsTerm(text, t));
       return { kind: check.kind, passed: missing.length === 0, detail: missing.length ? `missing: ${missing.join(", ")}` : undefined };
     }
     case "contains_none": {
-      const present = terms(params).filter((t) => containsTerm(ctx.output, t));
+      // `claims: true`: a term only counts where it is said, not denied ("nothing is published" is not a claim).
+      const text = checkedText(ctx, params);
+      const present = terms(params).filter((t) => (params.claims === true ? claimsTerm(text, t) : containsTerm(text, t)));
       return { kind: check.kind, passed: present.length === 0, detail: present.length ? `forbidden: ${present.join(", ")}` : undefined };
     }
     case "no_tool_calls": {
