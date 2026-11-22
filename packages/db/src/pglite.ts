@@ -7,7 +7,7 @@
  * - URL forms: `pglite:<dir>` (file-backed; a relative dir resolves against the workspace root so every
  *   package and app opens the same directory) and `pglite::memory:` (in-memory).
  * - PGLITE_BOOTSTRAP_SQL: the Supabase roles (anon / authenticated / service_role), a stub `auth` schema with
- *   `auth.uid()` / `auth.role()` reading `request.jwt.claims` (what withRls sets per transaction), pg_trgm and
+ *   `auth.uid()` / `auth.role()` reading `request.jwt.claims` (what withRls sets per transaction), pg_trgm, btree_gist and
  *   pgvector are loaded as extensions. After it, packages/db/migrations apply verbatim.
  * - `LazyPgliteClient`: the client Drizzle talks to. `createDb` must stay synchronous (every service calls it
  *   at module scope), while PGlite boots asynchronously; the lazy client queues the first query behind
@@ -17,6 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PGlite, type Extension, type PGliteOptions, type QueryOptions, type Results, type Transaction } from "@electric-sql/pglite";
+import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import * as schema from "./schema";
@@ -190,10 +191,10 @@ export function acquirePgliteDirLock(dataDir: string): () => void {
   throw new Error(`PGlite directory ${dataDir}: could not acquire ${PGLITE_LOCK_FILE}`);
 }
 
-/** Creates the PGlite instance (pg_trgm + pgvector) and applies PGLITE_BOOTSTRAP_SQL. Migrations are the caller's job. */
+/** Creates the PGlite instance (pg_trgm, btree_gist for 0155's exclusion constraint, pgvector) and applies PGLITE_BOOTSTRAP_SQL. Migrations are the caller's job. */
 export async function bootPglite(options: BootPgliteOptions = {}): Promise<BootedPglite> {
   const vector = options.disableVector ? null : await loadVectorExtension();
-  const extensions: Record<string, Extension> = { pg_trgm };
+  const extensions: Record<string, Extension> = { pg_trgm, btree_gist };
   if (vector) extensions.vector = vector;
   const pgOptions: PGliteOptions = { extensions, relaxedDurability: true, ...(options.loadDataDir ? { loadDataDir: options.loadDataDir } : {}) };
   let releaseLock = () => {};

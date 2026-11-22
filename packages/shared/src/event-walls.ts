@@ -108,6 +108,11 @@ export const EVENT_WALLS = {
   "page.unpublished": { sections: ["product"] },
   // Someone followed the page (0079): ids only; the follower's record is the CRM's to show.
   "page.followed": { sections: ["product"], hide: { crm: ["entityId", "consentId"] } },
+  // Booking (founder, Nov 22, 2026): a booking is a customer record, behind the CRM wall like the follower's.
+  "booking.confirmed": { sections: ["crm"] },
+  "booking.canceled": { sections: ["crm"] },
+  "booking.rescheduled": { sections: ["crm"] },
+  "booking.no_show": { sections: ["crm"] },
   // The project's site (WP-07): ids, counts and addresses. A preview address is unlisted, so it is Product's like the
   // releases themselves; the live address is public anyway.
   "site.release_created": { sections: ["product"] },

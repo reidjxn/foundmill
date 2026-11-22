@@ -284,6 +284,9 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     // The tool scout (founder, Nov 22, 2026): any agent says what is missing; the Chief of Staff and the leads recommend.
     "tools.need": ["raise_tool_need"],
     "tools.scout": ["read_tool_need", "recommend_tool"],
+    // Foundmill's own booking (founder, Nov 22, 2026): leads draft the setup for the founder to check; they read bookings without addresses or answers.
+    "booking.setup": ["booking_setup"],
+    "booking.read": ["list_bookings"],
   },
   web: { search: ["search_web"], fetch: ["fetch_page"] },
   quarantine: { read_untrusted: ["read_untrusted"] },

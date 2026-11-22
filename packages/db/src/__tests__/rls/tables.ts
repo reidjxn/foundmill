@@ -56,6 +56,18 @@ const nextToolCategory = (businessId: string) => {
   return category;
 };
 
+/**
+ * 0155: a held booking an hour long at its own hour, so no two samples overlap (`bookings_no_overlap`). It keeps its own
+ * count: a call of the shared `counter` would shift the channel keys the `channels` samples cycle through.
+ */
+let bookingHour = 0;
+const heldBooking = (f: BusinessFixture) => {
+  if (!f.bookingServiceId) throw new Error("bookings sample: the fixture has no booking service");
+  const start = new Date(Date.UTC(2027, 0, 1) + ++bookingHour * 3_600_000);
+  const end = new Date(start.getTime() + 3_600_000);
+  return { serviceId: f.bookingServiceId, status: "held", startsAt: start, endsAt: end, busy: `[${start.toISOString()},${end.toISOString()})`, holdExpiresAt: new Date("2027-01-01T00:10:00Z") };
+};
+
 const spec = <T extends TenantTable>(name: string, table: T, write: WriteMode, sample: TenantTableSpec["sample"], patch?: Record<string, unknown>): TenantTableSpec => ({
   name,
   table,
@@ -194,6 +206,11 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   // 0131: the founder's own payment links; owner and admin write (WP-07 T7).
   // 0154 the tool scout's memory (written by the gateway's platform tools and the api with the service role)
   spec("tool_needs", s.toolNeeds, "service", (f) => ({ category: nextToolCategory(f.businessId), reason: "Customers need a way to pay." })),
+  // 0155 booking (written by the api with the service role; one setup row per business, a second insert of the
+  // generated suite runs only as an app role, which is refused before the unique key is reached)
+  spec("booking_settings", s.bookingSettings, "service", () => ({ timeZone: "America/New_York" })),
+  spec("booking_services", s.bookingServices, "service", () => ({ name: "Lesson", durationMin: 60, currency: "USD" })),
+  spec("bookings", s.bookings, "service", heldBooking),
   spec("pay_links", s.payLinks, "admin", () => ({ key: uniq("pay").toLowerCase(), label: "Starter", url: `https://buy.stripe.com/${uniq("test")}`, source: "pasted" }), { archivedAt: new Date("2026-11-16T00:00:00Z") }),
 ];
 

@@ -1854,6 +1854,47 @@ const pageUnpublished = declareEvent("page.unpublished", PageFacts, {
   narratable: false,
 });
 
+/** What every booking event says: which booking, of which service, for whom (the CRM record, never the address) and when it starts. */
+const BookingFacts = z.object({
+  bookingId: Id,
+  serviceId: Id,
+  /** The customer's CRM record; null when the contact was removed. Never the name or the address. */
+  entityId: Id.nullable(),
+  /** When the appointment starts (UTC). */
+  startsAt: IsoDateTime,
+  /**
+   * True for a booking that is not a real customer's: made by a member of the project on its own page, or where
+   * results are simulated. Absent on a real one, so `isSimulatedEvent` drops exactly the test ones.
+   */
+  simulated: z.literal(true).optional(),
+});
+
+const bookingConfirmed = declareEvent("booking.confirmed", BookingFacts, {
+  // North star (FOUNDMILL.md, founder 2026-11-11; booking, founder 2026-11-22): a customer who booked a time on the
+  // project's own page is a real outside result. A test booking, or one a member made on their own page, is not.
+  doc: "A visitor booked a time on the project's public booking page: their hold became a confirmed booking under the table's no-overlap constraint, and they are a contact in the CRM. Written by the api's public booking route (actor system `public-booking`) in the transaction that confirms it. A real one is a real outside result and the north star counts it; a test booking carries `simulated: true` and never counts.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const bookingCanceled = declareEvent("booking.canceled", BookingFacts.extend({ by: z.enum(["customer", "founder"]) }), {
+  doc: "A confirmed booking was canceled, by the customer from the link in their email or by a founder in the console: its time is free again and the other side was told by email. Not an outcome.",
+  consumers: ["stream"],
+  narratable: false,
+});
+
+const bookingRescheduled = declareEvent("booking.rescheduled", BookingFacts.extend({ by: z.enum(["customer", "founder"]), previousStartsAt: IsoDateTime }), {
+  doc: "A confirmed booking moved to another time (`startsAt` is the new one), by the customer from the link in their email or by a founder in the console. Not an outcome: the booking was counted once, when it was made.",
+  consumers: ["stream"],
+  narratable: false,
+});
+
+const bookingNoShow = declareEvent("booking.no_show", BookingFacts, {
+  doc: "A founder marked that the customer of a past booking did not come. Not an outcome.",
+  consumers: ["stream"],
+  narratable: false,
+});
+
 const pageFollowed = declareEvent(
   "page.followed",
   z.object({
@@ -2414,6 +2455,10 @@ export const EVENTS = {
   "team_call.ended": teamCallEnded,
   "page.unpublished": pageUnpublished,
   "page.followed": pageFollowed,
+  "booking.confirmed": bookingConfirmed,
+  "booking.canceled": bookingCanceled,
+  "booking.rescheduled": bookingRescheduled,
+  "booking.no_show": bookingNoShow,
   "site.release_created": siteReleaseCreated,
   "site.published": sitePublished,
   "site.unpublished": siteUnpublished,

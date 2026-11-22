@@ -7,9 +7,9 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Building2, Database, Download, GitMerge, Search, Shield, Sparkles, UserRound, UserRoundPlus } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Avatar, Button, Chip, DataTable, ENTITY_KIND_ICONS, EntityLink, Explainer, FilterChips, Icon, Input, Kbd, Panel, Popover, PopoverAnchor, PopoverContent, StatusPill, Term, formatRelative, type DataTableColumn, type FilterChipValue, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DataTable, ENTITY_KIND_ICONS, EntityLink, Explainer, FilterChips, Icon, Input, Kbd, Panel, Popover, PopoverAnchor, PopoverContent, SegmentedControl, StatusPill, Term, formatRelative, type DataTableColumn, type FilterChipValue, type RowAction, type SavedView } from "@foundmill/dugout";
 import { EXPLAINERS } from "@foundmill/modules/explainers";
 import type { EntityKind } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -20,6 +20,7 @@ import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { useAreaTabBar } from "@/components/shell/useAreaNav";
 import { AreaOpening } from "@foundmill/modules/areas";
+import { BookingsView } from "./BookingsView";
 import { MergeDialog, NewEntityDialog } from "./dialogs";
 import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, loadedSummary, nextActiveHit, roleWord, sourceWord, stageWord, type CrmRow, type OwnerRef } from "./logic";
 import { formatNumber, plainWords } from "@/lib/format";
@@ -43,7 +44,45 @@ const NO_GROUP_KEYS = new Set(["no role", "no stage"]);
 /** Hits listed per kind in the typeahead. */
 const TYPEAHEAD_PER_KIND = 5;
 
+/** Contacts or Bookings (founder, Nov 22, 2026): the same Customers tab, two views, told apart by `?view=bookings`. */
+function CrmViewSwitch({ view }: { view: "contacts" | "bookings" }) {
+  const { businessId } = useBusiness();
+  const router = useRouter();
+  return (
+    <div className="col-span-12">
+      <SegmentedControl
+        aria-label="Customers view"
+        size="md"
+        value={view}
+        onValueChange={(v) => router.push(v === "bookings" ? `${routes.crm(businessId)}?view=bookings` : routes.crm(businessId))}
+        options={[
+          { value: "contacts", label: "Contacts" },
+          { value: "bookings", label: "Bookings" },
+        ]}
+      />
+    </div>
+  );
+}
+
 export function CrmScreen() {
+  return useSearchParams().get("view") === "bookings" ? <BookingsScreen /> : <ContactsScreen />;
+}
+
+function BookingsScreen() {
+  const areaTabs = useAreaTabBar("customers", "crm");
+  useShellChrome({ title: "Bookings", tabs: areaTabs }, [areaTabs]);
+  return (
+    <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="crm-bookings">
+      <AreaOpening area="customers" className="col-span-12" />
+      <CrmViewSwitch view="bookings" />
+      <div className="col-span-12 min-w-0">
+        <BookingsView />
+      </div>
+    </div>
+  );
+}
+
+function ContactsScreen() {
   const { businessId, departments, data, access } = useBusiness();
   // Creating a record needs write access to the CRM (a viewer, an advisor or a member with the CRM read-only only reads).
   const canCreate = access.canWrite("crm");
@@ -163,6 +202,7 @@ export function CrmScreen() {
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="crm-screen" data-mode={index.mode}>
       {/* The Customers area's opening line, first on each of its tabs (docs/DESIGN.md §9). */}
       <AreaOpening area="customers" className="col-span-12" />
+      <CrmViewSwitch view="contacts" />
       <Explainer {...EXPLAINERS.crm!} />
       {/* search ------------------------------------------------------------------------------------------------------ */}
       <div className="col-span-12 flex flex-col gap-2" data-testid="crm-search">

@@ -59,6 +59,8 @@ export function platformHandlers(host: PlatformHost) {
     raise_tool_need: async (args: Parameters<PlatformHost["raiseToolNeed"]>[1], ctx: ToolContext) => host.raiseToolNeed(caller(ctx), args),
     read_tool_need: async (args: Parameters<PlatformHost["readToolNeed"]>[1], ctx: ToolContext) => host.readToolNeed(caller(ctx), args),
     recommend_tool: async (args: Parameters<PlatformHost["recommendTool"]>[1], ctx: ToolContext) => host.recommendTool(caller(ctx), args),
+    booking_setup: async (args: Parameters<PlatformHost["bookingSetup"]>[1], ctx: ToolContext) => host.bookingSetup(caller(ctx), args),
+    list_bookings: async (_args: unknown, ctx: ToolContext) => host.listBookings(caller(ctx)),
   };
 }
 
@@ -69,7 +71,7 @@ export function createMemoryPlatformHost(): PlatformHost {
   const world = perBusiness((businessId) => {
     const task = (n: number, title: string, kind: TaskDetailT["kind"], status: TaskDetailT["status"]): TaskDetailT => ({ id: uuidFromSeed("mock-platform", businessId, "task", n), title, kind, status, priority: 10 * n, progress: 0, assigneeAgentId: null, updatedAt: MOCK_NOW.toISOString(), goalMd: `${title}.`, acceptance: [], fileScope: [], dependsOn: [], lastReport: null, lastBlock: null });
     const tasks = new Map<string, TaskDetailT>([task(1, "Draft the pricing page", "code", "ready"), task(2, "Research three competitors", "research", "ready"), task(3, "Reconcile last month's bank feed", "finance", "planned")].map((t) => [t.id, t]));
-    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, positioningDrafts: 0, updateDrafts: 0, entities: new Map<string, string>(), interactions: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>(), toolNeeds: new Map<string, string>() };
+    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, positioningDrafts: 0, updateDrafts: 0, entities: new Map<string, string>(), interactions: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>(), toolNeeds: new Map<string, string>(), bookingServices: 0 };
   });
   const summary = ({ goalMd: _g, acceptance: _a, fileScope: _f, dependsOn: _d, lastReport: _r, lastBlock: _b, ...s }: TaskDetailT) => s;
   const report = (caller: PlatformCaller, t: TaskDetailT, input: { title: string; bodyMd: string; sources: { url: string; title: string }[] }) => {
@@ -286,6 +288,14 @@ export function createMemoryPlatformHost(): PlatformHost {
       const note = toolRecommendationNote(args);
       w.toolNeeds.set(args.category, "recommended");
       return { inboxItemId: `00000000-0000-4000-8000-${String(w.toolNeeds.size).padStart(12, "0")}`, subject: note.subject, checkedByFoundmill: !!note.pick.catalogKey };
+    },
+    // Booking in memory: a draft per business, never live, and no bookings.
+    async bookingSetup(caller, { services }) {
+      world(caller.businessId).bookingServices = services.length;
+      return { status: "draft", services: services.length, noteId: "00000000-0000-4000-8000-0000000b0001", note: "Saved as a draft. The founder has a note to check it; nothing is public until they turn it on." };
+    },
+    async listBookings() {
+      return { items: [] };
     },
   };
 }

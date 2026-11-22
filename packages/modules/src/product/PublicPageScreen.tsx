@@ -72,6 +72,7 @@ import { postTextWithLink, type PostDraft } from "@foundmill/shared/post-draft";
 import type { ShareOpened } from "@foundmill/shared/share-targets";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
+import { BookingPanel } from "./BookingPanel";
 import { FollowerUpdatePanel } from "./FollowerUpdatePanel";
 import { PageQuizPanel } from "./PageQuizPanel";
 import { Screen, errorMessage } from "./shared";
@@ -556,6 +557,9 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
 
       {/* The optional "Which one is for you?" quiz on the page (0105): off until the founder turns it on. */}
       {data && !data.isSample && data.saved ? <PageQuizPanel /> : null}
+
+      {/* Foundmill's own booking (founder, Nov 22, 2026): hours and services, and the press that turns it on. */}
+      {data && !data.isSample ? <BookingPanel canEdit={canEdit} /> : null}
 
       {shareDraft ? <SharePost open={sharing} onOpenChange={setSharing} title={SHARE_OPEN_WORDS.pageTitle} description={SHARE_OPEN_WORDS.description} draft={shareDraft} appName={APP_NAME} onShare={recordShare} /> : null}
       {askDraft ? <SharePost open={asking} onOpenChange={setAsking} title={PUBLIC_PAGE_WORDS.askTitle} description={PUBLIC_PAGE_WORDS.askDescription} draft={askDraft} appName={APP_NAME} onShare={recordShare} /> : null}
