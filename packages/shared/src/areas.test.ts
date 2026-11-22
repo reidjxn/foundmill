@@ -58,7 +58,7 @@ describe("area registry", () => {
 
   it("Ledgerly: 15 inline tabs across the five areas", () => {
     expect(labels("plan", LEDGERLY)).toEqual(["Roadmap", "Milestones"]);
-    expect(labels("customers", LEDGERLY)).toEqual(["(Board)", "(Channels)", "Leads", "Campaigns", "(Creative)", "(Attribution)", "Contacts"]);
+    expect(labels("customers", LEDGERLY)).toEqual(["First ten", "(Board)", "(Channels)", "(Leads)", "(Campaigns)", "Creative", "(Attribution)", "Contacts"]);
     expect(labels("money", LEDGERLY)).toEqual(["Overview", "(Profit and loss)", "(Cash)", "Runway", "(Payroll)", "(Cap table)", "Company", "(Incorporate)", "Compliance", "(Contracts)", "(IP)", "(Policies)", "(Regulatory)"]);
     expect(labels("product", LEDGERLY)).toEqual(["(Vision)", "Specification", "Public page", "(Changes)", "(Sources)", "(Research)", "(Working now)", "(Work list)", "What changed", "Live product", "(Specialists)"]);
     expect(labels("team", LEDGERLY)).toEqual(["Agents", "(Staff)", "(Responsibilities)", "Recruitment"]);
@@ -108,8 +108,8 @@ describe("area registry", () => {
   it("tiers: defaults inline, the rest More detail, Builder view's tabs only in Builder view; Builder view on flattens", () => {
     expect(tabTier(["development"], "code")).toBe("builder");
     expect(tabTier(["team"], "health")).toBe("builder");
-    expect(tabTier(["distribution"], "leads")).toBe("default");
-    expect(tabTier(["distribution"], "formation")).toBe("detail");
+    expect(tabTier(["distribution"], "first-ten")).toBe("default");
+    expect(tabTier(["distribution"], "leads")).toBe("detail");
     expect(tabTier(["distribution"], "my-own")).toBe("default");
     expect(labels("product", LEDGERLY).includes("Code")).toBe(false);
     const on = areaTabsByArea(LEDGERLY, { builder: true });
@@ -117,6 +117,6 @@ describe("area registry", () => {
     // Builder view shows the stored titles and its own tabs.
     expect(areaTabs("product", LEDGERLY, { builder: true }).map((t) => t.label)).toContain("Code");
     expect(areaTabs("money", LEDGERLY, { builder: true }).map((t) => t.label)).toContain("Entity");
-    expect(defaultCount(LEDGERLY, true)).toBe(40);
+    expect(defaultCount(LEDGERLY, true)).toBe(41);
   });
 });

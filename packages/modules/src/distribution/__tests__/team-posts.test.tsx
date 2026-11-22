@@ -116,14 +116,32 @@ describe("a post the team wrote to be shared", () => {
     expect(within(card()).queryByTestId("post-outcomes")).toBeNull();
   });
 
-  it("once a share was opened it says so and is still there to share again; it is never called posted", () => {
+  it("once a share was opened it says so, asks \"Did you post it?\" and is still there to share again; it is never called posted until the founder says so", () => {
     const fake = createFakeSource({ businessId: BID, responses: withPost(teamPost({ approvalState: "approved" })) });
     renderScreen(fake, <CreativeScreen businessId={BID} departmentId="d1" />);
     const c = card();
     expect(within(c).getByText("Share opened")).toBeTruthy();
     expect(within(c).getByRole("button", { name: `Share: ${TITLE}` })).toBeTruthy();
     expect(within(c).queryByRole("button", { name: /^Not this one/ })).toBeNull();
-    expect(c.textContent).not.toMatch(/\bposted\b|\bpublished\b|Approved/i);
+    expect(within(c).getByText("Did you post it?")).toBeTruthy();
+    expect(c.textContent).not.toMatch(/Posted on|Posted,|\bpublished\b|Approved/i);
+  });
+
+  it("\"Yes, I posted it\" tells the api, with the pasted link; then the card reads where and when", async () => {
+    const fake = createFakeSource({ businessId: BID, responses: withPost(teamPost({ approvalState: "approved" })) });
+    renderScreen(fake, <CreativeScreen businessId={BID} departmentId="d1" />);
+    fireEvent.change(within(card()).getByLabelText("Paste the post's link"), { target: { value: "https://x.com/me/status/1" } });
+    await act(async () => {
+      fireEvent.click(within(card()).getByRole("button", { name: "Yes, I posted it" }));
+    });
+    await waitFor(() => expect(fake.mutations).toEqual([{ path: "share.posted", input: { assetId: POST_ID, network: null, url: "https://x.com/me/status/1" } }]));
+  });
+
+  it("a post the founder said they posted reads \"Posted on X, Nov 16\" and no longer asks", () => {
+    const fake = createFakeSource({ businessId: BID, responses: withPost(teamPost({ approvalState: "approved", posted: { network: "x", at: "2026-11-16T15:00:00.000Z" } })) });
+    renderScreen(fake, <CreativeScreen businessId={BID} departmentId="d1" />);
+    expect(within(card()).getByTestId("post-posted").textContent).toBe("Posted on X, Nov 16");
+    expect(within(card()).queryByText("Did you post it?")).toBeNull();
   });
 
   it("with the page down the post has no link, and the networks that take text still open", async () => {

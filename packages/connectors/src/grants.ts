@@ -206,6 +206,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     // A charge reports how much of it was refunded.
     "refunds.list": ["list_charges"],
     "invoices.list": ["list_invoices", "get_invoice"],
+    // A payment link the founder can see and approve first (WP-07 T8): one template holds it.
+    "payments.links.create": ["create_payment_link"],
   },
   sendgrid: {
     "mail.send": ["send_mail", "list_verified_senders", "check_suppression"],

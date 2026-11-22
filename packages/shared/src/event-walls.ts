@@ -138,6 +138,10 @@ export const EVENT_WALLS = {
   // The team drafted a post for the founder to share by tap: ids and the trigger's kind, never the words. The Creative
   // tab and Today follow it.
   "post.drafted": { sections: ["distribution"] },
+  // The founder said they posted a team draft (WP-08 T4): ids, network and the pasted address, never the words. Filed
+  // with the metrics-only events (like `share.opened`) so a collaborator never receives it and no migration of
+  // `fm_collaborator_event_types()` is needed.
+  "post.published": { sections: ["settings"] },
   // The page quiz approved, turned on or off (0105): ids and its shape, never the words. The Public page tab follows.
   "quiz.approved": { sections: ["product"] },
   // The positioning notes approved (0118, WP-08 T1): the version and the names of the sections that changed, never the words.

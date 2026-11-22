@@ -30,7 +30,7 @@ export interface WeekTowardFacts {
 
 export const WEEK_OUTCOMES_PAGE_TOWARD = "your public page, live";
 
-const KIND_ORDER: readonly RealOutcomeKind[] = ["payment", "reply", "follower", "page_live", "email_sent"];
+const KIND_ORDER: readonly RealOutcomeKind[] = ["payment", "reply", "follower", "post_visited", "page_live", "email_sent"];
 
 const kindWords = (kind: RealOutcomeKind, n: number): string => {
   switch (kind) {
@@ -40,6 +40,8 @@ const kindWords = (kind: RealOutcomeKind, n: number): string => {
       return countOf(n, "reply", "replies");
     case "follower":
       return countOf(n, "new follower");
+    case "post_visited":
+      return n === 1 ? "someone opened a post you shared" : `${n.toLocaleString("en-US")} people opened posts you shared`;
     case "page_live":
       return n === 1 ? "your page went live" : `your page went live and was updated ${countOf(n - 1, "time")}`;
     case "email_sent":

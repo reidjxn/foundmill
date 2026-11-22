@@ -61,7 +61,7 @@ describe("sidebar items", () => {
     // Each area links to its first inline tab, wherever its department is.
     expect(Object.fromEntries(items.filter((i) => i.group === "area" && i.area).map((i) => [i.area, i.href]))).toEqual({
       plan: `/b/${BID}/d/product/roadmap`,
-      customers: `/b/${BID}/d/distribution/leads`,
+      customers: `/b/${BID}/d/distribution/first-ten`,
       money: `/b/${BID}/d/finance/overview`,
       product: `/b/${BID}/d/product/specification`,
       team: `/b/${BID}/d/team/squad`,

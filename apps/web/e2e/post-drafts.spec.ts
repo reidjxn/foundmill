@@ -4,7 +4,7 @@ import { LONG, commitThrowaway, dismissCoachmarks, settled, toast } from "./help
 /**
  * Posts the social agent drafts for the founder to share by tap (docs/NETWORK.md F3, F7; docs/DESIGN.md §9g; founder,
  * Nov 12, 2026: "a post the social channel agent wrote"), on the mock model. A throwaway project publishes its page
- * with the social channel off the board: nothing is drafted. The founder puts social on the Channel Board, and a
+ * with the social channel off the board: a post is drafted all the same (WP-08 T4). A
  * drafted post appears on Customers › Creative, written by the team, with Share: every "opens ready to post" link
  * carries the post's words and the page's address with the post's own code for that network (`via=s.<code>`). Today shows one quiet line to it. "Not this one" sets it
  * aside: off the tab and off Today. A milestone shown on the page then gets its own post, pointing to its card; once a
@@ -136,24 +136,17 @@ async function openToday(page: Page, bid: string): Promise<void> {
 }
 
 test.describe("posts the team drafts to share by tap", () => {
-  test("off the board nothing is drafted; on the board a post appears with Share, Today says so once, and it can be set aside or shared", async ({ page, baseURL }) => {
+  test("a post appears with Share whether or not social is on the board, Today says so once, and it can be set aside, shared or confirmed posted", async ({ page, baseURL }) => {
     test.setTimeout(420_000);
     const name = `Post Bikes ${Date.now().toString(36)}`;
     const bid = await commitThrowaway(page, name);
 
-    // The founder has not asked for posts: social off the board, then the page goes live.
+    // Social is off the board (WP-08 T4: the page going live is enough), then the page goes live.
     await setSocialOnBoard(page, bid, false);
     const pageAddress = await publishPage(page, bid);
     const origin = new URL(pageAddress).origin;
     const slug = new URL(pageAddress).pathname.replace("/p/", "");
     const pageAddressOnly = `${origin}/p/${slug}`;
-    await openCreative(page, bid);
-    await expect(page.locator("article[data-team-post]")).toHaveCount(0);
-    await openToday(page, bid);
-    await expect(page.getByTestId("post-ready-note")).toHaveCount(0);
-
-    // Social goes on the Channel Board: the founder's "yes, write posts for me". The post about the page is drafted.
-    await setSocialOnBoard(page, bid, true);
     const posts = await teamPosts(page, bid, 1);
     const post = posts.first();
     const text = `${name} has a page now. ${PITCH}.`;
@@ -246,7 +239,12 @@ test.describe("posts the team drafts to share by tap", () => {
     await panel.getByRole("button", { name: "Close" }).last().click();
     await expect(second).toHaveAttribute("data-state", "approved", { timeout: LONG });
     await expect(second).toContainText("Share opened");
-    await expect(second).not.toContainText(/\bposted\b|\bpublished\b|Approved/i);
+    await expect(second).not.toContainText(/Posted on|Posted,|\bpublished\b|Approved/i);
+    // "Did you post it?": only the founder's yes says it was posted.
+    await expect(second.getByTestId("did-you-post")).toContainText("Did you post it?");
+    await second.getByRole("button", { name: "Yes, I posted it" }).click();
+    await expect(second.getByTestId("post-posted")).toContainText(/^Posted/, { timeout: LONG });
+    await expect(second.getByTestId("did-you-post")).toHaveCount(0);
     // Still there to share again on another network; no longer offered to be set aside.
     await expect(second.getByRole("button", { name: /^Share:/ })).toBeVisible();
     await expect(second.getByRole("button", { name: /^Not this one/ })).toHaveCount(0);

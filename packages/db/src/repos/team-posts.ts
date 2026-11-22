@@ -19,7 +19,7 @@
 import { isShowableTrophyKey } from "@foundmill/journey";
 import { TEAM_POST_CAPS, TEAM_POST_DAY_MS, TEAM_POST_REF_PREFIX, TEAM_POST_WEEK_MS, isTeamPostSubject, parseTeamPostRef, readPageContent, teamPostRef, teamPostTitle, type PageStage, type TeamPostRef } from "@foundmill/shared";
 import { and, desc, eq, gte, inArray, isNull, like, sql } from "drizzle-orm";
-import { agents, assets, businesses, channels, milestones, projectPages, type Asset } from "../schema";
+import { agents, assets, businesses, channels, events, milestones, postLinks, projectPages, type Asset } from "../schema";
 import { auditRepo } from "./audit";
 import { postLinksRepo } from "./post-attributions";
 import { maybeOne, type Executor } from "./_shared";
@@ -242,6 +242,28 @@ export const teamPostsRepo = {
    */
   async markShared(db: Executor, businessId: string, assetId: string): Promise<Asset | null> {
     return maybeOne(await db.update(assets).set({ approvalState: "approved" }).where(and(teamPosts(businessId), eq(assets.id, assetId), eq(assets.approvalState, "draft"), isNull(assets.archivedAt))).returning());
+  },
+
+  /**
+   * Which of `assetIds` the founder said they posted (`post.published`, WP-08 T4): the network, the day of the first
+   * answer, and whether a visit came back through the post's own link. Read from the events; a post with none is absent.
+   */
+  async published(db: Executor, businessId: string, assetIds: readonly string[]): Promise<Map<string, { network: string | null; url: string | null; at: Date; visited: boolean }>> {
+    const out = new Map<string, { network: string | null; url: string | null; at: Date; visited: boolean }>();
+    if (assetIds.length === 0) return out;
+    const rows = await db.select({ payload: events.payload, at: events.occurredAt }).from(events).where(and(eq(events.businessId, businessId), eq(events.type, "post.published"), inArray(sql`${events.payload} ->> 'assetId'`, [...assetIds]))).orderBy(events.occurredAt);
+    for (const r of rows) {
+      const p = r.payload as { assetId: string; network: string | null; url: string | null; visited: boolean };
+      const seen = out.get(p.assetId);
+      out.set(p.assetId, seen ? { ...seen, visited: seen.visited || p.visited } : { network: p.network, url: p.url ?? null, at: r.at, visited: p.visited });
+    }
+    return out;
+  },
+
+  /** True when a browser first opened this post's link for `network` (not a member, not simulated). */
+  async linkVisited(db: Executor, businessId: string, assetId: string, network: string | null): Promise<boolean> {
+    const rows = await db.select({ at: postLinks.firstVisitedAt }).from(postLinks).where(and(eq(postLinks.businessId, businessId), eq(postLinks.assetId, assetId), eq(postLinks.simulated, false), network ? eq(postLinks.network, network as never) : isNull(postLinks.network))).limit(1);
+    return rows[0]?.at != null;
   },
 
   /** "Not this one": a waiting post is set aside (`rejected`) and is not offered again. The row when it changed, else null. */

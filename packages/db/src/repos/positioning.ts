@@ -7,9 +7,9 @@
  * Reads and writes run on the caller's connection: the api's under the member's RLS, the orchestrator and the gateway
  * on the service connection (the table's tenant policy holds either way).
  */
-import { POSITIONING_NOTE, positioningSectionsChanged, readPositioning, renderPositioning, type PositioningNotes } from "@foundmill/shared";
-import { and, eq, inArray } from "drizzle-orm";
-import { businessFoundations, inboxItems, type InboxItem } from "../schema";
+import { FIRST_TEN_SAID, FIRST_TEN_SOURCE, POSITIONING_NOTE, positioningSectionsChanged, readPositioning, renderPositioning, type PositioningNotes } from "@foundmill/shared";
+import { and, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import { businessFoundations, inboxItems, interactions, type InboxItem } from "../schema";
 import { inboxRepo } from "./inbox";
 import { maybeOne, type Executor } from "./_shared";
 
@@ -117,7 +117,13 @@ export const positioningRepo = {
   },
 
   /** What real people said, newest first (the founder's "Said:" notes on the First ten board, WP-08 T5). Empty until T5. */
-  async heard(_db: Executor, _businessId: string, _limit = 20): Promise<PositioningHeard[]> {
-    return [];
+  async heard(db: Executor, businessId: string, limit = 20): Promise<PositioningHeard[]> {
+    const rows = await db
+      .select({ summary: interactions.summary, at: interactions.occurredAt })
+      .from(interactions)
+      .where(and(eq(interactions.businessId, businessId), eq(interactions.kind, "note"), isNull(interactions.archivedAt), like(interactions.summary, `${FIRST_TEN_SAID}%`), sql`exists (select 1 from entities e where e.business_id = ${businessId} and e.id = any(${interactions.entityIds}) and e.source = ${FIRST_TEN_SOURCE})`))
+      .orderBy(desc(interactions.occurredAt))
+      .limit(Math.min(limit, 20));
+    return rows.map((r) => ({ words: (r.summary ?? "").slice(FIRST_TEN_SAID.length), on: r.at.toISOString().slice(0, 10) }));
   },
 };
