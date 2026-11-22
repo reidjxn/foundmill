@@ -24,14 +24,15 @@
  * fails the commit (Settings › Preferences changes it any time).
  */
 import { randomUUID } from "node:crypto";
-import { DEPARTMENT_DEFAULTS, departmentTabs, firstCycleTasksFor, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
+import { DEPARTMENT_DEFAULTS, departmentTabs, firstCycleTasksFor, getArchetypeSeed, getTemplate, prompts, REGULATED_LICENSE_TASK, REGULATED_NEEDS, REGULATED_SPECIALIST_KEY } from "@foundmill/agents";
+import { connectorKeysFor } from "@foundmill/connectors";
 import { CREDITS_CURRENCY, EARLY_ACCESS_STAGE, firstCycleInput, initialModelBilling } from "@foundmill/config";
 
 /** Wage caps are model credits, counted in the credits' own currency whatever the business counts in. */
 const WAGE_CURRENCY = CREDITS_CURRENCY;
-import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, platformCredits, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
+import { raiseStageToolNeeds, assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, platformCredits, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, FIRST_DAY_PROMISE, OVERNIGHT_SHIFT, ValidationError, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, FIRST_DAY_PROMISE, OVERNIGHT_SHIFT, TOOL_NEED_STAGES, ValidationError, regulatedAreasOf, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
 import { channelRowsFor } from "./channel-availability";
 import { QUEUE_ACTION } from "./cycle";
@@ -189,6 +190,8 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   const importJobId = importJobIdOf(idea.current?.research);
   const importLink = importJobId ? await resolveImportLink(db, importKey(), importJobId, userId) : null;
   const seed = getArchetypeSeed(input.archetype);
+  // A money product a regulator licenses, read from the founder's own words for the idea (`regulatedAreasOf`).
+  const regulated = regulatedAreasOf(`${idea.current?.title ?? ""}. ${idea.current?.pitch ?? ""}`);
   const hasBudget = input.hasBudget ?? true;
   // Paid entry (WP-09 T16): without the entry plan the project, its page, plan and foundations are created as always, but
   // no cycle starts and Autopilot stays off until the founder subscribes (Continue then starts cycle 1).
@@ -247,7 +250,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     }
         // The project's own credits row for the month (what it carries from bought credit), so the first cycle already runs
     // against a balance that rests the team. The included budget is the owner's, shared by all their projects: a new
-    // project sees what is left of it, never a second one (`owner_credits`, 0151).
+    // project sees what is left of it, never a second one (`owner_credits`, 0157).
     const period = periodOf(new Date());
     if (modelBilling === "credits") await repos.usage.ensurePeriodCredits(tx, businessId, period, await includedCreditsFor(tx, business, period));
     const credits = modelBilling === "credits" ? await platformCredits(tx, business, period) : null;
@@ -291,6 +294,8 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       const leadId = plan(d.leadTemplateKey, departmentId, chiefId);
       leadByDepartment.set(departmentId, leadId);
       for (const key of d.memberTemplateKeys) plan(key, departmentId, leadId);
+      // A regulated money product gets its specialist in Legal (founder, Nov 22, 2026): it prepares and explains, never files.
+      if (regulated.length > 0 && d.moduleKeys.includes("legal")) plan(REGULATED_SPECIALIST_KEY, departmentId, leadId);
     }
     // The Chief of Staff sits in the department whose module is "team" (if any), never looked up by name.
     const teamDept = seed.departments.find((d) => d.moduleKeys.includes("team"));
@@ -352,9 +357,10 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Door A: the card's citations become the business's first sources (Product › Sources, the Source Watcher).
     if (!importLink) await seedConceptSources(tx, businessId, { ideaId: idea.id, research: idea.current?.research });
 
-    // First-cycle tasks: without a budget, no finance or legal task (WP-04 T3).
+    // First-cycle tasks: without a budget, no finance or legal task (WP-04 T3). A regulated money product always gets
+    // the Legal Lead's license question: it decides what can be built at all.
     const taskIds: string[] = [];
-    for (const t of firstCycleTasksFor(seed, { hasBudget })) {
+    for (const t of [...firstCycleTasksFor(seed, { hasBudget }), ...(regulated.length > 0 ? [REGULATED_LICENSE_TASK] : [])]) {
       const task = await repos.tasks.create(tx, businessId, {
         kind: t.kind,
         title: t.title,
@@ -367,6 +373,14 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       });
       taskIds.push(task.id);
     }
+
+    // The tool scout (founder, Nov 22, 2026): what this kind of business needs now is raised now; what it needs later
+    // (a money product's identity checks, before its first real users) is recorded and raised at its stage.
+    if (regulated.length > 0) {
+      const later = TOOL_NEED_STAGES.filter((stage) => stage !== "take_charge");
+      await repos.toolNeeds.plan(tx, businessId, later.flatMap((stage) => (REGULATED_NEEDS[stage] ?? []).map((n) => ({ category: n.category, stage, reason: n.why }))));
+    }
+    for (const r of await raiseStageToolNeeds(tx, businessId, "take_charge", connectorKeysFor, { regulated })) if (r.raised) taskIds.push(r.task.id);
 
     // Founder's Home dashboard: a department card for every department the archetype seeds (all visible).
     await repos.dashboards.create(tx, businessId, { userId, name: "Home", preset: "founder", layout: presetLayout("founder", { departments: seed.departments.length }), isActive: true });

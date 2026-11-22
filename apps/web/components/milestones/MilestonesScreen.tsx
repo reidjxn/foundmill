@@ -18,7 +18,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Flag, Gem, Rocket, Trophy } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, SharePost, StatusPill, Term, Timeline, TrophyCabinet, useToast, useDateFormat, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Explainer, Field, Input, Panel, SharePost, StatusPill, Term, Timeline, TrophyCabinet, useToast, useDateFormat, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
+import { EXPLAINERS } from "@foundmill/modules/explainers";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useToday } from "@foundmill/widgets/data";
 import { APP_NAME } from "@foundmill/config";
@@ -195,6 +196,7 @@ export function MilestonesScreen() {
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="milestones-screen" data-won={won}>
       {/* The Plan area's opening line, first on each of its tabs (docs/DESIGN.md §9). */}
       <AreaOpening area="plan" className="col-span-12" />
+      <Explainer {...EXPLAINERS.milestones!} />
       {refreshFailed(ribbonQ) ? <RefreshFailedNotice query={ribbonQ} className="col-span-12 flex items-center gap-2" /> : null}
       <Panel
         title="First outcomes, customers and revenue"

@@ -34,6 +34,14 @@ function shellProps(over: Partial<AppShellProps> = {}): AppShellProps {
 }
 
 describe("AppShell", () => {
+  it("no runway words and no mode chip when both are off, and Stop all agents stays (WP-10 T2)", () => {
+    render(<AppShell {...shellProps({ showRunway: false, showMode: false })} />);
+    expect(screen.getByTestId("kitbar-date")).toBeTruthy();
+    expect(document.querySelector("[data-runway-tone]")).toBeNull();
+    expect(screen.queryByText(/Asks before|Asks over|Runs on its own|Not known yet/)).toBeNull();
+    expect(screen.getByRole("button", { name: /Stop all agents/ })).toBeTruthy();
+  });
+
   it("carries the one estimate legend, under the content and outside it, hidden until the page holds an estimate (WP-14 T7)", () => {
     render(<AppShell {...shellProps()} />);
     const legends = document.querySelectorAll("[data-estimate-legend]");
@@ -93,11 +101,11 @@ describe("AppShell", () => {
       expect(screen.getByTestId("stop-all-trigger").className).toContain("min-h-tap");
     });
 
-    it("draws Explain this page in the phone title row only with `phoneExplain` (WP-04 T7, Today)", () => {
+    it("phone mode draws Explain this page when a screen registered one, and nothing when none did (WP-10 T3)", () => {
       const page = <Explainer screenId="today" purpose="Today is the front door." action="Answer Needs you." watchFor="Continue runs the team." />;
       const { unmount } = render(
         <GuidanceProvider value={{ guidance: "on", loaded: true }}>
-          <AppShell {...shellProps({ viewportWidth: 390, phone: true, phoneExplain: true, children: page })} />
+          <AppShell {...shellProps({ viewportWidth: 390, phone: true, children: page })} />
         </GuidanceProvider>,
       );
       const row = screen.getByTestId("phone-title-row");
@@ -105,7 +113,7 @@ describe("AppShell", () => {
       unmount();
       render(
         <GuidanceProvider value={{ guidance: "on", loaded: true }}>
-          <AppShell {...shellProps({ viewportWidth: 390, phone: true, children: page })} />
+          <AppShell {...shellProps({ viewportWidth: 390, phone: true, children: <p>No explainer here</p> })} />
         </GuidanceProvider>,
       );
       expect(within(screen.getByTestId("phone-title-row")).queryByRole("button", { name: /Explain this page/ })).toBeNull();

@@ -126,7 +126,7 @@ async function lockLiveLots(tx: Executor, businessId: string, now: Date): Promis
 /**
  * How a charge finds its credits. `includedMinor`: the project's own month opens with this many included credits (a
  * business with no recorded owner). `owner`: the month's included budget is the owner's, shared by all their projects
- * (0151): `budgetMinor` is what it is when the owner's row opens (their plan then), asked only when the row is missing.
+ * (0157): `budgetMinor` is what it is when the owner's row opens (their plan then), asked only when the row is missing.
  */
 export interface ChargeOptions {
   includedMinor?: number | ((tx: Executor) => Promise<number>);
@@ -419,7 +419,7 @@ export const usageRepo = {
     await db.execute(sql`select pg_advisory_xact_lock(hashtext('included_credits'), hashtext(${id}::text))`);
   },
 
-  /** The owner's shared included budget for `period` (0151), or null before their first charge of the month. */
+  /** The owner's shared included budget for `period` (0157), or null before their first charge of the month. */
   async ownerCredits(db: Executor, userId: string, period: string): Promise<OwnerCredits | null> {
     const v = parseInput(z.object({ userId: Id, period: Period }), { userId, period }, "owner credits");
     const rows = await db.select().from(ownerCredits).where(and(eq(ownerCredits.userId, v.userId), eq(ownerCredits.period, v.period))).limit(1);

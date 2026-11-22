@@ -1,6 +1,6 @@
 /**
  * For tests of the used-up state: uses up everything a project can spend this month on Foundmill's key, the owner's
- * shared included budget (0151) and the project's own balance, as a long run of charges would.
+ * shared included budget (0157) and the project's own balance, as a long run of charges would.
  */
 import { includedCreditsMinor } from "@foundmill/config";
 import { repos } from "../repos";

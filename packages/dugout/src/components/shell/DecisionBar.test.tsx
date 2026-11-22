@@ -192,9 +192,9 @@ describe("DecisionBar", () => {
     // A part the option never stated is left out: never "Cost unknown · Reversibility unknown".
     expect(optionSubline({ id: "x", label: "X", reversible: false })).toBe("Not reversible");
     expect(optionSubline({ id: "x", label: "X" })).toBeUndefined();
-    render(quiet(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} deadline="Expires in 5 days" />));
+    render(quiet(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} deadline="If you do nothing by Nov 20, Juno waits." />));
     expect(screen.getByText("Your decision").className).toContain("t-data");
-    expect(screen.getByText("Expires in 5 days")).toBeTruthy();
+    expect(screen.getByText("If you do nothing by Nov 20, Juno waits.")).toBeTruthy();
     const a = screen.getByRole("button", { name: /Reorder 2,000 units/ });
     expect(a.textContent).toContain("Recommended");
     expect(a.textContent).toContain("Meridian Labs ships in 12 days");
@@ -216,7 +216,7 @@ describe("DecisionBar", () => {
   });
 
   it("is compact: the ask sits on the heading line and the options share the width by their words", () => {
-    render(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} onAsk={() => {}} askLabel="Ask Juno" deadline="Expires in 5 days" />);
+    render(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} onAsk={() => {}} askLabel="Ask Juno" deadline="If you do nothing by Nov 20, Juno waits." />);
     const heading = screen.getByTestId("decision-bar").querySelector("[data-decision-heading]") as HTMLElement;
     expect(heading.querySelector("[data-decision-ask]")).not.toBeNull();
     const grid = screen.getByRole("group", { name: "Options" }).parentElement as HTMLElement;

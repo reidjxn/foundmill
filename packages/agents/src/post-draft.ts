@@ -50,8 +50,6 @@ export interface PostDraftGates {
   agentsStopped: boolean;
   /** The social channel is available and the founder posts it by tap (`ChannelAvailability.byTap`). */
   channelByTap: boolean;
-  /** The founder put the social channel on the Channel Board: their "yes, write posts for me". */
-  channelOnBoard: boolean;
   /** The channel's agent is paused (by hand or by its cap). */
   agentPaused: boolean;
   /** The project's page is published: the post is written from it and points to it. */
@@ -65,7 +63,7 @@ export interface PostDraftGates {
   inLastWeek: number;
 }
 
-export const POST_DRAFT_SKIPS = ["sample_business", "agents_stopped", "not_by_tap", "off_the_board", "agent_paused", "page_not_live", "already_drafted", "already_waiting", "daily_cap", "weekly_cap"] as const;
+export const POST_DRAFT_SKIPS = ["sample_business", "agents_stopped", "not_by_tap", "agent_paused", "page_not_live", "already_drafted", "already_waiting", "daily_cap", "weekly_cap"] as const;
 export type PostDraftSkip = (typeof POST_DRAFT_SKIPS)[number];
 
 /**
@@ -77,7 +75,6 @@ export function postDraftDecision(g: PostDraftGates, caps: { perDay: number; per
   if (g.isDemo) return no("sample_business");
   if (g.agentsStopped) return no("agents_stopped");
   if (!g.channelByTap) return no("not_by_tap");
-  if (!g.channelOnBoard) return no("off_the_board");
   if (g.agentPaused) return no("agent_paused");
   if (!g.pageLive) return no("page_not_live");
   if (g.alreadyForTrigger) return no("already_drafted");

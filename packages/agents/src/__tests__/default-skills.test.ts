@@ -17,8 +17,9 @@ const rowsFor = (templateKey: string) =>
   });
 
 describe("default skills per role", () => {
-  it("is the first release of defaults", () => {
-    expect(DEFAULT_SKILLS_VERSION).toBe(1);
+  it("is the second release of defaults: the tool scout joined the Chief of Staff and the leads (Nov 22, 2026)", () => {
+    expect(DEFAULT_SKILLS_VERSION).toBe(2);
+    expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 2).map((s) => s.key)).toEqual(["tool_scout"]);
   });
 
   it("lists, in catalog order, the skills whose default_for names the template", () => {

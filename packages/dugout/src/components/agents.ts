@@ -21,6 +21,7 @@ export * from "./agents/ChannelToken";
 export * from "./agents/ChannelProfileCard";
 export * from "./agents/FormationBoard";
 export * from "./agents/SquadCells";
+export * from "./agents/BetterModelsPrompt";
 export * from "./agents/ModelPicker";
 export * from "./agents/InstructionsEditor";
 export * from "./agents/TrainingResults";

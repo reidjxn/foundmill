@@ -258,6 +258,8 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     expect(env).not.toHaveProperty("APP_ENV");
 
     // tools: the five file tools plus the gateway MCP tools; Bash & co removed; host settings off; no prompts.
+    // The route's effort goes to the SDK (WP-09 T7 step 1); `worker` is written down as Sonnet's own default.
+    expect(options.effort).toBe("high");
     expect(options.tools).toEqual([...FILE_TOOLS]);
     const allowed = options.allowedTools as string[];
     for (const tool of FILE_TOOLS) expect(allowed).toContain(tool);

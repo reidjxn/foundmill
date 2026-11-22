@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, areaLink, areaTabBar, departmentBase, dismissCoachmarks, openBusiness, setBuilderView, settled } from "./helpers";
+import { LEDGERLY_BUSINESS_ID, LONG, commitThrowaway, NORTHWIND_BUSINESS_ID, areaLink, areaTabBar, departmentBase, dismissCoachmarks, openBusiness, setBuilderView, settled } from "./helpers";
 
 /**
  * Founder areas (founder decisions 2026-11-09; docs/DESIGN.md §8–§9) on the seeded Northwind Skincare: the sidebar asks
@@ -34,23 +34,23 @@ test.describe("founder areas", () => {
   });
 
   test("an area's bar shows its defaults inline; More detail holds the rest, and an opened detail tab joins the bar", async ({ page }) => {
-    await openBusiness(page, "d/distribution/leads");
+    await openBusiness(page, "d/distribution/first-ten");
     await dismissCoachmarks(page);
     const bar = areaTabBar(page, "Customers");
-    await expect(bar.getByRole("tab")).toHaveText([/^Leads/, /^Campaigns/, /^Contacts/], { timeout: LONG });
+    await expect(bar.getByRole("tab")).toHaveText([/^First ten/, /^Creative/, /^Contacts/], { timeout: LONG });
     await expect(areaLink(page, "customers")).toHaveAttribute("aria-current", "page");
-    const more = page.getByRole("button", { name: "More detail, 4 tabs" });
+    const more = page.getByRole("button", { name: "More detail, 5 tabs" });
     await expect(more).toBeVisible();
     // Beside the tablist, never inside it.
     expect(await more.evaluate((el) => el.closest("[role=tablist]") === null)).toBe(true);
     await more.click();
     const menu = page.getByTestId("more-detail-menu");
-    await expect(menu.getByRole("menuitem")).toHaveText(["Board", "Channels", "Creative", "Attribution"]);
+    await expect(menu.getByRole("menuitem")).toHaveText(["Board", "Channels", "Leads", "Campaigns", "Attribution"]);
     await menu.getByRole("menuitem", { name: "Channels" }).click();
     await expect(page).toHaveURL(new RegExp(`${B}/d/distribution/channels`), { timeout: LONG });
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "distribution/channels", { timeout: LONG });
     await expect(bar.getByRole("tab", { name: "Channels" })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("button", { name: "More detail, 3 tabs" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "More detail, 4 tabs" })).toBeVisible();
     // Contacts, a fixed surface, sits in the same bar and lights the same area.
     await bar.getByRole("tab", { name: "Contacts" }).click();
     await expect(page).toHaveURL(new RegExp(`${B}/crm$`), { timeout: LONG });
@@ -169,11 +169,23 @@ test.describe("founder areas", () => {
       await settled(page);
     };
     await chord("p", new RegExp(`${B}/d/product/roadmap$`));
-    await chord("c", new RegExp(`${B}/d/distribution/leads$`));
+    await chord("c", new RegExp(`${B}/d/distribution/first-ten$`));
     await chord("m", new RegExp(`${B}/d/finance/overview$`));
     await chord("r", new RegExp(`${B}/d/product/specification$`));
     await chord("t", new RegExp(`${B}/d/team/squad$`));
     await chord("i", new RegExp(`${B}/inbox\\?tab=respond$`));
     await chord("h", new RegExp(`${B}/today$`));
+  });
+
+  test("a fresh project lists nine items and no Money; a tab opened by URL still renders (WP-10 T1)", async ({ page }) => {
+    test.setTimeout(180_000);
+    const bid = await commitThrowaway(page, `Fresh Stage ${Date.now().toString(36)}`);
+    await page.goto(`/b/${bid}/today`);
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    await expect(nav.locator("[data-sidebar-label]")).toHaveText(["Today", "Needs you", "Plan", "Customers", "Product", "Team", "Network", "Settings", "Sign out"], { timeout: LONG });
+    // Hidden is not gone: Runway opens by URL and says why it is empty, not a gate.
+    await page.goto(`/b/${bid}/d/finance/runway`);
+    await expect(page.getByTestId("shell-content")).not.toBeEmpty({ timeout: LONG });
+    await expect(page.getByText(/not authorized|forbidden|no access/i)).toHaveCount(0);
   });
 });

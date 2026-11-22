@@ -5,6 +5,7 @@
 import type { SessionCommand } from "../control-bus";
 import type { ProgressState } from "../progress";
 import type { FoundationsDraft } from "@foundmill/agents";
+import type { Effort } from "@foundmill/models";
 import type { AgentStatus, BusinessMode, ModelKey, ParkedTask, PlanActionType, PolicyOutcome, TaskKind, TaskStatus, ProductStage } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -241,6 +242,8 @@ export interface SessionLaunch {
   envNames: string[];
   modelBilling: "byok" | "credits";
   branch: string;
+  /** The route's reasoning effort on the model the session runs on (WP-09 T7); absent on a launch prepared before it existed or on a model with no effort. */
+  effort?: Effort;
   maxTurns: number;
   planSteps: number;
   acceptanceTests: number;

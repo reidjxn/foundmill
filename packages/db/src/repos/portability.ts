@@ -65,6 +65,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   site_releases: t(s.siteReleases, "development", { omit: ["previewToken"] }),
   // 0131: the project's payment links (the founder's own; their URLs are what visitors are sent to).
   pay_links: t(s.payLinks, "development"),
+  // 0154: what the project needs a tool for, what was recommended and why, and the founder's answer.
+  tool_needs: t(s.toolNeeds, "team"),
   // team
   departments: t(s.departments, "team"),
   department_members: t(s.departmentMembers, "team"),

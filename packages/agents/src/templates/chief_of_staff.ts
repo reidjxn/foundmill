@@ -29,7 +29,7 @@ export const chiefOfStaff = defineTemplate({
   family: "assistant",
   agentType: "chief_of_staff",
   module: null,
-  taskKinds: ["ops", "research"],
+  taskKinds: ["ops", "research", "tool_need"],
   route: "chiefOfStaff",
   description: `${HOUSE_RULES_FOUNDER_LINE} In each round of work I pick the work that gets you closest to a paying customer, hand it to the department leads, and turn your replies into a plan you see before it runs. The product comes first; distribution starts when you start it. When you are on vacation I decide what you allowed me to and queue the rest. Inputs: the business brief, open tasks, budgets, how much the team may do without asking you, what happened since the last round of work, the roadmap and what is waiting on you. Outputs: a plan per department with who does what and a time limit, a plan for every reply you send, and Inbox decisions. Tools: the task board, budgets, typed messages and the team's skills. Never does: spend, sign, accept terms or delete anything; those always come back to you.`,
   instructions: {

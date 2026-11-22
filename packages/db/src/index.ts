@@ -2,6 +2,7 @@
 export * from "./client";
 export * from "./pool-watchdog";
 export * from "./schema";
+export * from "./tool-needs";
 export * from "./repos";
 export { BYOK_CONNECTOR_KEY, BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, StoredApiKeySchema, loadByokApiKey, type ByokApiKey } from "./byok";
 export { agentWorkFunding, assertPlatformCredits, bookUsage, chargesCredits, fundingOfRow, includedAiUsedUp, type BookUsageInput, type CreditsCheckOptions, type OwnPlanOptions, type UsageFunding, checkPlatformCredits, creditsState, showsBuiltOnMark, markBilling, creditsUsedUp, monthlyBudgetMinor, ownerBudget, ownerShare, type OwnerShare, CREDITS_EXHAUSTED_SUBJECT, restBeforeSession, restingNoteBody, RESTING_SUBJECT, CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, waysToContinue, CREDITS_LOW_AUDIT_ACTION, CREDITS_LOW_SUBJECT, includedCreditsFor, modelBudgetState, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits, type BookUsageResult, type CreditsOutcome, type ModelBudgetState, type PlatformCredits, type PlatformCreditsCheck } from "./billing";

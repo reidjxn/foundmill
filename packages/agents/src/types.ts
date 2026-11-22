@@ -19,6 +19,8 @@ import {
   OptionAction,
   SkillGroup,
   TaskKind,
+  TOOL_CATEGORIES,
+  TOOL_NEED_STAGES,
 } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -430,6 +432,9 @@ export const FirstBuild = z.object({
 });
 export type FirstBuild = z.infer<typeof FirstBuild>;
 
+export const ToolNeedSeed = z.object({ category: z.enum(TOOL_CATEGORIES), why: z.string().min(20).max(300) });
+export type ToolNeedSeed = z.infer<typeof ToolNeedSeed>;
+
 export const ArchetypeSeed = z.object({
   archetype: Archetype,
   /** Chief of Staff is hired for every archetype; listed here so seeds are self-describing. */
@@ -443,5 +448,10 @@ export const ArchetypeSeed = z.object({
   firstBuild: FirstBuild,
   /** The Board's question, posted when the founder starts distribution. */
   boardDecision: BoardDecision,
+  /**
+   * The kinds of tool this kind of business needs, by the stage each is first useful (founder, Nov 22, 2026). Kept
+   * short: the tool scout raises each need at its stage, never all at take charge. `why` is why now, in plain words.
+   */
+  needsByStage: z.partialRecord(z.enum(TOOL_NEED_STAGES), z.array(ToolNeedSeed).min(1).max(3)),
 });
 export type ArchetypeSeed = z.infer<typeof ArchetypeSeed>;

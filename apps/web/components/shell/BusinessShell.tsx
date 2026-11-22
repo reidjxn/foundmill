@@ -43,6 +43,7 @@ import { useBusinessLogoSrc, useBusinessLogos } from "@/components/logo/useBusin
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
 import { publicPaletteItems, publicSearchText } from "@/lib/public-search";
 import { entityPaletteItems, filterLocal, helpPaletteItems, localPaletteItems, searchInputFor } from "@/lib/search";
+import type { StageFacts } from "@foundmill/shared/areas";
 import { SIDEBAR_BRAND, SIDEBAR_IDS, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { signOut } from "@/lib/auth/sign-out";
 import { useStreamSubscription } from "@/lib/stream-client";
@@ -57,7 +58,7 @@ import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/component
 import { useNetworkBadge } from "@/components/live/signals";
 import { termsFor } from "@/components/providers/GuidanceHost";
 import { useKeyboardShortcutsOn } from "@/components/providers/guidance-context";
-import { isTodayPath, worksOnSmallScreens } from "@/components/providers/DesktopOnly";
+import { worksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { agentOfAskItem, agentOfCallItem, askPaletteItems, askQuestion, callPaletteItems, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { switcherBusinesses } from "./business-switcher";
@@ -215,6 +216,16 @@ export { RUN_UNTIL_DONE };
 export const CONTINUE_PRESSED_NOTICE = "Starting the next round of work…";
 /** The same with Builder view off, in the founder's words ("round of work", as the live feed and the team's notes say). */
 export const CONTINUE_PRESSED_NOTICE_PLAIN = "Starting the next round of work…";
+/**
+ * Which chips the top bar draws (WP-10 T2): the runway words once a bank is connected or a payment has arrived, the mode
+ * chip once the team has done a round of work or the founder moved off the starting mode. Builder view shows both.
+ * Stop all agents is never hidden here.
+ */
+export function topBarChips(stage: StageFacts | undefined, builder: boolean, businessMode: string): { showRunway: boolean; showMode: boolean } {
+  if (builder || !stage) return { showRunway: true, showMode: true };
+  return { showRunway: stage.bankConnected || stage.firstPayment, showMode: stage.roundCompleted || businessMode !== "augmented" };
+}
+
 export const continuePressedNotice = (builder: boolean): string => (builder ? CONTINUE_PRESSED_NOTICE : CONTINUE_PRESSED_NOTICE_PLAIN);
 /** How long the answer to a press stays as the strip's sentence when no cycle event replaces it sooner. */
 export const CONTINUE_NOTICE_MS = 15_000;
@@ -526,8 +537,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   // Builder view (docs/DESIGN.md): its tabs are not linked and cycle numbers are not shown while it is off.
   const builder = useBuilderView();
   const sidebarItems = useMemo(
-    () => buildSidebarItems({ businessId, departments, inboxCounts: inboxQ.data?.counts, inboxItems: inboxQ.data?.items, live, network, access, builder }),
-    [businessId, departments, inboxQ.data?.counts, inboxQ.data?.items, live, network, access, builder],
+    () => buildSidebarItems({ businessId, departments, inboxCounts: inboxQ.data?.counts, inboxItems: inboxQ.data?.items, live, network, access, builder, stage: data.stageFacts }),
+    [businessId, departments, inboxQ.data?.counts, inboxQ.data?.items, live, network, access, builder, data.stageFacts],
   );
   const cycleNumber = builder ? cycle.cycleNumber : null;
   const activeId = useMemo(() => activeSidebarId(pathname, businessId, departments), [pathname, businessId, departments]);
@@ -871,8 +882,6 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
               <AppShell
                 // Today and Needs you work from 390 px (package 2.1): the shell's phone layout; other routes keep the 1280 px floor.
                 phone={worksOnSmallScreens(pathname)}
-                // "Explain this page" in the phone title row on Today only (WP-04 T7).
-                phoneExplain={isTodayPath(pathname)}
                 mode={business.gameMode}
                 businessMode={business.businessMode}
                 // The mode chip says the setting in words with the business's own currency ("Asks before spending over £50").
@@ -950,6 +959,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 // A cash figure only when a bank account backs it (no account reads "Not known yet", never "Cash £0").
                 cash={financeQ.data && financeQ.data.cash.accounts > 0 ? { amountMinor: financeQ.data.cash.amountMinor, currency: financeQ.data.cash.currency } : undefined}
                 runwayEstimate
+                {...topBarChips(data.stageFacts, builder, business.businessMode)}
                 onRunwayClick={financeDept ? onRunwayClick : undefined}
                 onModeClick={() => router.push(routes.settings(businessId, "mode"))}
                 keyboard={{

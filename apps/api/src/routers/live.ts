@@ -18,7 +18,7 @@ import { ForbiddenError, NotFoundError, PERSON_LOOKING_FOR, ValidationError, VIS
 import { z } from "zod";
 import type { Context } from "../context";
 import { messageRecipients, screenText, signalPeople } from "../services/live";
-import { takeCommunity, takeCommunityInvite, takeConnectionRequest, takeMessage, takePeopleSearch, takePost, takePostReport } from "../services/live-limits";
+import { takeCommunity, takeCommunityEdit, takeCommunityInvite, takeCommunityJoin, takeConnectionRequest, takeMessage, takePeopleSearch, takePost, takePostReport } from "../services/live-limits";
 import { Id, effectivePermission, liveGate, pgErrorCode, protectedProcedure as anyProtectedProcedure, router, sectionWrite as anySectionWrite, type Section } from "../trpc";
 
 // Every LIVE procedure is closed while LIVE is (FLAGS.liveMode / LIVE_MODE, audit VLS2-X1).
@@ -313,7 +313,10 @@ export const liveRouter = router({
      */
     get: protectedProcedure.input(z.object({ communityId: Id })).query(async ({ ctx, input }) => {
       const { community, membership, isMember, invited, canPost, canModerate } = await visibleCommunity(ctx, input.communityId);
-      const members = isMember ? await repos.social.listMembers(ctx.db, input.communityId) : [];
+      const listed = isMember ? await repos.social.listMembers(ctx.db, input.communityId) : [];
+      // H4: a block holds here too: neither person sees the other in the member list.
+      const blocked = await repos.social.blockedWith(ctx.db, ctx.userId, listed.map((m) => m.userId).filter((id) => id !== ctx.userId));
+      const members = listed.filter((m) => !blocked.has(m.userId));
       const shown = await shownBusinessIds(ctx, [community.ownerBusinessId, ...members.map((m) => m.businessId)]);
       const mask = <T extends string | null>(id: T) => (id && shown.has(id) ? id : null);
       return {
@@ -354,6 +357,8 @@ export const liveRouter = router({
         const { community, membership } = await visibleCommunity(ctx, input.communityId);
         // The owner check comes before the screen, so nobody else spends a model call (the repo checks again).
         if (membership?.status !== "active" || membership.role !== "owner") throw new ForbiddenError("Only the community's owner can change it");
+        // Limited before the screen: each new name or description is a model call (H3).
+        await takeCommunityEdit(ctx.limits, ctx.userId);
         const { communityId, ...patch } = input;
         if (patch.name !== undefined || patch.descriptionMd !== undefined) await screenCommunityProfile(ctx, { name: patch.name ?? community.name, descriptionMd: patch.descriptionMd ?? community.descriptionMd, businessId: null });
         return repos.social.updateCommunity(ctx.db, ctx.userId, communityId, patch);
@@ -363,6 +368,9 @@ export const liveRouter = router({
       const { community, invited, isMember } = await visibleCommunity(ctx, input.communityId);
       if (community.visibility !== "public" && !invited && !isMember) throw new NotFoundError("community", input.communityId);
       await requireAdult(ctx);
+      // Joins are limited, so a run of fresh accounts cannot join together to report a post out of the feed (H1). A
+      // member changing who they speak as is not a join.
+      if (!isMember) await takeCommunityJoin(ctx.limits, ctx.userId);
       return repos.social.joinCommunity(ctx.db, ctx.userId, input.communityId, { businessId: await speakingAs(ctx, input.businessId) });
     }),
     /** Declines an invitation. */
@@ -394,9 +402,14 @@ export const liveRouter = router({
     posts: protectedProcedure.input(z.object({ communityId: Id, parentPostId: Id.nullable().optional(), limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(async ({ ctx, input }) => {
       const { isMember, canModerate } = await visibleCommunity(ctx, input.communityId);
       if (!isMember) throw new ForbiddenError("Join the community to read its feed");
+      // H4: the replies under a post by someone blocked either way read as missing, like the post.
+      if (input.parentPostId) {
+        const parent = await repos.social.getPost(ctx.db, input.parentPostId);
+        if (parent.communityId !== input.communityId || (parent.authorUserId !== ctx.userId && (await repos.social.blockedWith(ctx.db, ctx.userId, [parent.authorUserId])).size)) throw new NotFoundError("post", input.parentPostId);
+      }
       const page = await repos.social.listPosts(ctx.db, input.communityId, { parentPostId: input.parentPostId, limit: input.limit, cursor: input.cursor, viewerId: ctx.userId });
       const [replies, { users }, shown] = await Promise.all([
-        repos.social.replyCounts(ctx.db, page.items.map((p) => p.id)),
+        repos.social.replyCounts(ctx.db, page.items.map((p) => p.id), ctx.userId),
         repos.social.lookupPeople(ctx.db, ctx.userId, { userIds: page.items.map((p) => p.authorUserId) }),
         shownBusinessIds(ctx, page.items.map((p) => p.businessId)),
       ]);

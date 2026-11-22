@@ -23,7 +23,7 @@ import {
   forgetAdmittedMemo,
   INVITATION_ADMISSIONS_LIMIT_MESSAGE,
   INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY,
-  INVITATION_ADMISSIONS_PER_INVITER_PER_DAY,
+  INVITATION_ADMISSIONS_PER_INVITER,
   INVITATION_CANNOT_ADMIT_MESSAGE,
   ON_WAITLIST_MESSAGE,
   type AdmissionFacts,
@@ -162,25 +162,25 @@ describe("admitOrWait: invite-only", () => {
     expect(await repos.admissions.has(hz.db, listed.userId)).toBe(false);
   });
 
-  it(`one inviter's invitations let in at most ${INVITATION_ADMISSIONS_PER_INVITER_PER_DAY} new accounts a UTC day; someone already in still joins`, async () => {
+  it(`one inviter's invitations let in at most ${INVITATION_ADMISSIONS_PER_INVITER} new accounts in total; someone already in still joins`, async () => {
     const { businessId } = hz.B;
     const owner = hz.caller({ userId: hz.B.ownerId });
-    expect(INVITATION_ADMISSIONS_PER_INVITER_PER_DAY).toBe(3);
+    expect(INVITATION_ADMISSIONS_PER_INVITER).toBe(3);
     const links: string[] = [];
-    for (let i = 0; i < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY + 2; i++) links.push((await owner.invitation.create({ businessId, role: "collaborator" })).link);
-    for (let i = 0; i < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY; i++) {
+    for (let i = 0; i < INVITATION_ADMISSIONS_PER_INVITER + 2; i++) links.push((await owner.invitation.create({ businessId, role: "collaborator" })).link);
+    for (let i = 0; i < INVITATION_ADMISSIONS_PER_INVITER; i++) {
       const p = await person(`cap-${i}`);
       expect(await callerIn(INVITE_ONLY, p).invitation.accept({ confirmAdult: true, token: tokenOf(links[i]!) })).toMatchObject({ businessId, already: false });
     }
-    expect(await repos.admissions.admittedByInviterSince(hz.db, hz.B.ownerId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER_PER_DAY);
+    expect(await repos.admissions.admittedByInviterSince(hz.db, hz.B.ownerId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER);
     const over = await person("cap-over");
-    expect(await refusal(callerIn(INVITE_ONLY, over).invitation.accept({ confirmAdult: true, token: tokenOf(links[INVITATION_ADMISSIONS_PER_INVITER_PER_DAY]!) }))).toMatchObject({ code: "TOO_MANY_REQUESTS", appCode: "invitation_admissions_limit", message: INVITATION_ADMISSIONS_LIMIT_MESSAGE });
+    expect(await refusal(callerIn(INVITE_ONLY, over).invitation.accept({ confirmAdult: true, token: tokenOf(links[INVITATION_ADMISSIONS_PER_INVITER]!) }))).toMatchObject({ code: "TOO_MANY_REQUESTS", appCode: "invitation_admissions_limit", message: INVITATION_ADMISSIONS_LIMIT_MESSAGE });
     expect(await repos.admissions.has(hz.db, over.userId)).toBe(false);
     expect(await membershipOf(businessId, over.userId)).toBeNull();
     // Someone already in is never counted: an account an earlier invitation let in joins with the next link.
     const already = await person("cap-already");
     await repos.admissions.record(hz.db, { userId: already.userId, how: "open" });
-    expect(await callerIn(INVITE_ONLY, already).invitation.accept({ confirmAdult: true, token: tokenOf(links[INVITATION_ADMISSIONS_PER_INVITER_PER_DAY + 1]!) })).toMatchObject({ businessId, already: false });
+    expect(await callerIn(INVITE_ONLY, already).invitation.accept({ confirmAdult: true, token: tokenOf(links[INVITATION_ADMISSIONS_PER_INVITER + 1]!) })).toMatchObject({ businessId, already: false });
   });
 
   it("the advisory lock is taken before the counts it guards (the mechanism; the race itself needs a real-Postgres run)", async () => {
@@ -364,8 +364,8 @@ describe("admitOrWait: open sign-up with a daily ceiling", () => {
     }
     expect(await repos.admissions.openSince(hz.db, todayStart())).toBe(before + 2);
     // Past their own number of the day, the ceiling decides for them too.
-    for (let i = 1; i < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY; i++) await callerIn(FULL, await person("past-more")).invitation.accept({ confirmAdult: true, token: await collaboratorLink(listed.userId) });
-    expect(await repos.admissions.admittedByInviterSince(hz.db, listed.userId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER_PER_DAY);
+    for (let i = 1; i < INVITATION_ADMISSIONS_PER_INVITER; i++) await callerIn(FULL, await person("past-more")).invitation.accept({ confirmAdult: true, token: await collaboratorLink(listed.userId) });
+    expect(await repos.admissions.admittedByInviterSince(hz.db, listed.userId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER);
     const over = await person("past-over");
     expect(await refusal(callerIn(FULL, over).invitation.accept({ confirmAdult: true, token: await collaboratorLink(listed.userId) }))).toMatchObject({ appCode: "on_waitlist", reason: "ceiling" });
     expect(await repos.admissions.has(hz.db, over.userId)).toBe(false);

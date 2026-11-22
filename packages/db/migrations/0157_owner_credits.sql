@@ -1,4 +1,4 @@
--- 0151 — one included budget per owner (WP-14; founder, Nov 19, 2026): the month's included team budget (Try $5.00,
+-- 0157 — one included budget per owner (WP-14; founder, Nov 19, 2026): the month's included team budget (Try $5.00,
 -- Founder $10.00, Studio $50.00) is the owner's, shared across every project they took charge of, instead of a budget
 -- per project. `owner_credits` is account-scoped, one row per person and month, written lazily on the owner's first
 -- charge of the month by `repos.usage.chargeCreditsMicro`; a project's own `credit_balances` row now holds only what

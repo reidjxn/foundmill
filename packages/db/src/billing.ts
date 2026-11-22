@@ -7,7 +7,7 @@
  * Credits are always enforced (DECISIONS 2026-10-12): every tier includes a monthly platform credit
  * (`includedCreditsMinor`, packages/config), granted on the first charge of the period when no top-up came first, so no
  * business runs on the platform's key without a ceiling. The included budget is the owner's, one a month shared by all
- * their projects (`owner_credits`, 0151; founder, Nov 19, 2026): a charge draws on it first, then on the project's own
+ * their projects (`owner_credits`, 0157; founder, Nov 19, 2026): a charge draws on it first, then on the project's own
  * balance (what it bought). Archiving and taking charge again never yields a second budget.
  *
  * What is charged: every platform cost in the credits currency (USD), whatever the business's model billing. A business
@@ -142,7 +142,7 @@ type CreditsBusiness = Pick<Business, "id" | "planTier" | "createdBy">;
 
 /**
  * What a project's own balance opens a month with. The month's included team budget is the owner's, shared by all
- * their projects (0151; founder, Nov 19, 2026), so a project with a recorded owner (`created_by`) opens with nothing
+ * their projects (0157; founder, Nov 19, 2026), so a project with a recorded owner (`created_by`) opens with nothing
  * included: only what it bought carries over. A business with no recorded owner (old seeds) keeps its own tier's amount.
  */
 export async function includedCreditsFor(_db: Executor, business: CreditsBusiness, _period: string, _options: { lock?: boolean } = {}): Promise<number> {
@@ -158,7 +158,7 @@ export async function monthlyBudgetMinor(db: Executor, business: CreditsBusiness
   return includedCreditsMinor((await businessAllowance(db, business.createdBy)).tier);
 }
 
-/** What is left of the owner's shared budget for `period` (0151): their row, or the whole budget before their first charge. */
+/** What is left of the owner's shared budget for `period` (0157): their row, or the whole budget before their first charge. */
 export interface OwnerShare {
   grantedMinor: number;
   balanceMinor: number;

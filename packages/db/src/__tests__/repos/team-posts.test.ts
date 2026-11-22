@@ -375,7 +375,6 @@ describe("draftTeamPost", () => {
     const none = async () => undefined;
     await gate("sample_business", () => biz({ isDemo: true }), () => biz({ isDemo: false }));
     await gate("agents_stopped", () => biz({ agentsStoppedAt: NOW, agentsStoppedReason: "kill_switch" }), () => biz({ agentsStoppedAt: null, agentsStoppedReason: null }));
-    await gate("off_the_board", () => repos.channels.setEnabled(r.db, A.businessId, socialId, false), () => repos.channels.setEnabled(r.db, A.businessId, socialId, true));
     await gate("agent_paused", () => repos.agents.setStatus(r.db, A.businessId, A.agentId, "paused"), () => repos.agents.setStatus(r.db, A.businessId, A.agentId, "healthy"));
     await gate("not_by_tap", none, none, { channelByTap: async () => false });
     await gate("page_not_live", () => r.as(A.ownerId, (tx) => repos.pages.unpublish(tx, A.businessId, { userId: A.ownerId })), () => r.as(A.ownerId, (tx) => repos.pages.publish(tx, A.businessId, { content: content(), slug: "maple-bakes", userId: A.ownerId, at: PUBLISHED })));
@@ -387,7 +386,7 @@ describe("draftTeamPost", () => {
     });
     // A business with no page and no channel is skipped at the first rule it meets.
     const { models, requests } = recording();
-    expect(await draftTeamPost(deps(models), B.businessId, { kind: "page_published" }, options())).toEqual({ outcome: "skipped", reason: "off_the_board" });
+    expect(await draftTeamPost(deps(models), B.businessId, { kind: "page_published" }, options())).toEqual({ outcome: "skipped", reason: "page_not_live" });
     expect(requests).toHaveLength(0);
   });
 
@@ -405,6 +404,16 @@ describe("draftTeamPost", () => {
     // Nothing of the refused words is kept anywhere.
     expect(JSON.stringify(await assetsOf(A.businessId))).not.toContain("10,000");
     expect(JSON.stringify(await audits(A.businessId, "post.draft_dropped"))).not.toContain("10,000");
+  });
+
+  it("drafts the first post for a project whose social channel is not on the board: the page going live is enough", async () => {
+    await clear(A.businessId);
+    await repos.channels.setEnabled(r.db, A.businessId, socialId, false);
+    try {
+      expect(await draftTeamPost(deps(recording().models), A.businessId, { kind: "page_published" }, options())).toMatchObject({ outcome: "written" });
+    } finally {
+      await repos.channels.setEnabled(r.db, A.businessId, socialId, true);
+    }
   });
 
   it("a second business's fixture still drafts nothing by this path until it has a page and a channel of its own", async () => {
