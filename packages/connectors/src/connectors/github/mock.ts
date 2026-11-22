@@ -4,7 +4,7 @@ import { makeWebhookRequest, ReplayGuard } from "../../webhooks";
 import { commitSha, fileSha, GH_MERGED_PR, GH_REPOS, MOCK_GITHUB_WEBHOOK_SECRET, MOCK_INSTALLATION_ID, MOCK_OWNER, type GhFixtureRepo } from "./fixtures/repos";
 import { writeTarGz } from "./tarball";
 import { branchMoved } from "./moved";
-import { ciState, CI_WORKFLOW, fileWriteBuffer, githubChangedMessage, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapPullRequest, mapRepository, MAX_TREE_ENTRIES, type GhCheckRun, type GhPullRequest, type GhWorkflowRun, type PullRequestT } from "./tools";
+import { ciState, CI_WORKFLOW, fileWriteBuffer, githubChangedMessage, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapDeployment, mapPullRequest, mapRepository, MAX_TREE_ENTRIES, type GhCheckRun, type GhPullRequest, type GhWorkflowRun, type PullRequestT } from "./tools";
 import { createGithubWebhook, GITHUB_DELIVERY_HEADER, GITHUB_EVENT_HEADER, GITHUB_SIGNATURE_HEADER, githubSignature, normaliseGithubEvent, type GhWebhookPayload } from "./webhooks";
 
 const notFound = (what: string) => Object.assign(new Error(`${what} not found`), { status: 404 });
@@ -370,6 +370,15 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         // The mock's CI finishes the moment it is dispatched; before that (or on a head it was not dispatched on) there is no run.
         const run: GhWorkflowRun | null = dispatched ? { status: "completed", conclusion: failing ? "failure" : "success" } : null;
         return { headSha, state: ciState(run, checks), checks };
+      },
+      list_deployments: async ({ owner, repo, sha }, ctx) => {
+        const r = world(ctx.businessId).find(owner, repo);
+        // One preview per agent/ branch head, as a Vercel project would leave on a pushed branch; failing branches fail.
+        const branch = Object.entries(r.branches).find(([name, head]) => name.startsWith("agent/") && head.toLowerCase().startsWith(sha.toLowerCase()))?.[0];
+        if (!branch) return { items: [] };
+        const failing = failingBranches.has(branch);
+        const slug = `${r.repo.name}-git-${branch.replace(/[^a-z0-9]+/gi, "-")}`.toLowerCase().slice(0, 60);
+        return { items: [mapDeployment("Preview", { state: failing ? "failure" : "success", environment_url: failing ? null : `https://${slug}-mock.vercel.app` })] };
       },
       open_pr: async ({ owner, repo, title, body, head, base: givenBase, draft }, ctx) => {
         const g = world(ctx.businessId);
