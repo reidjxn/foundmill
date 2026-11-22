@@ -350,14 +350,15 @@ describe("public views (LIVE only)", () => {
     const res = await h.db.execute(sql`select to_regclass('public.leaderboards')::text as boards, to_regclass('public.leaderboard_entries')::text as entries`);
     expect((res as unknown as { rows: { boards: string | null; entries: string | null }[] }).rows[0]).toEqual({ boards: null, entries: null });
   });
-  it("public_profiles: lists LIVE businesses and their public, confirmed founders only", async () => {
+  it("public_profiles: lists LIVE businesses and their public, confirmed founders only, to the service; no client reads it (0168)", async () => {
     await h.db.update(s.businesses).set({ gameMode: "live", committedAt: new Date() }).where(eq(s.businesses.id, A.businessId));
     await h.db.insert(s.founderProfiles).values({ userId: A.memberId, displayName: "Private member", visibility: "private" });
     await h.db.insert(s.founderProfiles).values({ userId: A.adminId, displayName: "Public admin", visibility: "public" });
+    await expect(h.anon().run((tx) => tx.select().from(s.publicProfiles))).rejects.toThrow(/permission denied/);
     // A founder card needs the person's 18+ confirmation (0167): unconfirmed, the public admin is not listed yet.
-    expect((await h.anon().run((tx) => tx.select().from(s.publicProfiles))).filter((r) => r.kind === "founder")).toEqual([]);
+    expect((await h.service().run((tx) => tx.select().from(s.publicProfiles))).filter((r) => r.kind === "founder")).toEqual([]);
     await h.db.insert(s.adultConfirmations).values({ userId: A.adminId }).onConflictDoNothing();
-    const rows = await h.anon().run((tx) => tx.select().from(s.publicProfiles));
+    const rows = await h.service().run((tx) => tx.select().from(s.publicProfiles));
     expect(rows.filter((r) => r.kind === "business").map((r) => r.businessId)).toEqual([A.businessId]);
     expect(rows.filter((r) => r.kind === "founder").map((r) => r.displayName)).toEqual(["Public admin"]);
     expect(rows.some((r) => r.businessId === B.businessId)).toBe(false);

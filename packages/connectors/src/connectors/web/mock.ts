@@ -31,7 +31,7 @@ export function createWebMock() {
       },
       search_web: async ({ query, limit }) => {
         const slug = query.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "results";
-        const results = Array.from({ length: Math.min(limit, 3) }, (_, i) => ({ url: `https://example.com/${slug}/${i + 1}`, title: `${query} (result ${i + 1}, mock)`, pageAge: null }));
+        const results = Array.from({ length: Math.min(limit, 3) }, (_, i) => ({ url: `https://example.com/${slug}/${i + 1}`, title: `${query} (result ${i + 1}, mock)`, pageAge: null, snippet: `A page about ${query} (mock).` }));
         return { query, results };
       },
       fetch_page: async ({ url, maxChars }) => {
