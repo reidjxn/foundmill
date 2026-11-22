@@ -152,6 +152,7 @@ describe("journal", () => {
       "0149_explore_listing",
       "0150_domain_checkouts",
       "0153_waitlist_batches",
+      "0154_tool_needs",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);

@@ -58,6 +58,7 @@ export * from "./chief-answers";
 export * from "./team-can-do";
 export * from "./starting-team";
 export * from "./team-tiers";
+export * from "./tool-needs";
 export * from "./team-call";
 export * from "./founder-return";
 export * from "./founder-notifications";

@@ -281,6 +281,9 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "positioning.propose": ["propose_positioning_change"],
     // A draft update to the project's followers (WP-08 T3): the founders check it and press Send; the tool never sends.
     "updates.draft": ["draft_follower_update"],
+    // The tool scout (founder, Nov 22, 2026): any agent says what is missing; the Chief of Staff and the leads recommend.
+    "tools.need": ["raise_tool_need"],
+    "tools.scout": ["read_tool_need", "recommend_tool"],
   },
   web: { search: ["search_web"], fetch: ["fetch_page"] },
   quarantine: { read_untrusted: ["read_untrusted"] },

@@ -130,7 +130,7 @@ describe("tabs by stage (WP-10 T1)", () => {
     const map = areaTabsByArea(LEDGERLY, { builder: false, stage: FRESH });
     expect(map.has("money")).toBe(false);
     expect(map.get("product")?.some((t) => t.moduleKey === "development")).toBe(false);
-    expect(map.get("customers")?.map((t) => t.id)).toEqual(["crm"]);
+    expect(map.get("customers")?.map((t) => t.id)).toEqual(["distribution/first-ten", "crm"]);
     expect(inline(LEDGERLY, FRESH)).toBeLessThanOrEqual(8);
     expect([...map.values()].flat().length - inline(LEDGERLY, FRESH)).toBe(6);
   });

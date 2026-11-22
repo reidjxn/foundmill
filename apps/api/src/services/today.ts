@@ -32,7 +32,7 @@
  */
 import { APPROVAL_OPTIONS, approvalSection, buildDestinationOf, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { FLAGS } from "@foundmill/config";
-import { GOAL_OPTION_IDS, REAL_OUTCOME_EVENT_TYPES, daysBetweenDays, founderTaskOf, isRealOutcome, realOutcomes, weekOutcomesWords, type WeekOutcomesWords, type FounderTask, type FounderTaskId, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { GOAL_OPTION_IDS, REAL_OUTCOME_EVENT_TYPES, TOOL_PICK_NOTE, isAdminRole, toolPickCategory, daysBetweenDays, founderTaskOf, isRealOutcome, realOutcomes, weekOutcomesWords, type WeekOutcomesWords, type FounderTask, type FounderTaskId, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
 import { pagePostDraft } from "@foundmill/shared/share-drafts";
 import { channelRowsFor } from "./channel-availability";
 import type { BusinessContext } from "../trpc";
@@ -156,6 +156,8 @@ async function quickAnswerFor(tx: DbTx, ctx: BusinessContext, item: InboxItem, a
   if (isPageReadyDecision(item.decision)) return { kind: "decision", quickOption: quick(PAGE_READY_NOTE.options.check, hasSectionAccess(ctx.membership, "product", "read")) };
   // The founders' postal address note: one tap answers it and the web opens Settings › Integrations (founders only).
   if (isPostalAddressDecision(item.decision)) return { kind: "decision", quickOption: quick(POSTAL_ADDRESS_NOTE.options.add, isProjectFounder(ctx)) };
+  // The tool scout's recommendation (founder, Nov 22, 2026): one press says yes; the sign-up itself stays the founder's.
+  if (toolPickCategory(item.decision)) return { kind: "decision", quickOption: quick(TOOL_PICK_NOTE.options.yes, isAdminRole(ctx.role)) };
   return { kind: item.type === "warning" ? "warning" : "decision", quickOption: null };
 }
 
