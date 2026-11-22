@@ -51,9 +51,9 @@ test.describe("stop and resume", () => {
     await expect(page.getByTestId("apply-scope-dialog")).toBeVisible();
     await page.getByTestId("apply-scope-confirm").click();
     await expect(page.getByText(/This check costs about \$[\d.]+ \(Estimate\)/).first()).toBeVisible({ timeout: LONG });
-    // The refusal leaves the dialogs open: close them so the Resume agents button can be pressed.
-    for (let i = 0; i < 3 && (await page.locator("[role=dialog]").count()) > 0; i++) await page.keyboard.press("Escape");
-    await expect(page.locator("[role=dialog]")).toHaveCount(0);
+    // The refusal leaves the Apply where? dialog open: cancel it so the Resume agents button can be pressed.
+    await page.getByTestId("apply-scope-dialog").getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByTestId("apply-scope-dialog")).toBeHidden();
 
     await page.getByTestId("resume-agents-trigger").click();
     const resumeDialog = page.getByRole("dialog", { name: "Resume agents?" });
