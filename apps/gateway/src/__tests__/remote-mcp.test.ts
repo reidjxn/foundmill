@@ -53,7 +53,7 @@ afterEach(async () => {
 });
 
 const SEARCH = { connector: "notion_mcp", tool: "notion_search", args: { query: "launch" } } as const;
-const UPDATE = { connector: "notion_mcp", tool: "notion_update_page", args: { page_id: "p1" } } as const;
+const UPDATE = { connector: "notion_mcp", tool: "notion_update_page", args: { page_id: "p1", command: "update_properties", properties: { Status: "Done" } } } as const;
 const unlisted = (tool: string) => ({ connector: "notion_mcp", tool: "call_unlisted_tool", args: { tool, arguments: {} } }) as const;
 
 describe("live", () => {
@@ -103,6 +103,61 @@ describe("live", () => {
       const r = await g.client.call(token, unlisted(name));
       expect(r.outcome, name).toBe("deny");
       expect(JSON.stringify(r)).toContain("hard-gate");
+    }
+    expect(vendor.calls).toEqual([]);
+  });
+
+  it("automated and on vacation: a listed change asks the founder, and Team › Responsibilities cannot decide it", async () => {
+    const vendor = server();
+    const g = (open = await setupGateway({ mode: "live", businessMode: "automated", connectors: live(vendor.fetch) }));
+    await connect(g);
+    // Every decision type handed to another agent in the caller's department: the worst case.
+    const dept = await repos.departments.create(g.db, g.businessId, { name: "Delegated" });
+    const reviewer = await repos.agents.create(g.db, g.businessId, { name: "Reviewer", agentType: "review_agent", departmentIds: [dept.id] });
+    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
+    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: ["message_customers", "publish_content", "spend_above_threshold"].map((decisionType) => ({ decisionType, handler: { kind: "agent", id: reviewer.id } })) });
+    const token = await g.token({ allowedTools: ["notion_mcp:*"] });
+    const asked = async (args: Record<string, unknown>) => {
+      const r = await g.client.call(token, { connector: "notion_mcp", tool: "notion_update_page", args });
+      expect(r.outcome, JSON.stringify(r)).toBe("ask");
+      const approval = await repos.approvals.get(g.db, g.businessId, (r as AskResponse).approvalId);
+      expect(approval).toMatchObject({ outcome: null, handlerKind: null });
+    };
+    await asked({ page_id: "p1", command: "update_properties", properties: { Status: "Done" } });
+    const holiday = await repos.holidays.start(g.db, g.businessId, { untilAt: new Date(Date.now() + 86_400_000), budgetCeilingMinor: 50_000 });
+    try {
+      await asked({ page_id: "p2", command: "update_content", content_updates: [{ old_str: "Draft", new_str: "Final" }] });
+    } finally {
+      await repos.holidays.end(g.db, g.businessId, holiday.id);
+    }
+    expect(vendor.calls).toEqual([]);
+  });
+
+  it("arguments that delete, trash or change access are denied before anyone is asked, also with the owner's approval in hand", async () => {
+    const vendor = server();
+    const g = (open = await setupGateway({ mode: "live", businessMode: "automated", connectors: live(vendor.fetch) }));
+    await connect(g);
+    const token = await g.token({ allowedTools: ["notion_mcp:*"] });
+    const destructive: { tool: string; args: Record<string, unknown> }[] = [
+      { tool: "notion_update_page", args: { page_id: "p1", command: "update_properties", in_trash: true } },
+      { tool: "notion_update_page", args: { page_id: "p1", archived: true } },
+      // A command the documentation does not list (a whole-body replace) cannot show what it removes: fail closed.
+      { tool: "notion_update_page", args: { page_id: "p1", command: "replace_content", new_str: "" } },
+      { tool: "notion_update_page", args: { page_id: "p1" } },
+      // Moved items inherit access from the new parent: an access change the arguments cannot rule out.
+      { tool: "notion_move_pages", args: { page_or_database_ids: ["p1"], new_parent: { page_id: "p9" } } },
+      // "Omitted options are removed", and a property set to null is removed with its values.
+      { tool: "notion_update_database", args: { database_id: "d1", properties: { Status: { select: { options: [{ name: "Done" }] } } } } },
+      { tool: "notion_update_database", args: { database_id: "d1", properties: { Notes: null } } },
+      { tool: "notion_update_page", args: { page_id: "p1", command: "update_content", operation: { type: "delete_block" } } },
+    ];
+    for (const call of destructive) {
+      // An owner already said yes to this very call (or a delegate did, before the founder-only rule): no matter.
+      await repos.approvals.create(g.db, g.businessId, { agentId: g.agentId, sessionId: g.sessionId, connectorKey: "notion_mcp", tool: call.tool, args: call.args, reasons: ["asks"] }).then((a) => g.h.pg.query("update approvals set outcome = 'approved', by_kind = 'system', resolved_at = now() where id = $1", [a.id]));
+      const r = await g.client.call(token, { connector: "notion_mcp", tool: call.tool, args: call.args });
+      expect(r.outcome, `${call.tool} ${JSON.stringify(call.args)}: ${JSON.stringify(r)}`).toBe("deny");
+      expect(JSON.stringify(r)).toContain("hard-gate");
+      expect((r as { approvalId?: string }).approvalId).toBeUndefined();
     }
     expect(vendor.calls).toEqual([]);
   });

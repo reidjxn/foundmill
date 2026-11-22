@@ -10,6 +10,7 @@ import { createMcpCustomConnector, assertPublicServer } from "./custom";
 import { createRemoteMcpConnector, hardGateName, remoteToolList, toolName, UNLISTED_TOOL } from "./build";
 import { discoverEndpoints, pkceFor } from "./oauth";
 import { HUBSPOT_MCP, NOTION_MCP, REMOTE_MCP_SERVERS, SHOPIFY_MCP } from "./servers";
+import { remoteHardGateCall } from "./index";
 
 const SECRET = "x".repeat(40);
 const secrets = { notionMcpClientId: "cid-notion", mcpOauthSecret: SECRET };
@@ -190,6 +191,22 @@ describe("policy lists", () => {
       expect(hardGateName(t.remote) && !t.hints?.hardGate, `${s.key}.${t.remote} sounds like a hard gate but is listed as allowed`).toBe(false);
     }
     expect(remoteToolList(HUBSPOT_MCP).find((t) => t.name === "manage_crm_objects")?.hints).toMatchObject({ contactsThirdParty: true, irreversible: true });
+  });
+});
+
+describe("listed change tools whose arguments delete or change access (Nov 22, 2026)", () => {
+  it("are named for the gateway to deny; ordinary changes and reads are not", () => {
+    for (const args of [{ action: "delete", objectType: "contacts", ids: ["1"] }, { operations: [{ op: "ARCHIVE" }] }, { archived: true, objectType: "deals" }, { requests: [{ type: "merge" }] }, { deleteIds: ["1"] }]) {
+      expect(remoteHardGateCall("hubspot_mcp", "manage_crm_objects", args), JSON.stringify(args)).not.toBeNull();
+    }
+    expect(remoteHardGateCall("hubspot_mcp", "manage_blog_post", { action: "delete", id: "9" })).not.toBeNull();
+    expect(remoteHardGateCall("hubspot_mcp", "manage_crm_objects", { objectType: "contacts", properties: { firstname: "Maja", note: "remove from the newsletter" }, archived: false })).toBeNull();
+    expect(remoteHardGateCall("hubspot_mcp", "search_crm_objects", { action: "delete" })).toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_update_page", { page_id: "p", command: "update_content", content_updates: [{ old_str: "a", new_str: "b" }] })).toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_update_page", { page_id: "p", command: "replace_content" })).not.toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_move_pages", { page_or_database_ids: ["p"] })).not.toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_fetch", { id: "p", in_trash: true })).toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_update_database", { database_id: "d", title: "Leads" })).toBeNull();
   });
 });
 
