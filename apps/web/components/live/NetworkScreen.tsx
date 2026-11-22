@@ -19,7 +19,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ConnectionsPanel, InvitationsPanel, RequestsPanel, SentRequestsPanel, type ConnectionRow, type InvitationRow } from "./ConnectionPanels";
 import { MessagesPanel, type Selection } from "./MessagesPanel";
-import { AdultNotice, PersonalNotice, usePeople } from "./shared";
+import { AdultNotice, PersonalNotice, useCanReadPeople, usePeople } from "./shared";
 import { userChannel } from "./signals";
 import { PeopleSearchPanel } from "./PeopleSearchPanel";
 import { useNarrow } from "./useNarrow";
@@ -49,9 +49,7 @@ export function NetworkScreen() {
   const unreadQ = useQuery(trpc.live.messages.unread.queryOptions(undefined, { staleTime: 10_000, refetchInterval: 30_000 }));
   const invitationsQ = useQuery(trpc.live.communities.invitations.queryOptions(undefined, { staleTime: 15_000, refetchInterval: poll }));
   // Reading other people waits for the 18+ confirmation (the api refuses it before); AdultNotice above asks for it.
-  const summaryQ = useQuery(trpc.live.summary.queryOptions(undefined, { staleTime: 10_000, retry: false }));
-  // Shown once the summary says so (or could not load: the panels then say what the api answers).
-  const canReadPeople = summaryQ.data ? summaryQ.data.adultConfirmed : summaryQ.isError;
+  const canReadPeople = useCanReadPeople() === true;
 
   const rows = useMemo<ConnectionRow[]>(() => connectionsQ.data ?? [], [connectionsQ.data]);
   const threads = useMemo(() => {

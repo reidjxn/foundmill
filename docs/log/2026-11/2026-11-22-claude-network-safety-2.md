@@ -13,7 +13,7 @@ The medium and low findings of the security review in #217's description (Launch
 - **M5:** the name search and the business profile page leave out a business whose owner, cofounder or admin is blocked either way with the viewer (`repos.social.runByBlocked`), and `lookupPeople` names nobody blocked either way.
 - **L1:** `repos.social.stillSpeaksFor`: a member's business, and a community's owning business, show only while the person still has a writing membership in it.
 - **L2:** community posts link only http(s) addresses (`webLinksOnly`); the community's name moved inside the untrusted block of the screen prompt.
-- **L3:** `live.people.search`, `find` and `profile` (except one's own) need the 18+ confirmation, and `public_profiles` lists a founder only once they have confirmed. Network shows Find people and the name search only once the summary says the person has confirmed, so nobody meets a dead error.
+- **L3:** `live.people.search`, `find` and `profile` (except one's own) need the 18+ confirmation, and `public_profiles` lists a founder only once they have confirmed. Every screen that reads people (Network's Find people and name search, a person's page, the CRM's "On Foundmill" group) waits for the confirmation through `useCanReadPeople` and shows `AdultNotice` instead: one tick and Confirm records it and lets the person straight in.
 - Tests: api `live-social.test.ts` ("M1 to L3"), db `repos/social.test.ts`, evals `moderation.test.ts` (and three note cases in `MODERATION_CASES`), web `LiveScreens.test.tsx`.
 
 ## Decisions
@@ -28,6 +28,9 @@ A note goes to a stranger, so it gets the same screen as a post (deterministic c
 L1 masks the business on a member row and on a community's owner. A post keeps the business it was written for, as a record of what was said then; a new post or edit already checks the person still speaks for it.
 ### The migration number is a placeholder
 0160 is the next free number after every open branch's migrations today; the session takes the next free number on main when it rebases before merging.
+
+### Accounts from before the confirmation
+On production, 11 of 12 founder profiles have no confirmation on record (coordinating session, Nov 22). Nothing is backfilled: those founders leave the old founder cards and are asked once, kindly and in one step, the next time they open a screen that reads people. `/home` links to Network, which shows the same step at the top.
 
 ### Who still sees names without the 18+ confirmation
 `people.lookup` and community member lists are not gated: they follow each person's visibility, and community steps already need the confirmation. The gate covers searching for people and reading another person's page.
