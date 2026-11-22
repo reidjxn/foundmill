@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 type Why = "person" | "signed_out" | "service_written" | "mixed";
 
 export const SERVICE_CONNECTION_ROUTERS: Readonly<Record<string, { lines: number; why: Why; note: string }>> = {
-  "live.ts": { lines: 63, why: "person", note: "live social: a person's own posts, follows and messages across projects, Find people and the person page; no business procedure" },
+  "live.ts": { lines: 66, why: "person", note: "live social: a person's own posts, follows and messages across projects, Find people and the person page, and the block checks in communities; no business procedure" },
   "idea.ts": { lines: 27, why: "person", note: "ideas before they become a project, owned by the person; idea.commit saves the person's own time and place to their profile (WP-14 T2)" },
   "founder.ts": { lines: 16, why: "mixed", note: "mostly the person's own profile and preferences; two public procedures; a profile save re-rates Founder fit on the person's own ideas (WP-14 T2)" },
   "email.ts": { lines: 15, why: "signed_out", note: "one-click answers and cancel links from an email: the hashed token is the credential" },

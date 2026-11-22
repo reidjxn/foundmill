@@ -9,6 +9,7 @@
  *   moderators hide, restore and remove; communities are created here and private ones are joined by invitation;
  * - "Ask to connect" with a listed business reaches its owner.
  */
+import { LIMITS } from "@foundmill/config";
 import { events, inboxItems, messageThreads, messages, outbox, repos } from "@foundmill/db";
 import { businessStreamKey, MemoryRedis, userStreamKey } from "@foundmill/events";
 import { MEMBERSHIP_ROLES, PERSON_ADDRESSED_EVENT_TYPES, type MembershipRole } from "@foundmill/shared";
@@ -16,6 +17,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ADULTS_ONLY } from "../routers/live";
 import { plainQuote } from "../services/live";
+import { takeCommunityJoin } from "../services/live-limits";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -511,5 +513,107 @@ describe("#66: asking a listed business to connect reaches its owner", () => {
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: me.businessId }))).code).toBe("BAD_REQUEST");
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: hidden.businessId }))).code).toBe("NOT_FOUND");
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId }))).code).toBe("BAD_REQUEST");
+  });
+});
+
+describe("network safety before sign-up opens (PR #217's H1 to H4)", () => {
+  it("H1: reports from accounts that joined after a post never hold it; joining is limited per person", async () => {
+    const owner = await founder("h1-owner");
+    const author = await founder("h1-author");
+    const room = await as(owner.userId).live.communities.create({ name: "H1 room" });
+    await as(author.userId).live.communities.join({ communityId: room.id });
+    const post = await as(author.userId).live.communities.post({ communityId: room.id, bodyMd: "Our pricing page, before and after." });
+    // Three accounts join after the post and report it together: it stays in the feed, and the moderators see the reports.
+    const late = await Promise.all([founder("h1-late-1"), founder("h1-late-2"), founder("h1-late-3")]);
+    for (const u of late) await as(u.userId).live.communities.join({ communityId: room.id });
+    const results = [];
+    for (const u of late) results.push(await as(u.userId).live.posts.report({ postId: post.id, reason: "spam" }));
+    expect(results.map((r) => r.held)).toEqual([false, false, false]);
+    expect((await as(late[0]!.userId).live.communities.posts({ communityId: room.id })).items.map((p) => p.id)).toEqual([post.id]);
+    expect((await as(owner.userId).live.communities.moderation({ communityId: room.id })).items.map((q) => [q.post.id, q.openReports])).toEqual([[post.id, 3]]);
+    // Joining past the day's allowance is refused before anything is written.
+    const joiner = await founder("h1-joiner");
+    for (let i = 0; i < LIMITS.liveJoinsPerUserPerDay; i++) await takeCommunityJoin(hz.limits, joiner.userId);
+    expect((await failure(as(joiner.userId).live.communities.join({ communityId: room.id }))).code).toBe("TOO_MANY_REQUESTS");
+    expect(await repos.social.membership(hz.db, joiner.userId, room.id)).toBeNull();
+    // A member joining again (to change who they speak as) spends nothing.
+    // The author spent one join already; spend the rest of their day.
+    for (let i = 1; i < LIMITS.liveJoinsPerUserPerDay; i++) await takeCommunityJoin(hz.limits, author.userId);
+    expect((await as(author.userId).live.communities.join({ communityId: room.id })).status).toBe("active");
+  });
+
+  it("H1: banning the reporters does not let the author edit a report-held post back into the feed", async () => {
+    const owner = await founder("h1b-owner");
+    const reporters = await Promise.all([founder("h1b-1"), founder("h1b-2"), founder("h1b-3")]);
+    const room = await as(owner.userId).live.communities.create({ name: "H1b room" });
+    for (const u of reporters) await as(u.userId).live.communities.join({ communityId: room.id });
+    const post = await as(owner.userId).live.communities.post({ communityId: room.id, bodyMd: "Our launch notes." });
+    for (const u of reporters) await as(u.userId).live.posts.report({ postId: post.id, reason: "spam" });
+    expect((await repos.social.getPost(hz.db, post.id)).status).toBe("pending_review");
+    for (const u of reporters) await as(owner.userId).live.communities.moderateMember({ communityId: room.id, userId: u.userId, action: "ban" });
+    expect(await as(owner.userId).live.posts.edit({ postId: post.id, bodyMd: "Our launch notes, edited." })).toMatchObject({ status: "pending_review", held: true });
+  });
+
+  it("H2: a moderator never approves their own held post; editing screens it again, and another moderator may approve it", async () => {
+    const owner = await founder("h2-owner");
+    const mod = await founder("h2-mod");
+    const room = await as(owner.userId).live.communities.create({ name: "H2 room" });
+    await as(mod.userId).live.communities.join({ communityId: room.id });
+    await as(owner.userId).live.communities.setRole({ communityId: room.id, userId: mod.userId, role: "moderator" });
+    const held = await as(owner.userId).live.communities.post({ communityId: room.id, bodyMd: "You idiot, this is wrong." });
+    expect(held.status).toBe("pending_review");
+    const refused = await failure(as(owner.userId).live.posts.moderate({ postId: held.id, action: "restore" }));
+    expect(refused).toEqual({ code: "FORBIDDEN", message: expect.stringMatching(/cannot approve your own post/) });
+    expect((await repos.social.getPost(hz.db, held.id)).status).toBe("pending_review");
+    expect((await as(mod.userId).live.posts.moderate({ postId: held.id, action: "restore" })).status).toBe("visible");
+    // A held post its author edits clean shows again without anyone's approval.
+    const second = await as(owner.userId).live.communities.post({ communityId: room.id, bodyMd: "You idiot." });
+    expect(await as(owner.userId).live.posts.edit({ postId: second.id, bodyMd: "Here is what we learned." })).toMatchObject({ status: "visible", held: false });
+    // Hiding one's own post stays possible.
+    expect((await as(owner.userId).live.posts.moderate({ postId: second.id, action: "hide" })).status).toBe("hidden");
+  });
+
+  it("H3: changing a community is limited per owner, before the screening model call", async () => {
+    const owner = await founder("h3-owner");
+    const room = await as(owner.userId).live.communities.create({ name: "H3 room" });
+    for (let i = 0; i < LIMITS.liveCommunityEditsPerUserPerDay; i++) await as(owner.userId).live.communities.update({ communityId: room.id, descriptionMd: `Version ${i}` });
+    const spy = vi.spyOn(hz.deps.models, "complete");
+    try {
+      expect((await failure(as(owner.userId).live.communities.update({ communityId: room.id, descriptionMd: "One too many" }))).code).toBe("TOO_MANY_REQUESTS");
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("H4: a block holds inside a community: posts, replies, reply counts and the member list, both ways", async () => {
+    const owner = await founder("h4-owner");
+    const blocker = await founder("h4-blocker");
+    const blocked = await founder("h4-blocked");
+    const room = await as(owner.userId).live.communities.create({ name: "H4 room" });
+    for (const u of [blocker, blocked]) await as(u.userId).live.communities.join({ communityId: room.id });
+    const theirs = await as(blocked.userId).live.communities.post({ communityId: room.id, bodyMd: "A post by the person blocked." });
+    const mine = await as(blocker.userId).live.communities.post({ communityId: room.id, bodyMd: "A post by the person who blocks." });
+    await as(blocked.userId).live.communities.post({ communityId: room.id, bodyMd: "A reply written before the block.", parentPostId: mine.id });
+    await as(blocker.userId).live.connections.block({ userId: blocked.userId });
+    // Neither reads the other's posts; the owner reads both.
+    const feed = async (userId: string) => (await as(userId).live.communities.posts({ communityId: room.id })).items;
+    expect((await feed(blocker.userId)).map((p) => p.id)).toEqual([mine.id]);
+    expect((await feed(blocker.userId))[0]!.replyCount).toBe(0);
+    expect((await feed(blocked.userId)).map((p) => p.id)).toEqual([theirs.id]);
+    expect((await feed(owner.userId)).map((p) => p.id).sort()).toEqual([mine.id, theirs.id].sort());
+    expect((await feed(owner.userId)).find((p) => p.id === mine.id)!.replyCount).toBe(1);
+    expect((await as(blocker.userId).live.communities.posts({ communityId: room.id, parentPostId: mine.id })).items).toEqual([]);
+    expect((await failure(as(blocker.userId).live.communities.posts({ communityId: room.id, parentPostId: theirs.id }))).code).toBe("NOT_FOUND");
+    // Neither can report the other's post.
+    expect((await failure(as(blocked.userId).live.posts.report({ postId: mine.id, reason: "spam" }))).code).toBe("NOT_FOUND");
+    // The person blocked cannot reply under the blocker's post, and the blocker cannot reply under theirs.
+    expect((await failure(as(blocked.userId).live.communities.post({ communityId: room.id, bodyMd: "Still here", parentPostId: mine.id }))).code).toBe("NOT_FOUND");
+    expect((await failure(as(blocker.userId).live.communities.post({ communityId: room.id, bodyMd: "Reply", parentPostId: theirs.id }))).code).toBe("NOT_FOUND");
+    // Neither sees the other in the member list; the owner sees everyone.
+    const members = async (userId: string) => (await as(userId).live.communities.get({ communityId: room.id })).members.map((m) => m.userId);
+    expect(await members(blocker.userId)).not.toContain(blocked.userId);
+    expect(await members(blocked.userId)).not.toContain(blocker.userId);
+    expect(await members(owner.userId)).toEqual(expect.arrayContaining([blocker.userId, blocked.userId]));
   });
 });
