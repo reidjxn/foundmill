@@ -251,8 +251,10 @@ export async function releaseIntegration(deps: GatewayDeps, input: HealthInput, 
   await limitIntegrations(deps, input.businessId);
   const row = await repos.integrations.getByKey(deps.db, input.businessId, connector.key);
   if (!row || row.archivedAt !== null || row.status === "disconnected" || modeFor(deps, connector.key) !== "live" || !connector.disconnect) return { released: false };
-  const record = toIntegrationRecord(row, null);
-  const released = await connector.disconnect(record).catch((e: unknown) => (deps.log.warn({ connector: connector.key, businessId: input.businessId, err: (e as Error).message }, "vendor access could not be withdrawn"), false));
+  // The sealed sign-in goes along so a remote MCP server's tokens are revoked at the vendor (best effort; read here, never logged).
+  const credential = deps.vault ? await loadCredential(deps.db, deps.vault, input.businessId, row.id).catch(() => null) : null;
+  const record = toIntegrationRecord(row, credential);
+  const released = await connector.disconnect(record, credential?.credential).catch((e: unknown) => (deps.log.warn({ connector: connector.key, businessId: input.businessId, err: (e as Error).message }, "vendor access could not be withdrawn"), false));
   await auditIntegration(deps, input.businessId, "gateway.integration.access_released", connector.key, { service, released, from: record.externalAccountId, reason: "disconnected" });
   return { released };
 }
