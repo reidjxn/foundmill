@@ -202,7 +202,7 @@ export async function bookUsage(db: Executor, businessId: string, input: BookUsa
     const trueMicro = Number(entry.costMicroMinor ?? Number(entry.costMinor) * MICRO_PER_MINOR);
     // `markup` is for the tests of the charge's own mechanics (balances, carries, the pause), which state amounts at cost.
     const chargeMicro = options.markup === undefined ? chargedMinor(trueMicro) : Math.round(trueMicro * (1 + options.markup));
-    const charged = await repos.usage.chargeCreditsMicro(tx, businessId, period, chargeMicro, business.createdBy ? { owner: { userId: business.createdBy, budgetMinor: (t) => monthlyBudgetMinor(t, business) } } : { includedMinor: includedCreditsMinor(business.planTier) });
+    const charged = await repos.usage.chargeCreditsMicro(tx, businessId, period, chargeMicro, business.createdBy ? { owner: { userId: business.createdBy, budgetMinor: (t) => monthlyBudgetMinor(t, business) } } : { includedMinor: async () => includedCreditsMinor(business.planTier) });
     if (!charged) return { entry, credits: { enforced: false, balance: null, exhausted: null, pausedAgents: 0, noteId: null } };
     if (charged.exhausted === null) {
       const lowNoteId = await creditsLowNotice(tx, business, period, charged.balance, options.topUps ?? false);
