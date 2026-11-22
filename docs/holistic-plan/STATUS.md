@@ -42,6 +42,8 @@ All by the coordinating session on the founder's word (reported by that session,
 
 Merged since Nov 19, 7 PM: #319 (round of work), #244, #300, #337, #338 and #340 (twenty landing pages at /1 to /20, a numbered link showing the bare domain), #339 (Session 15: Gmail and Google Calendar as context), #335 and #343 (the founder's answers in the launch plan), #342 (the flaky guidance-host test). A ready pull request now merges itself once the required checks pass (#335).
 
+Nov 22 (reported by the session "Foundmill: tool scout, booking, patents"): #359 merged, the tool scout (Part A): a tool catalog as data (`packages/connectors/src/tool-catalog.ts`), the `tool_need` task kind, the `tool_needs` table (migration 0154), the platform tools `raise_tool_need`, `read_tool_need` and `recommend_tool`, the `tool_scout` skill, a regulated-money flag read at take charge, and five evals; it also fixed two tests that were red on main (`areas.test.ts`, `explainers.test.ts`). Still to come from that session, each its own pull request: Part B (Foundmill's own booking, migration 0155; WP-08 T6's help text stops naming booking vendors) and Part C (patents through Lightbringer and founder-executed tools, migration 0156, a draft because Lightbringer's MCP has no tool that files or pays: the founder decides). #238's migrations (0151 to 0153) sit below these numbers.
+
 Branches pushed with no pull request: `claude/wp14-t1-resting` (WP-14 T1) and `claude/wp14-t3-team-budget` (T3), both Session 3. `claude/landing-daylight` is not wanted: it landed as #218 and its three commits only restate it.
 
 ## The launch plan's sessions (docs/holistic-plan/LAUNCH_EVALUATION.md)
