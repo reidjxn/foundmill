@@ -10,7 +10,7 @@
  * hands the saved sign-in's id back to be sealed (`{ cancel: true }` throws it away). An agent never sees, types or
  * stores a password, a one-time code or a recovery answer: those fields are a hard gate (classify.ts).
  */
-import { AppError, uuid } from "@foundmill/shared";
+import { AppError, browserSignInExpiry, uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type HumanActionDescriptor, type IntegrationRecord, type PolicyHint, type ToolContext, type ToolResult } from "../../contract";
 import { buildLiveConnector, buildMockConnector, healthResult } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord } from "../../mock-utils";
@@ -51,6 +51,11 @@ export interface BrowserHost {
   sessions?: BrowserSessions;
   /** Stores one step of the record and answers its id. The screenshot can hold other people's personal data: the host keeps it under the project's own retention and export rules. */
   recordStep?: (step: BrowserStepRecord) => Promise<string | null>;
+  /**
+   * A call on the saved sign-in went through: the host moves its deletion date to 30 days from now (a quiet sign-in is
+   * deleted, founder, Nov 22, 2026). Best effort; never fails the call.
+   */
+  used?: (businessId: string, connectorKey: string) => Promise<void>;
   /** One of the project's own files, for `upload_file`. Absent: uploads are not available. */
   projectFile?: (businessId: string, fileId: string) => Promise<{ name: string; bytes: Uint8Array } | null>;
 }
@@ -258,6 +263,7 @@ function build(site: BrowserSite, mode: "mock" | "live", sessionsOf: () => Brows
         configured()?.hold(ctx.businessId, site.key, "request", typeof a.sentence === "string" ? a.sentence : "The team needs you on this page");
       }
       const result = await connector.callTool(name, args, ctx);
+      if (result.ok && mode === "live") await host.used?.(ctx.businessId, key).catch(() => undefined);
       // Browser time since the last call, booked with this one (Estimate).
       return result.ok ? { ...result, costMinor: result.costMinor + (configured()?.bill(ctx.businessId, site.key) ?? 0) } : result;
     },
@@ -321,7 +327,8 @@ export function createBrowserConnector(site: BrowserSite, options: LiveConnector
         }
         if (step.done === true) {
           const { contextId } = await sessions().finishSignIn(businessId, site.key);
-          return { ...record("connected", { siteKey: site.key, connectedAt: createdAt }), credentialToStore: { kind: "oauth", secret: contextId } };
+          // A quiet sign-in is deleted after 30 days; every use moves the date (`BrowserHost.used`).
+          return { ...record("connected", { siteKey: site.key, connectedAt: createdAt }), credentialToStore: { kind: "oauth", secret: contextId, expiresAt: browserSignInExpiry(now()).toISOString() } };
         }
         const view = await sessions().startSignIn(businessId, site);
         // The live view is the page itself: handed to the founder's dialog for this sign-in, never stored.

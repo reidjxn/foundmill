@@ -20,7 +20,7 @@
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, releaseFollowUpOf, repos, resolveAgentPrompt, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { AppError, ONE_CLICK_ACTION_TYPES, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, toolPickCategory, type SectionMembership } from "@foundmill/shared";
+import { AppError, ONE_CLICK_ACTION_TYPES, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, toolPickCategory, browserKeepSite, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, decideReleaseFollowUp, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
@@ -35,7 +35,7 @@ import { decideSiteNote } from "./sites";
 import { isSiteReadyDecision } from "@foundmill/shared/sites";
 import { decidePostalAddressNote } from "./postal-address";
 import { decideSignoffItem } from "./signoff";
-import { decideToolPickNote } from "./tool-needs";
+import { decideBrowserKeepNote, decideToolPickNote } from "./tool-needs";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, redispatchPlans, requiresConfirmation, stagedAction, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type DispatchResult, type ModelRetests, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
@@ -149,6 +149,7 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   if (isPostalAddressDecision(item.decision)) return decidePostalAddressNote(ctx, item, { chosenOption, freeText });
   // The tool scout's recommendation (founder, Nov 22, 2026): Yes, or Not now; decided in-process.
   if (toolPickCategory(item.decision)) return decideToolPickNote(ctx, item, { chosenOption, freeText });
+  if (browserKeepSite(item.decision)) return decideBrowserKeepNote(ctx, item, { chosenOption, freeText });
   if (freeText && !chosenOption && decision.free_text === false) throw new ValidationError("This decision takes one of its options. Pick one, or talk it through with the agent first.", { route: "conversation", itemId: item.id });
   const options = decision.options ?? [];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;

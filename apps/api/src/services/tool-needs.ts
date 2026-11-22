@@ -5,8 +5,8 @@
  * for a vendor, accepts terms, pays or connects anything: those are the founder's steps, outside this note.
  */
 import { repos, type InboxItem } from "@foundmill/db";
-import { ConflictError, ForbiddenError, isAdminRole, TOOL_CATEGORY_LABELS, type ToolCategory, TOOL_NEED_ASK_AGAIN_DAYS, TOOL_PICK_NOTE, ValidationError, toolPickCategory } from "@foundmill/shared";
-import { catalogTool } from "@foundmill/connectors";
+import { BROWSER_SIGN_IN, browserKeepSite, browserSignInExpiry, ConflictError, ForbiddenError, isAdminRole, TOOL_CATEGORY_LABELS, type ToolCategory, TOOL_NEED_ASK_AGAIN_DAYS, TOOL_PICK_NOTE, ValidationError, toolPickCategory } from "@foundmill/shared";
+import { browserConnectorKey, browserSite, catalogTool } from "@foundmill/connectors";
 import type { BusinessContext } from "../trpc";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
@@ -92,5 +92,27 @@ export async function decideToolPickNote(ctx: BusinessContext, item: InboxItem, 
   if (!answered) throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
   // The scout's memory is the services' to write (0154): the answer is stored on the service connection.
   await repos.toolNeeds.decide(ctx.db, ctx.businessId, category, yes ? "accepted" : "not_now");
+  return { item: answered.item, decision: answered.decision, plan: answered.plan, evaluations: [], requiresConfirmation: false, executed: [answered.actionId], deferred: [], denied: [], dispatch: null, followUp: null };
+}
+
+/**
+ * The founder's answer to "Keep your saved sign-in to <site>?" (a quiet saved sign-in, founder, Nov 22, 2026): Keep it
+ * gives the sign-in another 30 days; Let it go leaves the date as it is, and the nightly scan deletes it on the day.
+ */
+export async function decideBrowserKeepNote(ctx: BusinessContext, item: InboxItem, input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
+  const siteKey = browserKeepSite(item.decision);
+  const option = input.chosenOption;
+  if (!siteKey || (option !== BROWSER_SIGN_IN.options.keep && option !== BROWSER_SIGN_IN.options.letGo)) throw new ValidationError("Choose Keep it or Let it go.", { itemId: item.id });
+  if (!isAdminRole(ctx.role)) throw new ForbiddenError("Owners, cofounders and admins decide about the project's saved sign-ins.");
+  const keep = option === BROWSER_SIGN_IN.options.keep;
+  const name = browserSite(siteKey)?.name ?? siteKey;
+  const answered = await ctx.rls((tx) => answerNote(tx, ctx, item.id, option, input.freeText, item.fromAgentId, keep ? `Kept the saved sign-in to ${name} for another ${BROWSER_SIGN_IN.quietDays} days.` : `The saved sign-in to ${name} will be deleted on the day.`, { params: { site: siteKey, option }, result: { site: siteKey, option } }));
+  if (!answered) throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
+  if (keep) {
+    // Credentials are the services' to write: the new date is set on the service connection, sealed value untouched.
+    const row = await repos.integrations.getByKey(ctx.db, ctx.businessId, browserConnectorKey(siteKey));
+    const credential = row ? await repos.credentials.latest(ctx.db, ctx.businessId, row.id) : null;
+    if (credential) await repos.credentials.setExpiry(ctx.db, ctx.businessId, credential.meta.id, browserSignInExpiry(new Date()));
+  }
   return { item: answered.item, decision: answered.decision, plan: answered.plan, evaluations: [], requiresConfirmation: false, executed: [answered.actionId], deferred: [], denied: [], dispatch: null, followUp: null };
 }
