@@ -5,6 +5,11 @@
  * Double booking is prevented by the table's exclusion constraint (`bookings_no_overlap`), never by a read before the
  * write: `hold` and `reschedule` attempt the write and answer null when Postgres refuses it (SQLSTATE 23P01). A hold
  * that ran out is deleted in the same transaction as the next hold of that project, so it never blocks a slot.
+ *
+ * Every write that puts a row into the constraint's index (`hold`, `confirm`, `reschedule`) first takes the project's
+ * slot lock (`lockSlots`). Postgres checks an exclusion constraint after adding the index entry, so two overlapping
+ * writers in flight at once can each wait on the other's transaction and one dies with a deadlock (40P01) instead of
+ * 23P01. The lock makes them take turns; the constraint still decides who gets the slot.
  */
 import { BOOKING_HOLD_MINUTES, BOOKING_LIMITS, BOOKING_MODES, busyRangeOf, weeklyHoursProblem, type BusyRange, type WeeklyHours } from "@foundmill/shared/booking";
 import { isValidTimeZone, ValidationError } from "@foundmill/shared";
@@ -44,6 +49,9 @@ export type BookingSetupInput = z.input<typeof BookingSetupInput>;
 
 const pgRange = (r: BusyRange) => `[${r.start.toISOString()},${r.end.toISOString()})`;
 const HOLDING = ["held", "confirmed"] as const;
+
+/** The project's slot lock, until the transaction ends. Taken before any write the constraint checks (see the header). */
+const lockSlots = (db: Executor, businessId: string) => db.execute(sql`select pg_advisory_xact_lock(hashtext('fm.booking_slots'), hashtext(${businessId}::text))`);
 
 /** A hold whose time is up (at `now` or before) frees its slot: `heldByToken` and `confirm` no longer accept it. */
 const deleteExpiredHolds = (db: Executor, businessId: string, now: Date) => db.delete(bookings).where(and(eq(bookings.businessId, businessId), eq(bookings.status, "held"), lte(bookings.holdExpiresAt, now)));
@@ -140,6 +148,7 @@ export const bookingRepo = {
     const busy = busyRangeOf(input.service, input.start);
     try {
       return await db.transaction(async (tx) => {
+        await lockSlots(tx, businessId);
         await deleteExpiredHolds(tx, businessId, now);
         const [row] = await tx
           .insert(bookings)
@@ -167,13 +176,17 @@ export const bookingRepo = {
   /** Turn a running hold into a booking. Null when the hold ran out or was already used. */
   async confirm(db: Executor, businessId: string, input: { holdTokenHash: string; customerName: string; customerEmail: string; answers: BookingAnswer[]; consentText: string; visitorTimeZone: string | null; entityId: string | null; now?: Date }): Promise<Booking | null> {
     const now = input.now ?? new Date();
-    return maybeOne(
-      await db
-        .update(bookings)
-        .set({ status: "confirmed", holdExpiresAt: null, holdTokenHash: null, customerName: input.customerName, customerEmail: input.customerEmail, answers: input.answers, consentText: input.consentText, visitorTimeZone: input.visitorTimeZone, entityId: input.entityId, confirmedAt: now })
-        .where(and(eq(bookings.businessId, businessId), eq(bookings.holdTokenHash, input.holdTokenHash), eq(bookings.status, "held"), gt(bookings.holdExpiresAt, now)))
-        .returning(),
-    );
+    // The status changes, so the row gets a new entry in the constraint's index: the same lock as `hold`.
+    return db.transaction(async (tx) => {
+      await lockSlots(tx, businessId);
+      return maybeOne(
+        await tx
+          .update(bookings)
+          .set({ status: "confirmed", holdExpiresAt: null, holdTokenHash: null, customerName: input.customerName, customerEmail: input.customerEmail, answers: input.answers, consentText: input.consentText, visitorTimeZone: input.visitorTimeZone, entityId: input.entityId, confirmedAt: now })
+          .where(and(eq(bookings.businessId, businessId), eq(bookings.holdTokenHash, input.holdTokenHash), eq(bookings.status, "held"), gt(bookings.holdExpiresAt, now)))
+          .returning(),
+      );
+    });
   },
 
   /** Give a hold back before it runs out (the visitor picked another time). */
@@ -206,6 +219,7 @@ export const bookingRepo = {
   async reschedule(db: Executor, businessId: string, bookingId: string, input: { service: BookingService; start: Date; now?: Date }): Promise<Booking | null> {
     try {
       return await db.transaction(async (tx) => {
+        await lockSlots(tx, businessId);
         // A hold that ran out must not block the new time, as in `hold`.
         await deleteExpiredHolds(tx, businessId, input.now ?? new Date());
         return maybeOne(
