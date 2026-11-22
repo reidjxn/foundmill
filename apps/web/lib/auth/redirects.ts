@@ -26,11 +26,14 @@ import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
  */
 const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/llms.txt", "/health", "/examples/", "/p/", "/u/", "/m/", "/explore", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/", "/tour", "/lp/", "/.well-known/"];
 
+/** The public waitlist page (WP-14 T15): that one address, never a prefix, so no later `/waitlist…` route is public by accident. */
+const WAITLIST_PAGE = "/waitlist";
+
 /** The signed-in index (app/start/page.tsx): a signed-in `/` the proxy cannot answer itself is rewritten here. */
 export const SIGNED_IN_INDEX = "/start";
 
 export function isPublicPath(pathname: string): boolean {
-  if (pathname === "/auth") return true;
+  if (pathname === "/auth" || pathname === WAITLIST_PAGE) return true;
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
 }
 
