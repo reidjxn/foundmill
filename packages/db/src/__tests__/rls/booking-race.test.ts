@@ -1,5 +1,5 @@
 /**
- * Double booking, on real connections (0155; founder, Nov 22, 2026: "the one bug that must never ship"). This file
+ * Double booking, on real connections (0157; founder, Nov 22, 2026: "the one bug that must never ship"). This file
  * sits with the tenancy suites so CI's "Real Postgres" job runs it, where the harness holds a pool of connections and
  * the holds below really arrive at the same time. On PGlite (one connection) they run one after another and the same
  * assertions hold: `bookings_no_overlap` decides either way, never a read before the write.

@@ -3,7 +3,7 @@
  * draft copy of the live version on the new model, never the live version itself (which the orchestrator refuses, so the
  * run used to stay queued for good); a queued or running run can be canceled, which signals its workflow to stop.
  */
-import { repos } from "@foundmill/db";
+import { periodOf, repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
@@ -51,7 +51,11 @@ describe("agent.model.set retests (AC-11.10.5)", () => {
     expect(same.updated).toEqual([agentId]);
     expect(same.retests).toEqual([]);
     expect(same.superseded).toEqual([]);
-    const all = await hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId: agent2Id, modelKey: "haiku", applyScope: "all" });
+    // A wider scope queues no retest unless asked (WP-09 T9: one press must not queue a retest per agent).
+    const quiet = await hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId: agent2Id, modelKey: "sonnet", applyScope: "all" });
+    expect(quiet.retests).toEqual([]);
+    await hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId: agent2Id, modelKey: "opus", applyScope: "all", retest: false });
+    const all = await hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId: agent2Id, modelKey: "haiku", applyScope: "all", retest: true });
     // The Chief of Staff (live version) gets a retest on Haiku; the unversioned engineer only changes model.
     expect(all.updated.sort()).toEqual([agentId, agent2Id].sort());
     expect(all.retests).toHaveLength(1);
@@ -236,5 +240,65 @@ describe("agent.training.cancel without Temporal", () => {
     expect(result.retests[0]!.workflow.queued).toBe(false);
     const cancelled = await hz.caller({ userId: ownerId }).agent.training.cancel({ businessId, runId: result.retests[0]!.runId });
     expect(cancelled.run.status).toBe("cancelled");
+  });
+});
+
+describe("training says a true price and checks it against the balance (WP-09 T9)", () => {
+  let hz: ApiHarness;
+  const temporal = fakeTemporalClient();
+  beforeAll(async () => {
+    hz = await createApiHarness({ prefix: "agentprice", temporalClient: temporal });
+  }, 120_000);
+  afterAll(() => hz.close());
+
+  /** Leaves `minor` of this month's credits (the included credits used up first, as the first charge would). */
+  const leave = async (businessId: string, minor: number) => {
+    const period = periodOf(new Date());
+    const { balance } = await repos.usage.ensurePeriodCredits(hz.db, businessId, period, 0);
+    await repos.usage.chargeCredits(hz.db, businessId, period, Number(balance.balanceMinor));
+    if (minor > 0) await repos.usage.grantCredits(hz.db, businessId, period, minor);
+  };
+
+  it("refuses a run and a retest the credits cannot finish, with both figures, and queues nothing", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    // Claude models on Foundmill's key wait for a paid plan (WP-13 T7), so the credits check is what answers here.
+    await repos.businesses.update(hz.db, businessId, { planTier: "pro" });
+    await repos.skills.upsertForAgent(hz.db, businessId, agentId, [{ skillKey: "planning", group: "judgement", tested: 10, proven: null, nLive: 0, displayed: 10, potential: 10 }]);
+    const estimate = await owner.agent.training.estimate({ businessId, agentId, modelKey: "opus" });
+    expect(estimate.costMinor).toBeGreaterThan(1);
+    expect(estimate.batchCostMinor).toBeLessThan(estimate.costMinor);
+    const retest = await owner.agent.model.retestEstimate({ businessId, agentId, modelKey: "opus" });
+    expect(retest).toMatchObject({ agents: 1, tests: estimate.tests, costMinor: estimate.costMinor, label: "Estimate" });
+    await leave(businessId, estimate.costMinor - 1);
+    const runsBefore = (await repos.training.list(hz.db, businessId, { limit: 100 })).items.length;
+    const dollars = (m: number) => `$${(m / 100).toFixed(2)}`;
+    await expect(owner.agent.model.set({ businessId, agentId, modelKey: "opus" })).rejects.toMatchObject({
+      code: "PAYMENT_REQUIRED",
+      message: `This check costs about ${dollars(estimate.costMinor)} (Estimate) and ${dollars(estimate.costMinor - 1)} of credits is left. Check fewer skills, or add credits or your own key.`,
+    });
+    expect((await repos.agents.get(hz.db, businessId, agentId)).modelKey).toBe("sonnet");
+    expect((await repos.training.list(hz.db, businessId, { limit: 100 })).items.length).toBe(runsBefore);
+    // A training run on Opus is refused the same way, before any run row exists.
+    const live = await repos.agents.getVersion(hz.db, businessId, hz.A.agentVersionId);
+    const version = await repos.agents.createVersion(hz.db, businessId, agentId, { instructions: live.instructions, tools: live.tools as unknown[], modelKey: "opus", state: "draft", createdByKind: "user", createdBy: ownerId });
+    await expect(owner.agent.training.run({ businessId, agentId, versionId: version.id })).rejects.toMatchObject({ code: "PAYMENT_REQUIRED" });
+    expect((await repos.training.list(hz.db, businessId, { limit: 100 })).items.length).toBe(runsBefore);
+    // Without a retest the model change costs nothing, so it goes through.
+    expect((await owner.agent.model.set({ businessId, agentId, modelKey: "opus", retest: false })).retests).toEqual([]);
+  });
+
+  it("does not check a project on its own key", async () => {
+    const { businessId, ownerId, agentId } = hz.B;
+    await repos.businesses.update(hz.db, businessId, { planTier: "pro" });
+    await repos.skills.upsertForAgent(hz.db, businessId, agentId, [{ skillKey: "planning", group: "judgement", tested: 10, proven: null, nLive: 0, displayed: 10, potential: 10 }]);
+    await leave(businessId, 0);
+    await expect(hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId, modelKey: "opus" })).rejects.toMatchObject({ code: "PAYMENT_REQUIRED" });
+    await repos.businesses.update(hz.db, businessId, { modelBilling: "byok" });
+    try {
+      expect((await hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId, modelKey: "opus" })).retests).toHaveLength(1);
+    } finally {
+      await repos.businesses.update(hz.db, businessId, { modelBilling: "credits" });
+    }
   });
 });

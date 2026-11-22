@@ -191,7 +191,7 @@ export function acquirePgliteDirLock(dataDir: string): () => void {
   throw new Error(`PGlite directory ${dataDir}: could not acquire ${PGLITE_LOCK_FILE}`);
 }
 
-/** Creates the PGlite instance (pg_trgm, btree_gist for 0155's exclusion constraint, pgvector) and applies PGLITE_BOOTSTRAP_SQL. Migrations are the caller's job. */
+/** Creates the PGlite instance (pg_trgm, btree_gist for 0157's exclusion constraint, pgvector) and applies PGLITE_BOOTSTRAP_SQL. Migrations are the caller's job. */
 export async function bootPglite(options: BootPgliteOptions = {}): Promise<BootedPglite> {
   const vector = options.disableVector ? null : await loadVectorExtension();
   const extensions: Record<string, Extension> = { pg_trgm, btree_gist };

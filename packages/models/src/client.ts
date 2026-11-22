@@ -390,7 +390,7 @@ export class LiveModelClient implements ModelClient {
     const output = req.schema ? structuredOutputFor(req.schema) : undefined;
     if (output?.kind === "prompt") this.opts.logger?.debug({ route: req.route, gaps: output.gaps.slice(0, 5) }, "schema not expressible as structured output; sending it in the system prompt instead");
     const systemBlocks = output?.kind === "prompt" ? [...systemTexts(req.system), output.instruction] : req.system;
-    const system = buildSystem(systemBlocks, req.cacheSystem === true);
+    const system = buildSystem(systemBlocks, req.cacheSystem);
     const base: Omit<Anthropic.MessageCreateParamsNonStreaming, "messages"> = {
       model: resolution.modelId,
       max_tokens: maxTokens,
@@ -814,10 +814,11 @@ export function grammarGaps(root: Record<string, unknown>): string[] {
   return gaps;
 }
 
-function buildSystem(system: CompleteRequest["system"], cache: boolean): Anthropic.TextBlockParam[] | undefined {
+function buildSystem(system: CompleteRequest["system"], cache: CompleteRequest["cacheSystem"]): Anthropic.TextBlockParam[] | undefined {
   const blocks = systemTexts(system).filter((s) => s.trim().length > 0);
   if (blocks.length === 0) return undefined;
-  return blocks.map((text, i) => ({ type: "text", text, ...(cache && i === blocks.length - 1 ? { cache_control: { type: "ephemeral" } } : {}) }));
+  const at = cache === true ? blocks.length - 1 : typeof cache === "number" ? Math.min(cache, blocks.length - 1) : -1;
+  return blocks.map((text, i) => ({ type: "text", text, ...(i === at ? { cache_control: { type: "ephemeral" } } : {}) }));
 }
 
 /** A message as the API takes it: images (vision routes only, checked by `assertImagesAllowed`) before the text. */

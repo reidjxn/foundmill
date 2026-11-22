@@ -1,5 +1,5 @@
 /**
- * 0155 booking: `booking_settings`, `booking_services` and `bookings` are read by the members of their business and
+ * 0157 booking: `booking_settings`, `booking_services` and `bookings` are read by the members of their business and
  * written by the services only. The generated suite (`tables.ts`) covers every role; this file states the posture in
  * one place, with real rows of each table, and checks that `public_booking_pages` is the service connection's alone.
  */

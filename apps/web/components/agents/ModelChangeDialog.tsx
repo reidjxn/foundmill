@@ -10,7 +10,7 @@ import { Lock, TriangleAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CREDITS_CURRENCY, planName } from "@foundmill/config";
-import { ApplyScopeDialog, BetterModelsPrompt, Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, MODEL_LABELS, ModelPicker, SkeletonText, Term, useToast, type ApplyScope } from "@foundmill/dugout";
+import { ApplyScopeDialog, BetterModelsPrompt, Button, Checkbox, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, MODEL_LABELS, ModelPicker, ProvenanceChip, SkeletonText, Term, formatMoney, useToast, type ApplyScope } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -40,12 +40,15 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
   const compareQ = useQuery(trpc.agent.model.compare.queryOptions({ businessId, agentId: agent.id, period: localPeriod() }, { enabled: open, staleTime: 60_000 }));
   const [candidate, setCandidate] = useState<ModelKey | null>(null);
   const [step, setStep] = useState<Step>("pick");
+  // Retests for every agent of the type, or all, run only when chosen (WP-09 T9, TS-03 c).
+  const [retestWide, setRetestWide] = useState(false);
   const router = useRouter();
   const [betterOpen, setBetterOpen] = useState(false);
   useEffect(() => {
     if (!open) {
       setCandidate(null);
       setStep("pick");
+      setRetestWide(false);
       return;
     }
     if (preselect && preselect !== agent.modelKey && !profile.modelLock) {
@@ -138,11 +141,30 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
         typeCount={typeCount}
         allCount={allCount}
         settingLabel={`Model: ${candidate ? MODEL_LABELS[candidate] : ""}`}
+        extra={(scope) => (candidate ? <RetestNote businessId={businessId} agentId={agent.id} modelKey={candidate} scope={scope} wide={retestWide} onWide={setRetestWide} /> : null)}
         onApply={async (scope: ApplyScope) => {
           if (!candidate) return;
-          await setModel.mutateAsync({ businessId, agentId: agent.id, modelKey: candidate, applyScope: scope });
+          await setModel.mutateAsync({ businessId, agentId: agent.id, modelKey: candidate, applyScope: scope, retest: scope === "agent" || retestWide });
         }}
       />
     </>
+  );
+}
+
+/** The retests a model change would queue and their price (Estimate), before the founder applies it (WP-09 T9). */
+function RetestNote({ businessId, agentId, modelKey, scope, wide, onWide }: { businessId: string; agentId: string; modelKey: ModelKey; scope: ApplyScope; wide: boolean; onWide: (on: boolean) => void }) {
+  const trpc = useTRPC();
+  const q = useQuery(trpc.agent.model.retestEstimate.queryOptions({ businessId, agentId, modelKey, applyScope: scope }, { staleTime: 60_000 }));
+  if (!q.data) return null;
+  if (q.data.agents === 0) return <p className="text-small text-secondary">No skills to re-test on this model.</p>;
+  const price = <ProvenanceChip kind="estimate">{formatMoney({ amountMinor: q.data.costMinor, currency: CREDITS_CURRENCY })}</ProvenanceChip>;
+  if (scope === "agent") return <p className="text-small text-secondary" data-testid="retest-price">Re-testing its skills on the new model costs about {price}.</p>;
+  return (
+    <label className="flex items-center gap-2 text-small text-secondary">
+      <Checkbox checked={wide} onCheckedChange={(c) => onWide(c === true)} data-testid="retest-wide" />
+      <span>
+        Also re-test {q.data.agents} {q.data.agents === 1 ? "agent" : "agents"}, about {price}
+      </span>
+    </label>
   );
 }

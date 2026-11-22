@@ -57,7 +57,7 @@ const nextToolCategory = (businessId: string) => {
 };
 
 /**
- * 0155: a held booking an hour long at its own hour, so no two samples overlap (`bookings_no_overlap`). It keeps its own
+ * 0157: a held booking an hour long at its own hour, so no two samples overlap (`bookings_no_overlap`). It keeps its own
  * count: a call of the shared `counter` would shift the channel keys the `channels` samples cycle through.
  */
 let bookingHour = 0;
@@ -206,7 +206,7 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   // 0131: the founder's own payment links; owner and admin write (WP-07 T7).
   // 0154 the tool scout's memory (written by the gateway's platform tools and the api with the service role)
   spec("tool_needs", s.toolNeeds, "service", (f) => ({ category: nextToolCategory(f.businessId), reason: "Customers need a way to pay." })),
-  // 0155 booking (written by the api with the service role; one setup row per business, a second insert of the
+  // 0157 booking (written by the api with the service role; one setup row per business, a second insert of the
   // generated suite runs only as an app role, which is refused before the unique key is reached)
   spec("booking_settings", s.bookingSettings, "service", () => ({ timeZone: "America/New_York" })),
   spec("booking_services", s.bookingServices, "service", () => ({ name: "Lesson", durationMin: 60, currency: "USD" })),
