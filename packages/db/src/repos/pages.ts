@@ -16,7 +16,7 @@
  * gets only what the view `public_project_pages` lists (0077). An unknown address and a page that is not published
  * answer the same: null.
  */
-import { ConflictError, isIndexNowKey, OWNER_ROLES, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, PAGE_STAGES, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, pageIsListed, readPageContent, samePageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
+import { ConflictError, isIndexNowKey, type PageProposalFields, OWNER_ROLES, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, PAGE_STAGES, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, pageIsListed, readPageContent, samePageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
 import { toLogoDataUrl } from "@foundmill/shared/logo";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -354,6 +354,33 @@ export const pagesRepo = {
       .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES]), isNull(founderProfiles.archivedAt)))
       .orderBy(memberships.createdAt, memberships.id);
     return rows.map((r) => r.name.trim()).filter(Boolean);
+  },
+
+  /**
+   * An agent's proposed edit to the words of the page (0165, WP-08 T8): replaces the one waiting. Never touches `draft`
+   * or `published`. Null when the business has no page row yet (nothing to change).
+   */
+  async propose(db: Executor, businessId: string, input: { fields: PageProposalFields; note: string; agentId: string; at?: Date }): Promise<ProjectPage | null> {
+    const rows = await db.update(projectPages).set({ proposed: input.fields, proposedNote: input.note.slice(0, 1000), proposedByAgentId: input.agentId, proposedAt: input.at ?? new Date() }).where(eq(projectPages.businessId, businessId)).returning();
+    return rows[0] ?? null;
+  },
+
+  /** The waiting proposal's fields are copied into the draft and the proposal is cleared. Null when none waits. */
+  async useProposal(db: Executor, businessId: string, userId: string): Promise<ProjectPage | null> {
+    const page = await pagesRepo.get(db, businessId);
+    if (!page?.proposed) return null;
+    const rows = await db
+      .update(projectPages)
+      .set({ draft: { ...page.draft, ...page.proposed }, proposed: null, proposedNote: null, proposedByAgentId: null, proposedAt: null, updatedBy: userId, updatedAt: new Date() })
+      .where(and(eq(projectPages.businessId, businessId), isNotNull(projectPages.proposed)))
+      .returning();
+    return rows[0] ?? null;
+  },
+
+  /** The waiting proposal is dropped. Null when none waits. */
+  async dismissProposal(db: Executor, businessId: string): Promise<ProjectPage | null> {
+    const rows = await db.update(projectPages).set({ proposed: null, proposedNote: null, proposedByAgentId: null, proposedAt: null }).where(and(eq(projectPages.businessId, businessId), isNotNull(projectPages.proposed))).returning();
+    return rows[0] ?? null;
   },
 
   /**

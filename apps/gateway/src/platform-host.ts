@@ -11,7 +11,7 @@
  */
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { BOOKING_READY_NOTE, DEFAULT_WEEKLY_HOURS, durationLabel, isBookingReadyDecision, minutesLabel, type WeeklyHours } from "@foundmill/shared/booking";
-import { AppError, businessTimeZone, ConflictError, formatMoney, NotFoundError, TOOL_CATEGORY_LABELS, filingWindow, positioningFromInput, renderPositioning, updateProblems, uuid, type TaskStatus } from "@foundmill/shared";
+import { AppError, businessTimeZone, ConflictError, formatMoney, NotFoundError, TOOL_CATEGORY_LABELS, filingWindow, PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, pageDescription, pageIsListed, pagePath, pageProposalProblems, pageTitle, positioningFromInput, readPageContent, renderPositioning, updateProblems, uuid, type TaskStatus } from "@foundmill/shared";
 import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type BookingService, type BookingSettings, type Db, type Executor, type ResolvedSkill, type Task, type ToolNeed, type ToolNeedHeld } from "@foundmill/db";
 import { acceptanceLines, acceptanceRefusal, catalogLines, connectorKeysFor, PlatformToolError, recommendationProblems, toolRecommendationNote, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
@@ -556,6 +556,38 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
         return written;
       });
       return { draftVersion: out.written ? (copies.approved?.version ?? 0) + 1 : 0 };
+    },
+    async readPublicPage(caller) {
+      const page = await repos.pages.get(db, caller.businessId);
+      const business = await repos.businesses.get(db, caller.businessId);
+      const content = readPageContent(page?.published ?? null) ?? readPageContent(page?.draft ?? null) ?? { pitch: "", about: "", forWhom: "", stage: "idea" as const };
+      const day = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
+      const listing = pageIsListed({ name: business.name, content });
+      const milestones = page?.published ? await repos.pages.public.storyBySlug(db, page.slug) : [];
+      return {
+        published: !!page?.published,
+        path: page?.published ? pagePath(page.slug) : null,
+        title: pageTitle(business.name, content.pitch),
+        description: pageDescription(content.about, content.pitch),
+        fields: { pitch: content.pitch, about: content.about, forWhom: content.forWhom, stage: content.stage },
+        publishedOn: day(page?.publishedAt),
+        updatedOn: day(page?.contentPublishedAt ?? page?.updatedAt),
+        listed: !!page?.published && listing.listed,
+        notListedReason: page?.published ? listing.reason : "not_published",
+        limits: { pitch: PAGE_PITCH_MAX, about: PAGE_ABOUT_MAX, forWhom: PAGE_FOR_WHOM_MAX, title: 70, description: 160 },
+        milestones: milestones.map((m) => ({ label: m.label, on: m.achievedAt.toISOString().slice(0, 10) })),
+      };
+    },
+    async proposePageEdit(caller, { fields, reason }) {
+      const problems = pageProposalProblems(fields);
+      if (problems.length) throw new PlatformToolError("invalid_state", problems[0]!);
+      await db.transaction(async (tx) => {
+        const page = await repos.pages.propose(tx, caller.businessId, { fields, note: reason, agentId: caller.agentId });
+        if (!page) throw new PlatformToolError("invalid_state", "This project has no page to change yet");
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "page.change_proposed", target: { kind: "project_page", id: page.id }, details: { fields: Object.keys(fields), sessionId: caller.sessionId } });
+        await writeGatewayEvent(tx, { businessId: caller.businessId, type: "page.change_proposed", actor: { kind: "agent", id: caller.agentId }, payload: { agentId: caller.agentId, fields: Object.keys(fields) } });
+      });
+      return { proposed: true as const };
     },
     async draftFollowerUpdate(caller, { subject, body }) {
       const problem = updateProblems(subject, body);

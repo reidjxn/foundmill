@@ -493,6 +493,7 @@ export const EVENT_TYPES = [
   "referral.arrived",
   "post.drafted",
   "post.published",
+  "page.change_proposed",
   "quiz.approved", "quiz.published", "quiz.unpublished",
   "positioning.approved",
   "update.drafted", "update.sent",

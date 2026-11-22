@@ -34,6 +34,7 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import { awardPageLiveMilestone, markBilling, repos, showsBuiltOnMark, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
   pageIsListed,
+  type PageProposalFields,
   AppError,
   FOLLOW_ERRORS,
   FOLLOW_TURNSTILE_ACTION,
@@ -109,6 +110,8 @@ export interface PageView {
   followAvailable: boolean;
   /** The owner's opt-in to the public gallery (`/explore`, 0149); it shows only while the page is live. */
   explore: boolean;
+  /** An agent's proposed words for the page, waiting for a founder (0165, WP-08 T8); null when none waits. Never the draft or the published copy. */
+  proposal: { fields: PageProposalFields; reason: string | null; agentName: string | null; at: Date } | null;
 }
 
 /** `page.publish`'s answer: published, or held with the reason and its sentence (the page stays as it was). */
@@ -166,6 +169,7 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     mark: await showsBuiltOnMark(ctx.db, ctx.business, markBilling(ctx.env)),
     followAvailable: followAvailable(ctx.env),
     explore: row?.exploreListed ?? false,
+    proposal: row?.proposed && row.proposedAt ? { fields: row.proposed, reason: row.proposedNote, agentName: row.proposedByAgentId ? ((await repos.agents.byIds(tx, ctx.businessId, [row.proposedByAgentId]))[0]?.name ?? null) : null, at: row.proposedAt } : null,
   };
 }
 
@@ -210,6 +214,34 @@ export async function setPageSlug(ctx: BusinessContext, input: { slug: string; d
       }
     }
     return viewOf(tx, ctx, page);
+  });
+}
+
+/**
+ * `page.proposal.use`: the waiting proposal's words become the draft (nothing is published). Refused in the hold's own
+ * words when the screen would hold them, so held text never reaches the draft by this route. A reader who may write
+ * the draft (Product write) may use it.
+ */
+export async function usePageProposal(ctx: BusinessContext): Promise<PageView> {
+  if (ctx.business.isDemo) throw sampleRefusal();
+  return ctx.rls(async (tx) => {
+    const row = await repos.pages.get(tx, ctx.businessId);
+    if (!row?.proposed) throw new ValidationError("There is no suggestion waiting.");
+    const reason = pageHoldReason({ ...(readPageContent(row.draft, true) ?? starterPageDraft({ businessName: ctx.business.name })), ...row.proposed });
+    if (reason) throw new ValidationError(PAGE_HOLD_MESSAGES[reason]);
+    const used = await repos.pages.useProposal(tx, ctx.businessId, ctx.userId);
+    if (!used) throw new ValidationError("There is no suggestion waiting.");
+    await audit(tx, ctx, { action: "page.proposal_used", target: { kind: "project_page", id: used.id }, details: { fields: Object.keys(row.proposed) } });
+    return viewOf(tx, ctx, used);
+  });
+}
+
+/** `page.proposal.dismiss`: the waiting proposal is dropped; the page and its draft are untouched. */
+export async function dismissPageProposal(ctx: BusinessContext): Promise<PageView> {
+  return ctx.rls(async (tx) => {
+    const dropped = await repos.pages.dismissProposal(tx, ctx.businessId);
+    if (dropped) await audit(tx, ctx, { action: "page.proposal_dismissed", target: { kind: "project_page", id: dropped.id }, details: {} });
+    return viewOf(tx, ctx, dropped ?? (await repos.pages.get(tx, ctx.businessId)));
   });
 }
 

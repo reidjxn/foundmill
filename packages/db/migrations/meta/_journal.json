@@ -953,6 +953,13 @@
       "when": 1796504960000,
       "tag": "0164_owner_credits",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1796505020000,
+      "tag": "0165_page_proposals",
+      "breakpoints": true
     }
   ]
 }

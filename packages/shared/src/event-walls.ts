@@ -147,6 +147,9 @@ export const EVENT_WALLS = {
   // with the metrics-only events (like `share.opened`) so a collaborator never receives it and no migration of
   // `fm_collaborator_event_types()` is needed.
   "post.published": { sections: ["settings"] },
+  // An agent proposed new words for the page (WP-08 T8): the agent and the field names. Product only; filed with the
+  // writers' section so a collaborator never receives it (no `fm_collaborator_event_types()` migration).
+  "page.change_proposed": { sections: ["settings"] },
   // The page quiz approved, turned on or off (0105): ids and its shape, never the words. The Public page tab follows.
   "quiz.approved": { sections: ["product"] },
   // The positioning notes approved (0118, WP-08 T1): the version and the names of the sections that changed, never the words.

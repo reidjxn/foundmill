@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   PAGE_ABOUT_MAX,
+  PAGE_FOR_WHOM_MAX,
+  pageProposalProblems,
   PAGE_HOLD_MESSAGES,
   PAGE_HOLD_REASONS,
   PAGE_PITCH_MAX,
@@ -277,3 +279,12 @@ describe("the 'Built on' mark", () => {
   });
 });
 
+
+describe("pageProposalProblems (WP-08 T8)", () => {
+  it("needs at least one field and holds each to the page's own limits", () => {
+    expect(pageProposalProblems({})).toEqual(["Propose a change to at least one of the pitch, about and who it is for."]);
+    expect(pageProposalProblems({ pitch: "A short pitch that names who it is for" })).toEqual([]);
+    expect(pageProposalProblems({ pitch: "x".repeat(PAGE_PITCH_MAX + 1) })).toHaveLength(1);
+    expect(pageProposalProblems({ forWhom: "y".repeat(PAGE_FOR_WHOM_MAX + 1), about: "Fine." })).toHaveLength(1);
+  });
+});

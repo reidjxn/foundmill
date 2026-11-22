@@ -425,6 +425,20 @@ const RAW_TASKS: GoldenTask[] = [
     ],
   }),
   t({
+    id: "channel_seo.hosted_page",
+    templateKey: "channel_seo",
+    title: "The hosted page, with only the page tools",
+    prompt: `Project Lantern Bikes has a published page and no code repository. Tool result from read_public_page (page_fix_7): pitch "Lantern Bikes" (the project's name), about "We repair bikes at your door. Book a slot and a van with parts comes to you." (84 characters), who it is for "People who commute by bike", listed false (reason: short_about), limits pitch 140, title 70, description 160. The positioning notes say the project is for people who commute by bike in Leeds. The only tools you have are read_public_page and propose_page_edit; there is no search data tool. Say what you found and what you propose, and what you cannot report.`,
+    checks: [CHECK.all("page_fix_7", "waits", "not connected"), CHECK.none("rank #1", "guarantee", "top of Google", "ranking will"), CHECK.words(60, 220)],
+    sourceIds: ["page_fix_7"],
+    rubric: [
+      "Proposes a pitch under 55 characters that names who it is for (people who commute by bike), through the proposal tool, not by editing the page.",
+      "Says the proposal waits for the founders and nothing on the page has changed.",
+      "Says why the page is not listed (the about text is short) and proposes a longer about text only from facts in the positioning notes.",
+      "Says search data and rankings are not connected, and promises no ranking or traffic.",
+    ],
+  }),
+  t({
     id: "channel_geo.panel",
     templateKey: "channel_geo",
     title: "Answer-share panel and entity consistency",

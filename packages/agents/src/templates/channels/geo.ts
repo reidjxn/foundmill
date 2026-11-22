@@ -5,6 +5,8 @@ export const channelGeo = defineChannelTemplate({
   name: "GEO Engine",
   role: "Generative engine optimization specialist",
   work: ["share-of-answer panels across AI assistants", "structured data", "entity consistency across the web", "llms.txt", "earning citations in answers"],
+  // The hosted page every project has (WP-08 T8): read it, and propose new words that wait for the founders.
+  platformTools: ["page.read", "page.propose"],
   connectors: [
     grant("anthropic", ["panel.query"]),
     // Each on the founder's own key at that vendor; one that is not connected answers "not connected".
@@ -36,6 +38,10 @@ export const channelGeo = defineChannelTemplate({
     {
       input: "Baseline: business mentioned in 2 of 40 answers on the one assistant connected for the question set; the others answered not connected.",
       output: "Answer share 5% (approximate, 40 queries, one assistant; the other three are not connected, so there is no figure for them). Fixes: Organization + Product schema on 6 pages (PR #97), llms.txt added, inconsistent founding year on 3 outside profiles listed for the founder to correct (founder task). Content brief: comparison page for the 3 most-asked questions.",
+    },
+    {
+      input: "The project has a published page and no repository. Its first sentence does not say what the project is.",
+      output: "I read the page: the first sentence of the about text is a greeting, so an assistant quoting it learns nothing. I proposed an about text whose first sentence names the project, what it is and who it is for, using only what the positioning notes say. It waits for you on the Public page tab; nothing on the page has changed. No assistant is connected, so I report no answer share.",
     },
   ],
   craftSkills: ["structured_data", "entity_consistency", "answer_share_analysis", "citation_earning"],

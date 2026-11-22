@@ -55,6 +55,8 @@ export function platformHandlers(host: PlatformHost) {
     remove_skill: async (args: Parameters<PlatformHost["removeSkill"]>[1], ctx: ToolContext) => host.removeSkill(caller(ctx), args),
     read_positioning: async (_args: unknown, ctx: ToolContext) => host.readPositioning(caller(ctx)),
     propose_positioning_change: async (args: Parameters<PlatformHost["proposePositioningChange"]>[1], ctx: ToolContext) => host.proposePositioningChange(caller(ctx), args),
+    read_public_page: async (_args: unknown, ctx: ToolContext) => host.readPublicPage(caller(ctx)),
+    propose_page_edit: async (args: Parameters<PlatformHost["proposePageEdit"]>[1], ctx: ToolContext) => host.proposePageEdit(caller(ctx), args),
     draft_follower_update: async (args: Parameters<PlatformHost["draftFollowerUpdate"]>[1], ctx: ToolContext) => host.draftFollowerUpdate(caller(ctx), args),
     raise_tool_need: async (args: Parameters<PlatformHost["raiseToolNeed"]>[1], ctx: ToolContext) => host.raiseToolNeed(caller(ctx), args),
     read_tool_need: async (args: Parameters<PlatformHost["readToolNeed"]>[1], ctx: ToolContext) => host.readToolNeed(caller(ctx), args),
@@ -264,6 +266,25 @@ export function createMemoryPlatformHost(): PlatformHost {
       const w = world(caller.businessId);
       w.positioningDrafts += 1;
       return { draftVersion: w.positioningDrafts };
+    },
+    // The mock project has a live page; a proposal changes nothing on it (the real host writes one waiting copy).
+    async readPublicPage() {
+      return {
+        published: true,
+        path: "/p/mock-project",
+        title: "Mock Project: Bike repairs at your door",
+        description: "A van full of parts comes to the bike and fixes it where it stands.",
+        fields: { pitch: "Bike repairs at your door", about: "A van full of parts comes to the bike and fixes it where it stands.", forWhom: "People whose bike broke on the way to work", stage: "idea" },
+        publishedOn: "2026-11-12",
+        updatedOn: "2026-11-12",
+        listed: false,
+        notListedReason: "short_about",
+        limits: { pitch: 140, about: 1500, forWhom: 300, title: 70, description: 160 },
+        milestones: [{ label: "Page live", on: "2026-11-12" }],
+      };
+    },
+    async proposePageEdit() {
+      return { proposed: true as const };
     },
     async draftFollowerUpdate(caller) {
       const w = world(caller.businessId);

@@ -586,6 +586,7 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "milestone.shown": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
   "milestone.hidden": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
   "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
+  "page.change_proposed": { agentId: FIXTURE_AGENT_ID, fields: ["pitch"] },
   "post.published": { assetId: fixtureId("asset-post"), network: "x", url: "https://x.com/maple/status/1", source: "founder", visited: false },
   "post.drafted": { assetId: fixtureId("asset-post"), trigger: "page_published", subject: "page_live", agentId: FIXTURE_AGENT_ID },
   "positioning.approved": { version: 2, sectionsChanged: ["forWhom", "oneLine"] },

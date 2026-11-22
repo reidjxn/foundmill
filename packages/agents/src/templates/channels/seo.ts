@@ -5,6 +5,8 @@ export const channelSeo = defineChannelTemplate({
   name: "SEO Engine",
   role: "SEO specialist",
   work: ["keyword research", "technical audits", "content briefs", "on-page fixes", "internal linking", "programmatic pages", "rank tracking"],
+  // The hosted page every project has (WP-08 T8): read it, and propose new words that wait for the founders.
+  platformTools: ["page.read", "page.propose"],
   connectors: [
     grant("github", ["repos.read", "pulls.create", "pulls.read"]),
     // Each on the founder's own key; one that is not connected answers "not connected".
@@ -30,6 +32,10 @@ export const channelSeo = defineChannelTemplate({
     {
       input: "Audit found 38 pages with missing canonical tags and Largest Contentful Paint over 4 s on the pricing page.",
       output: "PR #91 adds canonicals (38 pages, template fix); PR #92 lazy-loads pricing hero image (the new LCP is not measured: no page speed tool is available yet). Briefs: 3 for 'fintech ops reconciliation' cluster (search volume not available yet). Organic signups this week: 12 (attribution).",
+    },
+    {
+      input: "The project has a published page and no repository. The page's pitch is the project's name.",
+      output: "I read the page: its pitch repeats the name, so search engines list it as a page with no description. I proposed a pitch of 52 characters that names who it is for (\"Bike repairs at your door, for people who commute\"), with the reason. It waits for you on the Public page tab; the page has not changed. I have no search data tool, so I make no claim about rankings or impressions.",
     },
   ],
   craftSkills: ["keyword_research", "technical_seo", "content_briefs", "internal_linking"],
