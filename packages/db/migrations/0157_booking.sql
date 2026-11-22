@@ -159,3 +159,11 @@ create view public_booking_pages with (security_barrier) as
 revoke all on public_booking_pages from public, anon, authenticated, service_role;
 --> statement-breakpoint
 grant select on public_booking_pages to service_role;
+--> statement-breakpoint
+-- The four booking events are filed under Customers, which a collaborator reads (as they read the bookings themselves):
+-- `fm_collaborator_event_types()` follows the stream's walls, the whole list again plus the four. `create or replace`
+-- keeps its owner, grants and policies.
+create or replace function fm_collaborator_event_types() returns text[]
+language sql immutable parallel safe set search_path = pg_catalog, public, pg_temp as $$
+  select array['idea.committed', 'spec.proposal_created', 'spec.version_published', 'source.added', 'source.scored', 'task.started', 'task.progressed', 'task.completed', 'task.blocked', 'task.design_checked', 'pr.merged', 'deploy.succeeded', 'lead.created', 'lead.replied', 'campaign.launched', 'channel.threshold_breached', 'signup.created', 'activation.reached', 'customer.converted', 'agent.health_changed', 'training.completed', 'agent.promoted', 'approval.requested', 'approval.resolved', 'mode.changed', 'holiday.started', 'holiday.ended', 'cycle.started', 'cycle.completed', 'cycle.run_started', 'cycle.run_ended', 'autopilot.changed', 'autopilot.cycle_started', 'inbox.item_created', 'inbox.item_updated', 'decision.made', 'foundations.progressed', 'product.research_drafted', 'conversation.message_posted', 'membership.changed', 'business.updated', 'agent.message_sent', 'product.signoff_decided', 'distribution.started', 'goal.proposed', 'goal.approved', 'goal.change_requested', 'goal.achieved', 'page.published', 'team_call.started', 'team_call.ended', 'page.unpublished', 'page.followed', 'mail.sent', 'milestone.shown', 'milestone.hidden', 'post.drafted', 'invitation.sent', 'invitation.accepted', 'invitation.declined', 'showcase.requested', 'showcase.approved', 'showcase.withdrawn', 'quiz.approved', 'quiz.published', 'quiz.unpublished', 'positioning.approved', 'site.release_created', 'site.published', 'site.unpublished', 'update.drafted', 'update.sent', 'booking.confirmed', 'booking.canceled', 'booking.rescheduled', 'booking.no_show']::text[]
+$$;
