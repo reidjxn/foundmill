@@ -32,8 +32,8 @@ describe("scoped checks (T10)", () => {
     const { businessId, ownerId } = hz.A;
     const owner = hz.caller({ userId: ownerId });
     const hired = await hireFromTemplate(hz.db, businessId, "backend_engineer");
-    const result = await owner.agent.skills.measure({ businessId, agentId: hired.agent.id, skillKey: "library_ponytail" });
-    expect(result.run).toMatchObject({ kind: "skill_check", status: "queued", toVersionId: null, fromVersionId: hired.agent.currentVersionId, measuredSkillKey: "library_ponytail" });
+    const result = await owner.agent.skills.measure({ businessId, agentId: hired.agent.id, skillKey: "library_coding_discipline" });
+    expect(result.run).toMatchObject({ kind: "skill_check", status: "queued", toVersionId: null, fromVersionId: hired.agent.currentVersionId, measuredSkillKey: "library_coding_discipline" });
     expect(result.run.skillKeys!.length).toBeGreaterThan(0);
     expect(result.run.skillKeys!.length).toBeLessThanOrEqual(3);
     expect(result.estimate).toMatchObject({ arms: 2, label: "Estimate" });
