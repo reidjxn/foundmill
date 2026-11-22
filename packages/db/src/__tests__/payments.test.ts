@@ -44,20 +44,19 @@ describe("settleCreditCheckout", () => {
   it("grants the amount to the period's balance once, marks the row paid and audits it", async () => {
     const A = r.A.businessId;
     const row = await openLive(A, 10_000);
-    // The month's first top-up starts the period with the tier's included credits; the paid amount comes on top.
-    const before = (await creditsState(r.db, await repos.businesses.get(r.db, A), "2026-10"))?.balanceMinor ?? 0;
+    // The project's own balance is what it bought: the owner's included budget is shared and sits apart from it (0151).
     const settle = (eventId: string) => settleCreditCheckout(r.db, { businessId: A, checkoutId: row.id, externalId: row.externalId, eventId, amountMinor: 10_000, currency: "usd", mode: "live", paidAt, actor: { kind: "webhook" } });
 
     const first = await settle("evt_1");
     expect(first.outcome).toBe("granted");
     if (first.outcome !== "granted") return;
-    expect(first.balance.balanceMinor).toBe(Number(before) + 10_000);
+    expect(first.balance.balanceMinor).toBe(10_000);
     expect(first.checkout).toMatchObject({ status: "paid", paidEventId: "evt_1", grantedPeriod: "2026-10", creditBalanceId: first.balance.id });
 
     // Stripe re-sends, or the async success follows the completion: nothing more is granted.
     const again = await settle("evt_2");
     expect(again.outcome).toBe("duplicate");
-    expect((await repos.usage.creditBalance(r.db, A, "2026-10"))?.balanceMinor).toBe(Number(before) + 10_000);
+    expect((await repos.usage.creditBalance(r.db, A, "2026-10"))?.balanceMinor).toBe(10_000);
 
     const audit = await repos.audit.list(r.db, A, { action: "billing.credits_purchased" });
     expect(audit.items.filter((e) => (e.target as { id?: string }).id === row.id)).toHaveLength(1);

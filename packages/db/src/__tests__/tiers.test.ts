@@ -7,7 +7,7 @@ import { TIERS } from "@foundmill/config";
 import { TierLimitError } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../repos";
-import { assertBusinessAllowance, assertConcurrencyRoom, assertSeatAvailable, businessAllowance, concurrencyAllowance, includedCreditPool, OPEN_SESSION_WINDOW_HOURS, seatAllowance } from "../tiers";
+import { assertBusinessAllowance, assertConcurrencyRoom, assertSeatAvailable, businessAllowance, concurrencyAllowance, OPEN_SESSION_WINDOW_HOURS, seatAllowance } from "../tiers";
 import { setupRepoHarness, type RepoHarness } from "./repos/helpers";
 
 let r: RepoHarness;
@@ -60,20 +60,6 @@ describe("businesses per owner", () => {
     // A deleted (archived) project does not count toward the limit.
     await repos.businesses.archive(r.db, second.id);
     expect((await businessAllowance(r.db, r.B.ownerId)).owned).toBe(1);
-  });
-
-  it("the included-credit pool keeps its own size (SEC2 S6) and counts only the founder's own grants", async () => {
-    const period = "2027-03";
-    const founder = await r.h.createUser("tier-pool@test.local");
-    expect(await includedCreditPool(r.db, founder, period)).toEqual({ tier: "free", period, places: TIERS.free.includedCreditBusinesses, taken: 0 });
-    const first = await repos.businesses.create(r.db, { name: "Pool One", createdBy: founder });
-    await repos.memberships.add(r.db, first.id, { userId: founder, role: "owner" });
-    await repos.usage.chargeCredits(r.db, first.id, period, 1, { includedMinor: 500 });
-    expect(await includedCreditPool(r.db, founder, period)).toMatchObject({ places: 1, taken: 1 });
-    // Another founder's grants are theirs alone.
-    expect(await includedCreditPool(r.db, r.B.ownerId, period)).toMatchObject({ taken: 0 });
-    await repos.businesses.update(r.db, first.id, { planTier: "scale" });
-    expect(await includedCreditPool(r.db, founder, period)).toMatchObject({ tier: "scale", places: null, taken: 1 });
   });
 });
 

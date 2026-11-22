@@ -3,6 +3,7 @@
  * already open, its budget is the business's credits in US dollars (the tier's included credits before the first charge
  * of a month; none for a business on its own key), a full plan defers every start, and a small balance still runs work.
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { CREDITS_CURRENCY, includedCreditsMinor, TIERS } from "@foundmill/config";
 import { periodOf, repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -43,8 +44,7 @@ describe("loadBrief: the plan tier and credits", () => {
     const { loadBrief } = createBriefActivities(t.deps);
     const { planCycle } = createCycleActivities(t.deps);
     const period = periodOf(t.deps.clock.now());
-    const { balance } = await repos.usage.ensurePeriodCredits(t.db, t.businessId, period, includedCreditsMinor("free"));
-    await repos.usage.chargeCredits(t.db, t.businessId, period, Number(balance.balanceMinor));
+    await spendAllCredits(t.db, t.businessId, period);
     try {
       const brief = await loadBrief({ businessId: t.businessId });
       expect(brief.budgetRemainingMinor).toBe(0);

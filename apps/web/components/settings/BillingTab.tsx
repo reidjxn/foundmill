@@ -29,7 +29,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Coins, CreditCard, Handshake, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { APP_NAME, CREDIT_PACK_UNLOCK_MIN_MINOR, CREDITS_CURRENCY, EARLY_ACCESS_STAGE, ENTRY_PLAN, includedCreditsMinor, INVITED_FOUNDERS_LINE, PARTNER_PLAN, PLAN_FEATURE_WORDS, planAdds, planName, planPriceLabel, tierIncludedCreditPlaces, TIER_ORDER, TIERS, TOP_UP_OPTIONS_MINOR, type EarlyAccessStage, type TierKey } from "@foundmill/config";
+import { APP_NAME, CREDIT_PACK_UNLOCK_MIN_MINOR, CREDITS_CURRENCY, EARLY_ACCESS_STAGE, ENTRY_PLAN, includedCreditsMinor, INVITED_FOUNDERS_LINE, PARTNER_PLAN, PLAN_FEATURE_WORDS, planAdds, planName, planPriceLabel, TIER_ORDER, TIERS, TOP_UP_OPTIONS_MINOR, type EarlyAccessStage, type TierKey } from "@foundmill/config";
 import { Button, Checkbox, Chip, IconButton, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, StatusPill, Term, formatCompact, useBuilderView, useDateFormat, type DateFormatPrefs, type StatusTone } from "@foundmill/dugout";
 import { PLAN_TIERS } from "@foundmill/shared/constants";
 import { formatDate, formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "@/lib/format";
@@ -433,7 +433,7 @@ export function BillingTab() {
             {p.modelBilling === "byok" ? (
               <Hint>Your agents run on your own Anthropic key. Conversations, Refresh and planning run on {APP_NAME}&apos;s key and use these credits; when they run out, those rest until next month&apos;s credits or a top-up.</Hint>
             ) : null}
-            {p.credits.includedMinor === 0 && includedCreditsMinor(p.tier) > 0 ? <Hint>This month&apos;s included credits already went to another project you took charge of: a plan&apos;s credits go to one project a month.</Hint> : null}
+            {p.credits.exhausted && includedCreditsMinor(p.tier) > 0 ? <Hint>Your plan includes one team budget a month, shared by all your projects.</Hint> : null}
             {p.credits.mockMinor > 0 ? <Hint>Credits from mock top-ups pay for simulated model calls only, never for live ones.</Hint> : null}
             <Hint>Third-party spend (ads, postage, email sending, registry fees) is billed by each provider to your own accounts and never resold.</Hint>
           </>

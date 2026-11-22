@@ -16,7 +16,7 @@
  *
  * Refusals are `TierLimitError` (code `tier_limit`), which the web turns into an upgrade prompt.
  */
-import { higherTier, planName, planWithRoomFor, tierBusinessLimit, tierIncludedCreditPlaces, tierSeatLimit, TIERS, type TierKey } from "@foundmill/config";
+import { higherTier, planName, planWithRoomFor, tierBusinessLimit, tierSeatLimit, TIERS, type TierKey } from "@foundmill/config";
 import { TierLimitError } from "@foundmill/shared";
 import { repos } from "./repos";
 import { MAX_PAGE_SIZE, type Executor } from "./repos/_shared";
@@ -78,27 +78,6 @@ export async function assertBusinessAllowance(db: Executor, userId: string, opti
     });
   }
   return a;
-}
-
-export interface IncludedCreditPool {
-  /** The founder's tier: the highest among the unarchived businesses they own (free when they own none). */
-  tier: TierKey;
-  /** The month, "2026-10". */
-  period: string;
-  /** How many of their businesses the tier's included credits cover each month (null: every one). */
-  places: number | null;
-  /** How many places this period's grants already took (businesses the founder created, archived ones included). */
-  taken: number;
-}
-
-/**
- * The founder's monthly pool of included credits (SEC2 S6): their tier, how many businesses it covers and how many
- * places this period's grants already took. Read-only; `includedCreditsFor` (billing.ts) applies the same rule when it
- * grants.
- */
-export async function includedCreditPool(db: Executor, userId: string, period: string): Promise<IncludedCreditPool> {
-  const [{ tier }, taken] = await Promise.all([businessAllowance(db, userId), repos.usage.includedCreditPlacesTaken(db, userId, period)]);
-  return { tier, period, places: tierIncludedCreditPlaces(tier), taken };
 }
 
 export interface SeatAllowanceOptions {

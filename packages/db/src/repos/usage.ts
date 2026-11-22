@@ -20,7 +20,7 @@ import { CREDITS_CURRENCY } from "@foundmill/config";
 import { MODEL_BILLING, MODEL_KEYS, USAGE_KINDS, ValidationError, type UsageKind } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { agentSessions, agents, businesses, creditBalances, creditLots, usageLedger, type CreditBalance, type CreditLot, type UsageEntry } from "../schema";
+import { agentSessions, agents, businesses, creditBalances, creditLots, ownerCredits, usageLedger, type CreditBalance, type CreditLot, type OwnerCredits, type UsageEntry } from "../schema";
 import { Currency, DateRange, Id, IsoDateInput, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
 
 /** Millionths of a minor unit per minor unit (the meter's `costMicroMinor`, packages/models pricing.ts). */
@@ -121,6 +121,16 @@ async function lockLiveLots(tx: Executor, businessId: string, now: Date): Promis
     .where(and(eq(creditLots.businessId, businessId), sql`${creditLots.remainingMinor} > 0`, sql`${creditLots.expiresAt} > ${now}`))
     .orderBy(asc(creditLots.expiresAt), asc(creditLots.createdAt))
     .for("update");
+}
+
+/**
+ * How a charge finds its credits. `includedMinor`: the project's own month opens with this many included credits (a
+ * business with no recorded owner). `owner`: the month's included budget is the owner's, shared by all their projects
+ * (0151): `budgetMinor` is what it is when the owner's row opens (their plan then), asked only when the row is missing.
+ */
+export interface ChargeOptions {
+  includedMinor?: number | ((tx: Executor) => Promise<number>);
+  owner?: { userId: string; budgetMinor: (tx: Executor) => Promise<number> };
 }
 
 export const usageRepo = {
@@ -401,28 +411,19 @@ export const usageRepo = {
   },
 
   /**
-   * Serializes the included-credit grants of one founder's businesses (../billing.ts `includedCreditsFor`), so two of
-   * their businesses opening the same month at once cannot both take the pool's last place. Transaction-scoped.
+   * Serializes the charges of one owner's projects (the shared budget, `chargeCreditsMicro`), so two of their projects
+   * charging at once cannot both spend the same credits. Transaction-scoped.
    */
   async lockIncludedCredits(db: Executor, creatorId: string): Promise<void> {
     const id = parseInput(Id, creatorId, "user id");
     await db.execute(sql`select pg_advisory_xact_lock(hashtext('included_credits'), hashtext(${id}::text))`);
   },
 
-  /**
-   * Businesses `creatorId` took charge of, archived ones included, other than `exceptBusinessId`, that were granted
-   * credits for `period` (a balance row with something granted): the places of the founder's monthly pool of included
-   * credits already taken. A row granted only by a top-up counts too (the ledger cannot tell them apart), which errs
-   * toward granting less.
-   */
-  async includedCreditPlacesTaken(db: Executor, creatorId: string, period: string, options: { exceptBusinessId?: string } = {}): Promise<number> {
-    const v = parseInput(z.object({ creatorId: Id, period: Period }), { creatorId, period }, "included credits");
-    const [row] = await db
-      .select({ n: sql<number>`count(distinct ${creditBalances.businessId})::int` })
-      .from(creditBalances)
-      .innerJoin(businesses, eq(businesses.id, creditBalances.businessId))
-      .where(and(eq(businesses.createdBy, v.creatorId), eq(creditBalances.period, v.period), sql`${creditBalances.grantedMinor} > 0`, options.exceptBusinessId ? ne(creditBalances.businessId, options.exceptBusinessId) : undefined));
-    return Number(row?.n ?? 0);
+  /** The owner's shared included budget for `period` (0151), or null before their first charge of the month. */
+  async ownerCredits(db: Executor, userId: string, period: string): Promise<OwnerCredits | null> {
+    const v = parseInput(z.object({ userId: Id, period: Period }), { userId, period }, "owner credits");
+    const rows = await db.select().from(ownerCredits).where(and(eq(ownerCredits.userId, v.userId), eq(ownerCredits.period, v.period))).limit(1);
+    return rows[0] ?? null;
   },
 
   /**
@@ -434,7 +435,7 @@ export const usageRepo = {
    * ../billing.ts `includedCreditsFor`). `exhausted` says whether this charge used the last credit (`"now"`, also when the
    * period started with nothing included) or the balance was already empty (`"already"`).
    */
-  async chargeCredits(db: Executor, businessId: string, period: string, amountMinor: number, options: { includedMinor?: number | ((tx: Executor) => Promise<number>) } = {}): Promise<{ balance: CreditBalance; exhausted: "now" | "already" | null } | null> {
+  async chargeCredits(db: Executor, businessId: string, period: string, amountMinor: number, options: ChargeOptions = {}): Promise<{ balance: CreditBalance; exhausted: "now" | "already" | null } | null> {
     const v = parseInput(z.object({ period: Period, amountMinor: MinorAmount.nonnegative() }), { period, amountMinor }, "credit charge");
     return usageRepo.chargeCreditsMicro(db, businessId, v.period, v.amountMinor * MICRO_PER_MINOR, options);
   },
@@ -444,26 +445,43 @@ export const usageRepo = {
    * plus this amount is charged in whole cents and what is left below a cent is carried to the next charge, so a stream
    * of calls under half a cent is charged what it costs. `chargedMinor` is what this charge took from the balance.
    */
-  async chargeCreditsMicro(db: Executor, businessId: string, period: string, microMinor: number, options: { includedMinor?: number | ((tx: Executor) => Promise<number>) } = {}): Promise<{ balance: CreditBalance; exhausted: "now" | "already" | null; chargedMinor: number } | null> {
+  async chargeCreditsMicro(db: Executor, businessId: string, period: string, microMinor: number, options: ChargeOptions = {}): Promise<{ balance: CreditBalance; exhausted: "now" | "already" | null; chargedMinor: number } | null> {
     const v = parseInput(z.object({ period: Period, microMinor: MinorAmount.nonnegative() }), { period, microMinor }, "credit charge");
     return db.transaction(async (tx) => {
+      // One owner's projects charge one after another: the shared budget is read and spent under this lock.
+      if (options.owner) await usageRepo.lockIncludedCredits(tx, options.owner.userId);
       const lockRow = async () => (await tx.select().from(creditBalances).where(and(eq(creditBalances.businessId, businessId), eq(creditBalances.period, v.period))).for("update").limit(1))[0];
       let current = await lockRow();
       let created = false;
-      if (!current && options.includedMinor !== undefined) {
-        const included = typeof options.includedMinor === "function" ? await options.includedMinor(tx) : options.includedMinor;
-        created = (await usageRepo.ensurePeriodCredits(tx, businessId, v.period, included)).created;
+      if (!current && (options.owner || options.includedMinor !== undefined)) {
+        // With a shared owner budget the project's own row opens with what it carries from bought credit only.
+        const included = options.owner ? 0 : typeof options.includedMinor === "function" ? await options.includedMinor(tx) : (options.includedMinor ?? 0);
+        created = (await usageRepo.ensurePeriodCredits(tx, businessId, v.period, included)).created && !options.owner;
         current = await lockRow();
       }
       if (!current) return null;
+      let owner: OwnerCredits | undefined;
+      if (options.owner) {
+        const lockOwner = async () => (await tx.select().from(ownerCredits).where(and(eq(ownerCredits.userId, options.owner!.userId), eq(ownerCredits.period, v.period))).for("update").limit(1))[0];
+        owner = await lockOwner();
+        if (!owner) {
+          const budget = await options.owner.budgetMinor(tx);
+          await tx.insert(ownerCredits).values({ userId: options.owner.userId, period: v.period, grantedMinor: budget, balanceMinor: budget, spentMinor: 0 }).onConflictDoNothing({ target: [ownerCredits.userId, ownerCredits.period] });
+          owner = await lockOwner();
+          created = true;
+        }
+      }
       // Bought credit past its 12 months leaves the balance first (0098).
       const now = new Date();
       if (await usageRepo.expireCreditLots(tx, businessId, v.period, now)) current = (await lockRow())!;
       const carried = Number(current.carryMicroMinor ?? 0) + v.microMinor;
       const amountMinor = Math.floor(carried / MICRO_PER_MINOR);
+      // The shared budget goes first; what it cannot cover comes out of the project's own balance (what it bought).
+      const ownerBefore = owner ? Number(owner.balanceMinor) : 0;
+      const ownerTake = Math.min(ownerBefore, amountMinor);
       const balanceBefore = Number(current.balanceMinor);
-      const balanceAfter = Math.max(0, balanceBefore - amountMinor);
-      // The month's included credits go first; what they cannot cover comes out of the lots, the one expiring first first.
+      const balanceAfter = Math.max(0, balanceBefore - (amountMinor - ownerTake));
+      // The project's own included credits (no owner) go first; what they cannot cover comes out of the lots, the one expiring first first.
       if (balanceAfter < balanceBefore) {
         const lots = await lockLiveLots(tx, businessId, now);
         const lotTotal = lots.reduce((sum, l) => sum + Number(l.remainingMinor), 0);
@@ -480,8 +498,14 @@ export const usageRepo = {
         .set({ balanceMinor: balanceAfter, spentMinor: sql`${creditBalances.spentMinor} + ${amountMinor}`, carryMicroMinor: carried - amountMinor * MICRO_PER_MINOR })
         .where(eq(creditBalances.id, current.id))
         .returning();
-      const balance = one(row ? [row] : [], "credit balance");
-      const exhausted = balanceAfter > 0 || amountMinor === 0 ? null : balanceBefore > 0 || created ? "now" : "already";
+      let balance = one(row ? [row] : [], "credit balance");
+      if (owner && ownerTake > 0) await tx.update(ownerCredits).set({ balanceMinor: ownerBefore - ownerTake, spentMinor: Number(owner.spentMinor) + ownerTake }).where(eq(ownerCredits.id, owner.id));
+      const ownerAfter = ownerBefore - ownerTake;
+      // What the caller reads is the project's whole balance: its own credits and what is left of the shared budget.
+      if (owner) balance = { ...balance, balanceMinor: balanceAfter + ownerAfter, grantedMinor: Number(balance.grantedMinor) + Number(owner.grantedMinor) };
+      const totalBefore = balanceBefore + ownerBefore;
+      const totalAfter = balanceAfter + ownerAfter;
+      const exhausted = totalAfter > 0 || amountMinor === 0 ? null : totalBefore > 0 || created ? "now" : "already";
       return { balance, exhausted, chargedMinor: amountMinor };
     });
   },

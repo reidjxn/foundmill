@@ -12,7 +12,7 @@ import { CreditsExhaustedError } from "@foundmill/shared";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
-import { agentWorkFunding, assertPlatformCredits, bookUsage as bookUsageAtCost, chargesCredits, fundingOfRow, checkPlatformCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, restBeforeSession, restingNoteBody, RESTING_SUBJECT, waysToContinue, CREDITS_LOW_AUDIT_ACTION, CREDITS_LOW_SUBJECT, includedCreditsFor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits } from "../billing";
+import { agentWorkFunding, assertPlatformCredits, bookUsage as bookUsageAtCost, chargesCredits, fundingOfRow, checkPlatformCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, restBeforeSession, restingNoteBody, RESTING_SUBJECT, waysToContinue, CREDITS_LOW_AUDIT_ACTION, CREDITS_LOW_SUBJECT, includedCreditsFor, monthlyBudgetMinor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits } from "../billing";
 import { BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, loadByokApiKey } from "../byok";
 import { resumeBusinessAgents, stopBusinessAgents } from "../controls";
 import { settleCreditCheckout } from "../payments";
@@ -207,7 +207,7 @@ describe("bookUsage", () => {
 });
 
 describe("included credits: one pool a month per founder (SEC2 S6)", () => {
-  it("archiving a business and taking charge of another never grants a second included credit in the same month", async () => {
+  it("one included budget a month per owner, shared by all their projects: archiving and taking charge again never yields a second one (founder, Nov 19, 2026)", async () => {
     const founder = await r.h.createUser("bill-pool@test.local");
     const open = async (name: string) => {
       const b = await repos.businesses.create(r.db, { name, createdBy: founder });
@@ -218,28 +218,56 @@ describe("included credits: one pool a month per founder (SEC2 S6)", () => {
     const charge = (businessId: string, costMinor: number, month: number) => bookUsage(r.db, businessId, { kind: "tokens", modelKey: "sonnet", quantity: 100, unit: "tokens", costMinor, billedTo: "credits", occurredAt: in2027(4, month) });
 
     const first = await open("Pool First");
-    expect(await includedCreditsFor(r.db, first, "2027-05")).toBe(FREE_INCLUDED);
-    expect((await charge(first.id, 10, 4)).credits?.balance).toMatchObject({ period: "2027-05", grantedMinor: FREE_INCLUDED });
+    // A project with a recorded owner opens its own balance with nothing included: the budget is the owner's.
+    expect(await includedCreditsFor(r.db, first, "2027-05")).toBe(0);
+    expect(await monthlyBudgetMinor(r.db, first)).toBe(FREE_INCLUDED);
+    expect(await platformCredits(r.db, first, "2027-05")).toMatchObject({ includedMinor: FREE_INCLUDED, balanceMinor: FREE_INCLUDED, exhausted: false });
+    expect((await charge(first.id, 10, 4)).credits?.balance).toMatchObject({ period: "2027-05", balanceMinor: FREE_INCLUDED - 10, grantedMinor: FREE_INCLUDED });
     await repos.businesses.archive(r.db, first.id);
 
-    // The free plan's included credits cover one business a month: a second business this month gets nothing included.
+    // A second project this month shares what is left: it does not start with a second budget, nor with nothing.
     const second = await open("Pool Second");
-    expect(await includedCreditsFor(r.db, second, "2027-05")).toBe(0);
-    expect(await platformCredits(r.db, second, "2027-05")).toMatchObject({ includedMinor: 0, balanceMinor: 0, exhausted: true });
-    const empty = await charge(second.id, 1, 4);
-    expect(empty.credits).toMatchObject({ exhausted: "now", balance: { grantedMinor: 0, balanceMinor: 0 } });
+    expect(await platformCredits(r.db, second, "2027-05")).toMatchObject({ balanceMinor: FREE_INCLUDED - 10, exhausted: false });
+    const used = await charge(second.id, FREE_INCLUDED - 10, 4);
+    expect(used.credits).toMatchObject({ exhausted: "now", balance: { balanceMinor: 0 } });
     expect(await repos.businesses.agentsStopped(r.db, second.id)).toBe(true);
+    expect(await repos.usage.ownerCredits(r.db, founder, "2027-05")).toMatchObject({ grantedMinor: FREE_INCLUDED, balanceMinor: 0, spentMinor: FREE_INCLUDED });
     await expect(assertPlatformCredits(r.db, second.id, { live: false, now: in2027(20, 4) })).rejects.toMatchObject({ code: "credits_exhausted", details: { reason: "exhausted", period: "2027-05" } });
 
-    // Next month the business that holds the place gets its credits (the archived one charges nothing).
-    expect((await charge(second.id, 1, 5)).credits?.balance).toMatchObject({ period: "2027-06", grantedMinor: FREE_INCLUDED });
-    expect(await includedCreditsFor(r.db, first, "2027-06")).toBe(0);
-    // A month's stop for used-up credits does not hold the next month's calls back.
+    // A third project sees the same empty budget (it is shared) and is refused too.
+    const third = await open("Pool Third");
+    expect(await platformCredits(r.db, third, "2027-05")).toMatchObject({ balanceMinor: 0, exhausted: true });
+    await expect(assertPlatformCredits(r.db, third.id, { live: false, now: in2027(20, 4) })).rejects.toMatchObject({ code: "credits_exhausted" });
+
+    // What a project bought is its own: with the shared budget gone, it alone keeps working on its top-up.
+    await repos.usage.grantCredits(r.db, second.id, "2027-05", 200);
+    expect(await platformCredits(r.db, second, "2027-05")).toMatchObject({ balanceMinor: 200, exhausted: false });
+    expect((await charge(second.id, 50, 4)).credits?.balance).toMatchObject({ balanceMinor: 150 });
+    expect(await platformCredits(r.db, third, "2027-05")).toMatchObject({ balanceMinor: 0, exhausted: true });
+
+    // Next month the owner has a new budget, whichever project charges first; a month's stop does not hold it back.
+    expect((await charge(second.id, 1, 5)).credits?.balance).toMatchObject({ period: "2027-06", grantedMinor: FREE_INCLUDED, balanceMinor: FREE_INCLUDED - 1 });
     await expect(assertPlatformCredits(r.db, second.id, { live: false, now: in2027(20, 5) })).resolves.toMatchObject({ ok: true });
 
-    // On Studio every project gets its included credits.
+    // The budget is the owner's plan's: Studio includes more.
     await repos.businesses.update(r.db, second.id, { planTier: "scale" });
-    expect(await includedCreditsFor(r.db, { ...first, planTier: "scale" }, "2027-06")).toBe(includedCreditsMinor("scale"));
+    expect(await monthlyBudgetMinor(r.db, second)).toBe(includedCreditsMinor("scale"));
+  });
+
+  it("two projects of one owner charging at once never spend the shared budget twice", async () => {
+    const founder = await r.h.createUser("bill-race@test.local");
+    const open = async (name: string) => {
+      const b = await repos.businesses.create(r.db, { name, createdBy: founder });
+      await repos.memberships.add(r.db, b.id, { userId: founder, role: "owner" });
+      return b;
+    };
+    const a = await open("Race A");
+    const b = await open("Race B");
+    const each = Math.floor(FREE_INCLUDED / 2);
+    const charge = (businessId: string) => bookUsage(r.db, businessId, { kind: "tokens", modelKey: "sonnet", quantity: 100, unit: "tokens", costMinor: each, billedTo: "credits", occurredAt: new Date(Date.UTC(2027, 7, 4, 12)) });
+    await Promise.all([charge(a.id), charge(b.id), charge(a.id), charge(b.id)]);
+    // Four charges of half the budget: the budget stops at zero and records what the projects drew, never more than it held.
+    expect(await repos.usage.ownerCredits(r.db, founder, "2027-08")).toMatchObject({ grantedMinor: FREE_INCLUDED, balanceMinor: 0, spentMinor: FREE_INCLUDED });
   });
 });
 
@@ -264,7 +292,8 @@ describe("the platform-key gate (SEC2 S2, S10)", () => {
 
     // Credits from a simulated payment only: they pay for mock calls, never for live ones.
     const gate = await repos.businesses.create(r.db, { name: "Gate Mock Only", createdBy: founder, planTier: "scale" });
-    // The month opened with nothing included (the founder's pool was used): a top-up that opens a period would also grant the tier's included credits.
+    // The owner's shared budget for the month is used up, so only the simulated top-up is left.
+    await h(sql`insert into owner_credits (user_id, period, granted_minor, balance_minor, spent_minor) values (${founder}, ${period}, ${includedCreditsMinor("scale")}, 0, ${includedCreditsMinor("scale")}) on conflict (user_id, period) do update set balance_minor = 0`);
     await repos.usage.ensurePeriodCredits(r.db, gate.id, period, 0);
     const checkout = await repos.checkouts.create(r.db, gate.id, { mode: "mock", amountMinor: 2500 });
     const settled = await settleCreditCheckout(r.db, { businessId: gate.id, checkoutId: checkout.id, externalId: null, eventId: `mock:${checkout.id}`, amountMinor: 2500, currency: "USD", mode: "mock", paidAt: now, actor: { kind: "user", id: founder } });
@@ -419,12 +448,12 @@ describe("who funds the work (0104)", () => {
 
   it("a claim that the founder's own plan paid is checked against the business: with the flag off it is charged like any other row (finding 4)", async () => {
     const A = r.A.businessId;
-    const before = Number((await repos.usage.creditBalance(r.db, A, "2028-09"))?.balanceMinor);
+    const before = (await platformCredits(r.db, await repos.businesses.get(r.db, A), "2028-09")).balanceMinor;
     // Business A is not on its own plan, and the flag is off: the claim is not believed.
     const claimed = await bookUsage(r.db, A, { ...row("credits"), funding: { source: "own_plan", provider: "openai" } });
     expect(claimed.entry.details).toMatchObject({ funding: { source: "foundmill_credits" } });
     expect(claimed.credits).not.toBeNull();
-    expect(Number((await repos.usage.creditBalance(r.db, A, "2028-09"))?.balanceMinor)).toBe(before - 30);
+    expect((await platformCredits(r.db, await repos.businesses.get(r.db, A), "2028-09")).balanceMinor).toBe(before - 30);
     // A row that says own_plan in its details (written by anything) is still charged while the flag is off.
     const forged = { billedTo: "credits" as const, kind: "tokens" as const, currency: "USD", details: { funding: { source: "own_plan", provider: "openai" } } };
     expect(chargesCredits(forged)).toBe(true);
@@ -558,7 +587,7 @@ describe("resting before a session that would not fit (WP-14 T1)", () => {
     const rested = await restBeforeSession(r.db, business.id, { reserveMinor: 10, now });
     expect(rested).toMatchObject({ rested: true, noteId: expect.any(String) });
     expect(await rows()).toBe(before);
-    expect(await repos.usage.creditBalance(r.db, business.id, month)).toMatchObject({ balanceMinor: 9 });
+    expect(await repos.usage.ownerCredits(r.db, founder, month)).toMatchObject({ balanceMinor: 9 });
     expect(await repos.businesses.stopState(r.db, business.id)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
     const note = await repos.inbox.get(r.db, business.id, rested.noteId!);
     expect(note).toMatchObject({ subject: RESTING_SUBJECT, blocksContinue: true });

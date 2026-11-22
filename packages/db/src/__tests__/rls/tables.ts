@@ -299,6 +299,8 @@ export const NON_TENANT_TABLES = [
   "page_quiz_counts",
   // 0144: what a plan knows about its owner (account-scoped, service role only); covered by rls/owner-plans.test.ts.
   "owner_plans",
+  // 0151: the owner's shared included budget (account-scoped, service role only); covered by rls/owner-credits.test.ts.
+  "owner_credits",
   // 0091: admissions (user-owned, service role only) and invitations (business-scoped, but its token hash and address
   // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
   "account_admissions",

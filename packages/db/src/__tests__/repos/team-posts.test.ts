@@ -381,7 +381,10 @@ describe("draftTeamPost", () => {
     await gate("page_not_live", () => r.as(A.ownerId, (tx) => repos.pages.unpublish(tx, A.businessId, { userId: A.ownerId })), () => r.as(A.ownerId, (tx) => repos.pages.publish(tx, A.businessId, { content: content(), slug: "maple-bakes", userId: A.ownerId, at: PUBLISHED })));
     // Credits used up on the platform key: nothing is asked, and nothing is spent.
     const period = periodOf(NOW);
-    await gate("no_credits", () => repos.usage.chargeCredits(r.db, A.businessId, period, 1_000_000, { includedMinor: 100 }), () => r.h.db.delete(s.creditBalances).where(eq(s.creditBalances.businessId, A.businessId)));
+    await gate("no_credits", () => repos.usage.chargeCredits(r.db, A.businessId, period, 1_000_000, { owner: { userId: A.ownerId, budgetMinor: async () => 100 } }), async () => {
+      await r.h.db.delete(s.creditBalances).where(eq(s.creditBalances.businessId, A.businessId));
+      await r.h.db.delete(s.ownerCredits).where(eq(s.ownerCredits.userId, A.ownerId));
+    });
     // A business with no page and no channel is skipped at the first rule it meets.
     const { models, requests } = recording();
     expect(await draftTeamPost(deps(models), B.businessId, { kind: "page_published" }, options())).toEqual({ outcome: "skipped", reason: "off_the_board" });

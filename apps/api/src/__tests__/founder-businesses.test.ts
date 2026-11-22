@@ -34,13 +34,14 @@ describe("founder.businesses.list", () => {
 });
 
 describe("founder.businesses.allowance", () => {
-  it("no business limit; the included-credit pool counts only the caller's own grants this month", async () => {
+  it("a plan holds projects (Try 1); the shared team budget is the caller's own and shrinks as their projects spend it", async () => {
     const period = periodOf(new Date());
     const before = await hz.caller({ userId: hz.A.ownerId }).founder.businesses.allowance();
-    expect(before).toMatchObject({ tier: "free", businesses: { allowed: null, owned: 1 }, includedCredits: { period, places: 1, taken: 0, amountMinor: includedCreditsMinor("free"), currency: "USD" } });
+    expect(before).toMatchObject({ tier: "free", businesses: { allowed: 1, owned: 1 }, includedCredits: { period, monthlyMinor: includedCreditsMinor("free"), remainingMinor: includedCreditsMinor("free"), currency: "USD" } });
     expect(new Date(before.includedCredits.nextGrantAt).getUTCDate()).toBe(1);
-    await repos.usage.ensurePeriodCredits(hz.db, hz.A.businessId, period, includedCreditsMinor("free"));
-    expect((await hz.caller({ userId: hz.A.ownerId }).founder.businesses.allowance()).includedCredits).toMatchObject({ places: 1, taken: 1 });
-    expect((await hz.caller({ userId: hz.B.ownerId }).founder.businesses.allowance()).includedCredits).toMatchObject({ taken: 0 });
+    // A project of this owner draws on the one budget; another owner's budget is untouched.
+    await repos.usage.chargeCredits(hz.db, hz.A.businessId, period, 120, { owner: { userId: hz.A.ownerId, budgetMinor: async () => includedCreditsMinor("free") } });
+    expect((await hz.caller({ userId: hz.A.ownerId }).founder.businesses.allowance()).includedCredits).toMatchObject({ monthlyMinor: includedCreditsMinor("free"), remainingMinor: includedCreditsMinor("free") - 120 });
+    expect((await hz.caller({ userId: hz.B.ownerId }).founder.businesses.allowance()).includedCredits).toMatchObject({ remainingMinor: includedCreditsMinor("free") });
   });
 });

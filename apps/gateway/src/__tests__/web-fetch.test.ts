@@ -4,6 +4,7 @@
  * the page comes back as the untrusted envelope the orchestrator parses, the read is metered, and a page the mock
  * refuses comes back as a tool error, not an exception.
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadEnv } from "@foundmill/shared";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
@@ -143,9 +144,7 @@ describe("web.search_web live (LIVE_CONNECTORS=web, MODEL_MODE=live)", () => {
     requests.length = 0;
     const r = await researcher("Spent Search Co");
     const period = periodOf(new Date());
-    await repos.usage.ensurePeriodCredits(ldb, r.businessId, period, includedCreditsMinor("free"));
-    const balance = (await repos.usage.creditBalance(ldb, r.businessId, period))!;
-    await repos.usage.chargeCredits(ldb, r.businessId, period, Number(balance.balanceMinor));
+    await spendAllCredits(ldb, r.businessId, period);
     const out = await liveClient.call(r.token, { connector: "web", tool: "search_web", args: { query: "compostable cups wholesale" } });
     expect(out.outcome).toBe("allow");
     if (out.outcome !== "allow") return;

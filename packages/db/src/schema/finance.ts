@@ -1,6 +1,7 @@
 /** 0009 — finance: bank accounts, transactions, ledger, forecasts, cap table, usage, credits. */
 import { MODEL_BILLING, MODEL_KEYS, SECURITY_KINDS, USAGE_KINDS } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
+import { authUsers } from "drizzle-orm/supabase";
 import { date, index, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { businessCurrency, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz, usdCurrency } from "./_common";
 import { businessId } from "./_refs";
@@ -194,6 +195,26 @@ export const creditBalances = pgTable(
   (t) => [uniqueIndex("credit_balances_business_id_period_key").on(t.businessId, t.period), index("credit_balances_business_id_idx").on(t.businessId, t.period)],
 );
 export type CreditBalance = typeof creditBalances.$inferSelect;
+
+/**
+ * 0151 — the owner's included budget for a month, shared by all their projects (founder, Nov 19, 2026): account-scoped,
+ * service role only. A charge draws on it first, then on the project's own `credit_balances` row (what the project bought).
+ */
+export const ownerCredits = pgTable(
+  "owner_credits",
+  {
+    id: id(),
+    userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    period: text("period").notNull(),
+    grantedMinor: minor("granted_minor").notNull().default(0),
+    balanceMinor: minor("balance_minor").notNull().default(0),
+    spentMinor: minor("spent_minor").notNull().default(0),
+    currency: usdCurrency(),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("owner_credits_user_id_period_key").on(t.userId, t.period)],
+);
+export type OwnerCredits = typeof ownerCredits.$inferSelect;
 
 /**
  * 0098 — a paid top-up as a lot (founder, 2026-11-13: bought credits last 12 months). The month's `credit_balances`

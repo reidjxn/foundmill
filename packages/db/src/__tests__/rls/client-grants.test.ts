@@ -172,13 +172,16 @@ describe("structural: what the client roles may call and create", () => {
       // 0094 (granted by 0095): whether the caller is a member of the business other than as a collaborator; the
       // policies that close the admin-written, Money and Legal tables to a collaborator call it as authenticated.
       "is_member_not_collaborator(uuid)",
+      // 0151: whether the caller is a member (not a collaborator) of a project the owner took charge of; the select
+      // policy of owner_credits calls it as authenticated.
+      "fm_shares_owner_budget(uuid)",
       // 0096: takes a share lock on the caller's own membership row (auth.uid() only) for team.humans.role.
       "lock_my_membership(uuid)",
     ],
   };
 
   // The people helpers are for a signed-in caller and the service only: with no auth.uid() anon has no use for them.
-  for (const fn of ["is_member_not_collaborator(uuid)", "lock_my_membership(uuid)"]) {
+  for (const fn of ["is_member_not_collaborator(uuid)", "lock_my_membership(uuid)", "fm_shares_owner_budget(uuid)"]) {
     it(`anon cannot EXECUTE ${fn}; authenticated and service_role can`, async () => {
       expect([await fnPriv("anon", fn), await fnPriv("authenticated", fn), await fnPriv("service_role", fn)]).toEqual([false, true, true]);
     });

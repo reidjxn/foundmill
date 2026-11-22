@@ -7,7 +7,7 @@ import { repos, stopBusinessAgents } from "@foundmill/db";
 import { CHOOSABLE_MODEL_KEYS } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
+import { createApiHarness, spendAllCredits, fakeTemporalClient, type ApiHarness } from "./harness";
 
 const KEY = "sk-ant-api03-test-key-0123456789abcdef";
 
@@ -324,7 +324,7 @@ describe("a new key and a top-up lift the stop they caused, never Stop all agent
       await owner().business.resumeAgents({ businessId: A() });
       const period = new Date().toISOString().slice(0, 7);
       await repos.usage.grantCredits(hz.db, A(), period, 100);
-      await repos.usage.chargeCredits(hz.db, A(), period, 100);
+      await spendAllCredits(hz.db, A(), period);
       await stopBusinessAgents(hz.db, A(), { reason: "credits_exhausted" });
       await expect(owner().business.resumeAgents({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/credits are used up/) });
       // A top-up is a checkout; its (mock) payment grants the credits and lifts the stop.
