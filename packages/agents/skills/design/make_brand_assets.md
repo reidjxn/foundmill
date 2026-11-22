@@ -8,7 +8,7 @@ attribute_group: craft
 when_to_use: Use when the project needs a logo, a mark, a banner or another picture file, and you hold the Inkscape or GIMP tools.
 roles: design_to_code, packaging_design, channel_content, channel_social
 default_for: design_to_code, packaging_design
-default_since: 2
+default_since: 3
 stage: idea, building, page_live, first_followers, first_sale, growing
 needs: none
 adapted_from: original

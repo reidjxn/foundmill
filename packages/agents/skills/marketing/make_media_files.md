@@ -8,7 +8,7 @@ attribute_group: craft
 when_to_use: Use when a post, page or update needs a picture, a trimmed clip, an audio file or a video poster frame, and you hold the Inkscape, GIMP or FFmpeg tools.
 roles: channel_content, channel_social
 default_for: channel_content, channel_social
-default_since: 2
+default_since: 3
 stage: building, page_live, first_followers, first_sale, growing
 needs: none
 adapted_from: original

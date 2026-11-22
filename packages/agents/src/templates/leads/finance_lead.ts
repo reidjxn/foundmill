@@ -45,7 +45,7 @@ export const financeLead = defineTemplate({
   },
   tools: [
     grant("platform", [...PLATFORM_LEAD_TOOLS, "finance.metrics", "finance.transactions"]),
-    grant("stripe", ["balance.read", "charges.list", "invoices.list"]),
+    grant("stripe", ["balance.read", "charges.list", "invoices.list", "payments.links.create"]),
     grant("shopify", ["orders.list"]),
     grant("tink", ["accounts.list", "transactions.list"]),
     grant("plaid", ["accounts.list", "transactions.list"]),

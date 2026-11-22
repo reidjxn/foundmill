@@ -43,6 +43,7 @@ Front matter rules (the generator reads top-level `key: value` pairs only, so no
 | `when_to_use` | At most 160 characters. The line an agent reads in its skill index to decide whether to open the skill. Starts with "Use when". |
 | `roles` | Comma-separated agent template keys the skill is suggested for (list below). At least one. |
 | `default_for` | Comma-separated template keys that receive the skill when hired. Empty when none. |
+| `default_since` | Optional. The release of the role defaults the skill joined (a whole number, 1 when absent). A skill made a default after Nov 16, 2026 names the next release, so agents hired earlier receive it from the backfill. |
 | `stage` | Comma-separated: `idea`, `building`, `page_live`, `first_followers`, `first_sale`, `growing`. |
 | `needs` | Comma-separated capability words for tools that unlock the "do it" path: `web_research`, `page_publish`, `email_send`, `social_publish`, `payments`, `repo`, `analytics`, `search_console`, `none`. The skill must still be useful without them. |
 | `adapted_from` | Comma-separated `collection:skill` sources, or `original`. |
@@ -98,7 +99,7 @@ The generator maps the authoring words onto the library's fields (`LibrarySkill`
 | Field | In the catalog |
 | --- | --- |
 | `when_to_use` | `whenToUse` |
-| `roles`, `default_for` | `roles`, `defaultFor` (`defaultSince` is 1 unless the file sets the optional `default_since: 2`, the release of defaults that first attached it; a later release backfills agents with only that one) |
+| `roles`, `default_for` | `roles`, `defaultFor` (`defaultSince` is 1 unless the file sets the optional `default_since`, see above) |
 | `stage` | `stages`: `idea` → `drafting`, `awaiting_signoff`; `building` → `building`; `page_live` → `building`, `selling`; `first_followers`, `first_sale`, `growing` → `selling` |
 | `needs` | `requires`, all "better with": `web_research` → `web`, `email_send` → `platform_mail`, `social_publish` → `buffer`, `payments` → `stripe`, `repo` → `github`, `analytics` → `posthog`. `search_console` → `notYetOnFoundmill: ["Search Console"]`. `page_publish` and `none` → nothing (no agent tool publishes a page; the founder does) |
 | `adapted_from`, `license_note` | `provenance`: `original` → Foundmill's own; `original, after ...` → Foundmill's own with that as the note; `collection:skill` sources → adapted, under the first license `license_note` names (MIT or Apache-2.0), with `license_note` as the note |
@@ -108,7 +109,7 @@ The generator maps the authoring words onto the library's fields (`LibrarySkill`
 
 ## Agent template keys (for `roles` and `default_for`)
 
-`chief_of_staff`, `product_lead`, `engineering_lead`, `distribution_strategist`, `finance_lead`, `legal_lead`, `operations_lead`, `backend_engineer`, `frontend_engineer`, `data_engineer`, `infra_engineer`, `qa_engineer`, `design_to_code`, `docs_writer`, `integration_agent`, `planner`, `product_researcher`, `researcher`, `review_agent`, `channel_lead_generation`, `channel_email_automation`, `channel_seo`, `channel_geo`, `channel_content`, `channel_social`, `channel_paid_ads`, `channel_influencer`, `channel_affiliate`, `channel_direct_mail`, `channel_print`, `channel_broadcast`, `channel_outdoor`, `channel_pr`, `channel_events`, `sourcing_manufacturing`, `formulation_chemist`, `pharmacology_regulatory`, `certification`, `packaging_design`, `quality`, `logistics`, `costing`.
+`chief_of_staff`, `product_lead`, `engineering_lead`, `distribution_strategist`, `finance_lead`, `legal_lead`, `operations_lead`, `backend_engineer`, `frontend_engineer`, `data_engineer`, `infra_engineer`, `qa_engineer`, `design_to_code`, `docs_writer`, `integration_agent`, `planner`, `product_researcher`, `researcher`, `review_agent`, `channel_lead_generation`, `channel_email_automation`, `channel_seo`, `channel_geo`, `channel_content`, `channel_social`, `channel_paid_ads`, `channel_influencer`, `channel_affiliate`, `channel_direct_mail`, `channel_print`, `channel_broadcast`, `channel_outdoor`, `channel_pr`, `channel_events`, `sourcing_manufacturing`, `formulation_chemist`, `pharmacology_regulatory`, `financial_regulatory`, `certification`, `packaging_design`, `quality`, `logistics`, `costing`.
 
 The utilities (`entity_linker`, `classifier`, `categoriser`, `triage`, `moderation`) take typed input and render no Skills section, so they are never in `roles`. Customer replies sit with `chief_of_staff` for now (founder, Nov 16, 2026).
 

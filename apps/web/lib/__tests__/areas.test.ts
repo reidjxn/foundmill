@@ -46,7 +46,7 @@ describe("area tab bars", () => {
       ["Roadmap", "/b/b1/d/product/roadmap"],
       ["Milestones", "/b/b1/milestones"],
     ]);
-    expect(areaTabItems(BID, nav.get("customers")!).filter((t) => t.tier === "default").map((t) => t.label)).toEqual(["Leads", "Campaigns", "Contacts"]);
+    expect(areaTabItems(BID, nav.get("customers")!).filter((t) => t.tier === "default").map((t) => t.label)).toEqual(["First ten", "Creative", "Contacts"]);
     const walled = areaNav({ businessId: BID, departments: NORTHWIND, access: accessFor({ role: "member", sectionPermissions: { crm: "none", distribution: "none" } } as never) });
     expect(walled.has("customers")).toBe(false);
     expect(areaHref(BID, nav.get("money")!)).toBe("/b/b1/d/finance/overview");

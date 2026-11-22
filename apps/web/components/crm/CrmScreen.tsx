@@ -9,7 +9,8 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Building2, Database, Download, GitMerge, Search, Shield, Sparkles, UserRound, UserRoundPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Avatar, Button, Chip, DataTable, ENTITY_KIND_ICONS, EntityLink, FilterChips, Icon, Input, Kbd, Panel, Popover, PopoverAnchor, PopoverContent, StatusPill, Term, formatRelative, type DataTableColumn, type FilterChipValue, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DataTable, ENTITY_KIND_ICONS, EntityLink, Explainer, FilterChips, Icon, Input, Kbd, Panel, Popover, PopoverAnchor, PopoverContent, StatusPill, Term, formatRelative, type DataTableColumn, type FilterChipValue, type RowAction, type SavedView } from "@foundmill/dugout";
+import { EXPLAINERS } from "@foundmill/modules/explainers";
 import type { EntityKind } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useTRPC } from "@/lib/trpc-react";
@@ -162,6 +163,7 @@ export function CrmScreen() {
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="crm-screen" data-mode={index.mode}>
       {/* The Customers area's opening line, first on each of its tabs (docs/DESIGN.md §9). */}
       <AreaOpening area="customers" className="col-span-12" />
+      <Explainer {...EXPLAINERS.crm!} />
       {/* search ------------------------------------------------------------------------------------------------------ */}
       <div className="col-span-12 flex flex-col gap-2" data-testid="crm-search">
         <Popover open={popoverOpen} onOpenChange={setOpen}>

@@ -25,7 +25,8 @@
  *   `showcase.shareCheck` before it opens anything for such a post.
  */
 import { repos } from "@foundmill/db";
-import { ForbiddenError, MESSAGE_APPS, POST_NETWORKS, ValidationError, WRITE_ROLES, hasSectionAccess, type Section, type ShareDestination, type ShareOpenTarget, type ShareSubjectKind } from "@foundmill/shared";
+import { ForbiddenError, MESSAGE_APPS, NotFoundError, POST_NETWORKS, ValidationError, WRITE_ROLES, hasSectionAccess, type Section, type ShareDestination, type ShareOpenTarget, type ShareSubjectKind } from "@foundmill/shared";
+import { postUrlProblem } from "@foundmill/shared/post-published";
 import { audit, type BusinessContext } from "../trpc";
 import { writeEventRow } from "./events";
 import { noteLateShowcaseShare, showcaseShareGate, showcaseShareProblem } from "./showcase";
@@ -106,4 +107,27 @@ export async function recordShareOpened(ctx: BusinessContext, input: ShareOpened
   }
   await writeEventRow(ctx.db, { businessId: ctx.businessId, type: "share.opened", actor: { kind: "user", id: ctx.userId }, payload: { network: input.network, kind: input.kind, refId, target: input.target } });
   return { recorded: true };
+}
+
+/**
+ * "Yes, I posted it" (WP-08 T4, D1): the founder says a team post went out. Writes `post.published` once per post and
+ * network (and once more with `visited: true` when a first visit came back through its own link, here or in
+ * `recordPostVisit`). Needs a founder who may write in Distribution; a pasted link is checked against the network's host.
+ */
+export async function recordPostPublished(ctx: BusinessContext, input: { assetId: string; network: ShareDestination | null; url?: string | null }): Promise<{ ok: true }> {
+  if (!hasSectionAccess(ctx.membership, "distribution", "write")) throw new ForbiddenError("You cannot answer for this part of the project.");
+  const url = input.url?.trim() || null;
+  if (url) {
+    const problem = postUrlProblem(input.network, url);
+    if (problem) throw new ValidationError(problem);
+  }
+  if (ctx.business.isDemo || (ctx.membership as { source?: string }).source === "example") return { ok: true };
+  await ctx.rls(async (tx) => {
+    const post = await repos.teamPosts.get(tx, ctx.businessId, input.assetId);
+    if (!post || post.approvalState === "rejected") throw new NotFoundError("That post");
+    const visited = await repos.teamPosts.linkVisited(tx, ctx.businessId, post.id, input.network);
+    await writeEventRow(tx, { businessId: ctx.businessId, type: "post.published", actor: { kind: "user", id: ctx.userId }, payload: { assetId: post.id, network: input.network, url, source: "founder", visited } }, `post.published:${post.id}:${input.network ?? "none"}:${visited}`);
+    await audit(tx, ctx, { action: "post.published", target: { kind: "asset", id: post.id }, details: { network: input.network } });
+  });
+  return { ok: true };
 }

@@ -60,6 +60,15 @@ describe("integrations.connect for OAuth connectors", () => {
     expect(google.url.origin).toBe("https://accounts.google.com");
   });
 
+  it("Gmail asks Google for send and compose only; reading is a second, explicit sign-in (founder's choice)", async () => {
+    const { businessId, ownerId } = hz.A;
+    const scopes = async (input: Record<string, unknown>) => (await start(ownerId, businessId, "gmail", input)).url.searchParams.get("scope")!;
+    expect(await scopes({})).not.toContain("gmail.readonly");
+    expect(await scopes({ readMail: "yes" })).not.toContain("gmail.readonly");
+    expect(await scopes({})).toContain("gmail.send");
+    expect(await scopes({ readMail: true })).toContain("gmail.readonly");
+  });
+
   it("connects with the code only for the founder, business and connector the state was signed for", async () => {
     const { businessId, ownerId, adminId } = hz.A;
     const { url } = await start(ownerId, businessId, "notion");

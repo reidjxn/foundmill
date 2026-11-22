@@ -23,7 +23,7 @@ export const STRIPE_CONNECT_AUTHORIZE_URL = "https://connect.stripe.com/oauth/au
  * restricted key instead of signing in.
  */
 export const STRIPE_CONNECT_FIELDS: ConnectField[] = [
-  { name: "apiKey", label: "Restricted key", secret: true, required: true, placeholder: "rk_live_…", hint: "A restricted key from your Stripe dashboard with read access plus write access to customers, invoices and Checkout. Stripe fees stay on your account." },
+  { name: "apiKey", label: "Restricted key", secret: true, required: true, placeholder: "rk_live_…", hint: "A restricted key from your Stripe dashboard with read access plus write access to customers, invoices, Checkout and Payment Links. Stripe fees stay on your account." },
   // WP-11 T20 (N2): the signing secret of the webhook endpoint the founder adds in their own Stripe account, so its
   // deliveries verify at ingest and a payment reaches the project. Sealed by the gateway as its own credential; optional.
   { name: "webhookSecret", label: "Payment signing secret", secret: true, required: false, placeholder: "whsec_…", hint: "In your Stripe dashboard, under Developers, add your project's payment address as an endpoint and paste the signing secret Stripe shows, so payments reach your project." },
@@ -95,6 +95,14 @@ export const stripeTools = [
     input: z.object({ mode: z.enum(["payment", "subscription"]), priceId: StripeId("price").optional(), lines: z.array(LineItem.extend({ currency: Currency })).max(20).default([]), successUrl: z.url(), cancelUrl: z.url(), customerEmail: z.email().optional(), customerId: StripeId("cus").optional(), metadata: z.record(z.string().max(40), z.string().max(500)).default({}) }).refine((a) => a.priceId || a.lines.length > 0, { message: "priceId or lines required" }),
     output: CheckoutSession,
     // A payment page a customer can see and pay: asks first (founder, Nov 16, 2026).
+    hints: { irreversible: true },
+  }),
+  defineTool({
+    name: "create_payment_link", annotations: { readOnlyHint: false },
+    description: "A hosted Stripe payment link for one price, made on the founder's own Stripe account. No money moves; strangers can pay into it. The same key returns the same link.",
+    input: z.object({ key: z.string().min(1).max(60), label: z.string().min(1).max(80), amountMinor: z.number().int().min(50).max(1_000_000), currency: Currency, afterPaymentMessage: z.string().max(300).optional() }),
+    output: z.object({ id: z.string(), url: z.string(), simulated: z.boolean().optional() }),
+    // A payment page a customer can see and pay, like a checkout session: asks first (founder, Nov 16, 2026).
     hints: { irreversible: true },
   }),
   defineTool({

@@ -71,6 +71,8 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
 
   it("while stopped a model change applies but its retest waits, queued, until Resume agents starts it; a hire starts paused and comes back with the others", async () => {
     await owner().business.stopAllAgents({ businessId: A() });
+    // Opus and Sonnet are a paid plan's to choose (WP-13 T7); this test is about the stop, not the plan.
+    await repos.businesses.update(hz.db, A(), { planTier: "pro" });
     const agent = await repos.agents.get(hz.db, A(), hz.A.agentId);
     const target = CHOOSABLE_MODEL_KEYS.find((m) => m !== agent.modelKey)!;
     const set = await member().agent.model.set({ businessId: A(), agentId: agent.id, modelKey: target });
@@ -99,6 +101,7 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
     expect(temporal.starts.map((s) => s.type)).toEqual(["trainingRun"]);
     await repos.training.cancelActive(hz.db, A(), { coachSummaryMd: "test cleanup" });
     await repos.agents.release(hz.db, A(), hired.id);
+    await repos.businesses.update(hz.db, A(), { planTier: "free" });
   });
 
   it("only an owner or admin resumes: agents back to idle, the flag cleared, health events and the audit written, engines restarted", async () => {

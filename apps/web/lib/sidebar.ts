@@ -10,7 +10,7 @@
 import { BookOpen, Compass, Globe, Inbox, LogOut, Megaphone, PiggyBank, Settings, Sun, Users, Users2, Video, type LucideIcon } from "lucide-react";
 import type { SidebarBrand, SidebarItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
-import { AREA_LABELS, departmentArea, moduleLessDepartments, type AreaKey } from "@foundmill/shared/areas";
+import { AREA_LABELS, TEAM_CALL_REVEAL, departmentArea, moduleLessDepartments, type AreaKey, type StageFacts } from "@foundmill/shared/areas";
 import { firstVisibleTab } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { canOpenDepartment, FULL_ACCESS, type Access } from "./access";
@@ -54,6 +54,8 @@ export interface SidebarInput {
   access?: Access;
   /** Builder view (docs/DESIGN.md): an area link never lands on a Builder view tab while it is off. Default off. */
   builder?: boolean;
+  /** What the project has done (WP-10 T1): tabs and Team call show once their moment has arrived. Default: everything. */
+  stage?: StageFacts;
 }
 
 export const SIDEBAR_IDS = { home: "home", inbox: "inbox", settings: "settings", signOut: "sign-out", network: "network", communities: "communities", calls: "calls" } as const;
@@ -117,7 +119,7 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
     { id: SIDEBAR_IDS.inbox, label: NEEDS_YOU_LABEL, icon: Inbox, href: `${routes.inbox(bid)}?tab=respond`, group: "main", fixed: "inbox", badge: respond || undefined, badgeTone: "bad" },
   ];
   const departments = withTitles(input.departments);
-  const nav = areaNav({ businessId: bid, departments, access, builder: input.builder });
+  const nav = areaNav({ businessId: bid, departments, access, builder: input.builder, stage: input.stage });
   // An area's badge: the unread notes of the departments whose first module is the area's (each department counted once).
   const areaBadge = new Map<AreaKey, number>();
   for (const d of orderedVisibleDepartments(input.departments)) {
@@ -128,7 +130,7 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   for (const [area, tabs] of nav) {
     items.push({ id: areaSidebarId(area), label: AREA_LABELS[area], icon: AREA_ICONS[area], href: areaHref(bid, tabs), group: "area", area, badge: areaBadge.get(area) || undefined, hint: AREA_HINTS[area] });
     // Team call (docs/TEAM_CALL.md §6) sits in the Team area's group, right under Team, for whoever may read the Team section.
-    if (area === "team" && access.canRead("team")) items.push({ id: SIDEBAR_IDS.calls, label: TEAM_CALL_LABEL, icon: Video, href: routes.calls(bid), group: "area", hint: "talk it through with your team" });
+    if (area === "team" && access.canRead("team") && (!input.stage || input.builder || TEAM_CALL_REVEAL(input.stage))) items.push({ id: SIDEBAR_IDS.calls, label: TEAM_CALL_LABEL, icon: Video, href: routes.calls(bid), group: "area", hint: "talk it through with your team" });
   }
   // A department with no modules is no area's: it keeps its own item, dot and letter after Team.
   for (const d of moduleLessDepartments(departments)) {

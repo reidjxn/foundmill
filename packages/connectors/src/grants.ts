@@ -56,6 +56,8 @@ import { opensrsTools } from "./connectors/opensrs/tools";
 import { webTools } from "./connectors/web/tools";
 import { e2bTools } from "./connectors/e2b/tools";
 import { platformMailTools } from "./connectors/platform_mail/tools";
+import { HUBSPOT_MCP, NOTION_MCP, SHOPIFY_MCP } from "./remote-mcp/servers";
+import { remoteToolList } from "./remote-mcp/build";
 
 const names = (tools: readonly { name: string }[]) => Object.freeze(tools.map((t) => t.name));
 
@@ -108,6 +110,13 @@ const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: Pol
   cli_libreoffice: cliTools("libreoffice"),
   cli_ffmpeg: cliTools("ffmpeg"),
   cli_gimp: cliTools("gimp"),
+  notion_mcp: remoteToolList(NOTION_MCP),
+  hubspot_mcp: remoteToolList(HUBSPOT_MCP),
+  shopify_mcp: remoteToolList(SHOPIFY_MCP),
+  mcp_custom: [
+    { name: "list_remote_tools", hints: {} },
+    { name: "call_unlisted_tool", hints: { contactsThirdParty: true, irreversible: true } },
+  ],
 };
 
 /** Every tool the gateway serves, by connector: the registry's connectors plus the built-ins (platform, web, quarantine). */
@@ -184,6 +193,10 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
   gmail: { "drafts.create": ["create_draft"], "drafts.read": ["list_drafts", "get_draft"], "threads.read": ["list_messages", "get_message", "list_labels"] },
   google_calendar: { "events.list": ["list_calendars", "list_events", "get_event", "find_free_slots"], "events.create": ["add_event", "create_event", "update_event", "find_free_slots"] },
   google_drive: { "files.list": ["search_files", "get_file"], "files.read": ["get_file", "export_text", "read_doc"], "files.write": ["create_doc", "append_to_doc"] },
+  // The vendors' own MCP servers (founder, 2026-11-19): a skill gets a server's tools only through the capability it names.
+  notion_mcp: { "pages.search": ["notion_search"], "pages.read": ["notion_search", "notion_fetch"], "pages.write": ["notion_create_pages", "notion_update_page"] },
+  hubspot_mcp: { "crm.read": ["get_user_details", "search_crm_objects", "get_crm_objects", "discover_hubspot_schema"], "crm.write": ["manage_crm_objects"] },
+  shopify_mcp: { "catalog.read": ["search_catalog", "get_product"] },
   notion: { "pages.search": ["search", "query_data_source"], "pages.read": ["get_page", "get_page_content", "query_data_source"], "pages.write": ["create_page", "append_paragraphs"] },
   opencorporates: { "companies.search": ["search_companies", "get_company"] },
   companies_house: { "companies.search": ["search_companies"], "companies.read": ["get_company"], "officers.list": ["list_officers"] },
@@ -198,6 +211,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     // A charge reports how much of it was refunded.
     "refunds.list": ["list_charges"],
     "invoices.list": ["list_invoices", "get_invoice"],
+    // A payment link the founder can see and approve first (WP-07 T8): one template holds it.
+    "payments.links.create": ["create_payment_link"],
   },
   sendgrid: {
     "mail.send": ["send_mail", "list_verified_senders", "check_suppression"],
@@ -271,6 +286,9 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "positioning.propose": ["propose_positioning_change"],
     // A draft update to the project's followers (WP-08 T3): the founders check it and press Send; the tool never sends.
     "updates.draft": ["draft_follower_update"],
+    // The tool scout (founder, Nov 22, 2026): any agent says what is missing; the Chief of Staff and the leads recommend.
+    "tools.need": ["raise_tool_need"],
+    "tools.scout": ["read_tool_need", "recommend_tool"],
   },
   web: { search: ["search_web"], fetch: ["fetch_page"] },
   quarantine: { read_untrusted: ["read_untrusted"] },

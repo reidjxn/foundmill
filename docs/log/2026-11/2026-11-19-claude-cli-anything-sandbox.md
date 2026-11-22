@@ -21,7 +21,7 @@ supersedes: []
 - Grants: Design (`design_to_code`, `packaging_design`) get Inkscape and GIMP; Product (`product_lead`)
   LibreOffice; Marketing (`channel_content`, `channel_social`, `distribution_strategist`) the programs that
   fit. Three default skills (`make_brand_assets`, `make_documents_and_decks`, `make_media_files`) come with
-  those roles as release 2 of the role defaults, through a new optional `default_since` front-matter field in
+  those roles as release 3 of the role defaults (release 2 is the tool scout from main), through a new optional `default_since` front-matter field in
   `scripts/build-skill-library.mjs` so existing agents are backfilled with only these.
 - `evals/src/cli-logo.ts`: a Design agent makes a logo from the brand colors, the file stays staged, and approval puts it on the business.
 

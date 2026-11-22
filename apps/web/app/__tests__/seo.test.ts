@@ -1,6 +1,6 @@
 import { APP_ORIGIN } from "@foundmill/config";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AI_TRAINING_CRAWLERS, STATIC_SITEMAP_PATHS, indexable, listedPublicPaths, llmsTxt, sitemapEntries } from "@/lib/seo";
+import { AI_TRAINING_CRAWLERS, STATIC_SITEMAP_PATHS, indexable, listedPublicPaths, llmsTxt, sitemapEntries, waitlistIndexable } from "@/lib/seo";
 import robots from "../robots";
 import sitemap from "../sitemap";
 import { GET as llms } from "../llms.txt/route";
@@ -33,8 +33,8 @@ describe("robots.txt", () => {
     expect(rules[1]!.userAgent).toEqual([...AI_TRAINING_CRAWLERS]);
     expect(rules[1]!.disallow).toEqual(["/api/", "/b/", "/p/", "/u/"]);
   });
-  it("disallows everything, with no sitemap line, on any other origin or while sign-up is closed", () => {
-    for (const env of [{ NEXT_PUBLIC_APP_URL: "https://staging.example.com", SIGNUP_OPEN: "true" }, { NEXT_PUBLIC_APP_URL: APP_ORIGIN, SIGNUP_OPEN: "" }]) {
+  it("disallows everything, with no sitemap line, on any other origin, open or closed", () => {
+    for (const env of [{ NEXT_PUBLIC_APP_URL: "https://staging.example.com", SIGNUP_OPEN: "true" }, { NEXT_PUBLIC_APP_URL: "https://staging.example.com", SIGNUP_OPEN: "" }]) {
       vi.unstubAllEnvs();
       stub(env);
       const r = robots();
@@ -42,19 +42,41 @@ describe("robots.txt", () => {
       expect(r.sitemap).toBeUndefined();
     }
   });
+  it("while sign-up is closed on the production origin, opens the waitlist page alone (WP-14 T15)", () => {
+    stub({ NEXT_PUBLIC_APP_URL: APP_ORIGIN, SIGNUP_OPEN: "" });
+    const r = robots();
+    expect(r.rules).toEqual({ userAgent: "*", allow: ["/waitlist$", "/_next/static/", "/opengraph-image.png"], disallow: "/" });
+    expect(r.sitemap).toBe(`${APP_ORIGIN}/sitemap.xml`);
+  });
+});
+
+describe("the waitlist page's own rule (WP-14 T15)", () => {
+  it("is indexable on the production origin whatever SIGNUP_OPEN says, and never on another origin", () => {
+    expect(waitlistIndexable({ NEXT_PUBLIC_APP_URL: APP_ORIGIN, SIGNUP_OPEN: "" })).toBe(true);
+    expect(waitlistIndexable({ NEXT_PUBLIC_APP_URL: APP_ORIGIN, SIGNUP_OPEN: "true" })).toBe(true);
+    expect(waitlistIndexable({ NEXT_PUBLIC_APP_URL: "https://preview.example.com", SIGNUP_OPEN: "true" })).toBe(false);
+    // Everything else still follows SIGNUP_OPEN.
+    expect(indexable({ NEXT_PUBLIC_APP_URL: APP_ORIGIN, SIGNUP_OPEN: "" })).toBe(false);
+  });
 });
 
 describe("sitemap.xml", () => {
-  it("lists exactly the three static addresses today", async () => {
+  it("lists exactly the static addresses once sign-up is open, the waitlist page among them", async () => {
+    stub(OPEN);
     expect(await listedPublicPaths()).toEqual([]);
+    expect(STATIC_SITEMAP_PATHS).toEqual(["/", "/terms", "/privacy", "/waitlist"]);
     expect((await sitemap()).map((e) => e.url)).toEqual(STATIC_SITEMAP_PATHS.map((p) => `${APP_ORIGIN}${p}`));
     expect(JSON.stringify(await sitemap())).not.toMatch(/priority|changeFrequency/);
+  });
+  it("names the waitlist page alone until sign-up opens, so it never lists an address robots.txt closes (WP-14 T15)", async () => {
+    stub({ NEXT_PUBLIC_APP_URL: APP_ORIGIN, SIGNUP_OPEN: "" });
+    expect((await sitemap()).map((e) => e.url)).toEqual([`${APP_ORIGIN}/waitlist`]);
   });
   it("adds listed project pages once a source supplies them, without repeats", () => {
     const at = new Date("2026-11-16T00:00:00Z");
     const entries = sitemapEntries([{ path: "/p/sole-revival", lastModified: at }, { path: "/p/sole-revival", lastModified: at }, { path: "/terms", lastModified: at }]);
-    expect(entries.map((e) => e.url)).toEqual([`${APP_ORIGIN}/`, `${APP_ORIGIN}/terms`, `${APP_ORIGIN}/privacy`, `${APP_ORIGIN}/p/sole-revival`]);
-    expect(entries[3]!.lastModified).toBe(at);
+    expect(entries.map((e) => e.url)).toEqual([`${APP_ORIGIN}/`, `${APP_ORIGIN}/terms`, `${APP_ORIGIN}/privacy`, `${APP_ORIGIN}/waitlist`, `${APP_ORIGIN}/p/sole-revival`]);
+    expect(entries[4]!.lastModified).toBe(at);
   });
 });
 
@@ -65,7 +87,9 @@ describe("llms.txt", () => {
     expect(await res.text()).toContain("examples, not customers");
   });
   it("drops the let-in-slowly line once sign-up is open", () => {
-    expect(llmsTxt({ signupOpen: false })).toContain("New people are let in a few at a time.");
+    expect(llmsTxt({ signupOpen: false })).toContain("New people are let in a few at a time, in batches.");
+    expect(llmsTxt({ signupOpen: false })).toContain(`[Waitlist](${APP_ORIGIN}/waitlist)`);
+    expect(llmsTxt({ signupOpen: true })).not.toContain("/waitlist");
     expect(llmsTxt({ signupOpen: true })).not.toContain("let in a few at a time");
     expect(llmsTxt({ signupOpen: true })).toContain(`${APP_ORIGIN.replace("https://", "")}/p/<name>`);
   });

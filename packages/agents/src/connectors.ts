@@ -106,10 +106,12 @@ export const PLATFORM_BASE_TOOLS: [string, ...string[]] = [
   "docs.read",
   // WP-06 T4: the agent's own skills, read in full on demand (the prompt carries their index).
   "skills.read",
+  // The tool scout (founder, Nov 22, 2026): any agent says which kind of tool the project is missing.
+  "tools.need",
 ];
 
 /** Extra platform tools for leads: they create tasks and assign them (BUILD §9.9 "Leads assign; workers report"). */
-export const PLATFORM_LEAD_TOOLS: [string, ...string[]] = [...PLATFORM_BASE_TOOLS, "tasks.create", "tasks.assign", "tasks.reprioritise", "tasks.update", "budgets.read"];
+export const PLATFORM_LEAD_TOOLS: [string, ...string[]] = [...PLATFORM_BASE_TOOLS, "tasks.create", "tasks.assign", "tasks.reprioritise", "tasks.update", "budgets.read", "tools.scout"];
 
 /**
  * What a code session can do in its workspace: read and write files (the SDK's own tools), and have its work saved and

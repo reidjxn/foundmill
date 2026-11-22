@@ -8,7 +8,7 @@ attribute_group: craft
 when_to_use: Use when a founder needs a one-pager, a plan, a price sheet or a short deck as a file, and you hold the LibreOffice tools.
 roles: product_lead, distribution_strategist
 default_for: product_lead
-default_since: 2
+default_since: 3
 stage: idea, building, page_live, first_followers, first_sale, growing
 needs: none
 adapted_from: original

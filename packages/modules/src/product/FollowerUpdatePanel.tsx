@@ -9,7 +9,7 @@
  */
 import { useEffect, useId, useState } from "react";
 import { Mail, Save, Send, Trash2 } from "lucide-react";
-import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, Textarea } from "@foundmill/dugout";
+import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, Term, Textarea } from "@foundmill/dugout";
 import { PROJECT_UPDATE_BODY_MAX, PROJECT_UPDATE_SUBJECT_MAX, PROJECT_UPDATE_WORDS as W, updateProblems } from "@foundmill/shared/project-updates";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import { errorMessage } from "./shared";
@@ -114,7 +114,7 @@ export function FollowerUpdatePanel({ projectName }: { projectName: string }) {
   const p = preview.data;
 
   return (
-    <Panel title={W.panelTitle} span={12} data-testid="follower-update">
+    <Panel title={<>Write to your <Term id="follower">followers</Term></>} helpLabel={W.panelTitle} span={12} data-testid="follower-update">
       <div className="flex flex-col gap-3">
         {followers === 0 ? (
           <p className="t-body text-secondary" data-testid="follower-update-empty">

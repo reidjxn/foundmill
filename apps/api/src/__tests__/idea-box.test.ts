@@ -312,6 +312,24 @@ describe("ideaBox.claim and the waitlist", () => {
     expect(await hz.caller({ userId: hz.A.ownerId, email: "a@test.local" }).ideaBox.claim({ claim })).toBeNull();
   });
 
+  it("waitlist.batch answers a signed-out visitor with the next batch that has places, real places left, or null (WP-14 T15)", async () => {
+    const { hz } = await setup({ SIGNUP_ALLOWLIST: "someone-else@test.local" });
+    const visitor = hz.caller(null);
+    expect(await visitor.waitlist.batch()).toBeNull();
+    const [past] = await hz.db.insert(s.waitlistBatches).values({ number: 1, opensOn: "2026-01-05", places: 2 }).returning();
+    await hz.db.insert(s.waitlistBatches).values({ number: 2, opensOn: "2999-01-05", places: 40 });
+    expect(await visitor.waitlist.batch()).toEqual({ number: 1, opensOn: "2026-01-05", placesLeft: 2, open: true });
+    // One place taken, then both: the count is of real admissions, and a full batch gives way to the next.
+    const taken = (n: number) => hz.db.update(s.waitlistBatches).set({ taken: n }).where(eq(s.waitlistBatches.id, past!.id));
+    await taken(1);
+    expect(await visitor.waitlist.batch()).toMatchObject({ number: 1, placesLeft: 1 });
+    await taken(2);
+    expect(await visitor.waitlist.batch()).toEqual({ number: 2, opensOn: "2999-01-05", placesLeft: 40, open: false });
+    // Nothing about a person is in the answer.
+    expect(Object.keys((await visitor.waitlist.batch())!).sort()).toEqual(["number", "open", "opensOn", "placesLeft"]);
+    await hz.db.delete(s.waitlistBatches);
+  });
+
   it("someone not on the invite list joins the waitlist and keeps the card; the claim itself waits for the list", async () => {
     const { hz, app } = await setup({ SIGNUP_ALLOWLIST: "someone-else@test.local" });
     const first = await draft(app, idea);
