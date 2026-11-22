@@ -19,20 +19,39 @@ const REMOTE_KEYS: ReadonlySet<string> = new Set([NOTION_MCP, HUBSPOT_MCP, SHOPI
 
 /** Words that, as an argument's name or as an operation's value, delete, trash, archive, remove, merge or wipe records. */
 const REMOVING = ["delet", "destroy", "purge", "erase", "wipe", "trash", "archiv", "remov", "drop", "truncat", "merg"];
-const removes = (word: string): boolean => remoteNameWords(word).some((w) => REMOVING.some((stem) => w.startsWith(stem)));
-const OPERATION_KEYS = new Set(["operation", "operations", "op", "action", "actions", "type", "mode", "command", "method", "verb", "kind"]);
+/** An argument name: any of its words starting with a removing stem (`archived`, `deleteIds`, `in_trash`). */
+const removingName = (name: string): boolean => remoteNameWords(name).some((w) => REMOVING.some((stem) => w.startsWith(stem)));
+/** An operation's value: a removing stem anywhere in its letters (`HARD_DELETE`, `batchArchive`). */
+const removingValue = (value: string): boolean => {
+  const letters = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return REMOVING.some((stem) => letters.includes(stem));
+};
+/** Argument names that carry an operation (`action`, `operationType`, `crud_action`, `requestType`). */
+const OPERATION_WORDS = new Set(["operation", "operations", "op", "ops", "action", "actions", "type", "mode", "command", "method", "verb", "kind", "crud", "request", "intent"]);
+const operationName = (name: string): boolean => remoteNameWords(name).some((w) => OPERATION_WORDS.has(w));
 
 /**
- * Whether these arguments could delete, trash, archive or merge: an operation-like argument (at any depth) whose value
- * says so (`{ action: "delete" }`), or an argument named so at the top level that is set (`archived: true`,
- * `in_trash: true`). HubSpot documents no arguments for its `manage_*` tools (`tool_guidance` describes them at run time),
- * so this reads the shape the call has, and fails closed on any such word.
+ * Whether these arguments could delete, trash, archive or merge, at any depth: an operation-like argument whose value
+ * says so (`{ action: "delete" }`, `{ operationType: "HARD_DELETE" }`), an argument named so that is set
+ * (`archived: true`, `properties: { in_trash: true }`), or the same inside a string that holds JSON. HubSpot documents no
+ * arguments for its `manage_*` tools (`tool_guidance` describes them at run time), so this reads the shape the call has
+ * and fails closed: on any such word, and on arguments nested too deep to read.
  */
 function removingArgs(value: unknown, depth = 0): boolean {
-  if (depth > 8 || value === null || typeof value !== "object") return false;
+  if (depth > 12) return true;
+  if (typeof value === "string") {
+    const t = value.trim();
+    if (!/^[[{]/.test(t)) return false;
+    try {
+      return removingArgs(JSON.parse(t), depth + 1);
+    } catch {
+      return false;
+    }
+  }
+  if (value === null || typeof value !== "object") return false;
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (OPERATION_KEYS.has(k.toLowerCase()) && (typeof v === "string" ? removes(v) : Array.isArray(v) && v.some((x) => typeof x === "string" && removes(x)))) return true;
-    if (depth === 0 && removes(k) && v !== false && v !== null && v !== undefined) return true;
+    if (operationName(k) && (typeof v === "string" ? removingValue(v) : Array.isArray(v) && v.some((x) => typeof x === "string" && removingValue(x)))) return true;
+    if (removingName(k) && v !== false && v !== null && v !== undefined && v !== "" && v !== 0) return true;
     if (removingArgs(v, depth + 1)) return true;
   }
   return false;
@@ -52,7 +71,9 @@ const NOTION_PAGE_COMMANDS = new Set(["update_properties", "update_content"]);
 function removingListedCall(connectorKey: string, tool: string, args: Record<string, unknown>): string | null {
   if (connectorKey === "notion_mcp") {
     if (tool === "notion_move_pages") return "notion-move-pages (moved pages take the new parent's access)";
-    if (tool === "notion_update_page" && !NOTION_PAGE_COMMANDS.has(String(args.command))) return `notion-update-page with command ${JSON.stringify(args.command ?? null)}`;
+    // The command may sit at the top or under `data` (the shape of Notion's earlier server): both must be a documented one.
+    const nested = args.data && typeof args.data === "object" ? (args.data as Record<string, unknown>).command : undefined;
+    if (tool === "notion_update_page" && (!NOTION_PAGE_COMMANDS.has(String(args.command ?? nested)) || (nested !== undefined && !NOTION_PAGE_COMMANDS.has(String(nested))))) return `notion-update-page with command ${JSON.stringify(args.command ?? nested ?? null)}`;
     if (tool === "notion_update_database") {
       const props = args.properties && typeof args.properties === "object" ? Object.values(args.properties as Record<string, unknown>) : [];
       if (props.some((p) => p === null) || JSON.stringify(args).includes('"options"')) return "notion-update-database removing a property or options";

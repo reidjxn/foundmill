@@ -40,7 +40,7 @@ const NOTION_TOOLS: RemoteTool[] = [
   { remote: "notion-get-teams", description: "List the teamspaces.", inputSchema: obj({ query: str("Teamspace name") }) },
   { remote: "notion-get-comments", description: "Read the comments on a page.", inputSchema: obj({ page_id: str("Page id") }, ["page_id"]) },
   { remote: "notion-create-pages", writes: true, description: "Create pages in the founder's own workspace.", inputSchema: obj({ parent: { type: "object" }, pages: { type: "array", items: { type: "object" } } }, ["pages"]) },
-  { remote: "notion-update-page", description: "Change a page's properties or content.", inputSchema: obj({ page_id: str("Page id") }, ["page_id"]), hints: { irreversible: true } },
+  { remote: "notion-update-page", description: "Change a page's properties or content.", inputSchema: obj({ page_id: str("Page id"), command: { type: "string", enum: ["update_properties", "update_content"], description: "update_properties (properties, icon, cover) or update_content (search and replace)" } }, ["page_id", "command"]), hints: { irreversible: true } },
   { remote: "notion-move-pages", description: "Move pages to another parent.", inputSchema: obj({ page_or_database_ids: { type: "array", items: { type: "string" } }, new_parent: { type: "object" } }, ["page_or_database_ids", "new_parent"]), hints: { irreversible: true } },
   { remote: "notion-duplicate-page", writes: true, description: "Copy a page.", inputSchema: obj({ page_id: str("Page id") }, ["page_id"]) },
   { remote: "notion-create-database", writes: true, description: "Create a database.", inputSchema: obj({ title: str("Title"), properties: { type: "object" } }, ["properties"]) },

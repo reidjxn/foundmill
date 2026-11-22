@@ -176,12 +176,13 @@ export function founderOnlyCall(connectorKey: string | null | undefined, tool: s
 /**
  * Whether a yes from this decider stands for this approval. A founder-only call needs a person who is an owner or admin
  * of the project now. A stored null decision type is the founder's too (a hard gate, a payment record, a call no type
- * fits, or a row from before 0054 added the column: fail closed), so a person who gave it must be an owner or admin; the
- * system's own bookkeeping of a recorded hold still resolves those.
+ * fits, or a row from before 0054 added the column: fail closed): a person who gives it must be an owner or admin, and
+ * only such a person's yes runs a call (`use`). The system's own bookkeeping of a recorded hold may still close one as
+ * approved, but that never runs anything.
  */
-async function yesStands(db: Executor, businessId: string, approval: Pick<Approval, "connectorKey" | "tool" | "decisionType">, by: { byKind: string | null; byId: string | null }): Promise<boolean> {
+async function yesStands(db: Executor, businessId: string, approval: Pick<Approval, "connectorKey" | "tool" | "decisionType">, by: { byKind: string | null; byId: string | null }, use = false): Promise<boolean> {
   const listed = founderOnlyCall(approval.connectorKey, approval.tool);
-  if (!listed && !(approval.decisionType === null && by.byKind === "user")) return true;
+  if (!listed && !(approval.decisionType === null && (use || by.byKind === "user"))) return true;
   if (by.byKind !== "user" || !by.byId) return false;
   const rows = await db.select({ role: memberships.role }).from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, by.byId), membershipNotEnded)).limit(1);
   return rows.length > 0 && isAdminRole(rows[0]!.role);
@@ -426,7 +427,7 @@ export const approvalsRepo = {
       .limit(3);
     for (const c of candidates) {
       // A yes a delegate gave before the founder-only rule (or one that no longer stands) never runs the call.
-      if (!(await yesStands(db, businessId, c, c))) continue;
+      if (!(await yesStands(db, businessId, c, c, true))) continue;
       const used = await db
         .update(approvals)
         .set({ usedAt: new Date(), usedBySessionId: v.sessionId, updatedAt: new Date() })
@@ -444,7 +445,7 @@ export const approvalsRepo = {
    */
   async useDecided(db: Executor, businessId: string, approvalId: string, sessionId: string | null): Promise<Approval | null> {
     const decided = await approvalsRepo.find(db, businessId, approvalId);
-    if (!decided || !(await yesStands(db, businessId, decided, decided))) return null;
+    if (!decided || !(await yesStands(db, businessId, decided, decided, true))) return null;
     const used = await db
       .update(approvals)
       .set({ usedAt: new Date(), usedBySessionId: sessionId, updatedAt: new Date() })

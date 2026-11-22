@@ -102,6 +102,10 @@ describe("founder-only calls", () => {
       expect(await repos.approvals.useGranted(r.db, businessId, gated), by.byKind).toBeNull();
       expect(await repos.approvals.useDecided(r.db, businessId, a.id, null), by.byKind).toBeNull();
     }
+    // A stored null type (a payment record) closed as approved by the system's bookkeeping never runs a call either.
+    const payment = await open({ connectorKey: "stripe", tool: "finalize_invoice" }, null);
+    await repos.approvals.resolve(r.db, businessId, payment.id, { outcome: "approved", byKind: "system" });
+    expect(await repos.approvals.useGranted(r.db, businessId, { sessionId: null, agentId: agent2Id, connectorKey: "stripe", tool: "finalize_invoice", args: payment.args as Record<string, unknown> })).toBeNull();
     // The owner's own grant runs it once.
     const own = await open(FOUNDER_ONLY[0]!);
     await repos.approvals.resolve(r.db, businessId, own.id, { outcome: "approved", byKind: "user", byId: r.A.ownerId });
