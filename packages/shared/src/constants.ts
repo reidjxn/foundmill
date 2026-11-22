@@ -256,7 +256,7 @@ export type SkillAddedBy = (typeof SKILL_ADDED_BY)[number];
 export const AGENT_VERSION_STATES = ["draft", "live", "retired"] as const;
 export type AgentVersionState = (typeof AGENT_VERSION_STATES)[number];
 
-export const TASK_KINDS = ["code", "research", "channel", "specialist", "legal", "finance", "ops"] as const;
+export const TASK_KINDS = ["code", "research", "channel", "specialist", "legal", "finance", "ops", "tool_need"] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export const TASK_STATUSES = ["planned", "ready", "running", "paused", "blocked", "review", "merging", "done", "failed", "stopped"] as const;

@@ -453,7 +453,7 @@ export async function redispatchPlans(ctx: { db: Executor; temporal: TemporalSer
 }
 
 /** Where each kind of work lives when the task names no channel and its agent belongs to no department. */
-const KIND_MODULE: Record<TaskKind, ModuleKey> = { code: "development", specialist: "development", research: "product", channel: "distribution", finance: "finance", legal: "legal", ops: "team" };
+const KIND_MODULE: Record<TaskKind, ModuleKey> = { code: "development", specialist: "development", research: "product", channel: "distribution", finance: "finance", legal: "legal", ops: "team", tool_need: "team" };
 
 /**
  * The department a decision's task belongs to, so it shows on that department's Home card and lists (audit VAC-X1):

@@ -11,8 +11,8 @@
  * founder can rename (AC-11.13.1); code routes by `slug`, `moduleKeys` and template keys, never by name.
  */
 import { LIMITS } from "@foundmill/config";
-import { ARCHETYPES, type Archetype, ARCHETYPE_LABELS, type ChannelKey, type DeptColourToken, MODULE_TABS, type ModuleKey, type OptionAction, type TaskKind } from "@foundmill/shared";
-import { ArchetypeSeed, type BoardDecision, type DepartmentSeed, type FirstBuild, type FirstCycleTask } from "./types";
+import { ARCHETYPES, type Archetype, ARCHETYPE_LABELS, type ChannelKey, type DeptColourToken, MODULE_TABS, type ModuleKey, type OptionAction, type TaskKind, type ToolNeedStage } from "@foundmill/shared";
+import { ArchetypeSeed, type BoardDecision, type DepartmentSeed, type FirstBuild, type FirstCycleTask, type ToolNeedSeed } from "./types";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Department defaults (1:1 with modules; icon = Lucide name; colour = Dugout department token)
@@ -225,6 +225,10 @@ const b2bSaas = ArchetypeSeed.parse({
       "Recommendation labeled as a screen, not legal advice",
     ]),
   ],
+  needsByStage: {
+    first_customers: [{ category: "payments", why: "The first customers are about to arrive, and they need a way to pay you." }],
+    first_payment: [{ category: "invoicing_accounting", why: "Money has started to come in, so the books and invoices need one home." }],
+  },
   firstBuild: FIRST_BUILD("Plan the first build: signup, first value, payment", "Build the task graph for a signup → first value → payment slice, with tests per task that show when it is done.", [
     "Task graph has goals, what counts as done, and file scopes",
     "No two tasks share a file scope concurrently",
@@ -308,6 +312,9 @@ const consumerApp = ArchetypeSeed.parse({
       "Recommendation on where to incorporate, with dated sources",
     ]),
   ],
+  needsByStage: {
+    first_customers: [{ category: "analytics", why: "The first users are about to arrive, and you need to see whether they come back." }],
+  },
   firstBuild: FIRST_BUILD("Plan onboarding to first habit", "Build the task graph for install → onboarding → first activation event with analytics events defined up front.", [
     "Activation event defined and instrumented",
     "Onboarding flow has tests that prove it works",
@@ -387,6 +394,9 @@ const marketplace = ArchetypeSeed.parse({
       "VAT treatment of commissions noted per market",
     ]),
   ],
+  needsByStage: {
+    first_customers: [{ category: "payments", why: "The first buyers and sellers are about to arrive, and a sale needs a way to be paid." }],
+  },
   firstBuild: FIRST_BUILD("Plan supply onboarding and the first transaction", "Build the task graph for listing creation, search and a first paid transaction through connected payouts.", [
     "Payout flow uses the payments connector; no money moves without a founder-approved go-live",
     "Listing and search have tests that prove they work",
@@ -486,6 +496,12 @@ const dtcPhysical = ArchetypeSeed.parse({
       "Recommendation on where to incorporate, with dated sources",
     ]),
   ],
+  needsByStage: {
+    first_customers: [
+      { category: "shipping", why: "Pre-orders are about to open, and each order needs a label and a price to send it." },
+      { category: "payments", why: "Pre-orders are about to open, and buyers need a way to pay." },
+    ],
+  },
   firstBuild: FIRST_BUILD("Plan the storefront and order flow", "Build the task graph for the storefront, checkout through the commerce connector, and order notifications from the store into the journey model.", [
     "Checkout uses the commerce connector in mock mode",
     "Order events reach the journey model with the channel that brought each customer",
@@ -583,6 +599,10 @@ const hardware = ArchetypeSeed.parse({
       "Recommendation on where to incorporate, with dated sources",
     ]),
   ],
+  needsByStage: {
+    first_customers: [{ category: "patents_ip", why: "You are about to show the product in public. Showing an invention before you file can cost the right to patent it." }],
+    first_payment: [{ category: "shipping", why: "The first order is paid, so it needs a label and a carrier." }],
+  },
   firstBuild: FIRST_BUILD("Plan firmware, app and the pre-order site", "Build the task graph for the firmware build steps, the companion app's first screen and a pre-order page that records which channel brought each buyer.", [
     "Firmware builds and passes its tests automatically on every change",
     "Pre-order page tracks source codes",
@@ -665,6 +685,10 @@ const services = ArchetypeSeed.parse({
       "Recommendation on where to incorporate, with dated sources",
     ]),
   ],
+  needsByStage: {
+    page_drafted: [{ category: "booking", why: "Your page is drafted, and people who read it need a way to pick a time with you." }],
+    first_payment: [{ category: "invoicing_accounting", why: "A client has paid, so invoices and the books need one home." }],
+  },
   firstBuild: FIRST_BUILD("Plan the client portal and intake", "Build the task graph for intake form, client portal and the delivery checklist that agents and staff share.", [
     "Intake records why we may hold each client's data, and where it came from",
     "Portal keeps each business's data separate, with tests that prove it",
@@ -740,6 +764,9 @@ const contentMedia = ArchetypeSeed.parse({
       "Recommendation on where to incorporate, with dated sources",
     ]),
   ],
+  needsByStage: {
+    first_customers: [{ category: "analytics", why: "The first readers are about to arrive, and you need to see what they read." }],
+  },
   firstBuild: FIRST_BUILD("Plan the publication site and membership", "Build the task graph for the site, newsletter signup with consent, paid membership through the billing connector and sponsorship tracking links.", [
     "Signup records consent and source",
     "Membership uses the billing connector in mock mode",
@@ -808,6 +835,37 @@ export const ARCHETYPE_SEEDS: Readonly<Record<Archetype, ArchetypeSeed>> = Objec
   services,
   content_media: contentMedia,
 });
+
+/**
+ * What a regulated money product needs on top of its archetype (founder, Nov 22, 2026): identity checks and screening
+ * before the first real users, not on day one.
+ */
+export const REGULATED_NEEDS: Readonly<Partial<Record<ToolNeedStage, readonly ToolNeedSeed[]>>> = Object.freeze({
+  first_customers: [
+    { category: "kyc_identity", why: "The first real users are about to arrive. A money product has to know who each one is before it serves them." },
+    { category: "aml_screening", why: "The first real users are about to arrive. A money product has to screen them against sanctions lists before it moves their money." },
+  ],
+});
+
+/** The specialist a regulated money product hires into Legal. It prepares and explains; it never files. */
+export const REGULATED_SPECIALIST_KEY = "financial_regulatory";
+
+/** The Legal Lead's question for a regulated money product at take charge: a question to answer, never a filing. */
+export const REGULATED_LICENSE_TASK = task({
+  kind: "legal",
+  title: "Does this need a license to handle money?",
+  goal: "This project moves, holds, lends, invests or insures other people's money. For each target market, say whether a license or registration is needed before the first real user, which authority gives it, how long it takes and what it costs (Estimate), and whether a licensed partner could carry it instead. Cite the rule and the date you checked. This is a question to answer for the founder: file nothing and contact no authority.",
+  acceptance: ["Each target market has an answer with the rule cited and the date checked", "The route through a licensed partner is compared with holding the license", "Nothing is filed and no authority is contacted", "Labeled as a screen, not legal advice"],
+  assigneeTemplateKey: "legal_lead",
+  departmentSlug: "legal",
+});
+
+/** The kinds of tool a project needs at a stage: its archetype's, plus a regulated money product's. */
+export function toolNeedsAt(archetype: Archetype | null | undefined, stage: ToolNeedStage, regulated: readonly string[] = []): ToolNeedSeed[] {
+  const own = archetype ? (ARCHETYPE_SEEDS[archetype].needsByStage[stage] ?? []) : [];
+  const extra = regulated.length > 0 ? (REGULATED_NEEDS[stage] ?? []) : [];
+  return [...own, ...extra.filter((e) => !own.some((o) => o.category === e.category))];
+}
 
 export const ARCHETYPE_SEED_LIST: readonly ArchetypeSeed[] = Object.freeze(ARCHETYPES.map((a) => ARCHETYPE_SEEDS[a]));
 

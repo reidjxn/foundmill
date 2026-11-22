@@ -10,7 +10,7 @@
  * Tables with a nullable business_id, user-owned tables, the social tables and `project_pages` (one row per business)
  * have their own suites.
  */
-import { CHANNEL_KEYS } from "@foundmill/shared";
+import { CHANNEL_KEYS, TOOL_CATEGORIES } from "@foundmill/shared";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
 import { newPostCode } from "../../repos/post-attributions";
 import * as s from "../../schema";
@@ -44,6 +44,16 @@ const take = (pool: string[], who: string): string => {
   const id = pool.pop();
   if (!id) throw new Error(`${who} sample: fixture pool exhausted`);
   return id;
+};
+
+/** One row per business per category (0154): each insert of a business takes the next category. */
+const toolCategoryCursor = new Map<string, number>();
+const nextToolCategory = (businessId: string) => {
+  const n = toolCategoryCursor.get(businessId) ?? 0;
+  toolCategoryCursor.set(businessId, n + 1);
+  const category = TOOL_CATEGORIES[n];
+  if (!category) throw new Error("tool_needs sample: categories exhausted");
+  return category;
 };
 
 const spec = <T extends TenantTable>(name: string, table: T, write: WriteMode, sample: TenantTableSpec["sample"], patch?: Record<string, unknown>): TenantTableSpec => ({
@@ -182,6 +192,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("team_call_turns", s.teamCallTurns, "append", (f) => ({ callId: f.teamCallId, seq: 1000 + counter(), speaker: "founder", userId: f.memberId, via: "typed", text: uniq("What is on our list?") }), { text: "tampered" }),
   spec("team_call_actions", s.teamCallActions, "append", (f) => ({ callId: f.teamCallId, position: 1000 + counter(), actionType: "create_task", title: uniq("Draft the launch email"), status: "not_filed", reason: "Example" }), { title: "tampered" }),
   // 0131: the founder's own payment links; owner and admin write (WP-07 T7).
+  // 0154 the tool scout's memory (written by the gateway's platform tools and the api with the service role)
+  spec("tool_needs", s.toolNeeds, "service", (f) => ({ category: nextToolCategory(f.businessId), reason: "Customers need a way to pay." })),
   spec("pay_links", s.payLinks, "admin", () => ({ key: uniq("pay").toLowerCase(), label: "Starter", url: `https://buy.stripe.com/${uniq("test")}`, source: "pasted" }), { archivedAt: new Date("2026-11-16T00:00:00Z") }),
 ];
 

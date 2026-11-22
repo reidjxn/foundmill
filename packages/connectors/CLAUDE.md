@@ -16,6 +16,7 @@ Owns the connector contract, the registry, the grants resolver, channel availabi
 - Mock webhooks verify against secrets in `fixtures/`, so they mount in development and test only (`registry.mountableWebhooks`).
 - **A payment from a provider's test mode is simulated** (WP-14 T9 security review, Nov 17, 2026): a webhook normaliser sets `simulated: true` on `payment.received` when the provider says no money moved (Stripe `livemode: false`, a Shopify order with `test: true`), so it is never a real outcome (`isRealOutcome`, the metrics queries) and never backs a "Verified" card. A new payment connector does the same with its provider's own flag.
 - Keys never live in fixtures, env files or logs.
+- **The tool catalog is data, not connectors** (founder, Nov 22, 2026; `src/tool-catalog.ts`): the options per tool category the scout starts from, each with regions, route, test mode, a price band (always an Estimate) and `checkedOn`. Booking lists only the product's own; never add a booking vendor. `src/tool-recommendation.ts` writes the founder's note: what the founder must do comes from the route alone, never from the agent's text. The platform tools are `raise_tool_need`, `read_tool_need` and `recommend_tool`.
 
 ## Read when needed
 - docs/ARCHITECTURE.md §8 Connectors (folder layout, mocks, platform mail, grants, channel availability, built-ins, founder's-own-key connectors, typed reads), §9 Gateway. Lines are very long: grep for the section heading and read only that section, never the whole file.
