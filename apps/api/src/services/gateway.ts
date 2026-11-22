@@ -15,7 +15,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { ELEVENLABS_SPEECH_TIMEOUT_MS, ELEVENLABS_TRANSCRIPTION_TIMEOUT_MS, OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
-import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type OwnDomainRecord, type RegistrantContact, type ReplyNotSent, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
+import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type OwnDomainRecord, type ReplyNotSent, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
 export const TOKEN_ISSUER = "foundmill-gateway";
@@ -83,7 +83,7 @@ export interface GatewayHealth {
 export interface GatewayCheckoutRequest {
   businessId: string;
   checkoutId: string;
-  kind: "credits" | "subscription";
+  kind: "credits" | "subscription" | "domain";
   amountMinor: number;
   currency: "USD";
   description: string;
@@ -113,7 +113,7 @@ export type GatewayOwnDomainRequest =
 
 export type GatewayRegisterDomainRequest =
   | { action: "quote"; businessId: string; domain: string }
-  | { action: "register"; businessId: string; userId: string; domain: string; owner: RegistrantContact; priceMinor: number; siteHost: string | null }
+  | { action: "register"; businessId: string; userId: string; checkoutId: string; siteHost: string | null }
   | { action: "setup"; businessId: string; siteHost: string | null };
 
 export type GatewayRegisterDomainResult = { mode: "mock" | "live"; simulated: boolean } & ({ quote: { domain: string; available: boolean; priceMinor: number | null } } | { domain: (NonNullable<GatewayOwnDomain["domain"]> & { source?: string }) | null });

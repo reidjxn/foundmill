@@ -561,3 +561,19 @@ describe("startedBefore: nothing running starts after the seed ran (the 9 AM sta
     }
   });
 });
+
+describe("a demo business is never overdrawn, whatever day it is seeded", () => {
+  it("Northwind seeded on Nov 21, 2026 (its history once ended at −£7.7K and turned the nightly red) keeps a positive balance", async () => {
+    const day = await createTestDb();
+    try {
+      const dayDb = day.db as unknown as Db;
+      await seedDemo(dayDb, { today: new Date("2026-11-21T12:00:00.000Z"), volumeScale: 0.1 });
+      for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+        const [account] = await repos.finance.listAccounts(dayDb, businessId);
+        expect(account!.balanceMinor, businessId).toBeGreaterThan(0);
+      }
+    } finally {
+      await day.close();
+    }
+  }, 600_000);
+});

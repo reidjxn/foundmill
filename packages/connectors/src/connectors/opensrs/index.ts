@@ -3,7 +3,7 @@
  * Service-only: the gateway's `POST /v1/domains/register` is its one live caller.
  */
 import { randomBytes } from "node:crypto";
-import { uuid } from "@foundmill/shared";
+import { uuid, whoisPrivacyFor } from "@foundmill/shared";
 import { ConfigError, VendorError, type Connector } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
@@ -32,7 +32,8 @@ export function createOpensrsConnector(options: LiveConnectorOptions = {}): Conn
     if (!res.ok) throw new VendorError(OPENSRS_KEY, res.status, `${action} → HTTP ${res.status}`);
     const body = parseOps(text);
     const code = String(body.response_code ?? "");
-    if (String(body.is_success) !== "1" && !okCodes.includes(code)) throw new VendorError(OPENSRS_KEY, 502, `${action} → ${code}: ${String(body.response_text ?? "").slice(0, 200)}`);
+    // OpenSRS answered and said no: a definite refusal (409), unlike a transport failure (5xx) after which it may have acted.
+    if (String(body.is_success) !== "1" && !okCodes.includes(code)) throw new VendorError(OPENSRS_KEY, 409, `${action} → ${code}: ${String(body.response_text ?? "").slice(0, 200)}`);
     return body;
   };
   const attrs = (body: Record<string, unknown>) => (body.attributes ?? {}) as Record<string, unknown>;
@@ -66,6 +67,8 @@ export function createOpensrsConnector(options: LiveConnectorOptions = {}): Conn
             handle: "process",
             auto_renew: 0,
             custom_tech_contact: 0,
+            // Privacy only where OpenSRS charges nothing for it (founder, Nov 21, 2026); elsewhere ICANN's redaction.
+            f_whois_privacy: whoisPrivacyFor(domain) ? 1 : 0,
             custom_nameservers: 1,
             nameserver_list: OPENSRS_NAMESERVERS.map((name, i) => ({ name, sortorder: i + 1 })),
             contact_set: { owner: contact, admin: contact, billing: contact },
@@ -92,4 +95,4 @@ export function createOpensrsConnector(options: LiveConnectorOptions = {}): Conn
 export { opensrsMock, MOCK_COM_COST_MINOR, MOCK_OTHER_COST_MINOR } from "./mock";
 export { opsRequest, opsSignature, parseOps } from "./xml";
 export * from "./tools";
-export { quoteDomain, registerDomain, registeredZone, registrableDomain, setupRegisteredDomain, type DomainQuote, type RegisterFlowDeps, type RegisteredDomainStore } from "./flow";
+export { quoteDomain, registerDomain, registeredZone, registrableDomain, setupRegisteredDomain, type DomainOrder, type DomainOrders, type DomainQuote, type RegisterFlowDeps, type RegisteredDomainStore } from "./flow";

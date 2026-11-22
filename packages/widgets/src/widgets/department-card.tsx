@@ -24,7 +24,7 @@ import { routes } from "../shared/routes";
 import { addDays, dailySeries, daysUntil, lastDays, sumInRange } from "../shared/time";
 import type { ChannelsListResponse, ComplianceResponse, DepartmentRow, FinanceOverview, InboxItemRow, InboxListResponse, Page, RibbonResponse, RoadmapListResponse, TaskRow } from "../shared/types";
 import { RESPOND_TAG, noteRowTag } from "../shared/note-tags";
-import { RUNWAY_WORDS, runwayWords } from "../shared/runway";
+import { RUNWAY_WORDS, runwayFigure, runwayWords } from "../shared/runway";
 
 export const DEPARTMENT_METRICS = ["auto", "tasks_done", "roadmap_on_track", "blended_cpa", "runway", "squad_health", "next_filing"] as const;
 export type DepartmentMetricKey = (typeof DEPARTMENT_METRICS)[number];
@@ -271,7 +271,7 @@ function metricFigure(i: MetricInputs): DepartmentMetric {
       return { label: "Cost to win a customer", value: cpa === null ? "—" : formatMoney({ amountMinor: cpa, currency: i.currency }), series: dailySeries(i.rows, i.days, (r) => r.spendMinor), provenance: "estimate" };
     }
     case "runway": {
-      const months = i.finance?.runway.months ?? null;
+      const months = runwayFigure(i.finance);
       // The line is the business's month-end cash (the department rows carry no money): what the runway moves with.
       const series = monthEndCash(i.finance);
       const seriesLabel = series.length ? `Cash at month end, last ${series.length} months` : undefined;
