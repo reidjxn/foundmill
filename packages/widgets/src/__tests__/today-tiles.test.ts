@@ -29,6 +29,13 @@ describe("Today's tiles are the status strip's", () => {
     expect(tile.caption).toBe("No bank connected");
   });
 
+  it("Runway with a balance below zero says so in the top bar's words, never a negative figure (B8)", () => {
+    const overdrawn = { ...finance, cash: { ...finance.cash, amountMinor: -914_900 }, runway: { ...finance.runway, months: -4.2 } } as typeof finance;
+    const tile = runwayTile(overdrawn, false, noop);
+    expect(tile.value).toBe("Cash is below zero");
+    expect(tile.unit).toBeUndefined();
+  });
+
   it("counts first payments over the last 7 days against the 7 before", () => {
     const c = customersThisWeek(ribbon, TODAY)!;
     expect(c.spark).toHaveLength(14);

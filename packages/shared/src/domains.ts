@@ -144,3 +144,15 @@ export const RegistrantContact = z.object({
   email: z.email().max(254),
 });
 export type RegistrantContact = z.infer<typeof RegistrantContact>;
+
+/**
+ * The endings where OpenSRS charges nothing for WHOIS privacy (Contact Privacy). Founder, Nov 21, 2026: privacy is on
+ * only where it is free; anywhere it costs anything it stays off and ICANN's redaction applies. Every ending not listed
+ * is off. Empty today: OpenSRS's Contact Privacy guide (support.opensrs.com article 201000063415) says "the full
+ * subscription cost is due when the service is added" and names no free ending; its prices are in the reseller panel
+ * and the pricing API's add-on section. Add an ending only from that price list, with the date it was read.
+ */
+export const WHOIS_PRIVACY_FREE_TLDS: readonly string[] = [];
+
+/** Whether a domain is registered with WHOIS privacy: only on an ending where it is free. */
+export const whoisPrivacyFor = (domain: string, free: readonly string[] = WHOIS_PRIVACY_FREE_TLDS): boolean => free.includes(domain.slice(domain.lastIndexOf(".") + 1).toLowerCase());

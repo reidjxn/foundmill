@@ -58,5 +58,5 @@ export { AcceptanceResult, acceptanceLines, acceptanceRefusal, toolKeys, toolUse
 export { createQuarantineConnector, quarantineMock, QUARANTINE_KEY, quarantinedReaderRequest } from "./connectors/quarantine";
 export * from "./connectors/platform_mail";
 export * from "./connectors/sending_domain";
-export { createOpensrsConnector, opensrsMock, MOCK_COM_COST_MINOR, MOCK_OTHER_COST_MINOR, OPENSRS_KEY, OPENSRS_NAMESERVERS, opensrsTools, opsContact, opsRecords, opsRequest, parseOps, ZoneRecord, quoteDomain, registerDomain, registeredZone, registrableDomain, setupRegisteredDomain, type ZoneRecordT, type DomainQuote, type RegisterFlowDeps, type RegisteredDomainStore } from "./connectors/opensrs";
+export { createOpensrsConnector, opensrsMock, MOCK_COM_COST_MINOR, MOCK_OTHER_COST_MINOR, OPENSRS_KEY, OPENSRS_NAMESERVERS, opensrsTools, opsContact, opsRecords, opsRequest, parseOps, ZoneRecord, quoteDomain, registerDomain, registeredZone, registrableDomain, setupRegisteredDomain, type ZoneRecordT, type DomainOrder, type DomainOrders, type DomainQuote, type RegisterFlowDeps, type RegisteredDomainStore } from "./connectors/opensrs";
 export * from "./connectors/platform_notify";
