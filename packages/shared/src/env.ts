@@ -282,6 +282,8 @@ const Env = z.object({
   HUBSPOT_MCP_CLIENT_ID: z.string().optional(),
   HUBSPOT_MCP_CLIENT_SECRET: z.string().optional(),
   SHOPIFY_MCP_CLIENT_ID: z.string().optional(),
+  /** Foundmill's OAuth client at Lightbringer's MCP server (approved 2026-11-22); unset keeps the connector mock-only. */
+  LIGHTBRINGER_MCP_CLIENT_ID: z.string().optional(),
   /** Dropbox Sign API key; a business's own key takes precedence. */
   DROPBOX_SIGN_API_KEY: z.string().optional(),
   /**

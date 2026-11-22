@@ -6,6 +6,7 @@
  * work, a day for the rest).
  */
 import { ACCOUNT_SAFETY_EMAIL_KINDS, EMAIL_NOTIFICATION_KINDS, type AccountSafetyEmailKind, type EmailNotificationKind } from "./constants";
+import { founderActionIdOfDecision } from "./founder-action";
 
 /**
  * The kinds are the platform's own (`EMAIL_NOTIFICATION_KINDS`, constants.ts): one list, one preference
@@ -63,6 +64,8 @@ export interface OneClickOption {
  */
 export function oneClickOption(item: { type: string; state: string; decision: Record<string, unknown> | null }, opts: { isSignoff: boolean }): OneClickOption | null {
   if (item.type !== "decision" || opts.isSignoff || (item.state !== "unread" && item.state !== "read") || !item.decision) return null;
+  // A founder-executed request is pressed in a signed-in session, never from an email (founder, 2026-11-22).
+  if (founderActionIdOfDecision(item.decision)) return null;
   const options = Array.isArray(item.decision.options) ? (item.decision.options as Record<string, unknown>[]) : [];
   if (options.some((o) => typeof o.id === "string" && APPROVAL_OPTION_IDS.includes(o.id))) return null;
   const recommended = options.filter((o) => o.recommended === true);

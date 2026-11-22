@@ -153,6 +153,12 @@ export interface ApprovalRouting {
  */
 export const FOUNDER_ACCOUNT_SEND_TOOLS: ReadonlySet<string> = new Set(["gmail:send_message", "google_calendar:create_event", "google_calendar:update_event", "google_calendar:delete_event"]);
 
+/**
+ * Connectors whose every approval is the founder's, whoever Team › Responsibilities names (founder, 2026-11-22): what
+ * Lightbringer's tools send goes to its practitioners from the founder's own account, so no delegate answers for them.
+ */
+export const FOUNDER_ACCOUNT_CONNECTORS: ReadonlySet<string> = new Set(["lightbringer_mcp"]);
+
 export async function routeApproval(db: Executor, businessId: string, input: { agentId?: string | null; decisionType: DecisionType | null; founderOnly?: boolean; founderAccount?: boolean }): Promise<ApprovalRouting> {
   const none: ApprovalRouting = { decisionType: input.decisionType, handlerKind: null, handlerId: null, decidedByAgent: null };
   // Mail from the founder's own Gmail and invitations from their own calendar: the founder answers, never a delegate.
@@ -200,7 +206,7 @@ export const approvalsRepo = {
       agentId: v.agentId,
       decisionType: v.decisionType === undefined ? inferDecisionType(v.connectorKey, v.tool) : v.decisionType,
       founderOnly: inferDecisionType(v.connectorKey, v.tool) === "merge_to_main",
-      founderAccount: FOUNDER_ACCOUNT_SEND_TOOLS.has(`${v.connectorKey}:${v.tool}`),
+      founderAccount: FOUNDER_ACCOUNT_SEND_TOOLS.has(`${v.connectorKey}:${v.tool}`) || FOUNDER_ACCOUNT_CONNECTORS.has(v.connectorKey ?? ""),
     });
     return one(
       await db

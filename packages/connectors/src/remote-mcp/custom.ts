@@ -18,6 +18,7 @@ import { resolveLiveOptions, type LiveConnectorOptions } from "../platform";
 import { isPrivateAddress } from "../connectors/web/tools";
 import { systemResolveHost, type ResolveHost } from "../connectors/web/page-fetch";
 import { hardGateName, UNLISTED_HINTS } from "./build";
+import { FOUNDER_EXECUTED_FOLDED_NAMES, foldedToolName, LISTED_SERVER_HOSTS } from "./servers";
 import { callRemoteTool, listRemoteTools } from "./client";
 import { assertHttps } from "./oauth";
 
@@ -46,6 +47,9 @@ export async function assertPublicServer(url: string, resolveHost: ResolveHost =
   const u = assertHttps(url, "The server address");
   if (u.protocol !== "https:") throw new ConnectInputError(MCP_CUSTOM_KEY, "serverUrl", "The server address must use https");
   if (u.username || u.password) throw new ConnectInputError(MCP_CUSTOM_KEY, "serverUrl", "Leave the sign-in out of the address");
+  // A vendor Foundmill has a list for is connected under its own name, never as a custom server that has no list.
+  const listed = LISTED_SERVER_HOSTS.get(u.hostname.toLowerCase());
+  if (listed) throw new ConnectInputError(MCP_CUSTOM_KEY, "serverUrl", `That is ${listed}'s own server. Connect ${listed} under its own name in Settings › Integrations instead.`);
   const addresses = await resolveHost(u.hostname.replace(/^\[|\]$/g, "")).catch(() => []);
   if (addresses.length === 0 || addresses.some(isPrivateAddress)) throw new ConnectInputError(MCP_CUSTOM_KEY, "serverUrl", "That address is not a public server");
   return u;
@@ -98,6 +102,7 @@ export function createMcpCustomConnector(options: LiveConnectorOptions & { resol
           return { tools: await listRemoteTools(s.url, s.token, fetch) };
         },
         call_unlisted_tool: async ({ tool, arguments: args }, ctx) => {
+          if (FOUNDER_EXECUTED_FOLDED_NAMES.has(foldedToolName(tool))) throw new AppError("founder_executed", `${tool} runs only from the founder's own press, never through a custom server`, 403);
           if (hardGateName(tool)) throw new AppError("hard_gate", `${tool} would move money, sign, accept terms, delete permanently or change security settings, which only the founder does`, 403);
           const s = await serverOf(ctx);
           const r = await callRemoteTool(s.url, s.token, fetch, tool, args);

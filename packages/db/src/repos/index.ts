@@ -92,6 +92,8 @@ import { payLinksRepo } from "./pay-links";
 import { toolNeedsRepo } from "./tool-needs";
 import { bookingRepo } from "./booking";
 export { BookingServiceInput, BookingSetupInput, type BookingSetup, type PublicBookingPage } from "./booking";
+import { founderActionsRepo } from "./founder-actions";
+export { PrepareFounderActionInput } from "./founder-actions";
 export { RaiseToolNeedInput, RecommendToolInput, ToolPickInput, toolNeedTask, type RaiseToolNeedResult, type ToolNeedHeld } from "./tool-needs";
 import { ownerPlansRepo, partnerWaitlistRepo } from "./owner-plans";
 
@@ -185,6 +187,7 @@ export const repos = {
   payLinks: payLinksRepo,
   toolNeeds: toolNeedsRepo,
   booking: bookingRepo,
+  founderActions: founderActionsRepo,
   ownerPlans: ownerPlansRepo,
   partnerWaitlist: partnerWaitlistRepo,
 } as const;

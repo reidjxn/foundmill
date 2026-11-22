@@ -56,6 +56,10 @@ export const ToolCtx = z.object({
    * the business gave agents the inbound payment power (founder, Nov 16, 2026).
    */
   paymentRecord: z.boolean().default(false),
+  /** Asks the founder in every business mode, automated mode and vacation included (`47-ask-always.cedar`). */
+  askAlways: z.boolean().default(false),
+  /** Runs only from the founder's own press (`05-founder-executed.cedar`); the gateway sets it from the tool's hints, never the agent. */
+  founderExecuted: z.boolean().default(false),
 });
 export type ToolCtx = z.infer<typeof ToolCtx>;
 export type ToolCtxInput = z.input<typeof ToolCtx>;
@@ -93,6 +97,8 @@ export const CallContext = z.object({
   holidayActive: z.boolean().optional(),
   /** True when the calling session runs a channel in kit mode (agent prepares, founder submits). */
   kitMode: z.boolean().default(false),
+  /** True only on the gateway's founder-press route (`POST /v1/founder-actions/execute`), after its token checks; no agent call ever sets it. */
+  founderPress: z.boolean().default(false),
 });
 export type CallContext = z.infer<typeof CallContext>;
 export type CallContextInput = z.input<typeof CallContext>;

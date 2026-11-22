@@ -70,6 +70,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   pay_links: t(s.payLinks, "development"),
   // 0154: what the project needs a tool for, what was recommended and why, and the founder's answer.
   tool_needs: t(s.toolNeeds, "team"),
+  // 0162: requests an agent prepared for the founder to press (the press token's hash is a credential, not data).
+  founder_actions: t(s.founderActions, "team", { omit: ["tokenHash"] }),
   // team
   departments: t(s.departments, "team"),
   department_members: t(s.departmentMembers, "team"),

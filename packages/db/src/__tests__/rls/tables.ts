@@ -211,6 +211,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("booking_settings", s.bookingSettings, "service", () => ({ timeZone: "America/New_York" })),
   spec("booking_services", s.bookingServices, "service", () => ({ name: "Lesson", durationMin: 60, currency: "USD" })),
   spec("bookings", s.bookings, "service", heldBooking),
+  // 0162 founder-executed requests (written by the gateway with the service role)
+  spec("founder_actions", s.founderActions, "service", () => ({ connectorKey: "lightbringer_mcp", tool: "request_patent_preparation", payload: { invention_id: uniq("inv") }, payloadHash: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""), summary: { title: "Ask Lightbringer to prepare your patent filing", lines: [], facts: {} } })),
   spec("pay_links", s.payLinks, "admin", () => ({ key: uniq("pay").toLowerCase(), label: "Starter", url: `https://buy.stripe.com/${uniq("test")}`, source: "pasted" }), { archivedAt: new Date("2026-11-16T00:00:00Z") }),
 ];
 

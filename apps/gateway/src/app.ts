@@ -38,6 +38,7 @@ import { ZodError, z } from "zod";
 import { APP_NAME } from "@foundmill/config";
 import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { repos } from "@foundmill/db";
+import { isFounderExecutedTool } from "@foundmill/connectors";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
 import { apiServiceTokenMode, bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifyServiceTokenFor, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { GatewayError, safeError, type GatewayDeps } from "./pipeline";
@@ -63,6 +64,7 @@ import { ACCOUNT_EMAIL_SERVICE, AccountEmailRequest, isAccountEmailKind, sendAcc
 import { FounderNoticeRequest, isAccountSafetyKind, sendFounderNotice } from "./notify-founder-notice";
 import { CardEmailRequest, isCardEmailRequest, sendCardEmail } from "./notify-card-email";
 import { handleMcpRequest } from "./mcp";
+import { executeFounderAction, ExecuteFounderActionRequest, FOUNDER_ACTION_EXECUTE_ROUTE } from "./founder-action";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
 import { checkRepository, REPOSITORY_CHECK_ROUTE, RepositoryCheckRequest } from "./code-repository";
 import { callerTrace, tracedToolCall } from "./tracing";
@@ -136,6 +138,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use(SPEECH_TRANSCRIBE_ROUTE, limit(MAX_TRANSCRIBE_BODY_BYTES));
   app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(BOOKING_MAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(FOUNDER_ACTION_EXECUTE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(ANSWER_REPLY_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(SEND_UPDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(NOTIFY_EMAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
@@ -307,6 +310,19 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const parsed = BookingMailRequest.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) throw new GatewayError("validation", "Send a business id, a booking id and the kind of email", 400);
     return c.json(await sendBookingMail(deps, parsed.data, c.var.service.svc));
+  });
+
+  // The founder's press on a founder-executed request (founder, 2026-11-22): only the api asks, with a single-use press
+  // token bound to the exact payload the founder saw (founder-action.ts has the order of every check).
+  app.use(FOUNDER_ACTION_EXECUTE_ROUTE, requireService);
+  app.use(FOUNDER_ACTION_EXECUTE_ROUTE, async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api carries a founder's press", 403);
+    await next();
+  });
+  app.post(FOUNDER_ACTION_EXECUTE_ROUTE, async (c) => {
+    const parsed = ExecuteFounderActionRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send the press token", 400);
+    return c.json(await executeFounderAction(deps, parsed.data, c.var.service.svc, serviceSecrets));
   });
 
   // A founder's answer to a reply the project received (WP-08 T2): only the api asks, from Customers (reply-answer.ts).
@@ -497,6 +513,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
 export const MINTING_SERVICES: ReadonlySet<string> = new Set(["orchestrator", "api"]);
 
 export function mintRefusal(svc: string, claims: { sessionId: string | null; allowedTools: string[]; kitMode: boolean }): { code: "forbidden_service" | "mint_scope_refused"; message: string } | null {
+  // A founder-executed tool is the founder's own press: no service mints a token that names one (founder, 2026-11-22).
+  if (claims.allowedTools.some((ref) => isFounderExecutedTool(ref.slice(0, ref.indexOf(":")), ref.slice(ref.indexOf(":") + 1)))) return { code: "mint_scope_refused", message: "A session token never names a tool only the founder's own press runs" };
   if (!MINTING_SERVICES.has(svc)) return { code: "forbidden_service", message: `Service ${svc} does not mint session tokens` };
   if (claims.allowedTools.includes("*")) return { code: "mint_scope_refused", message: "A session token never allows every tool" };
   if (svc === "api") {

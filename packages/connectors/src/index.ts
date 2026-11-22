@@ -5,7 +5,7 @@ export * from "./registry";
 export * from "./catalogue";
 export * from "./tool-catalog";
 export * from "./tool-recommendation";
-export { MOCK_ONLY_CONNECTORS, REMOTE_MCP_SERVERS, createNotionMcpConnector, createHubspotMcpConnector, createShopifyMcpConnector, createMcpCustomConnector, assertPublicServer, remoteToolList, MCP_CUSTOM_KEY, remoteHardGateCall, toolName as remoteToolName } from "./remote-mcp";
+export { MOCK_ONLY_CONNECTORS, REMOTE_MCP_SERVERS, createNotionMcpConnector, createHubspotMcpConnector, createShopifyMcpConnector, createLightbringerMcpConnector, createMcpCustomConnector, FOUNDER_EXECUTED_TOOLS, remoteFounderExecutedCall, listProblems as remoteListProblems, LIGHTBRINGER_MCP, LIGHTBRINGER_DEMO_INVENTION, LIGHTBRINGER_DEMO_FAIL_INVENTION, assertPublicServer, remoteToolList, MCP_CUSTOM_KEY, remoteHardGateCall, toolName as remoteToolName } from "./remote-mcp";
 export * from "./mock-utils";
 export * from "./quarantine";
 export * from "./facts";

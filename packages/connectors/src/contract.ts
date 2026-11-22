@@ -104,6 +104,16 @@ export interface PolicyHint {
   requiresKitMode?: boolean;
   irreversible?: boolean;
   hardGate?: boolean;
+  /**
+   * Asks the founder in every business mode, automated mode and vacation included (policy `ask-always`). For a tool that
+   * sends something to a person outside the project or changes what others see, in an account that is the founder's own.
+   */
+  askAlways?: boolean;
+  /**
+   * Never runs for an agent: only the founder's one explicit press on the exact payload runs it (founder, 2026-11-22;
+   * `POST /v1/founder-actions/execute`). It is in no agent's tool list, and the policy forbids it without `founderPress`.
+   */
+  founderExecuted?: boolean;
 }
 export type PolicyHints = Record<string, PolicyHint>;
 

@@ -32,7 +32,7 @@ import { CREDITS_CURRENCY, EARLY_ACCESS_STAGE, firstCycleInput, initialModelBill
 const WAGE_CURRENCY = CREDITS_CURRENCY;
 import { raiseStageToolNeeds, assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, FIRST_DAY_PROMISE, OVERNIGHT_SHIFT, TOOL_NEED_STAGES, ValidationError, regulatedAreasOf, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, FIRST_DAY_PROMISE, OVERNIGHT_SHIFT, TOOL_NEED_STAGES, ValidationError, regulatedAreasOf, describesInvention, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
 import { channelRowsFor } from "./channel-availability";
 import { QUEUE_ACTION } from "./cycle";
@@ -191,7 +191,10 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   const importLink = importJobId ? await resolveImportLink(db, importKey(), importJobId, userId) : null;
   const seed = getArchetypeSeed(input.archetype);
   // A money product a regulator licenses, read from the founder's own words for the idea (`regulatedAreasOf`).
-  const regulated = regulatedAreasOf(`${idea.current?.title ?? ""}. ${idea.current?.pitch ?? ""}`);
+  const ideaText = `${idea.current?.title ?? ""}. ${idea.current?.pitch ?? ""}`;
+  const regulated = regulatedAreasOf(ideaText);
+  // An invention the founder describes (founder, Nov 22, 2026): the patent step is offered before the product is shown in public.
+  const invention = describesInvention(ideaText);
   const hasBudget = input.hasBudget ?? true;
   // Paid entry (WP-09 T16): without the entry plan the project, its page, plan and foundations are created as always, but
   // no cycle starts and Autopilot stays off until the founder subscribes (Continue then starts cycle 1).
@@ -379,6 +382,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       const later = TOOL_NEED_STAGES.filter((stage) => stage !== "take_charge");
       await repos.toolNeeds.plan(tx, businessId, later.flatMap((stage) => (REGULATED_NEEDS[stage] ?? []).map((n) => ({ category: n.category, stage, reason: n.why }))));
     }
+    if (invention) await repos.toolNeeds.plan(tx, businessId, [{ category: "patents_ip", stage: "first_customers", reason: "You are about to show the product in public. Showing an invention before you file can cost the right to patent it." }]);
     for (const r of await raiseStageToolNeeds(tx, businessId, "take_charge", connectorKeysFor, { regulated })) if (r.raised) taskIds.push(r.task.id);
 
     // Founder's Home dashboard: a department card for every department the archetype seeds (all visible).

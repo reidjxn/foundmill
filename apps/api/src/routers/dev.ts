@@ -11,6 +11,7 @@ import { TASK_STATUSES, boundedRecord, ForbiddenError, NotFoundError, Validation
 import { buildManifest, extractEntityIds, stripInvalidMentions, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { z } from "zod";
 import { verifyCodeRepository } from "../services/code-repository";
+import { seedFounderActionNote } from "../services/founder-actions";
 import { replaySession } from "../services/replay";
 import { PlanInput, planKey, planTaskGraph, type PlanResult } from "../services/task-graph";
 
@@ -275,6 +276,16 @@ export const devRouter = router({
       }),
     );
     return { ...result, label: "Simulated" as const };
+  }),
+
+  /**
+   * Test support (founder-executed requests, 2026-11-22): writes a prepared Lightbringer request and its note for the
+   * recorded mock's invention, as the gateway's prepare tool would, so the Playwright spec can press it. Development and
+   * test only; anywhere else the route does not exist.
+   */
+  seedFounderAction: adminProcedure.input(z.object({ inventionId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).default("inv_demo_1") })).mutation(async ({ ctx, input }) => {
+    if (ctx.env.APP_ENV !== "test" && ctx.env.APP_ENV !== "development") throw new NotFoundError("route");
+    return seedFounderActionNote(ctx, input);
   }),
 
   /** The code agents wrote on code tasks, kept after each session (0013 workspaces; written by the orchestrator). */
