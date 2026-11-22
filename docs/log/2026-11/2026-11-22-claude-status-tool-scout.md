@@ -10,3 +10,6 @@ supersedes: []
 
 ## Decisions
 - The facts come from the other session's message, not from reading its diff. Session 1 is the only editor of STATUS.md, so the other session told it instead of editing the file.
+
+## Not done
+- Nothing in #359, Part B or Part C was checked against its diff.
