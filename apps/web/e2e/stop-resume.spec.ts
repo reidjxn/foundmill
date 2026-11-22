@@ -44,7 +44,8 @@ test.describe("stop and resume", () => {
     await expect(page.getByTestId("agent-profile")).toBeVisible({ timeout: LONG });
     await page.waitForLoadState("networkidle", { timeout: LONG });
     await page.getByTestId("header-model-chip").click();
-    const otherModel = page.getByTestId("model-dialog").locator("input[type=radio]:not(:checked):not(:disabled)").first();
+    const otherModel = page.getByTestId("model-dialog").locator("input[type=radio][value=haiku]:not(:checked)");
+    // A new project is on the free plan: Haiku is open to it, Opus and Sonnet are gated, and GLM queues no retest (WP-13 T7).
     await expect(otherModel).toBeAttached({ timeout: LONG });
     await otherModel.click();
     await expect(page.getByTestId("apply-scope-dialog")).toBeVisible();

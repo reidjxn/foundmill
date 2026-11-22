@@ -7,7 +7,7 @@ supersedes: [2026-10-05 packages/db: schema, RLS and test harness choices (only 
 ---
 ## What changed
 **WP-11 T6 (A8-04).**
-- `0152_split_write_policies`: each of the 58 `<t>_write` policies (`for all`) becomes `<t>_insert`, `<t>_update` and `<t>_delete` with the same expressions: insert takes the old `with check` (or `using` when it had none), update takes `using` and `with check`, delete takes `using`.
+- `0156_split_write_policies`: each of the 58 `<t>_write` policies (`for all`) becomes `<t>_insert`, `<t>_update` and `<t>_delete` with the same expressions: insert takes the old `with check` (or `using` when it had none), update takes `using` and `with check`, delete takes `using`.
   `fm_tenant_table` and `fm_idea_table` are redefined the same way, so a table made later is born split.
   `posts_moderate`, `community_members_moderate` and the single `*_own` policies stay `for all`.
 - Two guards in the migration make it fail, not guess: a table that already has a per-command policy, and a table with a `_write` policy and no select policy.
@@ -27,10 +27,10 @@ The plan adds the assertion to `rls/advisors.test.ts`, which exists only in PR #
 ### Helpers do not wrap `auth.uid()` here
 `fm_idea_table` keeps the bare `auth.uid()` that main has; wrapping it in a select is T5 (PR #238's 0118).
 Both helpers carry `set search_path = pg_catalog, public, pg_temp` in their own text.
-**When #238 is renumbered after this, its `fm_idea_table` redefinition must carry the split policies from 0152** (`_insert`, `_update`, `_delete`) with its `(select auth.uid())`, or the helper goes back to `for all`; `permissive-policies.test.ts` fails if it does.
+**When #238 is renumbered after this, its `fm_idea_table` redefinition must carry the split policies from 0156** (`_insert`, `_update`, `_delete`) with its `(select auth.uid())`, or the helper goes back to `for all`; `permissive-policies.test.ts` fails if it does.
 Its 0118 loop wraps the policies this migration made, as it wraps any other.
 ### Migration numbers
-0151 (T9's `real_businesses`) and 0152 are the next free numbers after main's 0150 and every open branch's, on Nov 21.
+0155 (T9's `real_businesses`) and 0156 are the next free numbers after main's 0154 and every open branch's, on Nov 21.
 ### The security reviewer's note on T9 stays open
 Reviewed once on the T9 diff; the T6 diff was reviewed separately (see the pull request).
 

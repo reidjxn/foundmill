@@ -33,6 +33,8 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Idle: Story = {};
+/** Week one: the date alone, no runway words and no mode chip (WP-10 T2). */
+export const WeekOne: Story = { args: { showRunway: false, showMode: false, runwayMonths: null } };
 export const Blocked: Story = { args: { continueButton: { state: { kind: "blocked", count: 3 } }, runwayMonths: 5.5 } };
 export const Processing: Story = { args: { continueButton: { state: { kind: "processing" } } } };
 export const CustomerUpdate: Story = { args: { continueButton: { state: { kind: "matchday" } } } };

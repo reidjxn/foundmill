@@ -89,6 +89,8 @@ export { AddPayLinkInput } from "./pay-links";
 export { OwnDomainTakenError, projectDomainsStore, type ProjectDomainView } from "./project-domains";
 export { domainOrdersStore } from "./domain-registrants";
 import { payLinksRepo } from "./pay-links";
+import { toolNeedsRepo } from "./tool-needs";
+export { RaiseToolNeedInput, RecommendToolInput, ToolPickInput, toolNeedTask, type RaiseToolNeedResult, type ToolNeedHeld } from "./tool-needs";
 import { ownerPlansRepo, partnerWaitlistRepo } from "./owner-plans";
 
 export const repos = {
@@ -179,6 +181,7 @@ export const repos = {
   reports: reportsRepo,
   sites: sitesRepo,
   payLinks: payLinksRepo,
+  toolNeeds: toolNeedsRepo,
   ownerPlans: ownerPlansRepo,
   partnerWaitlist: partnerWaitlistRepo,
 } as const;

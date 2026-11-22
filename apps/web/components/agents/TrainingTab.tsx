@@ -13,8 +13,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleStop, Dumbbell, Eye, FlaskConical, History, Save, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CREDITS_CURRENCY } from "@foundmill/config";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Explainer, Icon, InstructionsEditor, KeyValueList, MODEL_LABELS, ModelPicker, Panel, ProgressRing, ProvenanceChip, SkillGrid, TabBar, Term, TrainingResults, formatDuration, formatMoney, formatRelative, instructionsEqual, useDateFormat, type AgentInstructions, type InstructionComment, type InstructionViolation, type TabItem } from "@foundmill/dugout";
+import { useRouter } from "next/navigation";
+import { CREDITS_CURRENCY, planName } from "@foundmill/config";
+import { BetterModelsPrompt, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Explainer, Icon, InstructionsEditor, KeyValueList, MODEL_LABELS, ModelPicker, Panel, ProgressRing, ProvenanceChip, SkillGrid, TabBar, Term, TrainingResults, formatDuration, formatMoney, formatRelative, instructionsEqual, useDateFormat, type AgentInstructions, type InstructionComment, type InstructionViolation, type TabItem } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -190,6 +191,8 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
   );
   const compareQ = useQuery(trpc.agent.model.compare.queryOptions({ businessId, agentId: agent.id, period: localPeriod() }, { enabled: sub === "model", staleTime: 60_000 }));
   const [applyModel, setApplyModel] = useState<ModelKey | null>(null);
+  const router = useRouter();
+  const [betterOpen, setBetterOpen] = useState(false);
 
   const doSave = (modelKey?: ModelKey) => saveDraft.mutate({ businessId, agentId: agent.id, instructions, tools: tools.length ? tools : undefined, modelKey: modelKey ?? draftModel, comment: comments[comments.length - 1]?.text });
   const trainSaved = () => {
@@ -353,7 +356,7 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
           {sub === "model" ? (
             <div className="grid grid-cols-12 gap-gutter" data-testid="training-model">
               <div className="col-span-7">
-                {compareQ.data ? <ModelPicker options={modelOptions(compareQ.data, CREDITS_CURRENCY)} value={previewModel ?? agent.modelKey} onChange={(m) => setPreviewModel(m === agent.modelKey ? null : m)} disabled={profile.modelLock} /> : <p className="text-small text-secondary">{compareQ.error ? errorMessage(compareQ.error) : "Loading model comparison…"}</p>}
+                {compareQ.data ? <ModelPicker options={modelOptions(compareQ.data, CREDITS_CURRENCY)} value={previewModel ?? agent.modelKey} inUse={compareQ.data.inUse} onChange={(m) => (modelOptions(compareQ.data, CREDITS_CURRENCY).find((o) => o.key === m)?.gated ? setBetterOpen(true) : setPreviewModel(m === agent.modelKey ? null : m))} disabled={profile.modelLock} /> : <p className="text-small text-secondary">{compareQ.error ? errorMessage(compareQ.error) : "Loading model comparison…"}</p>}
                 {profile.modelLock ? <p className="mt-2 text-small text-secondary">{profile.route === "inboxComposer" ? "The Inbox Composer is locked to Opus." : "This agent's route is locked to its model."}</p> : null}
               </div>
               <div className="col-span-5 flex flex-col gap-3">
@@ -453,6 +456,7 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
         </DialogContent>
       </Dialog>
 
+      <BetterModelsPrompt planLabel={planName("free")} open={betterOpen} onOpenChange={setBetterOpen} onSeePlans={() => router.push(`/b/${businessId}/settings/billing`)} onConnectKey={() => router.push(`/b/${businessId}/settings/keys`)} />
       <ModelChangeDialog businessId={businessId} profile={profile} open={!!applyModel} onOpenChange={(o) => !o && setApplyModel(null)} preselect={applyModel} />
       <CustomSkillsPanel businessId={businessId} profile={profile} onChanged={refetch} />
     </div>

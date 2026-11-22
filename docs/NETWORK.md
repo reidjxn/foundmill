@@ -29,7 +29,7 @@ Three things are deliberately absent: rankings of any kind (leaderboards were re
 | An audience | A stranger following, replying, paying. The first dollar is the most shared moment a new founder has | Signals (F8), followers, milestone cards |
 | Anyone to ask | A fast, specific answer from someone one step ahead | Asks (F10), cohorts (F12) |
 | People like them doing the same thing | Seeing peers ship this week, and being seen shipping | Latest (F7), cohorts (F12) |
-| Money | More agent work for free | Credits for bringing people and for helping (F6, F10) |
+| Money | More agent work for free | Credits for helping (F10); none for bringing people (F6, replaced Nov 19) |
 | Momentum | A reason to come back tomorrow that is not guilt | Responses to their own work; the weekly rhythm (section 6) |
 | Confidence about partnering | A way to try someone without betting the project | The ladder (section 4), trials and splits (F18) |
 
@@ -110,7 +110,7 @@ Each loop names who starts it, why they start it for their own reasons, who it r
 | L4 | **Invitations.** Bring a friend onto the project | Wanting that person | One person, with the strongest conversion of any loop | The invitation survives sign-up and lands them in the project | F5 |
 | L5 | **Starting together.** A group starts in the same cohort | Not wanting to start alone | A friend group, a class, a Discord server | One link admits the group to the same week | F12 |
 | L6 | **Open roles and people pages in search.** Public, indexable | Wanting a specific person | People searching for a project to join or a cofounder | Ask to join from the role's page | F15, F1 |
-| L7 | **Credit for bringing people.** Both sides get credits when the new person does something real | More agent work | Multiplies L2 to L5; on the waitlist, moves the person up | A personal link on everything shared | F6 |
+| L7 | **Bringing people, with no reward.** Replaced (founder, Nov 17; WP-14 A7 and T15 step 4): neither side gets credits. Each active founder has three named invitations | None | Multiplies L2 to L5; on the waitlist, moves the person up | A personal link on everything shared | F6 |
 
 L1, L2 and L3 need nobody but a solo founder. That is by design: growth must not depend on the one thing the product has promised never to push.
 
@@ -192,11 +192,12 @@ Twenty-one features in six groups. Each has: what it is, why it matters for spre
 - **The waitlist stays as decided on Nov 11** (founder, Nov 12): one list ordered by who brought whom. No passes, and no admission in weekly groups.
 - **Solo guard:** no checklist step, empty state or note ever asks a founder to invite someone.
 
-**F6. Credit for bringing people.** Package 4.6.
+**F6. Bringing people, with no reward.** Package 4.6.
 
-- Every member has a `via` code carried by everything they share. When the new person does something real (publishes a page, or joins a project), both get credits.
+- **Replaced (founder, Nov 17, 2026; WP-14 T15 step 4):** the credits for both sides are removed. Inviting earns nothing for either side. Each active founder has three named invitations in total, which replaces `INVITATION_ADMISSIONS_PER_INVITER_PER_DAY` (three a day); the constant is now `INVITATION_ADMISSIONS_PER_INVITER` (3, counted over the account's whole life). The rest of this section is history, except the `via` code and the waitlist line below.
+- Every member has a `via` code carried by everything they share. ~~When the new person does something real (publishes a page, or joins a project), both get credits.~~
 - On the waitlist, bringing someone moves a person up (the Nov 11 decision, unchanged).
-- Never credits for a sign-up alone. Capped per month. Amounts are set from measured cost (package 7.1).
+- ~~Never credits for a sign-up alone. Capped per month. Amounts are set from measured cost (package 7.1).~~
 - The founder sees "Three people started because of you" as a line on their own Network page, not on their public record.
 
 ### Group C: The room
@@ -438,7 +439,7 @@ Four waves. Each feature also carries the standing definition of done from FOUND
 3. F3 cards, with the four early milestones.
 4. F4 feedback links, including the return message.
 5. F5 invitations (package 3.1), with cofounder and collaborator as roles (3.3) so an invited friend lands somewhere real.
-6. F6 credit for bringing people.
+6. F6 bringing people (no reward since Nov 19).
 
 **Wave 2: the room.** Needs small screens for the outer product (2.1), a home for a person (2.4), and the people layer switched on for everyone (2.5).
 

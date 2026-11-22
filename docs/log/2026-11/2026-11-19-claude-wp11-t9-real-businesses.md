@@ -7,7 +7,7 @@ supersedes: []
 ---
 ## What changed
 **WP-11 T9 (A8-06).**
-- `0151_real_businesses`: the view `real_businesses(id, is_house)`, every project that is not a sample; `is_house` is true for `HOUSE_BUSINESS_ID` alone. Service role only; anon and authenticated are refused. Mirrored as `realBusinesses` in `schema/accounts.ts`.
+- `0155_real_businesses`: the view `real_businesses(id, is_house)`, every project that is not a sample; `is_house` is true for `HOUSE_BUSINESS_ID` alone. Service role only; anon and authenticated are refused. Mirrored as `realBusinesses` in `schema/accounts.ts`.
 - `presence.retentionReport` joins the view and no longer filters `is_demo` itself (the house project stays in it, as before).
 - `demo-isolation.test.ts` exports `CROSS_BUSINESS_REPORTS` and compares each listed report with and without a demo project; it also checks the view's rows, `is_house` and the refusal for client roles. `packages/db/CLAUDE.md` carries the rule.
 - `rollDemoBusinesses` logs `ms` on its "sample businesses rolled forward with the calendar" line; `sample-numbers.test.ts` reads it.
@@ -20,7 +20,7 @@ The plan says to create `repos/demo-isolation.test.ts`. `src/__tests__/demo-isol
 ### Other readers of `is_demo` stay for now
 `day-one-notes.toClear` (reads every project) and `account-portability` (one account's projects) still filter `is_demo` by hand; neither feeds a platform number, so they are left and named here. They join the view when next touched. `ms` times `rollDemoForward` only, not the daily-rows refresh after it, and is logged only when something moved.
 ### Migration number
-0151 is the next free number after main's 0150 and every open branch (merged with main on Nov 21; PR #238 had not landed).
+0155 is the next free number after main's 0154 and every open branch (merged with main on Nov 21; PR #238 had not landed).
 
 ## Not done
 - Step 3's figures (three days of roll durations in docs/DEPLOY.md §6) need three days in production; the Desktop session or the founder reads them.

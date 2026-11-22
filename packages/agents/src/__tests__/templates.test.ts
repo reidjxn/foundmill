@@ -32,6 +32,7 @@ const EXPECTED_KEYS = [
   "sourcing_manufacturing",
   "formulation_chemist",
   "pharmacology_regulatory",
+  "financial_regulatory",
   "certification",
   "packaging_design",
   "quality",

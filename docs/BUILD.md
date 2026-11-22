@@ -554,7 +554,7 @@ $$;
 -- Pattern for every business-scoped table T:
 alter table T enable row level security;
 create policy T_select on T for select using (is_member(business_id));
--- One policy per write command, not `for all` (which also answers select; split in 0152):
+-- One policy per write command, not `for all` (which also answers select; split in 0156):
 create policy T_insert on T for insert with check (has_role(business_id, array['owner','admin','member']));
 create policy T_update on T for update using (has_role(business_id, array['owner','admin','member']))
                                        with check (has_role(business_id, array['owner','admin','member']));

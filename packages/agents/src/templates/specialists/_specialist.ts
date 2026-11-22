@@ -22,6 +22,8 @@ export interface SpecialistTemplateInit {
   craftSkills: string[];
   negotiation?: Negotiation;
   neverDoes: string[];
+  /** The kind of business the specialist serves, as its role line ends. Default: a physical-product business. */
+  businessKind?: string;
 }
 
 /**
@@ -48,7 +50,7 @@ export function defineSpecialistTemplate(init: SpecialistTemplateInit): AgentTem
     route: "worker",
     description,
     instructions: {
-      role: `${init.role} for a physical-product business.`,
+      role: `${init.role} for ${init.businessKind ?? "a physical-product business"}.`,
       goals: init.goals,
       rules: [...PHYSICAL_SPECIALIST_RULES, ...WORKER_COMMON_RULES, SAVE_REPORT_RULE, ...init.rules],
       playbook: init.playbook,

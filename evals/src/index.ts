@@ -53,4 +53,5 @@ export {
   type PlainLanguageHit,
 } from "./composer";
 export { POSITIONING_CASES, POSITIONING_EVAL_IDS, positioningProblems as positioningEvalProblems, runPositioningCase, type PositioningCaseResult } from "./positioning";
+export { TOOL_SCOUT_CASES, ToolScoutOutput, runToolScoutCase, toolScoutProblems, toolScoutRequest, type ToolScoutCase } from "./tool-scout/cases";
 export { CHAPTER_REPORT_CASES, runChapterReportCase, type ChapterReportCase, type ChapterReportResult } from "./chapter-report";

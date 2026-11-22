@@ -485,6 +485,7 @@ function pickAgent(agents: AgentLike[], want: { channel?: ChannelKey; kind?: Tas
       legal: /legal|counsel|compliance/i,
       finance: /finance|cfo|accountant|controller/i,
       ops: /operations|ops|chief of staff|assistant/i,
+      tool_need: /chief of staff/i,
     };
     const found = agents.find((a) => re[want.kind as TaskKind].test(`${a.role} ${a.name}`));
     if (found) return found.id;

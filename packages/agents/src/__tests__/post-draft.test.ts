@@ -44,10 +44,10 @@ const LINK = "https://foundmill.example/p/maple-bakes?via=p.maple-bakes";
 const PAGE = { pitch: "Sourdough, baked each morning in Leeds.", about: "I bake sourdough in small batches and bring it to your door before 8. Started in my kitchen in 2024.", forWhom: "People in Leeds who want real bread", stage: "building" as const };
 const facts = (over: Partial<Parameters<typeof postDraftFacts>[0]> = {}) => postDraftFacts({ businessName: "Maple Bakes", page: PAGE, trigger: "page_published", subject: "page_live", at: new Date("2026-11-12T15:00:00Z"), timeZone: "America/New_York", link: LINK, ...over });
 
-const OPEN: PostDraftGates = { isDemo: false, agentsStopped: false, channelByTap: true, channelOnBoard: true, agentPaused: false, pageLive: true, alreadyForTrigger: false, waitingForSubject: false, inLastDay: 0, inLastWeek: 0 };
+const OPEN: PostDraftGates = { isDemo: false, agentsStopped: false, channelByTap: true, agentPaused: false, pageLive: true, alreadyForTrigger: false, waitingForSubject: false, inLastDay: 0, inLastWeek: 0 };
 
 describe("postDraftDecision", () => {
-  it("drafts for a real project with the social channel by tap and on the board", () => {
+  it("drafts for a real project with the social channel by tap, whether or not it is on the board", () => {
     expect(postDraftDecision(OPEN)).toEqual({ draft: true });
   });
 
@@ -56,7 +56,6 @@ describe("postDraftDecision", () => {
       [{ isDemo: true }, "sample_business"],
       [{ agentsStopped: true }, "agents_stopped"],
       [{ channelByTap: false }, "not_by_tap"],
-      [{ channelOnBoard: false }, "off_the_board"],
       [{ agentPaused: true }, "agent_paused"],
       [{ pageLive: false }, "page_not_live"],
       [{ alreadyForTrigger: true }, "already_drafted"],
@@ -66,10 +65,6 @@ describe("postDraftDecision", () => {
     ];
     for (const [patch, reason] of cases) expect(postDraftDecision({ ...OPEN, ...patch }), reason).toEqual({ draft: false, reason });
     expect(cases.map(([, r]) => r).sort()).toEqual([...POST_DRAFT_SKIPS].sort());
-  });
-
-  it("off the board, nothing is drafted whatever else is true: the board is the founder's yes", () => {
-    expect(postDraftDecision({ ...OPEN, channelOnBoard: false })).toEqual({ draft: false, reason: "off_the_board" });
   });
 
   it("holds the caps: one under writes, at the cap does not, and a sample business never does", () => {

@@ -5,7 +5,7 @@
  * and seals any secret the vendor hands back; the api never sees it. A mock one answers here.
  */
 import { INPUT_LIMITS } from "@foundmill/config";
-import { isServiceOnlyConnector, type HealthResult } from "@foundmill/connectors";
+import { isServiceOnlyConnector, MOCK_ONLY_CONNECTORS, type HealthResult } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
 import { AppError, boundedRecord, connectorMode, ForbiddenError, mockResultsAllowed, platformMailAddress, platformMailDomain, platformMailLive, RegistrantContact } from "@foundmill/shared";
 import { z } from "zod";
@@ -77,7 +77,8 @@ export const integrationsRouter = router({
         catalogue: catalogue.map((c) => {
           const live = connectorMode(ctx.env, c.key) === "live";
           // Whether it can be connected here: live, or a mock where simulated results are allowed (WP-02 T3).
-          return { ...c, live, available: live || mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo), integration: rows.find((r) => r.connectorKey === c.key) ?? null };
+          // A connector with no live build (MOCK_ONLY_CONNECTORS) is not available live, so Settings hides it unless connected.
+          return { ...c, live, available: live ? !MOCK_ONLY_CONNECTORS.has(c.key) : mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo), integration: rows.find((r) => r.connectorKey === c.key) ?? null };
         }),
       };
     }),
@@ -186,14 +187,14 @@ export const integrationsRouter = router({
       if (typeof input.input.code !== "string") {
         const account = typeof input.input.shop === "string" ? input.input.shop.trim().toLowerCase() : null;
         const state = signConnectState(ctx.env.SESSION_TOKEN_SECRET, { userId: ctx.userId!, businessId: ctx.businessId, connectorKey: input.connectorKey, account });
-        const first = (await ctx.gateway.connect(ctx.businessId, input.connectorKey, { ...(account ? { shop: account } : {}), state, redirectUri })).record;
+        const first = (await ctx.gateway.connect(ctx.businessId, input.connectorKey, { ...(account ? { shop: account } : {}), ...(input.connectorKey === "gmail" && input.input.readMail === true ? { readMail: true } : {}), state, redirectUri })).record;
         const consentUrl = typeof first.config.authorizeUrl === "string" ? first.config.authorizeUrl : null;
         return { integration: await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey), record: { ...first, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
       }
       const finish = OAuthFinish.parse(input.input);
       const { account } = verifyConnectState(ctx.env.SESSION_TOKEN_SECRET, finish.state, { userId: ctx.userId!, businessId: ctx.businessId, connectorKey: input.connectorKey });
       if (account !== null && finish.shop?.toLowerCase() !== account) throw new ForbiddenError("This sign-in came back for a different store: connect again from Settings › Integrations");
-      connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { code: finish.code, redirectUri, ...(account ? { shop: account } : {}) });
+      connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { code: finish.code, redirectUri, state: finish.state, ...(account ? { shop: account } : {}) });
     } else if (mode === "live") {
       // An API key the founder entered (SendGrid, Dropbox Sign, Cloudflare, or Stripe's second way in beside "Sign in with
       // Stripe"), a platform-key registry, a Plaid or Tink link.
