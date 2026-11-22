@@ -11,8 +11,8 @@
  */
 import { z } from "zod";
 import { mockIntegrationRecord, OPENSRS_KEY, quoteDomain, registerDomain, SENDING_DOMAIN_KEY, setupRegisteredDomain, type ToolContext } from "@foundmill/connectors";
-import { projectDomainsStore, repos, type ProjectDomain } from "@foundmill/db";
-import { mockResultsAllowed, RegistrantContact } from "@foundmill/shared";
+import { domainOrdersStore, projectDomainsStore, repos, type ProjectDomain } from "@foundmill/db";
+import { mockResultsAllowed } from "@foundmill/shared";
 import { GatewayError, modeFor, type GatewayDeps } from "./pipeline";
 import { checkRateLimit } from "./rate-limit";
 
@@ -23,7 +23,8 @@ const SiteHost = z.string().trim().toLowerCase().max(253).regex(/^(?:[a-z0-9](?:
 
 export const RegisterDomainRequest = z.discriminatedUnion("action", [
   z.object({ action: z.literal("quote"), businessId: z.guid(), domain: z.string().max(300) }),
-  z.object({ action: z.literal("register"), businessId: z.guid(), userId: z.guid(), domain: z.string().max(300), owner: RegistrantContact, priceMinor: z.number().int().min(0).max(1_000_000), siteHost: SiteHost }),
+  // Only for a paid domain checkout (0150): its domain, price and the founder's details come from the checkout.
+  z.object({ action: z.literal("register"), businessId: z.guid(), userId: z.guid(), checkoutId: z.guid(), siteHost: SiteHost }),
   z.object({ action: z.literal("setup"), businessId: z.guid(), siteHost: SiteHost }),
 ]);
 export type RegisterDomainRequest = z.infer<typeof RegisterDomainRequest>;
@@ -40,7 +41,6 @@ export async function handleRegisterDomain(deps: GatewayDeps, input: RegisterDom
   if (mode === "mock" && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, business.isDemo)) {
     throw new GatewayError("not_available", "Getting a domain here is not available yet. Nothing was changed.", 409);
   }
-  if (mode === "live" && input.action === "register") throw new GatewayError("not_available", "Registering a domain opens once you can pay for it here. Nothing was registered or charged.", 409);
   if (input.action === "quote") {
     const limit = await checkRateLimit(deps.rateLimits, { businessId: input.businessId, connector: `${OPENSRS_KEY}:quote`, limits: QUOTE_LIMITS }, (deps.now?.() ?? new Date()).getTime());
     if (!limit.allowed) throw new GatewayError("rate_limited", `Too many lookups. Try again in ${limit.retryAfterSeconds} seconds.`, 429, { retryAfterSeconds: limit.retryAfterSeconds });
@@ -52,6 +52,9 @@ export async function handleRegisterDomain(deps: GatewayDeps, input: RegisterDom
       const r = await connector.callTool(tool, args, ctx);
       if (!r.ok) {
         deps.log.warn({ businessId: input.businessId, connector: key, tool, code: r.error?.code, status: r.error?.status }, "domain registration call refused");
+        // A definite refusal stays one (4xx), so the flow can give the payment back; anything else may have acted.
+        const status = r.error?.status;
+        if (typeof status === "number" && status >= 400 && status < 500) throw new GatewayError("registry_refused", "The registry refused this request.", 409);
         throw new GatewayError("domain_vendor_failed", "The registry did not answer as expected. Try again in a minute.", 502);
       }
       return r.data as T;
@@ -60,6 +63,6 @@ export async function handleRegisterDomain(deps: GatewayDeps, input: RegisterDom
   const flow = { registrar: caller(OPENSRS_KEY), sending: caller(SENDING_DOMAIN_KEY), store: projectDomainsStore(deps.db), simulated: mode === "mock" };
   const base = { mode, simulated: mode === "mock" };
   if (input.action === "quote") return { ...base, quote: await quoteDomain(flow, input.domain) };
-  if (input.action === "register") return { ...base, domain: await registerDomain(flow, input) };
+  if (input.action === "register") return { ...base, domain: await registerDomain({ ...flow, orders: domainOrdersStore(deps.db) }, input) };
   return { ...base, domain: await setupRegisteredDomain(flow, input) };
 }
