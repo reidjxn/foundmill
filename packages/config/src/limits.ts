@@ -68,6 +68,8 @@ export const LIMITS = {
   liveRequestsPerUserPerHour: 20,
   /** Requests to one person per day, so request, withdraw and request again is stopped quickly. */
   liveRequestsPerPairPerDay: 3,
+  /** Requests one person receives per day from everyone (M2: a ring of accounts cannot bury someone in requests). */
+  liveRequestsPerRecipientPerDay: 50,
   liveMessagesPerUserPerMinute: 20,
   liveMessagesPerUserPerHour: 200,
   liveMessagesPerThreadPerMinute: 10,
@@ -81,6 +83,8 @@ export const LIMITS = {
   liveJoinsPerUserPerDay: 30,
   /** Changes to a community a person owns per day (H3: each change to its name or description is a screening model call). */
   liveCommunityEditsPerUserPerDay: 20,
+  /** Community reads per person per minute (M1): lists, a community, its feed, its review queue and invitations. */
+  liveCommunityReadsPerUserPerMinute: 120,
   /** Messages a thread shows at first (and per "Load earlier"). */
   liveMessagePageSize: 50,
   /** Largest tRPC request body the api reads (bytes); a request carrying a logo file may be larger (`trpcMaxLogoBodyBytes`). */

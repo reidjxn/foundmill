@@ -181,6 +181,20 @@ describe("/communities/[id]", () => {
     expect(await within(thread).findByText("Ben Okoye")).toBeTruthy();
   });
 
+  it("links only web addresses in someone else's post: a path, mailto: or tel: link shows as its words (L2)", async () => {
+    memberView();
+    api.handlers["live.communities.posts"] = () => ({
+      items: [post("links", ids.ana, "See [our page](https://example.com/page), [settings](/settings/billing), [mail](mailto:ana@example.com) and [call](tel:+14155550100).", 2)],
+      nextCursor: null,
+    });
+    mount(<CommunityScreen communityId={ids.community} />);
+    const [item] = await within(await screen.findByTestId("community-feed")).findAllByTestId("feed-post");
+    const links = within(item!).getAllByRole("link");
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.com/page"]);
+    expect(item!.textContent).toContain("settings");
+    expect(item!.textContent).toContain("mail");
+  });
+
   it("dates the community in the person's own format (Settings › Preferences: ISO)", async () => {
     memberView();
     mount(
