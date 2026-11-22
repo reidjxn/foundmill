@@ -15,7 +15,9 @@ The four high findings of the security review in #217's description, fixed in th
 
 ## Decisions
 ### Reports count from members who were there first
-Scaling the threshold with the community's size still lets a few fresh accounts hide a post in a small community. Counting only reporters who joined before the post means accounts made to attack a post cannot hold it, and an approved post stays approved (each member reports a post once). Every report still reaches the moderators' queue. Known limit: accounts that join early and wait can still hold a later post; it then waits for a moderator, who approves it once and for all. An edit keeps a report-held post held while any open report stands (banning the reporters is no way out). Joining again as a member spends no join.
+Scaling the threshold with the community's size still lets a few fresh accounts hide a post in a small community. Counting only reporters who joined before the post means accounts made to attack a post cannot hold it, and an approved post stays approved (each member reports a post once). Every report still reaches the moderators' queue.
+
+Known limit: accounts that join early and wait can still hold a later post; it then waits for a moderator, who approves it once and for all. An edit keeps a report-held post held while any open report stands (banning the reporters is no way out). Joining again as a member spends no join.
 ### A moderator never approves their own post, even alone
 A community with one moderator keeps a way on: editing a screen-held post screens it again, and deleting always works. A post held by members' reports waits for another moderator; that is the point of the reports. Nothing here counts or nudges a person for moderating alone.
 ### Blocks filter feeds for everyone, moderators included
