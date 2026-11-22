@@ -172,7 +172,7 @@ describe("structural: what the client roles may call and create", () => {
       // 0094 (granted by 0095): whether the caller is a member of the business other than as a collaborator; the
       // policies that close the admin-written, Money and Legal tables to a collaborator call it as authenticated.
       "is_member_not_collaborator(uuid)",
-      // 0162: whether the caller is a member (not a collaborator) of a project the owner took charge of; the select
+      // 0164: whether the caller is a member (not a collaborator) of a project the owner took charge of; the select
       // policy of owner_credits calls it as authenticated.
       "fm_shares_owner_budget(uuid)",
       // 0096: takes a share lock on the caller's own membership row (auth.uid() only) for team.humans.role.

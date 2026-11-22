@@ -58,6 +58,8 @@ import { e2bTools } from "./connectors/e2b/tools";
 import { platformMailTools } from "./connectors/platform_mail/tools";
 import { HUBSPOT_MCP, NOTION_MCP, SHOPIFY_MCP } from "./remote-mcp/servers";
 import { remoteToolList } from "./remote-mcp/build";
+import { BROWSER_SITES } from "./browser-sites";
+import { BROWSER_TOOL_LIST, browserConnectorKey } from "./connectors/browser/tools";
 
 const names = (tools: readonly { name: string }[]) => Object.freeze(tools.map((t) => t.name));
 
@@ -117,6 +119,8 @@ const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: Pol
     { name: "list_remote_tools", hints: {} },
     { name: "call_unlisted_tool", hints: { contactsThirdParty: true, irreversible: true } },
   ],
+  // The hosted browser: the same tools on every site of the site list.
+  ...Object.fromEntries(BROWSER_SITES.map((s) => [browserConnectorKey(s.key), BROWSER_TOOL_LIST])),
 };
 
 /** Every tool the gateway serves, by connector: the registry's connectors plus the built-ins (platform, web, quarantine). */

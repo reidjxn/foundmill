@@ -42,6 +42,20 @@ export interface GatewayConnectResult {
   credential: { stored: true; credentialId: string; hint: string } | null;
 }
 
+/** One running hosted-browser session as the gateway tells the founder's screens (apps/gateway browser.ts). The live view is the page itself: it travels to the member's browser and is never stored. */
+export interface GatewayBrowserSession {
+  siteKey: string;
+  siteName: string;
+  liveViewUrl: string | null;
+  url: string | null;
+  startedAt: string;
+  steps: number;
+  held: { why: "founder" | "request" | "hard_gate" | "sign_in"; note: string } | null;
+  signIn: boolean;
+  /** The recorded mock's session: nothing outside was touched. */
+  simulated: boolean;
+}
+
 /** A founder's own Anthropic key, checked by the gateway with Anthropic (apps/gateway keys.ts `ValidateKeyResponse`). */
 export interface GatewayKeyValidation {
   mode: "live";
@@ -352,6 +366,12 @@ export interface ApiGatewayClient {
   health(businessId: string, connector: string): Promise<GatewayHealth>;
   /** Withdraws the vendor-side access of a connection before it is disconnected (a Stripe sign-in); false when there was none. */
   disconnect?(businessId: string, connector: string): Promise<{ released: boolean }>;
+  /** The hosted browser's running sessions for a project (Working now), and the founder's controls over them. */
+  browserSessions?(businessId: string): Promise<{ sessions: GatewayBrowserSession[] }>;
+  browserTakeOver?(businessId: string, siteKey: string): Promise<{ held: boolean }>;
+  browserHandBack?(businessId: string, siteKey: string): Promise<{ handedBack: boolean }>;
+  /** Ends one site's session, or every session of the project when `siteKey` is absent (Stop all agents). */
+  browserStop?(businessId: string, siteKey?: string, timeoutMs?: number): Promise<{ stopped: number }>;
   /** After a sign-in was replaced and saved: withdraws the previous account's access, which the gateway does only when no project holds it. */
   release?(businessId: string, connector: string, externalAccountId: string): Promise<{ released: boolean }>;
   /** A founder's own Anthropic key, checked with Anthropic (a one-token call, then the routed models); asked only with live models. */
@@ -487,6 +507,10 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     connect: (businessId, connector, input) => post<GatewayConnectResult>("/v1/integrations/connect", { businessId, connector, input }),
     health: async (businessId, connector) => (await post<{ health: GatewayHealth }>("/v1/integrations/health", { businessId, connector })).health,
     disconnect: (businessId, connector) => post<{ released: boolean }>("/v1/integrations/disconnect", { businessId, connector }),
+    browserSessions: (businessId) => post<{ sessions: GatewayBrowserSession[] }>("/v1/browser/sessions", { businessId }),
+    browserTakeOver: (businessId, siteKey) => post<{ held: boolean }>("/v1/browser/takeover", { businessId, siteKey }),
+    browserHandBack: (businessId, siteKey) => post<{ handedBack: boolean }>("/v1/browser/handback", { businessId, siteKey }),
+    browserStop: (businessId, siteKey, stopTimeoutMs) => post<{ stopped: number }>("/v1/browser/stop", { businessId, ...(siteKey ? { siteKey } : {}) }, stopTimeoutMs ?? timeoutMs),
     release: (businessId, connector, externalAccountId) => post<{ released: boolean }>("/v1/integrations/release", { businessId, connector, externalAccountId }),
     createCheckout: (input) => post<GatewayCheckout>("/v1/billing/checkout-sessions", input),
     createPortal: (input) => post<{ mode: "mock" | "live"; url: string }>("/v1/billing/portal-sessions", input),

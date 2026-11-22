@@ -44,7 +44,7 @@ describe("settleCreditCheckout", () => {
   it("grants the amount to the period's balance once, marks the row paid and audits it", async () => {
     const A = r.A.businessId;
     const row = await openLive(A, 10_000);
-    // The project's own balance is what it bought: the owner's included budget is shared and sits apart from it (0162).
+    // The project's own balance is what it bought: the owner's included budget is shared and sits apart from it (0164).
     const settle = (eventId: string) => settleCreditCheckout(r.db, { businessId: A, checkoutId: row.id, externalId: row.externalId, eventId, amountMinor: 10_000, currency: "usd", mode: "live", paidAt, actor: { kind: "webhook" } });
 
     const first = await settle("evt_1");

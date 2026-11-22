@@ -138,7 +138,7 @@ export async function settleCreditCheckout(db: Executor, input: SettleCheckoutIn
     // A credit pack can carry more credit than its price (0140); a top-up carries what was paid.
     const creditsMinor = Number(row.creditsMinor ?? row.amountMinor);
     // A top-up comes on top of the month's included credits. The included budget is the owner's, shared by all their
-    // projects (0162), so the project's row opens with nothing included; a business with no recorded owner opens with
+    // projects (0164), so the project's row opens with nothing included; a business with no recorded owner opens with
     // its own plan's (a team paused at the end of last month makes no charge to create the row).
     const business = await repos.businesses.get(tx, input.businessId, { includeArchived: true });
     await repos.usage.ensurePeriodCredits(tx, input.businessId, period, business.createdBy ? 0 : includedCreditsMinor(business.planTier));

@@ -14,6 +14,7 @@ export * from "./components/public";
 export * from "./components/booking";
 export * from "./components/landing";
 export * from "./components/share";
+export * from "./components/browser";
 export * from "./lib";
 export * from "./version";
 export * from "./brand";

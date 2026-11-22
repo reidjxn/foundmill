@@ -94,16 +94,30 @@ export async function stopAllAgents(ctx: BusinessContext, reason = "kill_switch"
     signals = { workflows: { queued: false, signalled: [], failed: [], reason: why }, lateSessions: 0, cycleWorkflowId: null };
   }
   const { workflows } = signals;
+  // The hosted browser's sessions end with the stop. Best effort inside what is left of the budget: a gateway that does
+  // not answer never fails a stop that is already in effect.
+  const browser = await stopBrowserSessions(ctx, Math.max(1_000, budgetMs - 2_000 - (Date.now() - started)));
 
   await ctx.rls((tx) =>
     audit(tx, ctx, {
       action: "business.stop_all_agents",
       target: { kind: "business", id: businessId },
-      details: { reason, pausedAgents: local.pausedAgents, pausedTasks: local.pausedTasks, pausedCampaigns: local.pausedCampaigns, cancelledTraining: local.cancelledTraining.length, signalled: workflows.signalled.length, failed: workflows.failed.length, lateSessions: signals.lateSessions, temporalQueued: workflows.queued, temporalReason: workflows.reason ?? null, cycleWorkflowId: signals.cycleWorkflowId },
+      details: { reason, pausedAgents: local.pausedAgents, pausedTasks: local.pausedTasks, pausedCampaigns: local.pausedCampaigns, cancelledTraining: local.cancelledTraining.length, signalled: workflows.signalled.length, failed: workflows.failed.length, browserSessionsStopped: browser.stopped, browserReached: browser.reached, lateSessions: signals.lateSessions, temporalQueued: workflows.queued, temporalReason: workflows.reason ?? null, cycleWorkflowId: signals.cycleWorkflowId },
     }),
   );
 
   return { pausedAgents: local.pausedAgents, pausedTasks: local.pausedTasks, pausedCampaigns: local.pausedCampaigns, cancelledTraining: local.cancelledTraining.length, stoppedAt: local.stoppedAt, workflows, elapsedMs: Date.now() - started, budgetMs };
+}
+
+/** Ends every hosted-browser session of the project (the gateway's `/v1/browser/stop`); never throws. */
+async function stopBrowserSessions(ctx: BusinessContext, timeoutMs: number): Promise<{ stopped: number; reached: boolean }> {
+  if (!ctx.gateway.browserStop) return { stopped: 0, reached: false };
+  try {
+    return { stopped: (await ctx.gateway.browserStop(ctx.businessId, undefined, timeoutMs)).stopped, reached: true };
+  } catch (err) {
+    ctx.log.warn({ businessId: ctx.businessId, err: (err as Error).message }, "Stop all agents: the stop is in effect but the browser sessions were not ended");
+    return { stopped: 0, reached: false };
+  }
 }
 
 interface SignalledStop {

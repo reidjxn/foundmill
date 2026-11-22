@@ -12,7 +12,9 @@ import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
 import { closeDb, createServiceDb, keepPoolWarm, repos, watchPoolOrExit, type Db, type PoolWarmer, type PoolWatchdog } from "@foundmill/db";
-import { createDefaultRegistry, createElevenlabsSpeechStreamer, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
+import { BrowserSessions, createDefaultRegistry, createElevenlabsSpeechStreamer, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
+import { browserHost } from "./browser";
+import { createE2bBrowserDriver } from "./browser-e2b";
 import { createModelClient, effectiveModelMode, type ModelClient } from "@foundmill/models";
 import { createGatewayApp, type GatewayApp } from "./app";
 import { createGatewayBuiltins, gatewayUsageSink, readerClientFor, type QuarantinedReaderDeps } from "./builtins";
@@ -108,9 +110,13 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   let registry = options.registry;
   // The skill tools read the business's repository through this gateway's own pipeline, built further down.
   let repositoryFiles: RepositoryFiles | null = null;
+  // The hosted browser's live sessions: one set for the process, shared by the site connectors and the founder's routes.
+  // E2B desktop sandboxes (founder, Nov 22, 2026), on the platform's E2B key: one short-lived sandbox per session.
+  const browserSessions = secrets.e2bApiKey ? new BrowserSessions(createE2bBrowserDriver({ apiKey: secrets.e2bApiKey, ...(env.E2B_BROWSER_TEMPLATE ? { template: env.E2B_BROWSER_TEMPLATE } : {}) })) : null;
   if (!registry) {
     registry = createDefaultRegistry({
       secrets,
+      browser: browserHost(db, log, browserSessions),
       // IndexNow for a project's Foundmill-hosted page: the key file lives under this origin (`/p/<slug>/<key>.txt`).
       hostedPagesOrigin: env.APP_URL,
       isSuppressed: (businessId, email) => repos.channels.isSuppressed(db, businessId, { emailHash: hashRecipient("email", email) }),
@@ -145,7 +151,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
   // The pipeline's digest runs on the key that pays for it, as `quarantine.read_untrusted` does (builtins.ts).
   const reader: UntrustedReader = options.reader ?? createUntrustedReader(readerClientFor(readerDeps));
-  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail, turnstile: { secret: env.TURNSTILE_SECRET_KEY ?? null }, speechStreamer: createElevenlabsSpeechStreamer({ secrets }), ...(env.STRIPE_ENTRY_PRICE_ID ? { entryPriceId: env.STRIPE_ENTRY_PRICE_ID } : {}), paidEntry: env.PAID_ENTRY === true };
+  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail, turnstile: { secret: env.TURNSTILE_SECRET_KEY ?? null }, speechStreamer: createElevenlabsSpeechStreamer({ secrets }), ...(env.STRIPE_ENTRY_PRICE_ID ? { entryPriceId: env.STRIPE_ENTRY_PRICE_ID } : {}), paidEntry: env.PAID_ENTRY === true, browserSessions };
   repositoryFiles = createRepositoryFiles(deps);
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).
   let readiness: DbReadiness | null = null;

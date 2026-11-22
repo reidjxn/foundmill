@@ -197,7 +197,7 @@ export const creditBalances = pgTable(
 export type CreditBalance = typeof creditBalances.$inferSelect;
 
 /**
- * 0162 — the owner's included budget for a month, shared by all their projects (founder, Nov 19, 2026): account-scoped,
+ * 0164 — the owner's included budget for a month, shared by all their projects (founder, Nov 19, 2026): account-scoped,
  * service role only. A charge draws on it first, then on the project's own `credit_balances` row (what the project bought).
  */
 export const ownerCredits = pgTable(

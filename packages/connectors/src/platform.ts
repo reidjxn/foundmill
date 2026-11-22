@@ -9,6 +9,7 @@ import { loadEnv, type Env } from "@foundmill/shared";
 import type { FetchLike } from "./http";
 import type { BusinessResolver } from "./webhooks";
 import type { PlatformHost } from "./connectors/platform/tools";
+import type { BrowserHost } from "./connectors/browser";
 
 export interface PlatformSecrets {
   anthropicApiKey?: string;
@@ -165,6 +166,8 @@ export interface LiveConnectorOptions {
    * The web search behind live `web.search_web` (WP-09 T3): the gateway's platform model client, which asks the
    * business's credits first and books the search's tokens and fee to the caller. Absent: live search is not available.
    */
+  /** The hosted browser's host hooks (sessions, the step record, project files); the gateway provides them. */
+  browser?: BrowserHost;
   searchWeb?: (input: { businessId: string; agentId?: string; sessionId?: string; query: string; limit: number }) => Promise<{ url: string; title: string; pageAge: string | null }[]>;
 }
 

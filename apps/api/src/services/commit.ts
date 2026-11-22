@@ -250,7 +250,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     }
         // The project's own credits row for the month (what it carries from bought credit), so the first cycle already runs
     // against a balance that rests the team. The included budget is the owner's, shared by all their projects: a new
-    // project sees what is left of it, never a second one (`owner_credits`, 0162).
+    // project sees what is left of it, never a second one (`owner_credits`, 0164).
     const period = periodOf(new Date());
     if (modelBilling === "credits") await repos.usage.ensurePeriodCredits(tx, businessId, period, await includedCreditsFor(tx, business, period));
     const credits = modelBilling === "credits" ? await platformCredits(tx, business, period) : null;
