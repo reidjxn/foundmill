@@ -7,9 +7,10 @@
  * record, and the audit row for the founder's press.
  */
 import { mockIntegrationRecord, OPENSRS_KEY, quoteDomain, registerDomain, runOwnDomain, SENDING_DOMAIN_KEY, setupRegisteredDomain, type ToolContext } from "@foundmill/connectors";
-import { OwnDomainTakenError, projectDomainsStore, repos } from "@foundmill/db";
+import { domainOrdersStore, OwnDomainTakenError, projectDomainsStore, repos, settleCreditCheckout } from "@foundmill/db";
 import { AppError, connectorMode, ForbiddenError, mockResultsAllowed, platformMailDomain, platformMailMode, type RegistrantContact } from "@foundmill/shared";
 import type { GatewayOwnDomain, GatewayOwnDomainRequest, GatewayRegisterDomainRequest, GatewayRegisterDomainResult } from "./gateway";
+import { checkoutModeFor, MOCK_PAYMENTS_OFF_MESSAGE, mockPaymentsAllowed, startCreditCheckout } from "./payments";
 import { audit, type BusinessContext } from "../trpc";
 import { isProjectFounder } from "./postal-address";
 
@@ -60,9 +61,21 @@ const view = (ctx: BusinessContext, row: RowLike | null, simulated?: boolean): O
       }
     : null,
   canEdit: isProjectFounder(ctx),
-  canRegister: connectorMode(ctx.env, OPENSRS_KEY) === "mock" && mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo),
+  // Live: OpenSRS and Foundmill's Stripe both live (a real payment, then a real registration). Mock: where simulated results are allowed.
+  canRegister: canRegisterHere(ctx),
   ...(simulated !== undefined ? { simulated } : {}),
 });
+
+/**
+ * Whether a domain can be bought here: the payment and the registration in the same mode (a real payment for a real
+ * registration, a simulated one for a simulated one, never one of each), and simulated only where simulated results
+ * are allowed.
+ */
+function canRegisterHere(ctx: BusinessContext): boolean {
+  const registry = connectorMode(ctx.env, OPENSRS_KEY);
+  if (registry !== checkoutModeFor(ctx.env)) return false;
+  return registry === "live" || (mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo) && mockPaymentsAllowed(ctx.env));
+}
 
 /** The project's Foundmill site host (`<slug>.<SITES_DOMAIN>`), for the `www` record; null without a site. */
 async function siteHostOf(ctx: BusinessContext): Promise<string | null> {
@@ -72,9 +85,20 @@ async function siteHostOf(ctx: BusinessContext): Promise<string | null> {
   return site ? `${site.slug}.${sitesDomain}` : null;
 }
 
-export async function ownDomainOf(ctx: BusinessContext): Promise<OwnDomainView | null> {
+/** A domain payment of this project not yet registered: paid and unclaimed, or (with `openToo`) open within a day. */
+async function pendingDomainCheckout(ctx: BusinessContext, opts: { openToo: boolean }): Promise<{ id: string; domain: string; paid: boolean; mode: "mock" | "live"; checkoutUrl: string | null } | null> {
+  const dayAgo = Date.now() - 24 * 60 * 60_000;
+  const recent = await repos.checkouts.listRecent(ctx.db, ctx.businessId, 20);
+  const c = recent.find((x) => x.kind === "domain" && ((x.status === "paid" && !x.fulfilledAt) || (opts.openToo && x.status === "open" && x.createdAt.getTime() > dayAgo)));
+  return c?.domainName ? { id: c.id, domain: c.domainName, paid: c.status === "paid", mode: c.mode, checkoutUrl: c.checkoutUrl } : null;
+}
+
+export async function ownDomainOf(ctx: BusinessContext): Promise<(OwnDomainView & { pendingCheckout: { id: string; domain: string; paid: boolean; mode: "mock" | "live"; checkoutUrl: string | null } | null }) | null> {
   if (!platformMailDomain(ctx.env)) return null;
-  return view(ctx, await ctx.rls((tx) => repos.projectDomains.view(tx, ctx.businessId)), platformMailMode(ctx.env) === "mock");
+  const row = await ctx.rls((tx) => repos.projectDomains.view(tx, ctx.businessId));
+  // A domain payment not registered yet (the founder closed Stripe's page, or it is still open): Settings offers to finish it.
+  const pending = !row && isProjectFounder(ctx) ? await pendingDomainCheckout(ctx, { openToo: true }) : null;
+  return { ...view(ctx, row, platformMailMode(ctx.env) === "mock"), pendingCheckout: pending };
 }
 
 function gatewayFor(ctx: BusinessContext): (input: GatewayOwnDomainRequest) => Promise<GatewayOwnDomain> {
@@ -158,7 +182,7 @@ function registrarFor(ctx: BusinessContext): (input: GatewayRegisterDomainReques
   const flow = { registrar: caller(OPENSRS_KEY), sending: caller(SENDING_DOMAIN_KEY), store: projectDomainsStore(ctx.db), simulated: true };
   return async (input) => {
     if (input.action === "quote") return { mode: "mock", simulated: true, quote: await quoteDomain(flow, input.domain) };
-    const row = input.action === "register" ? await registerDomain(flow, input) : await setupRegisteredDomain(flow, input);
+    const row = input.action === "register" ? await registerDomain({ ...flow, orders: domainOrdersStore(ctx.db) }, input) : await setupRegisteredDomain(flow, input);
     return { mode: "mock", simulated: true, domain: row ? ({ ...row, checkedAt: iso(row.checkedAt), verifiedAt: iso(row.verifiedAt) } as never) : null };
   };
 }
@@ -169,14 +193,45 @@ export async function quoteRegisteredDomain(ctx: BusinessContext, domain: string
 }
 
 /**
- * The founder's own press: they saw the price (an Estimate) and Tucows' registration agreement and accepted it, and
- * they are the domain's owner with the contact details they entered. Never an agent's (hard gates: money, terms, the
- * founder's identity).
+ * The founder's own press, "Pay": they saw the price (an Estimate) and Tucows' registration agreement and accepted it,
+ * and they are the domain's owner with the contact details they entered. The price is quoted again and must be the one
+ * they saw; a `domain` checkout (0150) opens on Foundmill's Stripe through the gateway (simulated where payments are),
+ * and their details are kept apart until the registration. Never an agent's (hard gates: money, terms, identity).
  */
-export async function registerProjectDomain(ctx: BusinessContext, input: { domain: string; priceMinor: number; owner: RegistrantContact; acceptAgreement: true }): Promise<OwnDomainView> {
-  const r = await registrarFor(ctx)({ action: "register", businessId: ctx.businessId, userId: ctx.userId!, domain: input.domain, owner: input.owner, priceMinor: input.priceMinor, siteHost: await siteHostOf(ctx) });
+export async function startDomainCheckout(ctx: BusinessContext, input: { domain: string; priceMinor: number; owner: RegistrantContact; acceptAgreement: true }) {
+  const registrar = registrarFor(ctx);
+  if (!canRegisterHere(ctx)) throw new AppError("not_available", "Getting a domain here is not available yet. Nothing was charged.", 409);
+  if (await ctx.rls((tx) => repos.projectDomains.view(tx, ctx.businessId))) throw new AppError("domain_exists", "This project has a domain already.", 409);
+  // One domain payment at a time: a paid one waiting for its registration, or one still open on Stripe (24 hours).
+  const pending = await pendingDomainCheckout(ctx, { openToo: true });
+  if (pending) throw new AppError("domain_payment_pending", pending.paid ? `You paid for ${pending.domain} already. Press Finish registration.` : `A payment for ${pending.domain} is already open. Finish it, or try again tomorrow.`, 409, { checkoutId: pending.id });
+  const q = await registrar({ action: "quote", businessId: ctx.businessId, domain: input.domain });
+  const quote = "quote" in q ? q.quote : null;
+  if (!quote?.available || quote.priceMinor === null) throw new AppError("domain_unavailable", `${input.domain} is not available. Try another name.`, 409);
+  if (quote.priceMinor !== input.priceMinor) throw new AppError("price_changed", "The price changed since you looked. Check the new price and press Pay again.", 409, { priceMinor: quote.priceMinor });
+  const started = await startCreditCheckout({ db: ctx.db, env: ctx.env, gateway: ctx.gateway }, { businessId: ctx.businessId, userId: ctx.userId!, email: ctx.email, amountMinor: quote.priceMinor, kind: "domain", domainName: quote.domain });
+  await repos.domainRegistrants.put(ctx.db, ctx.businessId, started.checkout.id, input.owner);
+  await ctx.rls((tx) => audit(tx, ctx, { action: "billing.checkout_started", target: { kind: "billing_checkout", id: started.checkout.id }, details: { kind: "domain", domain: quote.domain, amountMinor: quote.priceMinor, currency: "USD", mode: started.mode, agreementAccepted: input.acceptAgreement } }));
+  return { checkoutId: started.checkout.id, checkoutUrl: started.checkoutUrl, mode: started.mode };
+}
+
+/**
+ * After paying: a simulated payment is settled here (where those are allowed, labeled), a real one by Stripe's webhook
+ * (apps/ingest); then the paid checkout's one registration runs. Until Stripe confirms, it says so and changes nothing.
+ */
+export async function completeDomainCheckout(ctx: BusinessContext, checkoutId: string): Promise<OwnDomainView & { waiting?: boolean }> {
+  if (!isProjectFounder(ctx)) throw new ForbiddenError("Only the founders get a domain for the project.");
+  const checkout = await repos.checkouts.get(ctx.db, ctx.businessId, checkoutId);
+  if (checkout.kind !== "domain") throw new AppError("validation", "This payment is not for a domain.", 400);
+  if (checkout.status === "open" && checkout.mode === "mock") {
+    if (!mockPaymentsAllowed(ctx.env)) throw new AppError("payments_unavailable", MOCK_PAYMENTS_OFF_MESSAGE, 412);
+    await settleCreditCheckout(ctx.db, { businessId: ctx.businessId, checkoutId, externalId: checkout.externalId, eventId: `mock:${checkoutId}`, amountMinor: Number(checkout.amountMinor), currency: checkout.currency, mode: "mock", paidAt: new Date(), actor: { kind: "user", id: ctx.userId } });
+  } else if (checkout.status === "open") {
+    return { ...view(ctx, null), waiting: true };
+  }
+  const r = await registrarFor(ctx)({ action: "register", businessId: ctx.businessId, userId: ctx.userId!, checkoutId, siteHost: await siteHostOf(ctx) });
   const row = "domain" in r ? r.domain : null;
-  await ctx.rls((tx) => audit(tx, ctx, { action: "integrations.domain_registered", target: { kind: "business", id: ctx.businessId }, details: { domain: row?.domain ?? input.domain, priceMinor: input.priceMinor, agreementAccepted: input.acceptAgreement, simulated: r.simulated } }));
+  await ctx.rls((tx) => audit(tx, ctx, { action: "integrations.domain_registered", target: { kind: "billing_checkout", id: checkoutId }, details: { domain: row?.domain ?? checkout.domainName, priceMinor: Number(checkout.amountMinor), simulated: r.simulated } }));
   return view(ctx, row as RowLike | null, r.simulated);
 }
 
