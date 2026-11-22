@@ -44,10 +44,10 @@ function CompetitorCard({ source, onOpen }: { source: SourceRow; onOpen: () => v
         ) : null}
         {r.marketSizeEstimate ? (
           <>
-            <dt className="t-label flex items-center gap-1">
-              Market size <ProvenanceChip kind="estimate" />
-            </dt>
-            <dd className="text-body text-primary tabular-nums">{String(r.marketSizeEstimate)}</dd>
+            <dt className="t-label">Market size</dt>
+            <dd className="text-body text-primary tabular-nums">
+              <ProvenanceChip kind="estimate">{String(r.marketSizeEstimate)}</ProvenanceChip>
+            </dd>
           </>
         ) : null}
       </dl>

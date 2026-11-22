@@ -5,7 +5,10 @@
  * Per-route settings, applied by the client to every call on the route (a request's own `effort` wins):
  * - `effort` → `output_config.effort`. Opus 5.5 always thinks (adaptive) and defaults to `medium`; `low` cuts the
  *   thinking prelude before the first token, which is what a founder waits on for a first draft. Routes without
- *   `effort` keep the API default. Dropped on a model without the parameter (Haiku 4.5).
+ *   `effort` keep the API default (today only the six Haiku utility routes: WP-09 T4 step 2 waits on its live evals). Every other
+ *   route writes its effort down, so a model's default moving never changes a route (WP-09 T6 step 1): `medium` and `high` below
+ *   are the API defaults of the route's model (Opus 5.5 `medium`, Sonnet 5.5 `high`) as they were before they were written.
+ *   Dropped on a model without the parameter.
  * - `speed: "fast"` → Opus fast mode (beta `fast-mode-2026-02-01`, top-level `speed: "fast"`, up to 2.5× output speed at
  *   2× the price). Honoured only when MODEL_FAST_MODE is on, so it costs nothing until someone opts in.
  * - `maxTokens` → `max_tokens` for a call that sends none (a request's own `maxTokens` wins). Opus 5.5 and Sonnet 5.5
@@ -22,8 +25,8 @@ export const MODELS = {
   opus: "claude-opus-5-5",
   sonnet: "claude-sonnet-5-5",
   /**
-   * Haiku 5.5 (WP-09 T4, taken into WP-13): also every call an account not on a paid plan makes outside agent sessions,
-   * on Foundmill's key (founder, Nov 16, 2026; `resolveModel(..., { freePlan: true })`).
+   * Haiku 5.5 (WP-09 T4, taken into WP-13): also the calls of an account not on a paid plan on the routes in
+   * `FREE_PLAN_HAIKU_ROUTES`, on Foundmill's key (founder, Nov 16, 2026; `resolveModel(..., { freePlan: true })`).
    */
   haiku: "claude-haiku-5-5",
   /**
@@ -135,6 +138,17 @@ export const MODEL_CAPABILITIES: Record<ModelKey, ModelCapabilities> = {
 export const FAST_MODE_BETA = "fast-mode-2026-02-01";
 
 /**
+ * Server-side refusal fallback (WP-09 T5): on Opus and Sonnet a declined request is re-run by the API on the model it
+ * recommends for the refusal's category (`fallbacks: "default"`), instead of coming back as a refusal. Haiku 5.5 has no
+ * server-side fallback (a `fallbacks` value there is a 400), so it never carries it.
+ */
+export const SERVER_FALLBACK_BETA = "server-side-fallback-2026-07-01";
+/** The model keys whose requests carry `fallbacks: "default"`. */
+export const SERVER_FALLBACK_KEYS: readonly string[] = ["opus", "sonnet"];
+/** Models a fallback may be served by (priced in pricing.ts `priceForServed`). Never routed to. */
+export const FALLBACK_SERVED_MODELS = { opus5: "claude-opus-5", opus48: "claude-opus-4-8", sonnet5: "claude-sonnet-5" } as const;
+
+/**
  * Models that think by default (Opus 5.5 and Sonnet 5.5: adaptive thinking cannot be turned off; Haiku 5.5 thinks
  * unless told not to, which this platform never does; GLM-5.3 Flash cannot turn it off), and the thinking counts toward
  * `max_tokens`.
@@ -188,17 +202,17 @@ export const ROUTES = {
   // `max_tokens` is only a cap, and a 15-task graph must never be cut short.
   inboxComposer: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: THINKING_MAX_TOKENS },
   planCompiler: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: THINKING_MAX_TOKENS },
-  chiefOfStaff: { model: "opus", lowCredits: "keep", warnOnDowngrade: true, maxTokens: THINKING_MAX_TOKENS },
-  departmentLead: { model: "opus", lowCredits: "sonnet", maxTokens: THINKING_MAX_TOKENS },
+  chiefOfStaff: { model: "opus", lowCredits: "keep", warnOnDowngrade: true, effort: "medium", maxTokens: THINKING_MAX_TOKENS },
+  departmentLead: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
   // Distribution's channel scores and Legal's jurisdiction cards: answers the founder waits on behind a Recommend button.
   leadRecommendation: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: THINKING_MAX_TOKENS },
   planner: { model: "opus", lowCredits: "sonnet", effort: "low", maxTokens: THINKING_MAX_TOKENS },
-  codeReview: { model: "opus", lowCredits: "keep", maxTokens: THINKING_MAX_TOKENS },
+  codeReview: { model: "opus", lowCredits: "keep", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
   // The second read of a long document an agent drafted (the specification, the roadmap, policies, a pitch): a different
   // agent checks it for inconsistencies, unsupported claims, unlabeled figures and claims that need a source. Nobody
   // waits on it, so Opus at the default effort; the cost is bounded by the caller (packages/agents second-read.ts: two
   // rounds at most, the document cut to a fixed size, a few claims fact-checked), never by this budget.
-  documentReview: { model: "opus", lowCredits: "keep", maxTokens: THINKING_MAX_TOKENS },
+  documentReview: { model: "opus", lowCredits: "keep", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
   // Concept cards, compare and the card Q&A (Ideation Studio): first drafts the founder waits on.
   ideation: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // A short slate of names and angles drafted before the cards are written in parallel (audit P2).
@@ -208,11 +222,11 @@ export const ROUTES = {
   foundations: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // The vision and a one-line thesis per section, drafted first so sections can be written in parallel (audit P3).
   foundationsSkeleton: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
-  skillGrader: { model: "opus", lowCredits: "sonnet", maxTokens: THINKING_MAX_TOKENS },
-  coach: { model: "opus", lowCredits: "sonnet", maxTokens: THINKING_MAX_TOKENS },
-  worker: { model: "sonnet", lowCredits: "haiku", maxTokens: THINKING_MAX_TOKENS },
-  journeyCommentary: { model: "sonnet", lowCredits: "haiku", maxTokens: THINKING_MAX_TOKENS },
-  nightlyBatch: { model: "sonnet", lowCredits: "haiku", batch: true, maxTokens: THINKING_MAX_TOKENS },
+  skillGrader: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
+  coach: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
+  worker: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: THINKING_MAX_TOKENS },
+  journeyCommentary: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: THINKING_MAX_TOKENS },
+  nightlyBatch: { model: "sonnet", lowCredits: "haiku", batch: true, effort: "high", maxTokens: THINKING_MAX_TOKENS },
   linker: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },
   classifier: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },
   categoriser: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },
@@ -278,9 +292,8 @@ export interface ResolveOptions {
   /** The business's credits are low: routine routes move to their `lowCredits` model; kept routes are unchanged. */
   lowCredits?: boolean;
   /**
-   * The account is not on a paid plan (WP-13): every route, a locked one included, runs on Haiku 5.5, the free plan's
-   * model on Foundmill's key. A lock names the route's best model, which a paid plan or the founder's own key reaches;
-   * no warning and no credit saver apply.
+   * The account is not on a paid plan (WP-13): a route in `FREE_PLAN_HAIKU_ROUTES` runs on Haiku 5.5 on Foundmill's
+   * key, a lock included; every other route keeps its own model. No warning and no credit saver apply.
    */
   freePlan?: boolean;
 }
@@ -300,6 +313,14 @@ export function lowCreditsModel(route: RouteKey): ModelKey | null {
 }
 
 /**
+ * The routes an account not on a paid plan runs on Haiku 5.5 (WP-13). Only routes that read no untrusted content, or
+ * only titles and addresses, and that hold no tools. Every other route keeps its own model for a free account: Haiku
+ * 5.5 leaked half of the planted instructions in the injection suites (T8, Nov 17, 2026), so the readers, the agents,
+ * the conversations, the composer's notes and the planners stay where they pass.
+ */
+export const FREE_PLAN_HAIKU_ROUTES: ReadonlySet<RouteKey> = new Set<RouteKey>(["ideation", "ideationSlate", "logoDesigner", "founderTitle", "goalProposal", "projectPage", "journeyCommentary", "moderation", "webSearch"]);
+
+/**
  * Resolve the model for a route, honouring locks and downgrade warnings (BUILD §10.1, §11.10 "Model selection"). With
  * `lowCredits`, a routine route runs on its lower-cost model, or on the agent's chosen model when that is cheaper still;
  * a kept or locked route is unchanged.
@@ -309,7 +330,7 @@ export function resolveModel(route: RouteKey, override?: ModelKey, options: Reso
   const locked = def.locked === true;
   let modelKey: ModelKey = def.model;
   let warning: string | undefined;
-  if (options.freePlan) {
+  if (options.freePlan && FREE_PLAN_HAIKU_ROUTES.has(route)) {
     modelKey = "haiku";
   } else if (override === "glm") {
     // A free account's agent session (WP-13 T4): GLM on every route, a locked one included, as `freePlan` does.

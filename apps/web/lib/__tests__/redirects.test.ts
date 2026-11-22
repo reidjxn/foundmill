@@ -25,6 +25,21 @@ describe("proxy redirect rules", () => {
     expect(decideRedirect({ pathname: "/auth/callback", authenticated: true }).kind).toBe("next");
   });
 
+  it("serves the public waitlist page to anyone, signed in or out (WP-14 T15)", () => {
+    expect(isPublicPath("/waitlist")).toBe(true);
+    expect(decideRedirect({ pathname: "/waitlist", authenticated: false }).kind).toBe("next");
+    expect(decideRedirect({ pathname: "/waitlist", authenticated: true }).kind).toBe("next");
+    expect(isFounderPath("/waitlist")).toBe(false);
+    // The one address, never a prefix.
+    for (const p of ["/waitlist-admin", "/waitlistx", "/waitlist/batches"]) expect(isPublicPath(p), p).toBe(false);
+  });
+
+  it("serves the gallery to anyone, signed in or out", () => {
+    expect(isPublicPath("/explore")).toBe(true);
+    expect(decideRedirect({ pathname: "/explore", authenticated: false }).kind).toBe("next");
+    expect(isFounderPath("/explore")).toBe(false);
+  });
+
   it("serves a project's public page to anyone, signed in or out, and only under /p/", () => {
     for (const p of ["/p/northwind-skincare", "/p/northwind-skincare/opengraph-image"]) {
       expect(isPublicPath(p), p).toBe(true);

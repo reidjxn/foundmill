@@ -3,6 +3,7 @@
  * the orchestrator's `autopilot` workflow and the API's Home/Settings read gather it the same way and cannot disagree.
  * Read-only; nothing here writes.
  */
+import { costCoveredMinor } from "@foundmill/config";
 import { CONTINUE_RUN_LIMITS, utcDayStart, type AutopilotCycleSummary, type AutopilotFacts, type AutopilotPauseReason, type ContinueRunFacts } from "@foundmill/shared";
 import { creditsState } from "./billing";
 import { repos } from "./repos";
@@ -127,7 +128,7 @@ export function ownAutopilotToday(events: readonly CycleEventLike[], dayStart: n
  * cycle); its rounds are read from the cycles that completed since. Absent, the open run is read from the event log
  * (the API's view); null, no run.
  */
-export async function loadAutopilotFacts(db: Executor, business: Business, now: Date, extras: { unrecordedFailures?: number; run?: { id: string; startedAt: number; unrecordedFailures?: number } | null } = {}): Promise<AutopilotFacts> {
+export async function loadAutopilotFacts(db: Executor, business: Business, now: Date, extras: { unrecordedFailures?: number; run?: { id: string; startedAt: number; unrecordedFailures?: number } | null; entryPlanOpen?: boolean } = {}): Promise<AutopilotFacts> {
   const nowMs = now.getTime();
   const dayStart = utcDayStart(nowMs);
   const since = business.autopilotChangedAt ? business.autopilotChangedAt.getTime() : nowMs;
@@ -155,7 +156,8 @@ export async function loadAutopilotFacts(db: Executor, business: Business, now: 
     settings: autopilotSettingsOf(business),
     archived: business.archivedAt !== null,
     stopReason: business.agentsStoppedAt !== null ? (business.agentsStoppedReason ?? "kill_switch") : null,
-    creditsRemainingMinor: credits ? credits.balanceMinor : null,
+    // At cost, like the day's spend it is compared with (credits are charged at cost plus the markup, Nov 17, 2026).
+    creditsRemainingMinor: credits ? costCoveredMinor(credits.balanceMinor) : null,
     vacation: holiday !== null,
     blockingItems,
     cycleOpen: cycles.open,
@@ -169,6 +171,7 @@ export async function loadAutopilotFacts(db: Executor, business: Business, now: 
     recentCycles: cycles.finished,
     unrecordedFailures: extras.unrecordedFailures ?? 0,
     run,
+    ...(extras.entryPlanOpen === false ? { entryPlanOpen: false } : {}),
   };
 }
 
@@ -187,4 +190,31 @@ export function autopilotChangedPayload(b: Business, change: AutopilotChange, pa
     ownMaxCyclesPerDay: b.autopilotOwnMaxCyclesPerDay ?? null,
     ownSpendCeiling: b.autopilotOwnSpendCeilingMinor === null || b.autopilotOwnSpendCeilingMinor === undefined ? null : { amountMinor: Number(b.autopilotOwnSpendCeilingMinor), currency: "USD" },
   };
+}
+
+/**
+ * The number the next cycle takes: one past every cycle seen so far (started, completed, or queued by the api and not yet
+ * started), the rule `cycleStatus` in apps/api uses, so a cycle the vacation starts never collides with the founder's press.
+ */
+export async function nextCycleNumberOf(db: Executor, businessId: string): Promise<number> {
+  const [events, queued] = await Promise.all([repos.events.list(db, businessId, { type: ["cycle.started", "cycle.completed"], limit: 500 }), repos.audit.list(db, businessId, { action: ["business.continue", "cycle.queue"], limit: 8 })]);
+  const numbers = [...events.items.map((e) => (e.payload as { cycleNumber?: unknown }).cycleNumber), ...queued.items.map((q) => (q.details as { cycleNumber?: unknown }).cycleNumber)];
+  return numbers.reduce<number>((max, n) => (typeof n === "number" && Number.isFinite(n) ? Math.max(max, n) : max), 0) + 1;
+}
+
+/** A queued cycle that never wrote `cycle.started` stops counting after this long (apps/api cycle.ts, the same rule). */
+export const QUEUED_CYCLE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Whether a cycle was queued (a press of Continue, a paid checkout: the `business.continue` / `cycle.queue` audit mark)
+ * whose workflow has not written `cycle.started` or `cycle.completed` yet, within `QUEUED_CYCLE_MAX_AGE_MS`. The api's
+ * `cycleStatus` reads the same marks as a cycle that is already open.
+ */
+export async function queuedCycleOpen(db: Executor, businessId: string, now: Date): Promise<boolean> {
+  const [events, queued] = await Promise.all([repos.events.list(db, businessId, { type: ["cycle.started", "cycle.completed"], limit: 50 }), repos.audit.list(db, businessId, { action: ["business.continue", "cycle.queue"], limit: 8 })]);
+  const seen = new Set(events.items.map((e) => (e.payload as { workflowId?: unknown }).workflowId).filter((w): w is string => typeof w === "string"));
+  return queued.items.some((q) => {
+    const d = (q.details ?? {}) as { mode?: unknown; workflowId?: unknown };
+    return d.mode !== "local" && typeof d.workflowId === "string" && !seen.has(d.workflowId) && now.getTime() - q.createdAt.getTime() < QUEUED_CYCLE_MAX_AGE_MS;
+  });
 }

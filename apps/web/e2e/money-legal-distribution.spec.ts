@@ -9,7 +9,7 @@ import { LONG, NORTHWIND_BUSINESS_ID, chooseTableView, devApi, openBusiness, ope
  */
 const D = `/b/${NORTHWIND_BUSINESS_ID}/d`;
 const TABS = {
-  distribution: ["formation", "channels", "leads", "campaigns", "creative", "attribution"],
+  distribution: ["first-ten", "formation", "channels", "leads", "campaigns", "creative", "attribution"],
   finance: ["overview", "pnl", "cash", "runway", "wage-bill", "cap-table"],
   legal: ["entity", "incorporate", "compliance", "contracts", "ip", "policies", "regulatory"],
 } as const;
@@ -239,6 +239,28 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(cash.locator("..").getByText("Forecast", { exact: true })).toBeVisible();
     // The driver summary under the form says so too.
     await expect(page.locator("[data-driver-runway]").getByText("Forecast", { exact: true })).toBeVisible();
+  });
+
+  test("finance: Runway's projected figures are in the estimate style and the screen carries the one legend line (WP-14 T7)", async ({ page }) => {
+    await openTab(page, "finance", "runway");
+    // The figure itself is the estimate: dashed underline, the word in its name, not drawn beside it.
+    const figure = page.locator("[data-driver-runway] [data-provenance='forecast']");
+    await expect(figure).toHaveAttribute("data-appearance", "figure");
+    await expect(figure).toHaveCSS("text-decoration-style", "dashed");
+    await expect(figure).toHaveAccessibleName(/Forecast$/);
+    // The word opens on hover.
+    await figure.hover();
+    await expect(page.getByText(/not a measurement|A projection of what could happen/).first()).toBeVisible();
+    const legend = page.getByTestId("estimate-legend");
+    await expect(legend).toHaveCount(1);
+    await expect(legend).toBeVisible();
+    await expect(legend).toHaveText("Numbers in this style are your team's estimates. Everything else is measured.");
+    // A screen that shows no estimate carries no legend: the line follows what is on the page.
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/preferences`);
+    await expect(page.getByTestId("shell-content")).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("heading", { name: /Preferences/ }).first()).toBeVisible({ timeout: LONG });
+    await expect(page.locator("[data-provenance='estimate'], [data-provenance='forecast']")).toHaveCount(0);
+    await expect(page.getByTestId("estimate-legend")).toBeHidden();
   });
 
   test("distribution: the Channels table carries a built-in Simple view (Channel, Fit, Status, Cost per customer) and the general view stays one click away (UX plan §7.10)", async ({ page }) => {

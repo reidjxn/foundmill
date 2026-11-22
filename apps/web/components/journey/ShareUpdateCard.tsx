@@ -121,6 +121,7 @@ export function ShareUpdateCard({ journeyId }: { journeyId: string }) {
                 occurredOn={facts.occurredOn}
                 leadChannelKey={facts.leadChannelKey}
                 standoutAgent={facts.standoutAgent}
+                verified={facts.verified}
                 note={note}
                 brandPrimary={data.kit.primary}
                 brandSecondary={data.kit.secondary}

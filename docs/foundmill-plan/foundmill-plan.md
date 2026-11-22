@@ -15,6 +15,8 @@ Models can now write and test code, publish a page, draft and send a campaign, r
 - **Honest by construction**: every number that is not real data is labeled Forecast or Estimate; every agent action is audited; untrusted content is data, never an instruction.
 - **Plain words, and it teaches**: the product speaks plain US English, defines every term it uses, and leaves a first-time founder more capable each week.
 - **Everything through the gateway**: agents reach the outside world only through one gateway that enforces policy, spending limits, rate limits and audit.
+- **The cycle is a rhythm, not a stream**: read, decide, press, wait, read. Do not optimize it into continuous activity.
+- **The gates are the premium**: what the team will never do without you is a selling point, stated with pride.
 - **Built by its own team**: Foundmill's own engineering, product and go-to-market work runs through Foundmill. If something is painful for its own founder, it gets fixed first.
 ## North star
 - Metric: Weekly active projects with at least one real outcome
@@ -39,6 +41,8 @@ Foundmill holds the whole project in one place: its idea, its plan, its team of 
 ### First: the first-time solo founder
 Someone with an idea, or the wish for one, little or no money to put in, and no experience running a business. They want to see something real exist this week and to learn as they go. They can do all of it on their own here.
 
+The first user has one goal: a first paying customer. Development and Distribution get depth first; Finance and Legal stay competent and quiet.
+
 ### Also: founders who build together
 Two or three cofounders, or a founder and a collaborator. They share one plan, one team of agents and one list of decisions, each with their own part. People are free on every plan.
 
@@ -49,8 +53,14 @@ Foundmill's own founder runs Foundmill in Foundmill. The engineering agents deve
 Regulated industries that need on-premises deployment, enterprises with existing procurement and security reviews, and readers who need a language other than English.
 
 ## Value proposition
-### You can build this yourself
-Foundmill gives one person a full team of AI agents, a Chief of Staff that plans the work and explains it, and one short list where every decision that matters arrives with a recommendation, the options and their consequences.
+### The team you could never afford
+What a founder gets here, in this order:
+- Being a founder without doing every part alone: a full team of AI agents does the work, and a Chief of Staff plans it and explains it.
+- Fewer ways to get it badly wrong: the house rules hold money, signatures, filings and anything that cannot be undone for the founder, whatever the team is asked to do.
+- A team for company: the team is beside you at every step, and each decision arrives with a recommendation, the options and their consequences.
+- Visible progress: every week ends with something that exists outside the product, and the plan moves where you can see it.
+
+Foundmill never says it replaces a team or that a founder has no need to hire. It says what the founder can do now.
 
 ### Why a founder chooses Foundmill
 - Something real, fast: a page for the project is live in the first session, and every week ends with something that exists outside the product.
@@ -107,17 +117,21 @@ A project is activated when it has its first real outcome. The target is the fir
 - At least one real outcome, and a letter that says what the team shipped, what it cost and who visited.
 - The roadmap moves visibly: Now items close, Next items move up.
 - One thing a day that only the founder can do, with a short "how".
+- "Working now": while the team runs, Today shows one line for each active agent with what it is doing, and the day's digest and the weekly round-up report the effort as well as the results, from real counts only.
 
 ### Monthly
 - Milestones the founder can share: page live, first follower, first conversation with a customer, first dollar.
 - What the founder learned, in their own profile.
 
-### When the founder is away
-Vacation mode lets the Chief of Staff decide within the authority the founder gave, holds every hard gate, and writes a report of what happened.
+### Each chapter
+The chapter report: at the end of a chapter the Chief of Staff writes one page: what we set out to do, what we did, the best moment, what we learned and what is next. Every item links to a real record, and a chapter with little in it says so.
+
+### Vacation mode
+"Take a vacation." Vacation mode is a headline feature, named on the landing page and on the Founder plan: the Chief of Staff keeps things moving within the limits the founder set, holds every hard gate, and writes a report for when the founder comes back.
 
 ## Growth
 ### How Foundmill spreads
-Through what projects make: a project page, a milestone card, an open role and an invitation are all public links that lead back to Foundmill. A founder who brings someone, to their own project or to the product, is credited when that person does something real.
+Through what projects make: a project page, a milestone card, an open role and an invitation are all public links that lead back to Foundmill. A Customer Update can be shared as a card too, by the founder's own action each time. Each active founder has three named invitations to send. Inviting earns no reward for either side.
 
 ### What it never does
 It never tells a solo founder they need someone, never rates a project lower for having one person, and never asks twice.
@@ -134,7 +148,7 @@ It never tells a solo founder they need someone, never rates a project lower for
 A mock connector's result is marked simulated and is never reported as an action. Invented results are never recorded for a person's own project.
 
 ### Cost
-Every model call is booked to the usage ledger; credits and ceilings refuse calls before they are made when the month's credits are used up. People are free on every plan; plans differ by agent work.
+Every model call is booked to the usage ledger; credits and ceilings refuse calls before they are made when the month's credits are used up. A team that has used the month's budget rests until the date shown, and a running task always finishes first. People are free on every plan; plans differ by agent work, by the number of companies and by the features listed under Pricing.
 
 ### Screens
 The outer product (public pages, sign-in, the profile, People, messages, Today and Needs you) works from 390 px. The dense console is desktop, 1280 px and wider. A native app for iOS and Android takes over on phones once it launches.
@@ -171,14 +185,29 @@ Every connector has a real implementation and a mock one, declares its tools by 
 - One social publisher.
 
 ## Pricing
-### Tiers
-- **Free**: $5.00 of platform credits a month for one project, four agents at once, as many people as you like, or bring your own Anthropic key.
-- **Pro** and **Scale**: more included credits and more agents at once.
+### Plans
+- **Try**: the entry plan. Free while sign-up is invite-only. From the day sign-up opens, $5 a month with $5.00 of team budget, on Haiku 5.5 and GLM-5.3 Flash. One company. It has the team and everything that is not listed under another plan.
+- **Founder**: tested at $15 and at $25 a month, with $10.00 of team budget a month at either price. Up to 5 companies. Opus and Sonnet without a credit pack. It adds Vacation mode, card sharing (milestone cards and Customer Updates), named agents and the phone Inbox.
+- **Studio**: $50 a month where Founder is $15, and $100 where Founder is $25, with $50.00 of team budget a month. Any number of companies. It adds more agents at once.
+- **Partner**: $250 a month, by application. It adds a monthly review of the project by experienced venture-backed founders and venture capital investors. Today it is a waitlist with no checkout: reviews begin once the plan opens, and no date is promised.
 
-Prices for Pro and Scale and the size of included credits are still open and shown as "Price to be announced" until set.
+### On every plan
+- People are free: any number of cofounders and collaborators, and no seats. A plan limits companies, never people. A deleted company does not count, and an owner over the limit keeps what they have.
+- A founder can always bring their own Anthropic key. On Try, the own key is one way to reach Opus and Sonnet; a credit pack is the other.
+- Everything before the first AI run is free of charge: shaping an idea, the profile, the Studio, taking charge and seeing the project. From the day sign-up opens, the first press of Continue needs Try.
+- Third-party spend is billed by each provider to the founder's own accounts and never resold.
+
+### Credit packs
+A credit pack adds credits on top of the month's team budget, on any plan. Packs start at $20 and cost less per credit as they grow. On Try, a pack also unlocks Opus and Sonnet and removes the "Built on Foundmill" mark from the project's pages.
+
+### While sign-up is invite-only
+- Nobody is charged a subscription until sign-up opens, and every invited person has everything: a plan's limits and features take effect on the day sign-up opens.
+- People invited while sign-up is invite-only never pay the Founder plan's monthly fee, for as long as they keep their account. They buy credit packs as anyone does.
+- The Founder and Studio prices are shown only as figures marked "Indicative". When charging opens, nobody pays more than the figures they were shown, and the first price a person pays is kept for as long as they stay subscribed.
+- In public, a plan reads "Free while in early access", never "Price to be announced". Apart from the promise to invited people, nothing says the product will stay free.
 
 ### Principle
-The free allowance must reach the first real outcome and a first week of work, measured from the usage ledger before prices are set. People are never a plan limit. Third-party spend is billed by each provider to the founder's own accounts and never resold.
+Credit packs carry most of the model revenue. The subscription price is set by what the plan is worth to a founder, and it is tested, not derived from cost. Try's budget must reach the first real outcome and a first week of work, measured from the usage ledger.
 
 ## Metrics
 ### North star
@@ -186,12 +215,16 @@ Weekly active projects with at least one real outcome.
 
 ### Supporting metrics
 - First outcome: share of new projects with a live page in the first session; median minutes to it.
+- Time to the first plan and to the first approved outcome: minutes from commit, for every new project. If the median time to the first plan passes ten minutes, the "within minutes" promise on the tour is changed.
+- First Continue: the share of new founders whose first press of Continue succeeds.
+- Resting: the share of projects that reach Resting (the month's team budget used), and what they do next: top up, change plan, wait or leave.
+- Shares: how often each Customer Update is shared as a card.
 - Solo: the north star for one-person projects, read beside the rest.
 - First dollar: share of projects with a first payment within 30 and 90 days.
 - Return: four-week retention of people.
 - Together (a description, never a target): share of active projects with two or more people; of people who looked for someone, the share who connected in their first week.
 - Loop: new people per active person per month who arrived through a page, a card or an invitation.
-- Cost: inference cost per active project per week against its tier's price.
+- Cost: inference cost per active project per week against its plan's price.
 - Quality: share of agent pull requests merged without a change request.
 
 ## Risks
@@ -200,7 +233,7 @@ Weekly active projects with at least one real outcome.
 3. **Safety between strangers**: people meeting to form partnerships can be harassed or misled. Mitigation: reporting, a review queue and an age floor before discovery opens.
 4. **Pushing people together**: a solo founder who is made to feel one short leaves. Mitigation: every people feature is an offer, and the solo north star is read beside the overall one.
 5. **Ownership disputes**: a split recorded in the product is serious. Mitigation: plain words, each cofounder signs with their own action, agents never sign.
-6. **Scope**: the console is wide and thin. Mitigation: no new console surfaces until the first real outcomes and the people basics ship.
+6. **Scope**: the console is wide and thin. Mitigation: the first user has one goal, a first paying customer. Development and Distribution get depth first; Finance and Legal stay competent and quiet. No new console surfaces until the first real outcomes and the people basics ship.
 
 ## Architecture
 ### Services
@@ -248,10 +281,28 @@ Foundmill launches using its own agents and its own loop: its project page, its 
 
 ### Order
 1. Real outcomes proven on Foundmill itself: a page, research, an email, a payment link.
-2. A waitlist ordered by who brought whom, with the example projects as the front door.
-3. Invitations between people who already know each other.
-4. Discovery between strangers, once reporting and review are in place.
-5. Paid acquisition only after activation and cost per active project are measured.
+2. The waitlist opens in batches: a public page says which batch opens on which day and how many places it has. The numbers are real, and with no batch set the page shows none.
+3. A personal note from the founder to each of the first hundred people admitted.
+4. Foundmill's own project in public: its page, its milestone cards and its build log, run from inside Foundmill.
+5. Shared cards: milestone cards and Customer Updates, each shared by its founder's own action.
+6. Three named invitations for each active founder, between people who already know each other. No reward for either side.
+7. The public gallery of projects, and discovery between strangers, once reporting and review are in place.
+8. Paid acquisition last, only after activation and cost per active project are measured.
+
+## Experiments
+### How they run
+Each experiment has one measure and a stop rule written before it starts. A test that needs analytics waits until analytics exist. The founder confirmed the stop rules on Nov 19, 2026; experiments 2, 4 and 6 use the WP-14 T15 measures.
+
+### The experiments
+1. **Landing headline.** Today's headline against "You make the calls. Your team does the rest." and "The team you could never afford." Measure: waitlist joins per visitor. Needs analytics. Stop after four weeks or 1,000 visitors to each headline, whichever comes first, and keep today's headline unless another is clearly ahead.
+2. **The public waitlist page.** Measure: organic visits and sign-ups. Visits need analytics; sign-ups are counted from the waitlist. Read weekly for eight weeks from first indexing. Under 100 organic visits in eight weeks: stop reading it weekly and leave the page as it is. Visits but under 5% joining: change the words once and read four more weeks (founder, Nov 19, 2026; WP-14 T15 measure M3).
+3. **The Founder price.** Two sets of indicative figures on the waitlist page, half of visitors seeing each: Founder $15 with Studio $50, and Founder $25 with Studio $100. Partner and credit packs are the same in both, and a visitor keeps the set they were first given. Nobody is charged. Measure: waitlist joins for each set, and at opening the share who subscribe. Stop on the day charging opens; nobody pays more than the figures they were shown.
+4. **A personal note against the standard email.** Measure: activation within 14 days, read 14 days after each batch, with a note written to every second person in admission order. Stop writing notes when, over at least 100 people with a note and 100 without, the share with a note is less than five points above (founder, Nov 19, 2026; WP-14 T15 measure M1).
+5. **A card by post.** One batch receives a card from the founder by post. Measure: the same activation share, against the batch before it. Stop after that one batch.
+6. **Named invitations against waitlist batches.** Measure: the share accepted, and the share who reach a first real outcome. Read 30 days after invitations ship, then monthly. Bring it to the founder if fewer than 20% are accepted after 200 sent, or if invited people activate at a lower share than batch admissions over at least 50 of each; stop reading when sign-up opens to everyone (founder, Nov 19, 2026; WP-14 T15 measure M2).
+7. **Resting.** Measure: what a founder does when the team rests: top up, change plan, wait or leave. Review after the first fifty projects that reach Resting; if more leave than top up or change plan, the reserve and the note are changed before anything else.
+8. **"Within minutes."** Measure: the median minutes from commit to the first plan. Stop rule: past ten minutes, the line is changed to what the product delivers.
+9. **Shared Customer Updates.** Measure: shares for each Customer Update; visits that come back through a card need analytics. Stop after eight weeks from the first share; if fewer than one update in ten is shared, the card stays and no more is built on it.
 
 ## Current state and known gaps
 ### Live in production (Nov 2026)
@@ -377,8 +428,8 @@ Acceptance:
 - Events for real outcomes exist in packages/events with Zod
 - A weekly note reports both figures
 
-### Set Pro and Scale prices from measured cost
-Use the usage ledger's cost per first session and per active week to propose a free allowance and prices, for the founder to decide.
+### Settle the Founder and Studio prices
+Use the price test and the usage ledger's cost per first session and per active week to propose which Founder and Studio prices to keep, for the founder to decide.
 Acceptance:
 - A pricing proposal with the measured cost and the margin
 - Prices are set in config only after the founder approves

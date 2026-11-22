@@ -36,6 +36,7 @@ test.describe("the home of a person with no project (2.4)", () => {
     await expect(page.getByTestId("home-find")).toContainText("you can do all of it on your own");
     await expect(page.getByText("Opening soon")).toHaveCount(0);
     await expect(page.getByTestId("home-waiting")).toHaveCount(0);
+    await expect(page.getByTestId("home-public-profile-link")).toHaveAttribute("href", "/public-profile");
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
     // Two columns on a wide screen: the offer sits beside Start something, not under it.
     const startWide = await page.getByTestId("home-start").boundingBox();
@@ -111,6 +112,7 @@ test.describe("the home of a person with no project (2.4)", () => {
       await page.getByTestId("adult-confirm").click();
       await expect(notice).toHaveCount(0, { timeout: LONG });
     }
+    await expect(page.getByTestId("person-live-nav").getByRole("link", { name: "Your page" })).toHaveAttribute("href", "/public-profile");
     await page.getByTestId("person-live-nav").getByRole("link", { name: "Communities" }).click();
     await expect(page).toHaveURL(/\/communities$/, { timeout: LONG });
     await expect(page.getByTestId("person-live-frame")).toBeVisible({ timeout: LONG });

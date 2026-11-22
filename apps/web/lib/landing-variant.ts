@@ -8,7 +8,16 @@
  * given before (`fm_lp`, so a returning visitor sees one page), then the channel the link names (`utm_source`). Pure:
  * no cookie or request is read here. An experiment that splits traffic assigns `fm_lp` the same way.
  */
-export const LANDING_VARIANTS = ["first", "no-idea", "has-idea", "running", "builder"] as const;
+/**
+ * One page per ideal founder profile (founder, 2026-11-19), each also at its number: `/1` is the first-timer's page and
+ * `/2` to `/20` these, in this order (`NUMBERED_LANDING_PAGES`). The profile behind each is in the variant's comment in
+ * components/landing/words.ts.
+ */
+export const PROFILE_VARIANTS = [
+  "student", "graduate", "blank-box", "overwhelmed", "evenings", "parent", "expert", "trades", "retired", "maker",
+  "cook", "creator", "freelancer", "developer", "game-dev", "educator", "beauty", "shop-owner", "idea-collector",
+] as const;
+export const LANDING_VARIANTS = ["first", "no-idea", "has-idea", "running", "builder", "calls", "team", ...PROFILE_VARIANTS] as const;
 export type LandingVariant = (typeof LANDING_VARIANTS)[number];
 
 export const DEFAULT_LANDING_VARIANT: LandingVariant = "first";
@@ -47,4 +56,13 @@ export function landingVariant(search: string, remembered: string | null | undef
 /** The route that serves a variant under `/`; null for the default, which is `/` itself. */
 export function landingVariantRoute(variant: LandingVariant): string | null {
   return variant === DEFAULT_LANDING_VARIANT ? null : `/lp/${variant}`;
+}
+
+/** The pages at `/1` to `/20`: index 0 is `/1`. */
+export const NUMBERED_LANDING_PAGES: readonly LandingVariant[] = [DEFAULT_LANDING_VARIANT, ...PROFILE_VARIANTS];
+
+/** The variant a numbered address (`/7`) names, or null for any other path. */
+export function numberedLandingVariant(pathname: string): LandingVariant | null {
+  const n = /^\/([1-9]\d?)$/.exec(pathname)?.[1];
+  return n ? (NUMBERED_LANDING_PAGES[Number(n) - 1] ?? null) : null;
 }

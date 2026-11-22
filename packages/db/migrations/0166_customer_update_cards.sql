@@ -1,4 +1,4 @@
--- 0136 — a Customer Update shared as a card (docs/holistic-plan/WP-14-behavior-brief.md T9; docs/DESIGN.md §9f).
+-- 0166 — a Customer Update shared as a card (docs/holistic-plan/WP-14-behavior-brief.md T9; docs/DESIGN.md §9f).
 -- A founder shares one Customer Update at a time, by their own press: the api writes one row here with exactly what
 -- the public card shows, and deletes it when the founder stops sharing. Nothing is public by default: a journey with
 -- no row here has no card.
@@ -24,6 +24,9 @@ create table customer_update_cards (
   lead_channel_key text check (lead_channel_key is null or lead_channel_key ~ '^[a-z0-9_]{1,60}$'),
   standout_agent text check (standout_agent is null or char_length(standout_agent) between 1 and 80),
   note text check (note is null or char_length(note) between 1 and 140),
+  -- True only for a payment delivered with Foundmill's own platform webhook secret (a "Sign in with Stripe" account): the
+  -- card then says "Verified by Foundmill". A payment through a pasted key is real but not verified (founder, Nov 22, 2026).
+  verified boolean not null default false,
   created_by uuid not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -39,8 +42,8 @@ drop policy customer_update_cards_select on customer_update_cards;
 --> statement-breakpoint
 create policy customer_update_cards_select on customer_update_cards for select using (is_member_not_collaborator(business_id));
 --> statement-breakpoint
--- The public read. Exactly these seven columns: the card's own id (its address, `/m/update/<id>`; never the journey's
--- id), the page's address and the five things the card prints. A row exists only while the business has a row in
+-- The public read. Exactly these eight columns: the card's own id (its address, `/m/update/<id>`; never the journey's
+-- id), the page's address and the six things the card prints. A row exists only while the business has a row in
 -- `public_project_pages` (0077): taking the page down, archiving the business or it becoming a sample removes every
 -- card at once.
 create view public_customer_update_cards with (security_barrier) as
@@ -50,7 +53,8 @@ create view public_customer_update_cards with (security_barrier) as
          c.occurred_on,
          c.lead_channel_key,
          c.standout_agent,
-         c.note
+         c.note,
+         c.verified
     from customer_update_cards c
     join project_pages p on p.business_id = c.business_id
     join public_project_pages pp on pp.slug = p.slug;

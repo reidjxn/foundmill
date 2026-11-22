@@ -5,8 +5,10 @@
  *
  * Every call made for a business (`attribution.businessId`: conversation replies, plan compiles, the in-process
  * composer, foundations, logo sets, recommenders) is booked to that business's usage ledger here, one row per model
- * call, as the orchestrator's usage sink does (review item 7). Calls with no business (Ideation drafting, Ask on a
- * concept, a logo before commit) are not booked: there is no ledger to book them to yet (DECISIONS 2026-10-09).
+ * call, as the orchestrator's usage sink does (review item 7). A live call with no business but a signed-in person
+ * (`attribution.userId`: Ideation, Import, Ask on a concept, compare, a logo before commit, the screen of a post made
+ * without a business) is booked to that person's `account_usage` instead, and refused before it is made once their
+ * calls before a project have cost the day's or the 30 days' ceiling (WP-09 T2, `precommit_ceiling`, 429).
  *
  * Every call for a business also asks first (SEC2 S2): the credits gate (`assertPlatformCredits`, packages/db) refuses it
  * with `credits_exhausted` (402) once the business's credits for the month are used up, whatever its model billing (a
@@ -20,9 +22,9 @@
  * use a business's own key (above), so an own-key business runs as its plan says until WP-13 T11 sends these calls
  * through the gateway on that key.
  */
-import { assertPlatformCredits, bookUsage, cachedFreeCap, cachedModelFundingOf, freeCapCheck, type Db } from "@foundmill/db";
-import { createModelClient, enforceModelFunding, gateModelClient, ownKeyViaGateway, routeOwnKeyCalls, type ModelCallGate, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
-import type { Env } from "@foundmill/shared";
+import { assertPlatformCredits, bookUsage, cachedFreeCap, cachedModelFundingOf, freeCapCheck, repos, type Db } from "@foundmill/db";
+import { createModelClient, enforceModelFunding, gateModelClient, ownKeyViaGateway, routeOwnKeyCalls, usageForLedger, type ModelCallGate, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
+import { AppError, PRECOMMIT_CEILING_DEFAULT_CENTS, type Env } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
 import { markNotesCalls, noteModelCall } from "./model-calls";
 
@@ -38,6 +40,8 @@ export interface ApiModelClientOptions {
   ownKeyGateway?: { url: string; serviceToken: (businessId: string) => Promise<string> };
   /** Injectable fetch for the gateway route (tests). */
   gatewayFetch?: typeof globalThis.fetch;
+  /** Credits can be bought here (packages/shared `topUpsOnSale`): refusals and the zero note name a top-up (WP-09 T13). */
+  topUps?: boolean;
 }
 
 /**
@@ -47,17 +51,37 @@ export interface ApiModelClientOptions {
  * pauses the team on the last credit). A call stopped in flight keeps `aborted: true` (its tokens are estimated too). A
  * failed write is logged and never fails the call.
  */
-export function apiUsageSink(db: Db, log: ApiLogger): UsageSink {
+export function apiUsageSink(db: Db, log: ApiLogger, topUps = false): UsageSink {
   return async (event) => {
     const a = event.attribution;
-    if (!a?.businessId) return;
+    const { quantity, tokens } = usageForLedger(event.usage);
+    if (!a?.businessId) {
+      // Before a project exists: a live call for a signed-in person is booked to their account (WP-09 T2). Mock calls
+      // cost nothing and book nothing.
+      if (!a?.userId || event.mode !== "live") return;
+      try {
+        await repos.accountUsage.record(db, {
+          userId: a.userId,
+          kind: a.kind ?? "model_call",
+          route: event.route,
+          modelKey: event.modelKey,
+          quantity,
+          costMicroMinor: Math.max(0, event.cost.costMicroMinor),
+          occurredAt: new Date(event.occurredAt),
+          details: { service: "api", model: event.model, label: event.cost.label, attempt: event.attempt, tokens, ...(event.aborted ? { aborted: true } : {}) },
+        });
+      } catch (err) {
+        log.warn({ err: (err as Error).message, route: event.route }, "account usage write failed");
+      }
+      return;
+    }
     try {
       await bookUsage(db, a.businessId, {
         agentId: a.agentId ?? null,
         sessionId: a.sessionId ?? null,
         kind: "tokens",
         modelKey: event.modelKey,
-        quantity: event.usage.inputTokens + event.usage.outputTokens,
+        quantity,
         unit: "tokens",
         costMinor: Math.max(0, event.cost.costMinorInt),
         // The exact cost (0039): sums and credits add these, so a call under half a cent is not booked at 0.
@@ -76,32 +100,62 @@ export function apiUsageSink(db: Db, log: ApiLogger): UsageSink {
           inboxItemId: a.inboxItemId ?? null,
           label: event.cost.label,
           attempt: event.attempt,
+          tokens,
           ...(event.streamed ? { streamed: true } : {}),
           ...(event.aborted ? { aborted: true } : {}),
         },
-      });
+      }, { topUps });
     } catch (err) {
       log.warn({ err: (err as Error).message, route: event.route, businessId: a.businessId }, "usage ledger write failed");
     }
   };
 }
 
+/** The day's and the 30 days' ceilings on one person's live calls before they have a project, in US cents (WP-09 T2). */
+export interface PrecommitCeilings {
+  dailyCents: number;
+  monthlyCents: number;
+}
+
+export const PRECOMMIT_DAY_SENTENCE = "That is all the drafting for today. Take charge of one of your ideas to keep going, or come back tomorrow.";
+export const PRECOMMIT_MONTH_SENTENCE = "You have used this month's free drafting. Take charge of one of your ideas to keep going.";
+
+const DAY_MS = 86_400_000;
+
+/**
+ * A live call with no business for a signed-in person, refused once their calls before a project cost the ceiling over
+ * the last 24 hours or 30 days. Parallel calls of one draft read the same sum, so one draft can pass the line (as SEC2
+ * accepts one turn).
+ */
+async function assertPrecommitCeiling(db: Db, userId: string, ceilings: PrecommitCeilings): Promise<void> {
+  const now = Date.now();
+  const [day, month] = await Promise.all([repos.accountUsage.spentMicro(db, userId, new Date(now - DAY_MS)), repos.accountUsage.spentMicro(db, userId, new Date(now - 30 * DAY_MS))]);
+  if (month >= ceilings.monthlyCents * 1_000_000) throw new AppError("precommit_ceiling", PRECOMMIT_MONTH_SENTENCE, 429, { window: "30d" });
+  if (day >= ceilings.dailyCents * 1_000_000) throw new AppError("precommit_ceiling", PRECOMMIT_DAY_SENTENCE, 429, { window: "24h" });
+}
+
 /**
  * The api's check before every model call (see the module comment): a call for a business runs only while its credits
- * allow it (`live`: the client spends real money, so simulated credits do not count). Calls with no business (Ideation,
- * Ask on a concept) have their own allowances and nothing to charge. A call that passes is noted on the request.
+ * allow it (`live`: the client spends real money, so simulated credits do not count). A live call with no business for
+ * a signed-in person runs only under the ceilings before commit. Both throw before the call is noted, so a refused call
+ * gives its request's allowance back. A call that passes is noted on the request.
  */
-export function apiCreditsGate(db: Db, live: boolean): ModelCallGate {
+export function apiCreditsGate(db: Db, live: boolean, ceilings: PrecommitCeilings = { dailyCents: PRECOMMIT_CEILING_DEFAULT_CENTS.daily, monthlyCents: PRECOMMIT_CEILING_DEFAULT_CENTS.monthly }, topUps = false): ModelCallGate {
   return async ({ attribution }) => {
-    const check = attribution?.businessId ? await assertPlatformCredits(db, attribution.businessId, { live }) : null;
+    const check = attribution?.businessId ? await assertPlatformCredits(db, attribution.businessId, { live, topUps }) : null;
+    if (!attribution?.businessId && attribution?.userId && live) await assertPrecommitCeiling(db, attribution.userId, ceilings);
     noteModelCall();
     // Low credits (the credit saver): routine routes run on their lower-cost model; founder-facing routes keep theirs.
     return check?.low ? { lowCredits: true } : undefined;
   };
 }
 
-export function createApiModelClient(env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_API_KEY"> & Partial<Pick<Env, "FREE_PLAN_MONTHLY_CAP_CENTS">>, log: ApiLogger, opts: ApiModelClientOptions = {}): ModelClient {
-  const book = opts.db ? apiUsageSink(opts.db, log) : null;
+export function createApiModelClient(
+  env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_API_KEY"> & Partial<Pick<Env, "FREE_PLAN_MONTHLY_CAP_CENTS" | "PRECOMMIT_DAILY_CEILING_CENTS" | "PRECOMMIT_MONTHLY_CEILING_CENTS">>,
+  log: ApiLogger,
+  opts: ApiModelClientOptions = {},
+): ModelClient {
+  const book = opts.db ? apiUsageSink(opts.db, log, opts.topUps ?? false) : null;
   const usage = async (e: UsageEvent) => {
     log.debug({ route: e.route, model: e.model, costMinor: e.cost.costMinorInt, attribution: e.attribution }, "model usage (Estimate)");
     await book?.(e);
@@ -112,7 +166,7 @@ export function createApiModelClient(env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_AP
     log.error({}, "MODEL_MODE=live but ANTHROPIC_API_KEY is missing; falling back to the mock model client");
     client = createModelClient({ mode: "mock", onUsage: usage, logger: log });
   } else client = createModelClient({ mode: env.MODEL_MODE, apiKey: env.ANTHROPIC_API_KEY, onUsage: usage, logger: log });
-  const gated = gateModelClient(client, opts.db ? apiCreditsGate(opts.db, client.mode === "live") : async () => noteModelCall());
+  const gated = gateModelClient(client, opts.db ? apiCreditsGate(opts.db, client.mode === "live", precommitCeilingsOf(env), opts.topUps ?? false) : async () => noteModelCall());
   // The month's free-plan cap (WP-13 T6): at the cap a free call is refused with the date free AI is back.
   const freeCap = opts.db && env.FREE_PLAN_MONTHLY_CAP_CENTS !== undefined ? freeCapCheck(opts.db, env.FREE_PLAN_MONTHLY_CAP_CENTS) : undefined;
   const platform = opts.db ? enforceModelFunding(gated, cachedModelFundingOf(opts.db, { ownKeyServed: false }), { freeCap }) : gated;
@@ -147,3 +201,8 @@ export function freePlanSlowCheck(db: Db, capCents: number): (scope: { userId: s
     }
   };
 }
+
+function precommitCeilingsOf(env: Partial<Pick<Env, "PRECOMMIT_DAILY_CEILING_CENTS" | "PRECOMMIT_MONTHLY_CEILING_CENTS">>): PrecommitCeilings {
+  return { dailyCents: env.PRECOMMIT_DAILY_CEILING_CENTS ?? PRECOMMIT_CEILING_DEFAULT_CENTS.daily, monthlyCents: env.PRECOMMIT_MONTHLY_CEILING_CENTS ?? PRECOMMIT_CEILING_DEFAULT_CENTS.monthly };
+}
+

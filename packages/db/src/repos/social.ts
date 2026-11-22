@@ -9,7 +9,7 @@
  */
 import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
 import { AppError, ForbiddenError, NotFoundError, OWNER_ROLES, ValidationError, VISIBILITY } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import {
@@ -21,6 +21,10 @@ import {
 import { Id, JsonObject, one, PageInput, parseInput, rowsOf, sqlState, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 import { adultsRepo } from "./adults";
 import { membershipNotEnded } from "./memberships";
+
+/** True when no block stands between the viewer and the person in `other`, whichever of them set it (a block is never announced). */
+const noBlockBetween = (viewerId: string, other: AnyColumn) =>
+  sql`not exists (select 1 from ${connections} c where c.status = 'blocked' and ((c.from_user = ${viewerId}::uuid and c.to_user = ${other}) or (c.to_user = ${viewerId}::uuid and c.from_user = ${other})))`;
 
 export const CreateCommunityInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -101,6 +105,9 @@ const OWNER_STAYS = "You own this community and it is joined by invitation only,
 /** Reports from this many different members hold a visible post for the moderators. */
 export const REPORTS_TO_HOLD = 3;
 
+/** Why a moderator cannot approve their own post (H2). */
+export const SELF_RESTORE = "You cannot approve your own post. Edit it to have it screened again, or another moderator can review it.";
+
 /** A thread subject is the sender's own words: it may not pose as the platform or its staff (audit GLS2F-06). */
 const ThreadSubject = z.string().trim().max(200).refine((s) => !isReservedName(s, "subject"), RESERVED_NAME_MESSAGE);
 
@@ -173,6 +180,9 @@ const badgeQueries = {
   adultConfirmedAt: (_db: Executor, userId: string) => adultsRepo.confirmedAtSql(userId),
 };
 
+/** A text matched as a LIKE prefix, with its own wildcard characters taken literally. */
+const escapeLike = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`);
+
 export const socialRepo = {
   // public profiles (view over LIVE businesses + founders who opted in) -------------------------------------------------
   async publicProfile(db: Executor, businessId: string): Promise<PublicProfile | null> {
@@ -187,7 +197,7 @@ export const socialRepo = {
     return db
       .select()
       .from(publicProfiles)
-      .where(and(options.kind ? eq(publicProfiles.kind, options.kind) : undefined, or(sql`${publicProfiles.displayName} % ${term}`, sql`lower(${publicProfiles.displayName}) like lower(${term}) || '%'`)))
+      .where(and(options.kind ? eq(publicProfiles.kind, options.kind) : undefined, or(sql`${publicProfiles.displayName} % ${term}`, sql`lower(${publicProfiles.displayName}) like lower(${escapeLike(term)}) || '%'`)))
       .orderBy(desc(sql`similarity(${publicProfiles.displayName}, ${term})`), asc(publicProfiles.displayName))
       .limit(limit);
   },
@@ -234,15 +244,8 @@ export const socialRepo = {
   async searchPublicFor(db: Executor, viewerId: string, q: string, options: { limit?: number } = {}): Promise<PublicProfile[]> {
     const limit = options.limit ?? 10;
     const rows = await socialRepo.searchPublic(db, q, { limit: limit + 10 });
-    const blocked = new Set<string>();
-    await Promise.all(
-      rows
-        .filter((r) => r.kind === "founder" && r.userId && r.userId !== viewerId)
-        .map(async (r) => {
-          const res = rowsOf<{ blocked: boolean }>(await db.execute(sql`select connection_is_blocked(${viewerId}::uuid, ${r.userId}::uuid) as blocked`));
-          if (res[0]?.blocked) blocked.add(r.userId!);
-        }),
-    );
+    // One query for every founder in the page (a block either way, never announced).
+    const blocked = await socialRepo.blockedWith(db, viewerId, [...new Set(rows.flatMap((r) => (r.kind === "founder" && r.userId && r.userId !== viewerId ? [r.userId] : [])))]);
     return rows.filter((r) => r.kind === "business" || (!!r.userId && r.userId !== viewerId && !blocked.has(r.userId))).slice(0, limit);
   },
 
@@ -984,20 +987,21 @@ export const socialRepo = {
   },
 
   // posts -------------------------------------------------------------------------------------------------------------
-  /** Visible replies under each of these posts (posts without replies are absent). */
-  async replyCounts(db: Executor, postIds: readonly string[]): Promise<Map<string, number>> {
+  /** Visible replies under each of these posts (posts without replies are absent); with `viewerId`, none by someone blocked either way. */
+  async replyCounts(db: Executor, postIds: readonly string[], viewerId?: string): Promise<Map<string, number>> {
     if (!postIds.length) return new Map();
     const rows = await db
       .select({ parentPostId: posts.parentPostId, n: sql<number>`count(*)::int` })
       .from(posts)
-      .where(and(inArray(posts.parentPostId, [...postIds]), isNull(posts.archivedAt), eq(posts.status, "visible")))
+      .where(and(inArray(posts.parentPostId, [...postIds]), isNull(posts.archivedAt), eq(posts.status, "visible"), viewerId ? noBlockBetween(viewerId, posts.authorUserId) : undefined))
       .groupBy(posts.parentPostId);
     return new Map(rows.flatMap((r) => (r.parentPostId ? [[r.parentPostId, Number(r.n)] as const] : [])));
   },
 
   /**
    * The feed: visible posts, plus (with `viewerId`) the viewer's own posts that are waiting for review, so an author
-   * sees that their post was held rather than lost. Hidden and removed posts are for the moderators' queue only.
+   * sees that their post was held rather than lost, and none by someone blocked either way with the viewer. Hidden and
+   * removed posts are for the moderators' queue only.
    */
   async listPosts(db: Executor, communityId: string, options: { parentPostId?: string | null; viewerId?: string } & PageInput = {}): Promise<Page<Post>> {
     const p = parseInput(PageInput, options, "page");
@@ -1010,6 +1014,8 @@ export const socialRepo = {
           eq(posts.communityId, communityId),
           isNull(posts.archivedAt),
           options.viewerId ? or(eq(posts.status, "visible"), and(eq(posts.status, "pending_review"), eq(posts.authorUserId, options.viewerId))) : eq(posts.status, "visible"),
+          // H4: a block holds inside communities too: neither person reads the other's posts or replies.
+          options.viewerId ? noBlockBetween(options.viewerId, posts.authorUserId) : undefined,
           options.parentPostId === undefined ? isNull(posts.parentPostId) : options.parentPostId === null ? isNull(posts.parentPostId) : eq(posts.parentPostId, options.parentPostId),
           ks.after(p.cursor),
         ),
@@ -1037,6 +1043,8 @@ export const socialRepo = {
       const parent = (await db.select().from(posts).where(eq(posts.id, v.parentPostId)).limit(1))[0];
       if (!parent || parent.communityId !== v.communityId || parent.status !== "visible" || parent.archivedAt) throw new NotFoundError("post", v.parentPostId);
       if (parent.parentPostId) throw new ValidationError("Replies go under a post, not under another reply", { parentPostId: v.parentPostId });
+      // H4: nobody replies under the post of someone who blocked them, or whom they blocked (it reads as missing).
+      if (parent.authorUserId !== v.authorUserId && (await socialRepo.blockedWith(db, v.authorUserId, [parent.authorUserId])).size) throw new NotFoundError("post", v.parentPostId);
     }
     const screening: PostScreening | Record<string, never> = v.screening ?? {};
     return one(
@@ -1063,6 +1071,7 @@ export const socialRepo = {
       if (post.status === "hidden" || post.status === "removed" || post.archivedAt) throw new ValidationError("This post can no longer be edited", { postId });
       const me = await socialRepo.membership(tx, userId, post.communityId);
       if (me?.status !== "active") throw new ValidationError("Only members who can post can edit their posts", { postId });
+      // Every open report counts here, not only the ones that could hold it: banning the reporters is no way out either.
       const heldByReports = post.status === "pending_review" && (await socialRepo.openReportCount(tx, postId)) >= REPORTS_TO_HOLD;
       return one(
         await tx
@@ -1091,7 +1100,7 @@ export const socialRepo = {
   /**
    * An owner or moderator acts on a post in their community: hide (out of the feed, restorable), remove (final) or
    * restore (approve a held or hidden post; on a visible one, dismiss its reports). A post its author deleted stays
-   * deleted. Open reports on the post are resolved with the decision.
+   * deleted. Open reports on the post are resolved with the decision. A moderator never restores their own post.
    */
   async moderatePost(db: Executor, actorId: string, postId: string, action: PostModerationAction, note?: string | null): Promise<Post> {
     const a = parseInput(z.enum(POST_MODERATION_ACTIONS), action, "post action");
@@ -1100,6 +1109,8 @@ export const socialRepo = {
       const post = await socialRepo.getPost(tx, postId);
       await socialRepo.requireModerator(tx, actorId, post.communityId);
       if (post.status === "removed") throw new ValidationError("This post was removed; it cannot be changed", { postId });
+      // H2: nobody approves their own post or dismisses reports about it; the screen or another moderator decides.
+      if (a === "restore" && post.authorUserId === actorId) throw new ForbiddenError(SELF_RESTORE);
       const status = a === "hide" ? "hidden" : a === "remove" ? "removed" : "visible";
       const updated = one(await tx.update(posts).set({ status, moderatedBy: actorId, moderatedAt: new Date(), moderationNote: n ?? null }).where(eq(posts.id, postId)).returning(), "post", postId);
       await socialRepo.resolveReports(tx, postId, actorId, a === "hide" ? "hidden" : a === "remove" ? "removed" : post.status === "visible" ? "dismissed" : "approved");
@@ -1113,6 +1124,20 @@ export const socialRepo = {
     return Number(rows[0]?.n ?? 0);
   },
 
+  /**
+   * The open reports that count towards holding a post (H1): from members who still read the community and joined it
+   * before the post was written. Accounts that join after a post to report it together never hold it (the moderators
+   * still see their reports in the queue).
+   */
+  async holdingReportCount(db: Executor, post: Pick<Post, "id" | "communityId" | "createdAt">): Promise<number> {
+    const rows = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(postReports)
+      .innerJoin(communityMembers, and(eq(communityMembers.communityId, postReports.communityId), eq(communityMembers.userId, postReports.reporterUserId)))
+      .where(and(eq(postReports.postId, post.id), isNull(postReports.resolvedAt), inArray(communityMembers.status, [...READING]), lt(communityMembers.joinedAt, post.createdAt)));
+    return Number(rows[0]?.n ?? 0);
+  },
+
   async resolveReports(db: Executor, postId: string, userId: string, resolution: (typeof POST_REPORT_RESOLUTIONS)[number]): Promise<number> {
     const rows = await db
       .update(postReports)
@@ -1123,8 +1148,9 @@ export const socialRepo = {
   },
 
   /**
-   * A member reports a visible post of their community (not their own) once. When REPORTS_TO_HOLD different members
-   * have open reports on it, the post is held for review: out of the feed until a moderator decides.
+   * A member reports a visible post of their community (not their own) once. When REPORTS_TO_HOLD different members who
+   * joined before it was written have open reports on it, the post is held for review: out of the feed until a moderator
+   * decides.
    */
   async reportPost(db: Executor, reporterId: string, postId: string, input: { reason: (typeof POST_REPORT_REASONS)[number]; note?: string | null }): Promise<{ report: PostReport; held: boolean }> {
     const v = parseInput(z.object({ reason: z.enum(POST_REPORT_REASONS), note: z.string().trim().max(1000).nullable().optional() }), input, "report");
@@ -1132,13 +1158,15 @@ export const socialRepo = {
       const post = await socialRepo.getPost(tx, postId);
       if (!(await socialRepo.isMember(tx, reporterId, post.communityId)) || post.status !== "visible" || post.archivedAt) throw new NotFoundError("post", postId);
       if (post.authorUserId === reporterId) throw new ValidationError("You cannot report your own post; delete it instead", { postId });
+      // H4: someone blocked either way with the author does not read the post, so cannot report it.
+      if ((await socialRepo.blockedWith(tx, reporterId, [post.authorUserId])).size) throw new NotFoundError("post", postId);
       const inserted = await tx
         .insert(postReports)
         .values({ postId, communityId: post.communityId, reporterUserId: reporterId, reason: v.reason, note: v.note ?? null })
         .onConflictDoNothing({ target: [postReports.postId, postReports.reporterUserId] })
         .returning();
       const report = inserted[0] ?? one(await tx.select().from(postReports).where(and(eq(postReports.postId, postId), eq(postReports.reporterUserId, reporterId))).limit(1), "report");
-      if ((await socialRepo.openReportCount(tx, postId)) < REPORTS_TO_HOLD) return { report, held: false };
+      if ((await socialRepo.holdingReportCount(tx, post)) < REPORTS_TO_HOLD) return { report, held: false };
       const held = await tx
         .update(posts)
         .set({ status: "pending_review", moderationNote: "Held after reports from members" })

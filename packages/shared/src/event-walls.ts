@@ -108,6 +108,11 @@ export const EVENT_WALLS = {
   "page.unpublished": { sections: ["product"] },
   // Someone followed the page (0079): ids only; the follower's record is the CRM's to show.
   "page.followed": { sections: ["product"], hide: { crm: ["entityId", "consentId"] } },
+  // Booking (founder, Nov 22, 2026): a booking is a customer record, behind the CRM wall like the follower's.
+  "booking.confirmed": { sections: ["crm"] },
+  "booking.canceled": { sections: ["crm"] },
+  "booking.rescheduled": { sections: ["crm"] },
+  "booking.no_show": { sections: ["crm"] },
   // The project's site (WP-07): ids, counts and addresses. A preview address is unlisted, so it is Product's like the
   // releases themselves; the live address is public anyway.
   "site.release_created": { sections: ["product"] },
@@ -132,7 +137,7 @@ export const EVENT_WALLS = {
   // A milestone shown on the project's page or taken off it (0089): its id, key and public addresses.
   "milestone.shown": { sections: ["product"] },
   "milestone.hidden": { sections: ["product"] },
-  // A Customer Update shared as a public card, or no longer shared (0136): ids and public addresses only. A card is
+  // A Customer Update shared as a public card, or no longer shared (0166): ids and public addresses only. A card is
   // about a payment, so it is filed with Settings: a collaborator (who has none) hears nothing of it.
   "customer_update.shared": { sections: ["settings"] },
   "customer_update.unshared": { sections: ["settings"] },
@@ -142,6 +147,10 @@ export const EVENT_WALLS = {
   // The team drafted a post for the founder to share by tap: ids and the trigger's kind, never the words. The Creative
   // tab and Today follow it.
   "post.drafted": { sections: ["distribution"] },
+  // The founder said they posted a team draft (WP-08 T4): ids, network and the pasted address, never the words. Filed
+  // with the metrics-only events (like `share.opened`) so a collaborator never receives it and no migration of
+  // `fm_collaborator_event_types()` is needed.
+  "post.published": { sections: ["settings"] },
   // The page quiz approved, turned on or off (0105): ids and its shape, never the words. The Public page tab follows.
   "quiz.approved": { sections: ["product"] },
   // The positioning notes approved (0118, WP-08 T1): the version and the names of the sections that changed, never the words.

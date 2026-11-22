@@ -68,30 +68,15 @@ test.describe("live pages from the sidebar", () => {
     await expect(panel.getByTestId("people-search-results")).toHaveCount(0);
   });
 
-  test("Network: the profile visibility control offers the four levels and saves a change (then restores it)", async ({ page }) => {
+  test("Network: Your public page replaces the old visibility choice and links to the editor", async ({ page }) => {
     await page.goto("/network");
     await settled(page);
-    const panel = page.getByTestId("visibility-panel");
+    const panel = page.getByTestId("your-page-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
-    const radios = panel.getByRole("radio");
-    await expect(radios).toHaveCount(4);
-    await expect(panel.getByRole("radio", { name: /^Public/ })).toBeVisible();
-    await expect(panel.getByRole("radio", { name: /^Connections/ })).toBeVisible();
-    await expect(panel.getByRole("radio", { name: /^Community/ })).toBeVisible();
-    await expect(panel.getByRole("radio", { name: /^Private/ })).toBeVisible();
-    // One is checked once the API has answered.
-    await expect(panel.locator("[role=radio][data-state=checked]")).toHaveCount(1, { timeout: LONG });
-    const original = (await panel.locator("[role=radio][data-state=checked]").getAttribute("id")) ?? "";
-    const other = original === "visibility-connections" ? "visibility-community" : "visibility-connections";
-
-    await panel.locator(`#${other}`).click();
-    await expect(panel.locator(`#${other}`)).toHaveAttribute("data-state", "checked", { timeout: LONG });
-    await expect(page.getByText(/^Profile visibility: /)).toBeVisible();
-    // It is stored: a reload shows the same choice.
-    await page.reload();
-    await expect(page.getByTestId("visibility-panel").locator(`#${other}`)).toHaveAttribute("data-state", "checked", { timeout: LONG });
-    await page.getByTestId("visibility-panel").locator(`#${original}`).click();
-    await expect(page.getByTestId("visibility-panel").locator(`#${original}`)).toHaveAttribute("data-state", "checked", { timeout: LONG });
+    await expect(page.getByTestId("visibility-panel")).toHaveCount(0);
+    await expect(panel.getByRole("radio")).toHaveCount(0);
+    await expect(panel.getByTestId("your-page-edit")).toHaveAttribute("href", "/public-profile", { timeout: LONG });
+    await expect(page.getByTestId("find-people")).toBeVisible();
   });
 
   test("Communities: lists the communities with Join or Leave, opens the feed and posts with Ctrl+Enter", async ({ page }) => {
@@ -174,6 +159,10 @@ test.describe("live pages from the sidebar", () => {
     await expect(heldPost.getByTestId("post-status")).toHaveText("Held for review");
     // The founder owns this community, so the review queue lists it; removing it as its author clears it.
     await expect(page.getByTestId("moderation-panel")).toContainText(held, { timeout: LONG });
+    // Nobody approves their own post: the queue offers no Approve for it.
+    const ownItem = page.getByTestId("moderation-item").filter({ hasText: held });
+    await expect(ownItem.getByTestId("moderation-own-post")).toBeVisible();
+    await expect(ownItem.getByRole("button", { name: "Approve" })).toHaveCount(0);
     await heldPost.getByTestId("post-menu").click();
     await page.getByRole("menuitem", { name: /Delete/ }).click();
     await expect(feed.getByTestId("feed-post").filter({ hasText: held })).toHaveCount(0, { timeout: LONG });

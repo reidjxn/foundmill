@@ -93,7 +93,7 @@ export function latestPromotedRun(runs: readonly TrainingRunRecord[]): TrainingR
 
 /**
  * The SkillGrid rows. A skill the business added (custom, from the library or a file) reads under its own name; one
- * with no tested rating yet (added and not yet scored by a training run) is marked "Untested", its value the baseline.
+ * with no tested rating yet (added and not yet scored by a training run) is marked "Not tested yet", its value the baseline.
  */
 export function toSkillRows(skills: readonly AgentSkillRecord[], runs: readonly TrainingRunRecord[] = []): SkillRow[] {
   const promoted = latestPromotedRun(runs);
@@ -105,7 +105,7 @@ export function toSkillRows(skills: readonly AgentSkillRecord[], runs: readonly 
     return {
       id: s.skillKey,
       name: ("name" in s && s.name) || humaniseKey(s.skillKey),
-      ...(tested === null && proven === null ? { note: "Untested" } : {}),
+      ...(tested === null && proven === null ? { note: "Not tested yet" } : {}),
       group: s.group,
       value,
       delta: r ? Math.round(r.new - r.old) : undefined,
@@ -121,7 +121,7 @@ export function toSkillRows(skills: readonly AgentSkillRecord[], runs: readonly 
 /**
  * What a skill's rating is from (WP-10 T9): real work once it has live tasks; practice tests once a promoted run scored
  * it (that run's date); otherwise the estimate written at hire. A skill with neither a tested nor a proven rating keeps
- * its own "Untested" chip instead.
+ * its own "Not tested yet" chip instead.
  */
 export function skillSource(nLive: number, scoredBy: TrainingRunRecord | null): RatingSource {
   if (nLive > 0) return { kind: "work", tasks: nLive };
@@ -437,7 +437,7 @@ export const MODEL_DESCRIPTIONS: Record<ModelKey, string> = {
   opus: "Deepest judgment; the default for the agent that plans the work and for department leads.",
   sonnet: "Fast and capable; the default for workers.",
   haiku: "Cheapest; classification, linking and other utility work.",
-  glm: "The free plan's model: every agent runs on it until the plan is upgraded or your own Anthropic key is connected.",
+  glm: "Low cost, from Z.ai; runs the work sessions of a free team. Any plan can choose it.",
 };
 const MODEL_RANK: Record<ModelKey, number> = { opus: 3, sonnet: 2, haiku: 1, glm: 1 };
 
@@ -465,6 +465,7 @@ export function modelOptions(compare: ModelCompare, currency: string): ModelOpti
     wageDelta: { amountMinor: o.predictedWageMinor - base, currency: compare.currency ?? currency },
     lockedReason: o.allowed ? undefined : (o.warning ?? "Locked for this agent's route."),
     warning: o.allowed && o.warning ? o.warning : undefined,
+    ...((o as { gate?: string }).gate ? { gated: true as const } : {}),
   }));
 }
 

@@ -19,7 +19,7 @@ describe("retryDeferral", () => {
   const exhausted = { failures: 4, due: false, exhausted: true, nextAttemptAt: null };
   const waiting = { failures: 2, due: false, exhausted: false, nextAttemptAt: "2026-10-28T10:00:00.000Z" };
 
-  it("defers a task past its retries, and one still waiting, on an automatic cycle", () => {
+  it("defers a task past its retries, and one still waiting, on an automatic round of work", () => {
     expect(retryDeferral(task({ retry: exhausted }))).toBe("blocked 4 times in a row; start it from the Plan once the cause is fixed");
     expect(retryDeferral(task({ retry: exhausted }), "autopilot")).toBe("blocked 4 times in a row; start it from the Plan once the cause is fixed");
     expect(retryDeferral(task({ status: "failed", retry: waiting }), "schedule")).toBe("retrying after 2 failed sessions; next try after Oct 28, 10:00 AM UTC");

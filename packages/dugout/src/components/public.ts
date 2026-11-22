@@ -19,3 +19,5 @@ export * from "./public/InvitationCard";
 export * from "./public/OnWaitlistCard";
 // "Get the app": the native app's store links, from one value unset until launch (WP-03 T9).
 export * from "./public/GetTheApp";
+// The opt-in gallery at /explore (docs/holistic-plan/LAUNCH_EVALUATION.md Session 10).
+export * from "./public/ExploreGallery";

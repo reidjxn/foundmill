@@ -44,13 +44,13 @@ export function JurisdictionCardView({ card, currency, onChoose, chosen }: { car
         <div>
           <dt className="t-label">Formation cost</dt>
           <dd className="flex items-center gap-1 t-body text-primary tabular-nums">
-            {fmtMoney(card.formation_cost_minor, currency)} <ProvenanceChip kind="estimate" />
+            <ProvenanceChip kind="estimate">{fmtMoney(card.formation_cost_minor, currency)}</ProvenanceChip>
           </dd>
         </div>
         <div>
           <dt className="t-label">Annual cost</dt>
           <dd className="flex items-center gap-1 t-body text-primary tabular-nums">
-            {fmtMoney(card.annual_cost_minor, currency)} <ProvenanceChip kind="estimate" />
+            <ProvenanceChip kind="estimate">{fmtMoney(card.annual_cost_minor, currency)}</ProvenanceChip>
           </dd>
         </div>
         <div>

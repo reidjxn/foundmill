@@ -6,7 +6,7 @@ import { createRegistry } from "../registry";
 import { makeToolContext, TEST_BUSINESS_ID } from "../testing/contract-suite";
 import { z } from "zod";
 
-const EXPECTED_KEYS = ["anthropic", "voyage", "openai_images", "elevenlabs", "onesignal", "platform_notify", "github", "google_drive", "gmail", "google_calendar", "notion", "cloudflare_dns", "opencorporates", "bolagsverket", "companies_house", "e2b", "dropbox_sign", "ecb_rates", "domains", "stripe", "sendgrid", "shopify", "tink", "plaid", "openai", "gemini", "perplexity", "serpapi", "firecrawl", "indexnow", "apollo", "vercel", "posthog", "resend", "runway", "elevenlabs_voice", "buffer"];
+const EXPECTED_KEYS = ["anthropic", "voyage", "openai_images", "elevenlabs", "onesignal", "platform_notify", "sending_domain", "opensrs", "github", "google_drive", "gmail", "google_calendar", "notion", "cloudflare_dns", "opencorporates", "bolagsverket", "companies_house", "e2b", "dropbox_sign", "ecb_rates", "domains", "stripe", "sendgrid", "shopify", "tink", "plaid", "openai", "gemini", "perplexity", "serpapi", "firecrawl", "indexnow", "apollo", "vercel", "posthog", "resend", "runway", "elevenlabs_voice", "buffer", "notion_mcp", "hubspot_mcp", "shopify_mcp", "mcp_custom", "browser_carrd", "browser_linktree", "browser_wave"];
 
 describe("registry: mode switching", () => {
   const registry = createDefaultRegistry({ secrets: {} });
@@ -30,9 +30,9 @@ describe("registry: mode switching", () => {
   it("list() and getByPhase() follow the mode; catalogue() carries policy hints, webhooks and simulations", () => {
     expect(registry.list("mock").every(isMockConnector)).toBe(true);
     expect(registry.list("live").some(isMockConnector)).toBe(false);
-    expect(registry.getByPhase(1, "mock").map((c) => c.key).sort()).toEqual(["anthropic", "bolagsverket", "cloudflare_dns", "companies_house", "domains", "dropbox_sign", "e2b", "ecb_rates", "github", "gmail", "google_calendar", "google_drive", "notion", "onesignal", "openai_images", "opencorporates", "platform_notify", "voyage"]);
-    expect(registry.getByPhase(2, "mock").map((c) => c.key).sort()).toEqual(["apollo", "buffer", "plaid", "posthog", "resend", "sendgrid", "shopify", "stripe", "tink", "vercel"]);
-    expect(registry.getByPhase(3, "mock").map((c) => c.key).sort()).toEqual(["elevenlabs", "elevenlabs_voice", "firecrawl", "gemini", "indexnow", "openai", "perplexity", "runway", "serpapi"]);
+    expect(registry.getByPhase(1, "mock").map((c) => c.key).sort()).toEqual(["anthropic", "bolagsverket", "cloudflare_dns", "companies_house", "domains", "dropbox_sign", "e2b", "ecb_rates", "github", "gmail", "google_calendar", "google_drive", "notion", "onesignal", "openai_images", "opencorporates", "opensrs", "platform_notify", "sending_domain", "voyage"]);
+    expect(registry.getByPhase(2, "mock").map((c) => c.key).sort()).toEqual(["apollo", "buffer", "hubspot_mcp", "notion_mcp", "plaid", "posthog", "resend", "sendgrid", "shopify", "shopify_mcp", "stripe", "tink", "vercel"]);
+    expect(registry.getByPhase(3, "mock").map((c) => c.key).sort()).toEqual(["browser_carrd", "browser_linktree", "browser_wave", "elevenlabs", "elevenlabs_voice", "firecrawl", "gemini", "indexnow", "mcp_custom", "openai", "perplexity", "runway", "serpapi"]);
     const entry = registry.catalogue("mock").find((c) => c.key === "stripe")!;
     expect(entry.webhookPaths).toEqual(["/webhooks/stripe/:businessId"]);
     expect(entry.simulations).toContain("payment.received");
@@ -76,7 +76,7 @@ describe("registry: every tool has policy hints and hard gates never execute", (
     }
   }
   it("the hard-gated set is exactly what BUILD §2.2 requires of these connectors", () => {
-    expect(gated.sort()).toEqual(["dropbox_sign.sign_as_founder", "plaid.start_consent", "shopify.refund_order", "stripe.create_payout", "stripe.create_transfer", "stripe.refund_payment", "stripe.start_connect_onboarding", "tink.start_consent"]);
+    expect(gated.sort()).toEqual(["browser_carrd.request_founder", "browser_linktree.request_founder", "browser_wave.request_founder", "dropbox_sign.sign_as_founder", "plaid.start_consent", "shopify.refund_order", "shopify_mcp.complete_checkout", "stripe.create_payout", "stripe.create_transfer", "stripe.refund_payment", "stripe.start_connect_onboarding", "tink.start_consent"]);
     // Money movement is always gated; metered platform spend (sandbox compute, embeddings) is "spendsMoney" for the policy engine but not a gate.
     for (const c of connectors) for (const [name, hint] of Object.entries(c.policyHints)) if (/^(create_payout|create_transfer|refund_\w+|sign_as_founder|start_consent|start_connect_onboarding)$/.test(name)) expect(hint.hardGate, `${c.key}.${name} must be hard-gated`).toBe(true);
   });

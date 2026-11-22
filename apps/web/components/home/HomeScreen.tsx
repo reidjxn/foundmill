@@ -25,6 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmptyState,
+  Explainer,
   Field,
   IconButton,
   Input,
@@ -40,6 +41,7 @@ import {
   type WidgetLayout,
   type WidgetPreset,
 } from "@foundmill/dugout";
+import { EXPLAINERS } from "@foundmill/modules/explainers";
 import { DASHBOARD_PRESET_LIST, fromGridLayout, moduleHref, prepareLayout, routes, toGridLayout, toScreenLayout, type DashboardPresetId } from "@foundmill/widgets";
 import { useToday } from "@foundmill/widgets/data";
 import { WRITE_ROLES } from "@foundmill/shared/constants";
@@ -278,6 +280,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
       {lead}
       {/* The first-visit tour (once per account, guidance on), mounted with the dashboard so its widgets are there to point at. */}
       <HomeTour />
+      <Explainer {...EXPLAINERS.home!} />
       <DashboardGrid
         key={row.id}
         businessId={businessId}

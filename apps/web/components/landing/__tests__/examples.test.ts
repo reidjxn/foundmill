@@ -131,12 +131,12 @@ describe.each(EXAMPLE_IDS)("example business %s", (id) => {
     expect(orbitDepartments(business).map((d) => d.name)).toEqual(business.departments.map((d) => d.label));
   });
 
-  it("runs the hero deck: a decision first, then the customer the Customer Update is about", async () => {
+  it("runs the hero deck: first the customer the Customer Update is about (a win, WP-14 T10), then a decision", async () => {
     await load();
     const [first, second] = business.deck.outcomes;
-    expect(first?.kind).toBe("decision");
-    expect(second?.kind).toBe("win");
-    if (second?.kind === "win") expect(second.customer).toBe(business.customerUpdate.customer.name);
+    expect(first?.kind).toBe("win");
+    expect(second?.kind).toBe("decision");
+    if (first?.kind === "win") expect(first.customer).toBe(business.customerUpdate.customer.name);
     for (const o of business.deck.outcomes) {
       if (o.kind !== "decision") continue;
       expect(o.options.length).toBeGreaterThanOrEqual(2);
@@ -147,7 +147,7 @@ describe.each(EXAMPLE_IDS)("example business %s", (id) => {
     expect(business.activity.length).toBeGreaterThanOrEqual(8);
   });
 
-  it("has How it works' concepts, six brand options and a cycle plan over its own departments", async () => {
+  it("has How it works' concepts, six brand options and a round of work plan over its own departments", async () => {
     await load();
     const [front, back] = business.howItWorks.concepts;
     expect(front?.name).toBe(business.identity.name);
@@ -252,7 +252,7 @@ describe("Northwind Skincare", () => {
     expect(payments.filter((p) => p.amountMinor >= chainOrder).map((p) => [p.entityName, p.amountMinor])).toEqual([["Larkfield Market", chainOrder]]);
   });
 
-  it("reads whole in the narrowest places: the Ribbon's day card, the cycle 1 plan's rows and the deck's Inbox lines", async () => {
+  it("reads whole in the narrowest places: the Ribbon's day card, the round of work 1 plan's rows and the deck's Inbox lines", async () => {
     const northwind = await loadExample("northwind");
     // The day card puts the chapter title beside a date such as "Wed 15 Oct 2025": 17 characters fit.
     for (const title of northwind.journey.chapterTitles) expect(title.length, title).toBeLessThanOrEqual(17);

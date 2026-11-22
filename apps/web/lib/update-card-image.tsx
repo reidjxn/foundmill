@@ -16,7 +16,7 @@ import { UPDATE_CARD_HEADLINE_WORDS, updateCardWords } from "@foundmill/shared/u
 import { formatDate } from "./format";
 import type { PublicUpdateCard } from "./public-page.server";
 
-type ImageCard = Pick<PublicUpdateCard, "name" | "mark" | "brandPrimary"> & { card: Pick<PublicUpdateCard["card"], "headline" | "occurredOn" | "leadChannelKey" | "standoutAgent"> };
+type ImageCard = Pick<PublicUpdateCard, "name" | "mark" | "brandPrimary"> & { card: Pick<PublicUpdateCard["card"], "headline" | "occurredOn" | "leadChannelKey" | "standoutAgent" | "verified"> };
 
 /** What both images print, in one place so the two sizes can never say different things. */
 export function updateCardImageWords(c: ImageCard) {
@@ -30,7 +30,9 @@ export function updateCardImageWords(c: ImageCard) {
     date: day ? formatDate(day) : "",
     channel: channel ? `${words.leadChannel}: ${channel}` : null,
     agent: agent ? `${words.standoutAgent}: ${clipText(agent, 40)} (${words.aiAgent})` : null,
-    verified: storyWords(APP_NAME).verified,
+    // "Verified by" only for a verified payment; otherwise where it comes from, with no badge.
+    verified: c.card.verified ? storyWords(APP_NAME).verified : null,
+    recorded: c.card.verified ? null : words.recordedNote,
     builtOn: c.mark ? builtOnWords(APP_NAME).mark : null,
   };
 }
@@ -59,11 +61,13 @@ export function updateCardImage(c: ImageCard, size: { width: number; height: num
         </div>
         <div style={{ display: "flex", flexDirection: tall ? "column" : "row", justifyContent: "space-between", alignItems: tall ? "flex-start" : "flex-end", gap: tall ? 32 : 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: tall ? 20 : 14, fontSize: tall ? 44 : 30, fontWeight: 600 }}>
-            <svg width={check} height={check} viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <path d="m8 12.5 2.75 2.75L16 9.5" />
-            </svg>
-            <span>{words.verified}</span>
+            {words.verified ? (
+              <svg width={check} height={check} viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="m8 12.5 2.75 2.75L16 9.5" />
+              </svg>
+            ) : null}
+            <span>{words.verified ?? words.recorded}</span>
           </div>
           {words.builtOn ? <span style={{ fontSize: tall ? 30 : 20, opacity: 0.6 }}>{words.builtOn}</span> : null}
         </div>

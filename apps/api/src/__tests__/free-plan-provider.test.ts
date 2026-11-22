@@ -23,26 +23,29 @@ afterAll(async () => {
 });
 
 describe("the api's model client chooses by who pays (WP-13)", () => {
-  it("runs a free business, a person before commit and a signed-out visitor on Haiku 5.5, and a paid plan as routed", async () => {
+  it("runs a free business, a person before commit and a signed-out visitor on Haiku 5.5 on the allowed routes, the rest and a paid plan as routed", async () => {
     const client = createApiModelClient({ MODEL_MODE: "mock", ANTHROPIC_API_KEY: undefined }, log, { db: hz.db, onUsage: (e) => void events.push(e) });
-    const ask = (attribution: { businessId?: string; userId?: string } | undefined) => client.complete({ route: "planCompiler", attribution: { ...attribution, kind: "test" }, messages: [{ role: "user", content: "Pause the ads" }] });
+    const ask = (attribution: { businessId?: string; userId?: string } | undefined, route: "ideation" | "planCompiler" = "ideation") => client.complete({ route, attribution: { ...attribution, kind: "test" }, messages: [{ role: "user", content: "Pause the ads" }] });
 
     await repos.businesses.update(hz.db, hz.A.businessId, { planTier: "free", modelBilling: "credits" });
     await ask({ businessId: hz.A.businessId });
     await ask({ userId: hz.A.ownerId });
     await ask(undefined);
+    // The plan compiler reads the founder's free text and drives the team: it keeps its model on the free plan (T8).
+    await ask({ businessId: hz.A.businessId }, "planCompiler");
     await repos.businesses.update(hz.db, hz.B.businessId, { planTier: "pro", modelBilling: "credits" });
-    await ask({ businessId: hz.B.businessId });
-    await ask({ userId: hz.B.ownerId });
-    expect(events.map((e) => e.model)).toEqual([MODELS.haiku, MODELS.haiku, MODELS.haiku, MODELS.opus, MODELS.opus]);
+    await ask({ businessId: hz.B.businessId }, "planCompiler");
+    await ask({ userId: hz.B.ownerId }, "planCompiler");
+    expect(events.map((e) => e.model)).toEqual([MODELS.haiku, MODELS.haiku, MODELS.haiku, MODELS.opus, MODELS.opus, MODELS.opus]);
   });
 
-  it("in mock mode, runs a free business on its own key on the free plan's model, never a model the founder has not paid for", async () => {
+  it("in mock mode, runs a free business on its own key as the free plan runs it, on Foundmill's key, never booked to the founder", async () => {
     events.length = 0;
     const client = createApiModelClient({ MODEL_MODE: "mock", ANTHROPIC_API_KEY: undefined }, log, { db: hz.db, onUsage: (e) => void events.push(e) });
     await repos.businesses.update(hz.db, hz.A.businessId, { planTier: "free", modelBilling: "byok" });
     await client.complete({ route: "conversation", attribution: { businessId: hz.A.businessId, kind: "test" }, messages: [{ role: "user", content: "hi" }] });
-    expect(events.map((e) => [e.model, e.billedTo])).toEqual([[MODELS.haiku, "credits"]]);
+    // A conversation keeps its own model on the free plan (T8).
+    expect(events.map((e) => [e.model, e.billedTo])).toEqual([[MODELS.sonnet, "credits"]]);
   });
 });
 

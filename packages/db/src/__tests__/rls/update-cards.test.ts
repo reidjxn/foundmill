@@ -2,7 +2,7 @@
  * 0136 `customer_update_cards` and the view `public_customer_update_cards` (WP-14 T9), tenancy by hand:
  *   - members of A read A's cards; nobody of A reads B's; no client role, of any role, writes a card (the api's
  *     service connection does, after its checks), so a "Verified" card cannot be written by hand;
- *   - the view exposes exactly its seven columns, to the service connection only, and lists a card only while its
+ *   - the view exposes exactly its eight columns, to the service connection only, and lists a card only while its
  *     project's page is public: a page taken down or a sample business removes it at once;
  *   - deleting the journey deletes its card.
  */
@@ -46,7 +46,7 @@ async function withCard(slug: string, note: string | null) {
   return h.service().run(async (tx) => {
     await repos.pages.publish(tx, f.businessId, { content: content(), slug, userId: f.ownerId, at: new Date("2026-11-01T09:00:00Z") });
     const journey = await repos.journeys.create(tx, f.businessId, { conversionId: f.conversionIds[0]!, matchdayLevel: "friendly" });
-    const card = (await repos.updateCards.create(tx, f.businessId, { journeyId: journey.id, headline: "new_customer", occurredOn: "2026-11-12", leadChannelKey: "seo", standoutAgent: "Search Writer", note, createdBy: f.ownerId }))!;
+    const card = (await repos.updateCards.create(tx, f.businessId, { journeyId: journey.id, headline: "new_customer", occurredOn: "2026-11-12", leadChannelKey: "seo", standoutAgent: "Search Writer", note, verified: true, createdBy: f.ownerId }))!;
     return { f, journeyId: journey.id, cardId: card.id };
   });
 }
@@ -94,7 +94,7 @@ describe("customer_update_cards: tenancy", () => {
   });
 
   it("one card per Customer Update: sharing twice changes nothing twice", async () => {
-    const again = await h.service().run((tx) => repos.updateCards.create(tx, A.businessId, { journeyId: aJourneyId, headline: "returning_customer", occurredOn: "2026-11-13", leadChannelKey: null, standoutAgent: null, note: "Second", createdBy: A.ownerId }));
+    const again = await h.service().run((tx) => repos.updateCards.create(tx, A.businessId, { journeyId: aJourneyId, headline: "returning_customer", occurredOn: "2026-11-13", leadChannelKey: null, standoutAgent: null, note: "Second", verified: false, createdBy: A.ownerId }));
     expect(again).toBeNull();
     expect((await h.service().run((tx) => repos.updateCards.forJourney(tx, A.businessId, aJourneyId)))?.note).toBe("Thank you for trusting us.");
   });
@@ -110,12 +110,12 @@ describe("customer_update_cards: tenancy", () => {
 });
 
 describe("public_customer_update_cards: what anyone may read", () => {
-  it("exposes exactly its seven columns, with nothing of the business, the journey or the customer", async () => {
+  it("exposes exactly its eight columns, with nothing of the business, the journey or the customer", async () => {
     const columns = (await rows<{ column_name: string }>(sql`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'public_customer_update_cards' order by ordinal_position`)).map((r) => r.column_name);
     expect(columns).toEqual([...PUBLIC_CUSTOMER_UPDATE_CARD_COLUMNS]);
-    expect(columns).toEqual(["id", "slug", "headline", "occurred_on", "lead_channel_key", "standout_agent", "note"]);
+    expect(columns).toEqual(["id", "slug", "headline", "occurred_on", "lead_channel_key", "standout_agent", "note", "verified"]);
     const row = (await publicRows()).find((r) => r.id === aCardId)!;
-    expect(row).toMatchObject({ slug: "uc-alpha", headline: "new_customer", lead_channel_key: "seo", standout_agent: "Search Writer", note: "Thank you for trusting us." });
+    expect(row).toMatchObject({ slug: "uc-alpha", headline: "new_customer", lead_channel_key: "seo", standout_agent: "Search Writer", note: "Thank you for trusting us.", verified: true });
     expect(String(row.occurred_on)).toContain("2026-11-12");
     const everything = JSON.stringify(await publicRows());
     for (const hidden of [A.businessId, B.businessId, aJourneyId, bJourneyId, A.entityId, B.entityId, A.ownerId, ...A.conversionIds, ...B.conversionIds]) expect(everything).not.toContain(hidden);

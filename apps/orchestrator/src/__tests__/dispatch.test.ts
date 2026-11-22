@@ -52,6 +52,20 @@ beforeEach(async () => {
   await repos.agents.update(t.db, B(), t.workerId, { wageCapMinor: null });
 });
 
+describe("paid entry (WP-09 T16)", () => {
+  it("opens no session and plans nothing until a founder holds the entry plan", async () => {
+    const paid = { ...t.deps, env: { ...t.deps.env, PAID_ENTRY: true } };
+    const task = await readyTask("Paid entry");
+    expect(await openAgentSession(paid, { businessId: B(), agentId: t.workerId, taskId: task.id })).toMatchObject({ sessionId: null, refused: "entry_plan" });
+    expect((await createBriefActivities(paid).loadBrief({ businessId: B() })).agentsStopped).toBe(true);
+    // The fixture's owner subscribes (simulated, on this simulated stack): the work opens.
+    const row = await repos.checkouts.create(t.db, B(), { kind: "subscription", mode: "mock", amountMinor: 500, createdBy: t.fixture.ownerId });
+    await repos.accountPlans.activate(t.db, { userId: t.fixture.ownerId, mode: "mock", checkoutId: row.id });
+    expect((await createBriefActivities(paid).loadBrief({ businessId: B() })).agentsStopped).toBe(false);
+    expect((await openAgentSession(paid, { businessId: B(), agentId: t.workerId, taskId: task.id })).refused).toBeNull();
+  });
+});
+
 describe("openSession", () => {
   it("creates the row with workflow id session:<id> before anything starts, marks the task running and emits task.started with that id", async () => {
     const task = await readyTask();
@@ -96,7 +110,7 @@ describe("openSession", () => {
     expect((await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).sessionId).toBeTruthy();
   });
 
-  it("refuses once every concurrent agent the plan holds is working, for a cycle's start and a plan's task alike (SEC2 S2)", async () => {
+  it("refuses once every concurrent agent the plan holds is working, for a round of work's start and a plan's task alike (SEC2 S2)", async () => {
     const business = await repos.businesses.get(t.db, B());
     const { room } = await concurrencyAllowance(t.db, business, t.clock.now());
     for (let i = 0; i < room; i++) await repos.agents.createSession(t.db, B(), { agentId: t.workerId, startedAt: t.clock.now() });

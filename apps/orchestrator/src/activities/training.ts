@@ -17,7 +17,7 @@
  * stopped, and a skill whose next test would start while it is, end the run canceled with the reason; the tests already
  * run are booked. A run that ended stays ended: its remaining skills run no test, even after the agents resume.
  */
-import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, isCustomSkillKey, ratingFromTested, runDeterministicChecks, skillDisplayName, skillTestFromStored, type AgentTemplate, type SkillTest } from "@foundmill/agents";
+import { AgentInstructions, NO_TOOL_LOOP_PRELOAD_BODIES, attachedSkills, buildSystemPrompt, detectClubRuleViolation, getPrompt, selectSkills, getSkillDefinition, getSkillTests, isCustomSkillKey, ratingFromTested, runDeterministicChecks, skillDisplayName, skillTestFromStored, type AgentTemplate, type SkillTest } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { ACTIVE_TRAINING_STATUSES, MICRO_PER_MINOR, microToMinor, repos, type TrainingRun } from "@foundmill/db";
 import { SkillGradeOutput, resolveModel } from "@foundmill/models";
@@ -205,8 +205,10 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
         return { skillKey: input.skillKey, group, testsRun: 0, meanScore: 0, tested: previousTested ?? template.baselineRating, previousTested, costMinor: 0, costMicroMinor: 0, checksFailed: 0 };
       }
       const instructions = AgentInstructions.safeParse(draft.instructions);
-      // The agent as it works: its added skills (library or files) follow its instructions here as in its sessions.
-      const skills = (await repos.skills.listAddedForAgent(db, input.businessId, agent.id, agent.agentType)).filter((a) => a.instructionsMd.trim()).map((a) => ({ name: a.name, source: a.source, instructionsMd: a.instructionsMd }));
+      // The agent as it works: its added skills (library or files) in the index after its instructions (WP-06 T4). A test
+      // has no tool loop, so the skill under test and those that improve it are loaded; library skills follow the catalog.
+      const added = await repos.skills.listAddedForAgent(db, input.businessId, agent.id, agent.agentType);
+      const skills = selectSkills({ skills: attachedSkills([], added), ratedSkillKey: input.skillKey, maxBodies: NO_TOOL_LOOP_PRELOAD_BODIES });
       const system = buildSystemPrompt({ businessName: business.name, appName: APP_NAME, template: { instructions: instructions.success ? instructions.data : template.instructions, description: template.description }, glossary: business.glossary, skills });
       const route = resolveModel(template.route, input.modelKey);
       const sandboxes = new MockSandboxProvider({ speed: Infinity, autoplay: false, holds: { autoResolveAfterMs: 1 } });
@@ -238,11 +240,19 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
             messages: [{ role: "user", content: `${test.task.prompt}\n\n\`\`\`json\n${JSON.stringify({ task: { id: test.id, title: test.task.title, kind: template.taskKinds[0] ?? "ops" }, fixtures: test.task.fixtures })}\n\`\`\`` }],
             modelOverride: route.modelKey,
             // The agent's whole system prompt (about 3k tokens) is the same on every test: written once, then read (audit BF-15).
-            cacheSystem: true,
+            // The breakpoint sits on it, block 0, so the per-test block after it never forces a new write (WP-09 T9).
+            cacheSystem: 0,
             scope: `training:${agent.id}`,
             attribution,
+            // A refusal is the candidate's answer here, scored below, never an error that ends the run (WP-09 T5).
+            allowRefusal: true,
           });
           costMicroMinor += answer.cost.costMicroMinor;
+          // The candidate declined (the whole fallback chain said no): the test scores 0 and the grader is not called.
+          if (answer.stopReason === "refusal") {
+            scores.push(0);
+            continue;
+          }
           // 2. the sandbox runs the task's tests when the skill has any (mock: canned results per recording)
           let testsPassed: boolean | undefined;
           if (test.checks.some((c) => c.kind === "tests_pass")) {

@@ -104,6 +104,8 @@ export interface PolicyHint {
   requiresKitMode?: boolean;
   irreversible?: boolean;
   hardGate?: boolean;
+  /** What the call would do could not be classified (a hosted-browser step): it asks first in every mode. */
+  unclassified?: boolean;
 }
 export type PolicyHints = Record<string, PolicyHint>;
 
@@ -162,8 +164,13 @@ export interface ToolContext {
 
 /** What the gateway hands `platform_mail.send_mail` (see `ToolContext.platformMail`). */
 export interface PlatformMailEnvelope {
-  /** `<local part>@<PLATFORM_MAIL_DOMAIN>` and `<project name> via <APP_NAME>`. Also the Reply-To: replies come back into Foundmill. */
+  /** `<local part>@<PLATFORM_MAIL_DOMAIN>` (or the project's own verified domain) and `<project name> via <APP_NAME>`. Also the Reply-To unless `replyTo` is set. */
   from: { email: string; name: string };
+  /**
+   * Where replies go when `from` is the project's own domain (`project_domains`, verified): the project's Foundmill
+   * address, so replies still come back into Foundmill. Absent: replies go to `from`.
+   */
+  replyTo?: { email: string; name: string };
   /** The project's name as the footer says it ("Sent by <it> with <APP_NAME>"); never one containing APP_NAME. */
   projectName: string;
   /** The gateway's id for this message (uuid), signed into `customArgs`. */
@@ -241,6 +248,12 @@ export interface ConnectorWebhook {
    * (SECURITY_REVIEW SEC-10). Reads a clone, like `verify`. Absent: the vendor's scheme names no account.
    */
   accountOf?(req: Request): Promise<string | null>;
+  /**
+   * The vendor account a delivery says withdrew the platform's access (Stripe `account.application.deauthorized`), or
+   * null for any other delivery. `apps/ingest` marks that business's connection expired, after `verify` and the same
+   * account check as `accountOf`. Absent: the vendor sends no such notice.
+   */
+  revokedAccount?(req: Request): Promise<string | null>;
 }
 
 /**
@@ -274,6 +287,12 @@ export interface Connector<Cfg = unknown> {
    * passes it for a live check); an API-key connector checks with it and never with a platform key.
    */
   healthcheck(integration: IntegrationRecord, credential?: DecryptedCredential): Promise<HealthResult>;
+  /**
+   * Withdraws the platform's access at the vendor when the founder disconnects (Stripe Connect: `oauth.deauthorize`).
+   * The gateway calls it before the api revokes the stored credentials; absent, disconnecting is local only. True when
+   * access was withdrawn, false when this connection had none at the vendor to withdraw (a pasted key).
+   */
+  disconnect?(integration: IntegrationRecord, credential?: DecryptedCredential): Promise<boolean>;
   tools: McpToolDefinition[]; // JSON-schema inputs/outputs
   callTool(name: string, args: unknown, ctx: ToolContext): Promise<ToolResult>;
   webhooks?: ConnectorWebhook[];
@@ -286,6 +305,13 @@ export interface Connector<Cfg = unknown> {
    */
   estimateCostMinor?: (name: string, args: unknown) => number | null;
   policyHints: PolicyHints;
+  /**
+   * The hints of one call, read from what the call would act on (the hosted browser: the element behind a ref on the
+   * page as it was last read). The gateway uses them in place of the tool's own `policyHints` entry for that call.
+   * Null: the tool's own entry stands. A connector that declares this gives its tools the strictest entry a call of
+   * theirs can have, so a call it cannot read asks first.
+   */
+  stepHints?(name: string, args: unknown, businessId: string): Promise<PolicyHint | null>;
   mock: Connector<Cfg>; // same surface, deterministic fixtures
 }
 

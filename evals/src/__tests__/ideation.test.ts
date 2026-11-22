@@ -5,7 +5,7 @@
  */
 import { MockModelClient, type ConceptCard, type IdeationSlateItem } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
-import { checkIdeationSet, IDEATION_BRIEFS, runIdeationEval } from "../ideation";
+import { checkFounderFit, checkIdeationSet, IDEATION_BRIEFS, runIdeationEval } from "../ideation";
 
 const item = (i: number, over: Partial<IdeationSlateItem> = {}): IdeationSlateItem => ({ id: `c${i}`, name: `Concept ${i}`, archetype: "b2b_saas", angle: `Angle ${i} for a distinct customer.`, ...over });
 const card = (slate: IdeationSlateItem, over: Partial<ConceptCard> = {}): ConceptCard => ({
@@ -30,7 +30,8 @@ describe("ideation eval checker", () => {
     for (const entry of IDEATION_BRIEFS) {
       const r = await runIdeationEval(entry, client);
       expect(r.error, entry.id).toBeUndefined();
-      expect(r.check.problems.filter((p) => p.kind !== "constraint"), entry.id).toEqual([]);
+      // The mock reads neither constraints nor what a fit rating should rest on: those are checked on crafted sets.
+      expect(r.check.problems.filter((p) => p.kind !== "constraint" && p.kind !== "fit"), entry.id).toEqual([]);
       expect(r.check.cards).toBe(r.check.slateSize);
       expect(r.cardCalls).toBe(r.check.slateSize);
       // The mock counts a repeated cached system prompt as a cache read: every card reads what the slate wrote.
@@ -63,5 +64,33 @@ describe("ideation eval checker", () => {
     expect(messages).toMatch(/card 4 potential below current/);
     expect(messages).toMatch(/card 4 has 1 citations/);
     expect(r.problems.some((p) => p.kind === "constraint")).toBe(true);
+  });
+
+  it("covers the short profile and no profile (WP-14 T2)", () => {
+    const quick = IDEATION_BRIEFS.find((b) => b.id === "quick_profile")!;
+    expect(quick.fit).toBe("quick");
+    expect(quick.brief.founder).toMatchObject({ experience: null, skills_basis: "quick_answers", skills: { engineering: 7, sales: 14, design: 14, finance: 7, domain: 7 } });
+    expect(IDEATION_BRIEFS.find((b) => b.id === "no_profile")).toMatchObject({ fit: "neutral", brief: { founder: null } });
+  });
+
+  it("Founder fit: neutral with nothing known, and following the picked skills on the quick profile", () => {
+    const fit = (i: number, archetype: ConceptCard["archetype"], value: number | null) => {
+      const slate = item(i, { archetype });
+      return card(slate, { attributes: value === null ? [] : [{ key: "founder_fit", value, evidence: "Unverified." }] });
+    };
+    // Nothing known: the neutral band passes; an extreme does not; a card without the rating does not.
+    expect(checkFounderFit([fit(0, "b2b_saas", 7), fit(1, "services", 13), undefined], "neutral")).toEqual([]);
+    expect(checkFounderFit([fit(0, "b2b_saas", 17)], "neutral").map((p) => p.message)).toEqual(['"Concept 0" rates founder_fit 17 with nothing known about the founder (want 7-13)']);
+    expect(checkFounderFit([fit(0, "b2b_saas", null)], "neutral").map((p) => p.kind)).toEqual(["fit"]);
+    // Quick profile, sales and design picked: marketplace (sales, domain) and consumer_app (design, engineering) lean on
+    // one picked skill each (10.5 → 11); dtc_physical (design, domain) too; hardware (engineering, domain) on none (7).
+    const skills = { engineering: 7, sales: 14, design: 14, finance: 7, domain: 7 };
+    expect(checkFounderFit([fit(0, "marketplace", 13), fit(1, "hardware", 8)], "quick", skills)).toEqual([]);
+    expect(checkFounderFit([fit(0, "marketplace", 6), fit(1, "hardware", 15)], "quick", skills).map((p) => p.kind)).toEqual(["fit"]);
+    // One group empty: nothing to compare.
+    expect(checkFounderFit([fit(0, "hardware", 15)], "quick", skills)).toEqual([]);
+    // Wired into the set check.
+    const slate = Array.from({ length: 6 }, (_, i) => item(i));
+    expect(checkIdeationSet(slate, slate.map((s) => card(s, { attributes: [{ key: "founder_fit", value: 19, evidence: "Unverified." }] })), [], { kind: "neutral" }).problems.every((p) => p.kind === "fit")).toBe(true);
   });
 });

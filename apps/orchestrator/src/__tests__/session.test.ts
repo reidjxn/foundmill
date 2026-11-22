@@ -430,7 +430,7 @@ describe("a Redis outage never takes a session or the worker down (O-10)", () =>
 const resultOf = (outcome: SessionResult["outcome"], blockedReason: SessionResult["blockedReason"], reason: string = outcome): SessionResult => ({ outcome, reason, blockedReason, approvalId: null, progress: { planStepsDone: 0, planSteps: 0, acceptanceTestsPassing: 0, acceptanceTests: 0, reviewPassed: false, merged: false, phase: null, progress: 0.5, etaAt: null, at: null }, eventsEmitted: 3, toolCalls: 1, toolFailures: 0, tokensIn: 0, tokensOut: 0, costMinor: 0, durationMs: 60_000, prNumber: null, summary: outcome, providerSessionId: null });
 
 describe("a session the platform cancelled is not a Stop", () => {
-  it("returns its task to ready for a later cycle (or keeps the founder's pause), where a Stop leaves it stopped", async () => {
+  it("returns its task to ready for a later round of work (or keeps the founder's pause), where a Stop leaves it stopped", async () => {
     for (const [before, reason, expected] of [["running", "cancelled", "ready"], ["paused", "cancelled", "paused"], ["running", "founder_stop", "stopped"]] as const) {
       const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
       const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
@@ -474,7 +474,7 @@ describe("a paused agent stays paused (O-06)", () => {
     }
   });
 
-  it("a session ending done, blocked, failed or stopped never un-pauses its agent, and a stopped one leaves the task paused for the next cycle", async () => {
+  it("a session ending done, blocked, failed or stopped never un-pauses its agent, and a stopped one leaves the task paused for the next round of work", async () => {
     for (const [outcome, blockedReason] of [["done", null], ["blocked", "dependency"], ["failed", "error"], ["failed", "loop_detected"], ["stopped", "stopped"]] as const) {
       const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
       const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
@@ -581,8 +581,8 @@ describe("a paused agent stays paused (O-06)", () => {
     await vi.waitFor(async () => {
       if ((await readSessionEvents(t.redis, sessionId)).length < 2) throw new Error("not started");
     }, { timeout: 5_000, interval: 25 });
-    // A credits stop (or a revoked key) signals nothing: only the flag changes.
-    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "credits_exhausted" });
+    // A revoked key signals nothing: only the flag changes.
+    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "key_revoked" });
     try {
       await clock.advance(STOP_CHECK_MS);
       await wait(600); // two control polls: the check is due
@@ -593,6 +593,39 @@ describe("a paused agent stays paused (O-06)", () => {
       await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "running", { force: true });
       const finish = await localActs.finishSession(input, launch, result);
       expect(finish.taskStatus).toBe("paused");
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+      await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "ready", { force: true });
+    }
+  });
+
+  it("a team that starts resting while a session runs does not stop it: the last task finishes (WP-14 T1)", async () => {
+    const clock = new FakeClock();
+    const deps = { ...t.deps, clock, sandbox: async () => ({ provider: clockedProvider(clock), mode: "mock" as const, fellBackFrom: null }) };
+    const localActs = createSessionActivities(deps);
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = { ...(await localActs.prepareSession(input)), recordingKey: "ledgerly-webhook-retry" };
+    const recording = findRecording("ledgerly-webhook-retry")!;
+    const run = localActs.runAgentSession(input, launch);
+    await vi.waitFor(async () => {
+      if ((await readSessionEvents(t.redis, sessionId)).length < 2) throw new Error("not started");
+    }, { timeout: 5_000, interval: 25 });
+    // The month's budget ran out elsewhere: the team rests (the stop flag, reason credits_exhausted).
+    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "credits_exhausted" });
+    try {
+      await clock.advance(STOP_CHECK_MS);
+      await wait(600); // two control polls: the check was due and read the flag
+      const result = await drive(clock, run);
+      expect(result.outcome).not.toBe("stopped");
+      expect(result.reason).not.toBe(AGENTS_STOPPED_REASON);
+      // The whole recording played.
+      expect(result.eventsEmitted).toBeGreaterThanOrEqual(recording.events.length);
+      // Nothing new starts while the team rests.
+      const next = await openSessionRow(t, t.workerId, t.codeTaskId);
+      await expect(localActs.prepareSession({ ...input, sessionId: next })).rejects.toThrow(/Agents are stopped/);
+      await repos.agents.endSession(t.db, t.businessId, next, { outcome: "stopped" });
+      await localActs.finishSession(input, launch, result);
     } finally {
       await resumeBusinessAgents(t.db, t.businessId);
       await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "ready", { force: true });

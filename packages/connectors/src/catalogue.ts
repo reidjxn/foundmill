@@ -13,6 +13,7 @@ import { createCompaniesHouseConnector } from "./connectors/companies_house";
 import { createDomainsConnector } from "./connectors/domains";
 import { createDropboxSignConnector } from "./connectors/dropbox_sign";
 import { createE2bConnector } from "./connectors/e2b";
+import { createFfmpegConnector, createGimpConnector, createInkscapeConnector, createLibreofficeConnector } from "./connectors/cli_anything";
 import { createEcbRatesConnector } from "./connectors/ecb_rates";
 import { createGithubConnector } from "./connectors/github";
 import { createGmailConnector } from "./connectors/gmail";
@@ -30,6 +31,8 @@ import { createOpenaiImagesConnector } from "./connectors/openai_images";
 import { createElevenlabsConnector } from "./connectors/elevenlabs";
 import { createOnesignalConnector } from "./connectors/onesignal";
 import { createPlatformNotifyConnector } from "./connectors/platform_notify";
+import { createSendingDomainConnector } from "./connectors/sending_domain";
+import { createOpensrsConnector } from "./connectors/opensrs";
 import { createPlatformConnector } from "./connectors/platform";
 import { createQuarantineConnector } from "./connectors/quarantine";
 import { createWebConnector } from "./connectors/web";
@@ -47,6 +50,8 @@ import { createVercelConnector } from "./connectors/vercel";
 import { createPosthogConnector } from "./connectors/posthog";
 import { createResendConnector } from "./connectors/resend";
 import { createBufferConnector } from "./connectors/buffer";
+import { BROWSER_CONNECTOR_FACTORIES } from "./connectors/browser";
+import { createHubspotMcpConnector, createMcpCustomConnector, createNotionMcpConnector, createShopifyMcpConnector } from "./remote-mcp";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 
@@ -60,6 +65,10 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   onesignal: createOnesignalConnector,
   // Foundmill's own email to its users (packages 1.5 and 5.1): service-only, on the platform's SendGrid key.
   platform_notify: createPlatformNotifyConnector,
+  // A project's own domain at the platform's SendGrid (WP-08 domain plan): service-only, the gateway's `/v1/domains/own`.
+  sending_domain: createSendingDomainConnector,
+  // Domains registered through Foundmill on its OpenSRS reseller account (WP-08 Path A): service-only, `/v1/domains/register`.
+  opensrs: createOpensrsConnector,
   github: createGithubConnector,
   google_drive: createGoogleDriveConnector,
   gmail: createGmailConnector,
@@ -97,6 +106,14 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   elevenlabs_voice: createElevenlabsVoiceConnector,
   // Posts queued in the founder's own Buffer account, which publishes them on the networks the founder connected there.
   buffer: createBufferConnector,
+  // A vendor's own remote MCP server, the gateway its only client (founder, 2026-11-19). The Notion and Shopify API
+  // connectors above stay until their MCP replacement is live.
+  notion_mcp: createNotionMcpConnector,
+  hubspot_mcp: createHubspotMcpConnector,
+  shopify_mcp: createShopifyMcpConnector,
+  mcp_custom: createMcpCustomConnector,
+  // A website the team works in through the hosted browser, one connector per site on the site list (founder, Nov 22, 2026).
+  ...BROWSER_CONNECTOR_FACTORIES,
 });
 
 export const CONNECTOR_KEYS = Object.freeze(Object.keys(CONNECTOR_FACTORIES));
@@ -112,13 +129,18 @@ export const BUILTIN_CONNECTOR_FACTORIES = Object.freeze({
   quarantine: createQuarantineConnector,
   // A project's Foundmill sending address (package 1.5): the platform's own SendGrid account, nothing to connect.
   platform_mail: createPlatformMailConnector,
+  // Open-source programs the team drives in the project's sandbox (CLI-Anything, founder 2026-11-19): nothing to connect.
+  cli_inkscape: createInkscapeConnector,
+  cli_libreoffice: createLibreofficeConnector,
+  cli_ffmpeg: createFfmpegConnector,
+  cli_gimp: createGimpConnector,
 } satisfies Record<string, ConnectorFactory>);
 
 /**
  * Connectors whose mode follows another key's switch: `platform_mail` and `platform_notify` are SendGrid underneath, so
  * they run live exactly where `sendgrid` does (`INTEGRATIONS_MODE=live` or `LIVE_CONNECTORS` naming `sendgrid`; packages/shared `platformMailMode`).
  */
-export const CONNECTOR_MODE_KEYS: Readonly<Record<string, string>> = Object.freeze({ platform_mail: "sendgrid", platform_notify: "sendgrid" });
+export const CONNECTOR_MODE_KEYS: Readonly<Record<string, string>> = Object.freeze({ platform_mail: "sendgrid", platform_notify: "sendgrid", sending_domain: "sendgrid" });
 
 /** The key whose switch decides this connector's mode (itself, unless `CONNECTOR_MODE_KEYS` names another). */
 export const modeKeyOf = (connectorKey: string): string => CONNECTOR_MODE_KEYS[connectorKey] ?? connectorKey;

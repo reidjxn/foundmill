@@ -4,7 +4,8 @@
  * it mounts (the hero keys it by the business, so choosing another one starts a fresh deck and a fresh cycle loop). The top bar is the product's own
  * parts (logo, runway, mode, Continue, Stop all agents) on the brand colours; under it the processing strip, then the
  * Inbox, the team orbit and the live feed. Pressing Continue runs a cycle: the strip shimmers, the feed speeds up, and
- * the cycle comes back with a decision (Continue turns into "Respond · 1") or a customer (gold). The first cycle runs
+ * the cycle comes back with a customer (gold) or a decision (Continue reads "1 thing needs you"). The first press ends in
+ * a win on every example (WP-14 T10; the outcomes' order is each example's own). The first cycle runs
  * on its own once the deck is on screen, unless the visitor prefers reduced motion.
  */
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
@@ -109,10 +110,25 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
     return () => clearTimeout(t);
   }, [state.phase, state.cycle, cycleMs]);
 
+  // The Customer Update takes the visitor to the Journey and focuses its heading. The callout points at Continue, now out
+  // of view, and takes focus when it opens: it waits until the deck is back in view (no IntersectionObserver: no wait).
+  const [away, setAway] = useState(false);
   const openWin = () => {
     dispatch({ type: "openWin" });
+    setAway(typeof IntersectionObserver !== "undefined");
     onOpenJourney?.();
   };
+  useEffect(() => {
+    const el = ref.current;
+    if (!away || !el) return;
+    let left = false;
+    const io = new IntersectionObserver(([e]) => {
+      if (!e?.isIntersecting) left = true;
+      else if (left) setAway(false);
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [away, ref]);
 
   // Segments take turns visually; the strip's spoken status stays one sentence per cycle (its own label is per segment).
   const segments: ProcessingSegment[] = business.departments.map((d, i) => ({ id: d.id, label: d.label, dept: d.dept, active: working && (tick + i) % 4 !== 0 }));
@@ -128,7 +144,7 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
           <span aria-hidden className="mx-1 h-5 w-px bg-kit-on-primary/25" />
           <span className="t-display-md">Home</span>
           <span className="truncate text-small text-kit-on-primary tabular-nums">
-            Cycle {state.phase === "idle" ? state.cycle + 1 : state.cycle} · {currentChapter(todayKey)}
+            Round of work {state.phase === "idle" ? state.cycle + 1 : state.cycle} · {currentChapter(todayKey)}
           </span>
           <span className="flex-1" />
           <RunwayChip date={today} runwayMonths={deck.runwayMonths} estimate />
@@ -167,7 +183,7 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
       {/* The callout under Continue once the deck has run a cycle by itself and the visitor has not pressed it yet. A
           tutoring surface, so the Coachmark keeps it off when guidance is off (a signed-in page's provider), like the
           app's coach marks; "Got it" closes it, pressing Continue takes it away for good. */}
-      {state.phase === "idle" && !state.pressed && (autoRan || reduced) ? <Callout tourId={DECK_CALLOUT.tourId} targetId={DECK_CALLOUT.targetId} title={DECK_CALLOUT.title} body={DECK_CALLOUT.body} side="bottom" align="end" /> : null}
+      {state.phase === "idle" && !state.pressed && !away && (autoRan || reduced) ? <Callout tourId={DECK_CALLOUT.tourId} targetId={DECK_CALLOUT.targetId} title={DECK_CALLOUT.title} body={DECK_CALLOUT.body} side="bottom" align="end" /> : null}
     </div>
   );
 }
@@ -191,7 +207,7 @@ function InboxColumn({ business, state, decisionRef, onDecide, onOpenWin }: { bu
           <div className="flex shrink-0 items-center gap-2 rounded-panel border border-subtle/70 bg-panel-alt/60 px-2 py-2.5">
             <Avatar size={24} name={business.chief.name} agent={{ seed: business.chief.seed, dept: business.chief.dept }} status="healthy" />
             <span className="min-w-0 flex-1">
-              <span className="t-body-strong block truncate">Cycle {state.cycle} in progress</span>
+              <span className="t-body-strong block truncate">Round of work {state.cycle} in progress</span>
               <span className="block h-1.5 w-full overflow-hidden rounded-full bg-panel">
                 <span className="block h-full w-1/2 animate-sweep rounded-full bg-kit-primary" />
               </span>
@@ -318,7 +334,7 @@ function LiveColumn({ business, feed, state, progress, paused, onTogglePaused, c
       </ul>
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-subtle px-3 py-3">
         <span className="t-label">
-          This <Term id="cycle">cycle</Term>
+          This <Term id="cycle">round of work</Term>
         </span>
         <dl className="flex flex-col gap-1.5">
           <DeckStat label="Tasks done" value={`${done} of ${t.tasks}`} />

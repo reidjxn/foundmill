@@ -32,7 +32,7 @@ vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ bu
 vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => toast }));
 vi.mock("../SettingsScreen", () => ({ useInvalidateRouters: () => invalidate }));
 
-import { ConnectFieldsDialog, connectInputFrom, needsConnectFields, PlatformMailSection, PostalAddressField, SimulatePanel, type ConnectFieldView, type PlatformMailView } from "../IntegrationsTab";
+import { ConnectFieldsDialog, connectInputFrom, needsConnectFields, PlatformMailSection, PostalAddressField, SimulatePanel, visibleConnectors, type ConnectFieldView, type PlatformMailView } from "../IntegrationsTab";
 
 const BUSINESS = "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
 
@@ -244,5 +244,14 @@ describe("PostalAddressField (the founders' postal address for marketing email, 
     expect((screen.getByLabelText("Postal address for your emails") as HTMLInputElement).disabled).toBe(true);
     expect(screen.queryByTestId("postal-address-save")).toBeNull();
     expect(screen.getByTestId("postal-address").textContent).toContain("Only the founders can change it.");
+  });
+});
+
+describe("visibleConnectors", () => {
+  const row = (key: string, available: boolean, status: string | null) => ({ key, available, integration: status ? { status } : null });
+  it("hides what cannot be connected here unless it is connected, and the custom MCP server outside Builder view", () => {
+    const rows = [row("notion", true, null), row("shopify_mcp", false, null), row("old", false, "connected"), row("gone", false, "disconnected"), row("mcp_custom", true, null)];
+    expect(visibleConnectors(rows, false).map((r) => r.key)).toEqual(["notion", "old"]);
+    expect(visibleConnectors(rows, true).map((r) => r.key)).toEqual(["notion", "old", "mcp_custom"]);
   });
 });

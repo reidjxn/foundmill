@@ -56,6 +56,8 @@ export interface BusinessFixture {
   postAssetIds: string[];
   /** 0106: post links, one per `post_attributions` sample (each carries its post and network). */
   postLinks: { id: string; assetId: string; network: string | null }[];
+  /** 0161: a bookable service, for the `bookings` samples; null on a database from before 0161. */
+  bookingServiceId: string | null;
 }
 
 const first = <T>(rows: T[], what: string): T => {
@@ -88,13 +90,10 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
   await db.execute(sql`insert into memberships (business_id, user_id, role) values
     (${businessId}, ${ownerId}, 'owner'), (${businessId}, ${adminId}, 'admin'), (${businessId}, ${memberId}, 'member'), (${businessId}, ${viewerId}, 'viewer')`);
 
-  const [agent, agent2] = await db
-    .insert(s.agents)
-    .values([
-      { businessId, name: `${slug} Chief of Staff`, agentType: "chief_of_staff", layer: "assistant", status: "healthy" },
-      { businessId, name: `${slug} Engineer`, agentType: "engineer", layer: "worker" },
-    ])
-    .returning({ id: s.agents.id });
+  // Named columns here too: the migration-point suites run before 0141 added `agents.default_skills_version`.
+  const [agent, agent2] = ((await db.execute(sql`insert into agents (business_id, name, agent_type, layer, status) values
+    (${businessId}, ${`${slug} Chief of Staff`}, 'chief_of_staff', 'assistant', 'healthy'),
+    (${businessId}, ${`${slug} Engineer`}, 'engineer', 'worker', 'idle') returning id`)) as unknown as { rows: { id: string }[] }).rows;
   if (!agent || !agent2) throw new Error("fixture: agents");
 
   const agentVersion = first(
@@ -235,11 +234,12 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
       .returning({ id: s.skillDefinitions.id }),
     "skill_definitions",
   );
+  // Named columns: the migration-point suites build this fixture on a database from before 0138, whose sessions have no
+  // route, effort, turns or cache totals yet.
   const session = first(
-    await db
-      .insert(s.agentSessions)
-      .values({ businessId, agentId: agent2.id, versionId: agentVersion.id, taskId: task.id, tokensIn: 1000, tokensOut: 200, costMinor: 12 })
-      .returning({ id: s.agentSessions.id }),
+    ((await db.execute(
+      sql`insert into agent_sessions (business_id, agent_id, version_id, task_id, tokens_in, tokens_out, cost_minor) values (${businessId}, ${agent2.id}, ${agentVersion.id}, ${task.id}, 1000, 200, 12) returning id`,
+    )) as unknown as { rows: { id: string }[] }).rows,
     "agent_sessions",
   );
   const agentThread = first(
@@ -268,7 +268,14 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
         .returning({ id: s.postLinks.id, assetId: s.postLinks.assetId, network: s.postLinks.network })
     : [];
 
+  // 0161: one bookable service (named columns, and none on a database from before 0161).
+  const hasBooking = ((await db.execute(sql`select to_regclass('public.booking_services') is not null as ok`)) as unknown as { rows: { ok: boolean }[] }).rows[0]?.ok === true;
+  const bookingService = hasBooking
+    ? first(((await db.execute(sql`insert into booking_services (business_id, name, duration_min, currency) values (${businessId}, 'Lesson', 60, 'USD') returning id`)) as unknown as { rows: { id: string }[] }).rows, "booking_services")
+    : null;
+
   return {
+    bookingServiceId: bookingService?.id ?? null,
     postAssetIds: postAssets.slice(0, 8).map((a) => a.id),
     postLinks: postLinkRows.map((r) => ({ id: r.id, assetId: r.assetId, network: r.network ?? null })),
     slug,

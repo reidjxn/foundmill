@@ -1,6 +1,6 @@
 /**
  * A Customer Update shared as a card (docs/holistic-plan/WP-14-behavior-brief.md T9; docs/DESIGN.md §9f; migration
- * 0136): the addresses and the words, shared by the api, the web and the design system so each is written once.
+ * 0166): the addresses and the words, shared by the api, the web and the design system so each is written once.
  *
  * A founder shares one Customer Update at a time, by their own press; nothing is public until then. The card carries
  * the project's name and logo, the day, the lead channel and the standout agent. It never carries the customer's
@@ -60,7 +60,12 @@ export function updateCardWords(appName: string) {
      * What "verified" means for a card about a payment: the project's payment provider reported it. It does not say
      * more than the platform knows (a provider's test mode is not told apart yet; see the log entry of WP-14 T9).
      */
-    verifiedNote: `${appName} recorded this when the project's payment provider reported the payment. It was not typed in.`,
+    verifiedNote: `${appName} recorded this payment when it arrived. It was not typed in.`,
+    /**
+     * A payment that came through a pasted Stripe key is real but not verified: the founder holds the signing secret
+     * that would also sign a made-up one (founder, Nov 22, 2026). The card says where it comes from and no more.
+     */
+    recordedNote: "Recorded from the founder's Stripe account.",
     leadChannel: "Lead channel",
     standoutAgent: "Standout agent",
     /** Beside the agent's name, always: an agent is never passed off as a person. */
@@ -75,9 +80,9 @@ export function updateCardTitle(headline: UpdateCardHeadline, name: string, max 
   return clipText(`${UPDATE_CARD_HEADLINE_WORDS[headline]}: ${oneLine(name)}`, max);
 }
 
-/** A card's description: "Northwind Skincare took a payment on Nov 12, 2026. Verified by Foundmill." */
-export function updateCardDescription(name: string, on: string, appName: string, max = 160): string {
-  return clipText(`${oneLine(name)} took a payment on ${on}. Verified by ${appName}.`, max);
+/** A card's description: "Northwind Skincare took a payment on Nov 12, 2026. Verified by Foundmill." (verified only; else "Recorded from the founder's Stripe account."). */
+export function updateCardDescription(name: string, on: string, appName: string, verified: boolean, max = 160): string {
+  return clipText(`${oneLine(name)} took a payment on ${on}. ${verified ? `Verified by ${appName}.` : updateCardWords(appName).recordedNote}`, max);
 }
 
 /** The console's words for sharing a Customer Update (the Customer Update screen's toolbar and its dialog). */

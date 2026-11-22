@@ -200,7 +200,7 @@ export interface LibrarySkill {
 
 **Tests and evals:** step 1 and 5; `evals/src/skills/cases.ts` gains one placement case for a moved skill (`skills.prompt.library_project_page_copy`, Product Lead, must contain "The button says what the reader gets"). **Done when:** Done-when 1 and 2 for all 83. **Does not cover:** that a skill helps (T8); skills in use (T4, T6).
 
-### T4: Skill index, `selectSkills`, `read_skill`; new limits   [L] [ships alone, after WP-05's open session.ts task]
+### [x] T4: Skill index, `selectSkills`, `read_skill`; new limits   [L] [ships alone, after WP-05's open session.ts task]
 
 **Why:** AR-10 (design A), a3b §6c, TS-11 (the accidental update), TS-19, planner's decision 2.
 
@@ -261,7 +261,7 @@ readSkill(caller: PlatformCaller, args: PlatformArgs<"read_skill">): Promise<Pla
 
 **Done when:** `grep -rn "repos.agents.create(" apps` finds no hire outside `packages/db/src/hire.ts`.
 
-### T6: Default skills at hire, at commit and by backfill   [M] [after T3, T4, T5]
+### [x] T6: Default skills at hire, at commit and by backfill   [M] [after T3, T4, T5]
 
 **Why:** TS-04; planner's decision 3 and 7.
 
@@ -341,7 +341,7 @@ export const PENDING_EVIDENCE: readonly { skillKey: string; templateKey: string 
 
 ### T9: Hire writes measured ratings; adding a skill shows its evidence   [M] [after T8]
 
-**Why:** TS-02 (a) and (c), TS-09 ("Untested" advice), CLAUDE.md "Label every non-real number".
+**Why:** TS-02 (a) and (c), TS-09 ("Untested" advice), FOUNDMILL.md "Label every non-real number".
 
 **Files:** `packages/db/src/hire.ts`, `packages/db/src/repos/skills.ts` (backfill step), `apps/api/src/services/skills.ts` (`addedSkillView`, `libraryView`), `apps/api/src/routers/agent.ts` (`agent.profile.get`), `packages/shared/src/terms.ts:561` (Potential); tests `idea-commit.test.ts`, `agent-profile.test.ts`, `agent-skills.test.ts`, Playwright `agent-profile.spec.ts`.
 
@@ -508,6 +508,16 @@ To the same authoring spec (`packages/agents/skills/README.md`), each with `impr
 - **A model-backed agent builder and a wired Coach** (TS-08, BUILD §11.13, §12.6): T12 makes the copy true; the feature waits for evidence that founders hire beyond the starting team.
 - **TS-16 items, TS-18, TS-20, TS-21**: unused schedules and platform catalog drift (WP-11 hygiene), the "I want to…" catalog view (WP-10), stage in every brief and the house rules' reasons (WP-05, WP-04).
 
+### T13: Coding agents start with Ponytail and Caveman   [M] [ships alone; after T6]
+Why: founder, Nov 18, 2026: every coding agent in Foundmill comes with these two skills, to lower token use.
+Files: `packages/agents/skills/engineering/` (two new skills and `THIRD_PARTY_NOTICES.md` there), the default-skills list T6 builds, one eval.
+Steps:
+1. Add `ponytail` and `caveman` to the library under engineering, adapted to the authoring spec, with their licenses recorded (MIT; Apache-2.0 and MIT). Sources: `.claude/skills/ponytail`, `.claude/skills/caveman`.
+2. Every agent whose role writes code gets both by default at hire, at commit and by backfill (T6's mechanism; no second one).
+3. Caveman applies to an agent's working turns only. Anything a founder or an outside person reads (notes, reports, pull request text, commit messages, email, the public page) stays in plain full sentences: state this in the skill's body and check it in the eval.
+4. Eval: the same coding task with and without the two skills. Record output tokens and the acceptance result for each. Default-on ships only if tokens fall and acceptance does not; otherwise report the numbers and stop.
+Done when: a newly hired coding agent lists both skills, the eval shows the saving with acceptance unchanged, and no founder-facing text is compressed.
+
 ## Corrections to the audits
 
 1. a3b §1.5 and §8.1 infer that no founder added a skill and that no person started a training run. e0 measured 4 uploaded skills on real projects (0 from the library) and 1 real training run ($12.78, awaiting a decision since Oct 22).
@@ -544,7 +554,7 @@ To the same authoring spec (`packages/agents/skills/README.md`), each with `impr
 ```
 You are executing work package WP-06 "Skills for every role" for Foundmill.
 
-Read first, in this order: CLAUDE.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-06-skills-for-every-role.md
+Read first, in this order: FOUNDMILL.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-06-skills-for-every-role.md
 (the whole file); packages/agents/CLAUDE.md and the CLAUDE.md of each package a task touches; the sections of
 docs/holistic-plan/audits/a3b-templates-skills-team.md that the task you are starting cites (grep for the finding id).
 

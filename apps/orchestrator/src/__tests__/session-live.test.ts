@@ -11,29 +11,33 @@
  * On the platform key a session is capped at the month's credits, books each turn as it runs and ends blocked when
  * they are used up (SEC2 S2).
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chargedMinor, costCoveredMinor } from "@foundmill/config";
 import os from "node:os";
 import path from "node:path";
-import { BYOK_CREDENTIAL_KIND, modelBudgetState, openApprovalItem, periodOf, repos, resumeBusinessAgents, workspaceSnapshots } from "@foundmill/db";
+import { SESSION_RESERVE } from "@foundmill/config";
+import { sql } from "drizzle-orm";
+import { BYOK_CREDENTIAL_KIND, modelBudgetState, openApprovalItem, periodOf, periodRange, repos, RESTING_SUBJECT, resumeBusinessAgents, workspaceSnapshots } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { meter, MODEL_ENDPOINTS, MODELS, type ModelId } from "@foundmill/models";
 import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxProvider, type SandboxSpecInput } from "@foundmill/sandbox";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { grant, initialVersionFromTemplate, listTemplates, PLATFORM_BASE_TOOLS, WEB_TOOLS } from "@foundmill/agents";
+import { attachedSkills, getLibrarySkill, grant, initialVersionFromTemplate, listTemplates, LOADED_SKILLS_HEADER, NO_TOOL_LOOP_PRELOAD_BODIES, PLATFORM_BASE_TOOLS, SESSION_PRELOAD_BODIES, SKILLS_HEADER, SKILLS_LOADED_ONLY_SENTENCE, SKILLS_READ_SENTENCE, WEB_TOOLS } from "@foundmill/agents";
 import { isUntrusted } from "@foundmill/connectors";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { MIN_SESSION_CAP_MINOR } from "../cycle-contract";
 import { UNDER_FLOOR_SUMMARY } from "../activities/session-budget";
 import { openAgentSession } from "../activities/dispatch";
-import { ACCEPTANCE_BRIEF, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_UNMET_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, FREE_PLAN_SWITCH_NOTE, freeSessionModel, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES } from "../activities/session";
+import { ACCEPTANCE_BRIEF, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_UNMET_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, FREE_PLAN_SWITCH_NOTE, freeSessionModel, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES, sessionSystemPrompt } from "../activities/session";
 import { SessionDrain } from "../drain";
 import { emitEvent } from "../events";
 import type { SessionResult } from "../activities/types";
 import type { SessionControlBus } from "../control-bus";
-import { CREDITS_USED_UP_SUMMARY, SESSION_CREDIT_CHECK_MS } from "../activities/session-credits";
+import { CREDITS_USED_UP_SUMMARY, RESTING_SUMMARY, SESSION_CREDIT_CHECK_MS, SessionCredits } from "../activities/session-credits";
 import { createOfflineGatewayClient } from "../gateway-client";
 import { FILE_TOOLS, SDK_MODEL_KEY_NAME, SDK_SESSION_TOKEN_NAME } from "../activities/sdk-isolation";
 import { usageFromHeartbeat } from "../session-contract";
@@ -254,6 +258,8 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     expect(env).not.toHaveProperty("APP_ENV");
 
     // tools: the five file tools plus the gateway MCP tools; Bash & co removed; host settings off; no prompts.
+    // The route's effort goes to the SDK (WP-09 T7 step 1); `worker` is written down as Sonnet's own default.
+    expect(options.effort).toBe("high");
     expect(options.tools).toEqual([...FILE_TOOLS]);
     const allowed = options.allowedTools as string[];
     for (const tool of FILE_TOOLS) expect(allowed).toContain(tool);
@@ -659,20 +665,25 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
   });
 
-  it("the agent's skills from the library or files reach its system prompt in their own section after the house rules and instructions", async () => {
+  it("the agent's skills from the library or files reach its system prompt as an index after the house rules and instructions; with read_skill granted, a body the task does not match is read on demand (WP-06 T4)", async () => {
     const worker = await repos.agents.get(t.db, t.businessId, t.workerId);
     await repos.skills.upsertAddedDefinition(t.db, t.businessId, { agentType: worker.agentType, skillKey: "library_meeting_notes", name: "Meeting notes", description: "Notes and action items.", group: "execution", source: "library", instructionsMd: "# Meeting notes\n\nDecisions first, then action items with owners." });
     await repos.skills.upsertForAgent(t.db, t.businessId, t.workerId, [{ skillKey: "library_meeting_notes", group: "execution", tested: null, displayed: 8, potential: 8 }]);
     try {
       const { sessionId, input, launch } = await start();
+      expect(launch.allowedTools).toContain("platform:read_skill");
       script = success(sessionId);
       expect((await acts.runAgentSession(input, launch)).outcome).toBe("done");
       const system = String(calls.at(-1)!.options.systemPrompt);
       expect(system.startsWith("## House rules")).toBe(true);
-      const section = system.indexOf("## Skills");
+      const section = system.indexOf(SKILLS_HEADER);
       expect(section).toBeGreaterThan(system.indexOf("## Your instructions"));
-      expect(system.indexOf("Decisions first, then action items with owners.")).toBeGreaterThan(section);
-      expect(system).toContain('<skill name="Meeting notes" source="library">');
+      // The index line carries the key read_skill takes and the catalog's whenToUse (the library follows the catalog).
+      expect(system).toContain(`- Meeting notes [library_meeting_notes]: ${getLibrarySkill("meeting_notes")!.whenToUse}`);
+      expect(system).toContain(SKILLS_READ_SENTENCE);
+      // "Shortlist three suppliers" matches no word of the skill: its body is not loaded, and the stored text never is.
+      expect(system).not.toContain(LOADED_SKILLS_HEADER);
+      expect(system).not.toContain("Decisions first, then action items with owners.");
       // A skill changes nothing else: the tools the session may call are the same with or without it.
       expect((calls.at(-1)!.options.allowedTools as string[]).every((x) => x.startsWith("mcp__"))).toBe(true);
     } finally {
@@ -681,7 +692,39 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     }
   });
 
-  it("a session started without the cycle's brief (Start, a plan, a playbook) still knows what the project is and can read the product notes (WP-05 T4)", async () => {
+  it("sessionSystemPrompt: index mode when the read_skill grant is present, the loaded-bodies form when it is not (WP-06 T4)", () => {
+    const template = listTemplates()[0]!;
+    const skills = attachedSkills([], [
+      { skillKey: "library_meeting_notes", name: "Meeting notes", source: "library", description: "Notes and action items.", instructionsMd: "stored" },
+      { skillKey: "upload_call_recap_aaaaaaaa", name: "Call recap", source: "upload", description: "Use after a call with a customer to write the recap.", instructionsMd: "# Call recap\n\nOpen with what the customer asked for." },
+      { skillKey: "upload_pricing_page_bbbbbbbb", name: "Pricing page", source: "upload", description: "Use when writing a pricing page.", instructionsMd: "# Pricing page\n\nThree tiers at most." },
+    ]);
+    const task = { kind: "research" as const, title: "Notes from the customer call", goalMd: "Write the meeting notes and the call recap." };
+    const prompt = (toolRefs: string[]) => sessionSystemPrompt({ business: { name: "Acme", glossary: {} }, instructions: template.instructions, description: template.description, briefText: "Brief.", skills, task, toolRefs });
+    const reader = prompt(["platform:read_product", "platform:read_skill"]);
+    const noReader = prompt(["platform:read_product"]);
+    for (const p of [reader, noReader]) {
+      for (const s of skills) expect(p).toContain(`- ${s.name} [${s.key}]: `);
+      // The body chosen for the task goes after the brief, outside the cached prefix.
+      expect(p.indexOf(LOADED_SKILLS_HEADER)).toBeGreaterThan(p.indexOf("## Business brief"));
+      expect(p).not.toContain("Three tiers at most.");
+    }
+    // With read_skill: the index says to read a skill, and one body (SESSION_PRELOAD_BODIES) is loaded up front.
+    expect(reader).toContain(SKILLS_READ_SENTENCE);
+    expect(reader.slice(reader.indexOf(LOADED_SKILLS_HEADER)).match(/<skill /g)).toHaveLength(SESSION_PRELOAD_BODIES);
+    // Without it: only what is loaded is there, and two bodies (NO_TOOL_LOOP_PRELOAD_BODIES) are.
+    expect(noReader).toContain(SKILLS_LOADED_ONLY_SENTENCE);
+    expect(noReader).not.toContain(SKILLS_READ_SENTENCE);
+    expect(noReader.slice(noReader.indexOf(LOADED_SKILLS_HEADER)).match(/<skill /g)).toHaveLength(NO_TOOL_LOOP_PRELOAD_BODIES);
+    expect(noReader).toContain("Open with what the customer asked for.");
+    // The platform wildcard holds read_skill too, and the prefix through the Skills index is the same in both forms but
+    // for the one sentence.
+    expect(prompt(["platform:*"])).toContain(SKILLS_READ_SENTENCE);
+    const prefix = (p: string) => p.slice(0, p.indexOf("## Glossary") > 0 ? p.indexOf("## Glossary") : p.indexOf("## Business brief"));
+    expect(prefix(reader).replace(SKILLS_READ_SENTENCE, "")).toBe(prefix(noReader).replace(SKILLS_LOADED_ONLY_SENTENCE, ""));
+  });
+
+  it("a session started without the round of work's brief (Start, a plan, a playbook) still knows what the project is and can read the product notes (WP-05 T4)", async () => {
     const business = await repos.businesses.get(t.db, t.businessId);
     const { sessionId, input, launch } = await start();
     script = success(sessionId);
@@ -735,7 +778,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(expected).toBeGreaterThan(0);
   });
 
-  it("a cancel (the worker shutting down for a deploy) interrupts the turn, books what was spent and returns the task for a later cycle (O-04)", async () => {
+  it("a cancel (the worker shutting down for a deploy) interrupts the turn, books what was spent and returns the task for a later round of work (O-04)", async () => {
     const { sessionId, input, launch } = await start();
     const env = new MockActivityEnvironment();
     script = async function* (call) {
@@ -900,12 +943,15 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(classifyTurnEnd({ subtype: "error_max_budget_usd", is_error: true, errors: ["Reached maximum budget ($0.50)"] }, null, "platform", { limit: "credits", taskBudgetMinor: 0, taskSpentMinor: 0 })).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: CREDITS_USED_UP_SUMMARY });
   });
 
-  it("on the platform key a session gets the spendable credits as its budget, books each finished turn, and ends blocked once they are used up (SEC2 S2)", async () => {
+  it("on the platform key a session is never stopped because the balance ran out: it finishes on the backstop, logged, and the team rests (WP-14 T1)", async () => {
     const period = periodOf(t.clock.now());
+    // Earlier tests' sessions are this agent type's history; without it the reserve is the minimum.
+    await t.db.execute(sql`update agent_sessions set cost_minor = 0 where business_id = ${t.businessId}`);
     // Exactly 50 cents left this month.
-    await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+    await spendAllCredits(t.db, t.businessId, period);
     await repos.usage.grantCredits(t.db, t.businessId, period, 50);
     const { sessionId, input, launch } = await start();
+    const warn = vi.spyOn(t.deps.log, "warn");
     let nudgeSent: boolean | null = null;
     script = async function* (call) {
       const prompts = promptsOf(call);
@@ -917,29 +963,81 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
       await wait(600);
       yield resultOf(modelUsage(100, 50, 0.6));
       nudgeSent = (await prompts.next()).done !== true;
+      yield { type: "assistant", message: { id: "m2", content: [{ type: "text", text: "Added a fourth supplier." }], usage: { input_tokens: 100, output_tokens: 50 } } };
+      yield* reported();
+      yield resultOf(modelUsage(200, 100, 0.9));
+      await prompts.next();
     };
     try {
       const result = await acts.runAgentSession(input, launch);
-      expect(calls.at(-1)!.options.maxBudgetUsd).toBe(0.5);
-      // The nudge's turn never ran: the session ended before it, with the turn that spent the credits booked.
-      expect(nudgeSent).toBe(false);
-      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: CREDITS_USED_UP_SUMMARY, tokensIn: 100, tokensOut: 50, costMinor: 60 });
-      // Booked as it ran, so the charge that used the last credit stopped the team then, not at the session's end.
-      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 150, costMinor: 60 });
+      // What the credits pay for at cost (they carry the markup, Nov 17, 2026) plus the backstop ceiling: the session may finish past an empty balance, by that much at most.
+      expect(calls.at(-1)!.options.maxBudgetUsd).toBe((costCoveredMinor(50) + SESSION_RESERVE.backstopCeilingMinor) / 100);
+      // The turn that used the last credit did not end the session: the nudge's turn ran and the task finished.
+      expect(nudgeSent).toBe(true);
+      expect(result).toMatchObject({ outcome: "done", tokensIn: 200, tokensOut: 100, costMinor: 90 });
+      expect(interrupts).toHaveLength(0);
+      // Booked as it ran, overrun included: the ledger is the truth.
+      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 300, costMinor: 90 });
+      // The charge that used the last credit rested the team then: nothing new starts.
       expect(await repos.businesses.stopState(t.db, t.businessId)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
-      expect((await notesOf(sessionId)).some((n) => n.source === "system" && /credits are used up, so the session stops here/.test(n.text))).toBe(true);
-      // The finish books only what is left: nothing twice.
-      expect((await acts.finishSession(input, launch, result)).taskStatus).toBe("blocked");
-      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 150, costMinor: 60 });
+      // Logged once, with the reserve and what the session had spent, so the reserve can be tuned.
+      const backstop = warn.mock.calls.filter((c) => /outgrew its reserve/.test(String(c[1])));
+      expect(backstop).toHaveLength(1);
+      expect(backstop[0]![0]).toMatchObject({ sessionId, reserveMinor: SESSION_RESERVE.minMinor, spendableAtStartMinor: costCoveredMinor(50), spentMinor: 60, backstopCeilingMinor: SESSION_RESERVE.backstopCeilingMinor });
+      expect((await acts.finishSession(input, launch, result)).taskStatus).toBe("done");
+      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 300, costMinor: 90 });
 
-      // Resumed by hand with nothing left: a session on the platform key does not start at all.
+      // Resumed by hand with nothing left: a session on the platform key does not start at all, and says Resting.
       await resumeBusinessAgents(t.db, t.businessId);
       const next = await start();
       const before = calls.length;
       const refused = await acts.runAgentSession(next.input, next.launch);
-      expect(refused).toMatchObject({ outcome: "blocked", blockedReason: "budget", reason: expect.stringMatching(/credits are used up/), tokensIn: 0, costMinor: 0 });
+      expect(refused).toMatchObject({ outcome: "blocked", blockedReason: "budget", reason: expect.stringMatching(/the team is resting/), summary: RESTING_SUMMARY, tokensIn: 0, costMinor: 0 });
       expect(calls).toHaveLength(before);
       await acts.finishSession(next.input, next.launch, refused);
+    } finally {
+      warn.mockRestore();
+      await resumeBusinessAgents(t.db, t.businessId);
+      await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
+      await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+    }
+  });
+
+  it("with what is left under the reserve a session does not start: nothing is booked, what is left stays, and the team rests with one note (WP-14 T1)", async () => {
+    const period = periodOf(t.clock.now());
+    await t.db.execute(sql`update agent_sessions set cost_minor = 0 where business_id = ${t.businessId}`);
+    // 9 cents left: just under the 10-cent minimum reserve.
+    await spendAllCredits(t.db, t.businessId, period);
+    await repos.usage.grantCredits(t.db, t.businessId, period, SESSION_RESERVE.minMinor - 1);
+    const resting = async () => (await repos.inbox.list(t.db, t.businessId, { limit: 200 })).items.filter((n) => n.subject === RESTING_SUBJECT).length;
+    const notesBefore = await resting();
+    const ledger = async () => (await repos.usage.totals(t.db, t.businessId, periodRange(period))).costMinor;
+    const spentBefore = await ledger();
+    try {
+      const first = await start();
+      const before = calls.length;
+      const refused = await acts.runAgentSession(first.input, first.launch);
+      expect(refused).toMatchObject({ outcome: "blocked", blockedReason: "budget", reason: expect.stringMatching(/under the reserve/), summary: RESTING_SUMMARY, tokensIn: 0, costMinor: 0 });
+      expect(calls).toHaveLength(before);
+      expect(await ledger()).toBe(spentBefore);
+      expect(await repos.usage.creditBalance(t.db, t.businessId, period)).toMatchObject({ balanceMinor: SESSION_RESERVE.minMinor - 1 });
+      expect(await repos.businesses.stopState(t.db, t.businessId)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
+      expect(await resting()).toBe(notesBefore + 1);
+      await acts.finishSession(first.input, first.launch, refused);
+      // (That a team already resting gets no second note is packages/db billing.test.ts, on the real clock.)
+      // With exactly the reserve left it starts.
+      await resumeBusinessAgents(t.db, t.businessId);
+      // Credits carry the markup: these cover the 10-cent reserve at cost.
+      await repos.usage.grantCredits(t.db, t.businessId, period, chargedMinor(SESSION_RESERVE.minMinor) - (SESSION_RESERVE.minMinor - 1));
+      const fits = await SessionCredits.open(t.deps, { businessId: t.businessId, agentId: first.input.agentId, sessionId: first.sessionId, modelKey: "sonnet", agentType: "no-history" });
+      expect(fits).toMatchObject({ ok: true, credits: { reserveMinor: SESSION_RESERVE.minMinor, spendableMinor: SESSION_RESERVE.minMinor } });
+      // A type whose sessions cost more needs more: the average times the safety factor.
+      const worker = await repos.agents.get(t.db, t.businessId, first.input.agentId);
+      await t.db.execute(sql`update agent_sessions set cost_minor = 8, ended_at = coalesce(ended_at, now()) where id = ${first.sessionId}`);
+      const costly = await SessionCredits.open(t.deps, { businessId: t.businessId, agentId: worker.id, sessionId: first.sessionId, modelKey: "sonnet", agentType: worker.agentType });
+      // 8 cents on average times 1.5 is 12: more than the 10 that are left.
+      expect(costly).toMatchObject({ ok: false, resting: true, reason: expect.stringMatching(/under the reserve/) });
+      await t.db.execute(sql`update agent_sessions set cost_minor = 0 where id = ${first.sessionId}`);
     } finally {
       await resumeBusinessAgents(t.db, t.businessId);
       await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
@@ -949,7 +1047,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
 
   it("a turn that finished the task stays done when it used the last credit: the team stops, the task is not run again (SEC2 S2)", async () => {
     const period = periodOf(t.clock.now());
-    await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+    await spendAllCredits(t.db, t.businessId, period);
     await repos.usage.grantCredits(t.db, t.businessId, period, 50);
     const { sessionId, input, launch } = await start();
     let inputEnded = false;
@@ -977,30 +1075,40 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     }
   });
 
-  it("mid-turn, a session books what it spent every SESSION_CREDIT_CHECK_MS and stops once the credits run out elsewhere (SEC2 S2)", async () => {
+  it("mid-turn, a session books what it spent every SESSION_CREDIT_CHECK_MS, goes on when the credits run out elsewhere, and stops only at the backstop ceiling (WP-14 T1)", async () => {
     const period = periodOf(t.clock.now());
     const { sessionId, input, launch } = await start();
+    const estimate = (inputTokens: number, outputTokens: number) => Math.round(meter({ inputTokens, outputTokens, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, launch.modelId as ModelId).costMinor);
+    // Enough output to pass the ceiling after the balance is empty.
+    const big = 400_000;
+    expect(estimate(2_000, 500 + big) - estimate(2_000, 500)).toBeGreaterThan(SESSION_RESERVE.backstopCeilingMinor);
     script = async function* (call) {
       const prompts = promptsOf(call);
       await prompts.next();
       yield { type: "system", subtype: "init", session_id: "sdk-mid-turn" };
       yield { type: "assistant", message: { id: "m1", model: launch.modelId, content: [{ type: "text", text: "Reading supplier sites." }], usage: { input_tokens: 2_000, output_tokens: 500 } } };
       // Meanwhile the api spends the month's last credit on a conversation.
-      await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+      await spendAllCredits(t.db, t.businessId, period);
       await t.clock.advance(SESSION_CREDIT_CHECK_MS + 1_000);
-      await until(() => interrupts.length > 0, "the interrupt");
-      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["[Request interrupted by user]"], modelUsage: modelUsage(2_000, 500, 0.04) };
+      await until(async () => (await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).quantity === 2_500, "the first check's booking");
+      // The balance is empty and the session goes on: no interrupt.
+      await wait(300);
+      expect(interrupts).toHaveLength(0);
+      yield { type: "assistant", message: { id: "m2", model: launch.modelId, content: [{ type: "text", text: "Still reading." }], usage: { input_tokens: 0, output_tokens: big } } };
+      await t.clock.advance(SESSION_CREDIT_CHECK_MS + 1_000);
+      await until(() => interrupts.length > 0, "the interrupt at the ceiling");
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["[Request interrupted by user]"], modelUsage: modelUsage(2_000, 500 + big, 0.04) };
     };
     try {
       const result = await acts.runAgentSession(input, launch);
       expect(interrupts).toHaveLength(1);
-      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: CREDITS_USED_UP_SUMMARY, tokensIn: 2_000, tokensOut: 500 });
-      expect((await notesOf(sessionId)).some((n) => n.source === "system" && /credits are used up, so the session stops here/.test(n.text))).toBe(true);
-      // The open turn was booked by the check (an Estimate at list price); the finish books only what is left.
-      const estimated = Math.round(meter({ inputTokens: 2_000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, launch.modelId as ModelId).costMinor);
-      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 2_500, costMinor: estimated });
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: CREDITS_USED_UP_SUMMARY, tokensIn: 2_000, tokensOut: 500 + big });
+      expect(CREDITS_USED_UP_SUMMARY).toMatch(/^Resting: /);
+      expect((await notesOf(sessionId)).some((n) => n.source === "system" && /needed more than the amount set aside to let it finish/.test(n.text))).toBe(true);
+      // Everything it spent is booked, overrun included; the finish books only what is left.
+      expect((await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).quantity).toBe(2_500 + big);
       await acts.finishSession(input, launch, result);
-      expect((await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).quantity).toBe(2_500);
+      expect((await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).quantity).toBe(2_500 + big);
     } finally {
       await resumeBusinessAgents(t.db, t.businessId);
       await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
@@ -1225,7 +1333,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect((await notesOf(sessionId)).some((n) => /^Acceptance tests not run: the sandbox could not be started \(E2B sandbox creation failed/.test(n.text))).toBe(true);
   });
 
-  it("the SDK is given a budget: the task's own, or the cycle's default, less what the task's earlier sessions cost (O-29, BF-11)", async () => {
+  it("the SDK is given a budget: the task's own, or the round of work's default, less what the task's earlier sessions cost (O-29, BF-11)", async () => {
     const { sessionId, input, launch } = await start();
     script = success(sessionId);
     calls.length = 0;
@@ -1286,7 +1394,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(calls[0]!.options.maxBudgetUsd).toBe(1.8);
   });
 
-  it("a session handed a share of a capped cycle under the floor ends blocked for budget before any model call (WP-05 T15)", async () => {
+  it("a session handed a share of a capped round of work under the floor ends blocked for budget before any model call (WP-05 T15)", async () => {
     const task = await budgeted(300);
     const { input, launch } = await start(task.id);
     script = async function* () {
@@ -2587,17 +2695,27 @@ describe("runAgentSession (live runner): a free business's session (WP-13 T4)", 
     const result = await held.runAgentSession(input, launch);
     expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: expect.stringMatching(/^Foundmill's included AI is used up for this month! It is back on [A-Z][a-z]{2} 1\. To keep going now, connect your own Anthropic key\.$/) });
     expect(calls).toHaveLength(0);
+    // Waiting at the platform's cap is not Resting (WP-14 T1): no stop is set, no resting note is written, and the word
+    // is not used. The project has budget left; it is Foundmill's month that is held.
+    expect(result.summary).not.toMatch(/Resting|resting/);
+    expect((await repos.businesses.stopState(t.db, t.businessId)).stopped).toBe(false);
     // A paid plan is never held.
     await repos.businesses.update(t.db, t.businessId, { planTier: "pro" });
     const paid = await start(held);
     expect(paid.launch.freePlan).toBeUndefined();
   });
 
-  it("runs on Haiku 5.5 on the platform key by default, and refuses a switch to Opus", async () => {
+  it("runs on the agent's own model on the platform key by default (WP-13 T8), Haiku 5.5 or GLM only when chosen, and refuses a switch to Opus", async () => {
     const { launch } = await start(acts);
-    expect(launch).toMatchObject({ modelKey: "haiku", modelId: MODELS.haiku, freePlan: true });
-    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm" }).modelKey).toBe("haiku");
-    expect(freeSessionModel("worker", "glm", { FREE_SESSION_MODEL: "haiku", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    expect(launch).toMatchObject({ modelKey: agent.modelKey, freePlan: true });
+    expect(launch.modelKey).not.toBe("haiku");
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "routed" }).modelKey).toBe("opus");
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "haiku" }).modelKey).toBe("haiku");
+    // GLM without Foundmill's Z.ai key falls back to the agent's own model, never to Haiku 5.5.
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm" }).modelKey).toBe("opus");
+    expect(freeSessionModel("worker", "glm", { FREE_SESSION_MODEL: "routed", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
+    expect(freeSessionModel("worker", "haiku", { FREE_SESSION_MODEL: "routed" }).modelKey).toBe("haiku");
     expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
     expect(FREE_PLAN_SWITCH_NOTE).toMatch(/paid plan/);
   });

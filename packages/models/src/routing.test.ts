@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALWAYS_THINKS, IMAGE_MODELS, VIDEO_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, lowCreditsModel, maxTokensFor, resolveModel, routeAcceptsImages, type RouteKey, MODEL_ENDPOINTS, MODEL_PROVIDER } from "./routing";
+import { FREE_PLAN_HAIKU_ROUTES, ALWAYS_THINKS, IMAGE_MODELS, VIDEO_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, lowCreditsModel, maxTokensFor, resolveModel, routeAcceptsImages, type RouteKey, MODEL_ENDPOINTS, MODEL_PROVIDER } from "./routing";
 
 describe("routing (BUILD §10.1)", () => {
   it("MODELS and ROUTES are exactly the spec table", () => {
@@ -7,22 +7,22 @@ describe("routing (BUILD §10.1)", () => {
     expect(ROUTES).toEqual({
       inboxComposer: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: 16_000 },
       planCompiler: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: 16_000 },
-      chiefOfStaff: { model: "opus", lowCredits: "keep", warnOnDowngrade: true, maxTokens: 16_000 },
-      departmentLead: { model: "opus", lowCredits: "sonnet", maxTokens: 16_000 },
+      chiefOfStaff: { model: "opus", lowCredits: "keep", warnOnDowngrade: true, effort: "medium", maxTokens: 16_000 },
+      departmentLead: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: 16_000 },
       leadRecommendation: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: 16_000 },
       planner: { model: "opus", lowCredits: "sonnet", effort: "low", maxTokens: 16_000 },
-      codeReview: { model: "opus", lowCredits: "keep", maxTokens: 16_000 },
-      documentReview: { model: "opus", lowCredits: "keep", maxTokens: 16_000 },
+      codeReview: { model: "opus", lowCredits: "keep", effort: "medium", maxTokens: 16_000 },
+      documentReview: { model: "opus", lowCredits: "keep", effort: "medium", maxTokens: 16_000 },
       ideation: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: 8_000 },
       ideationSlate: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: 8_000 },
       logoDesigner: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
       foundations: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
       foundationsSkeleton: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
-      skillGrader: { model: "opus", lowCredits: "sonnet", maxTokens: 16_000 },
-      coach: { model: "opus", lowCredits: "sonnet", maxTokens: 16_000 },
-      worker: { model: "sonnet", lowCredits: "haiku", maxTokens: 16_000 },
-      journeyCommentary: { model: "sonnet", lowCredits: "haiku", maxTokens: 16_000 },
-      nightlyBatch: { model: "sonnet", lowCredits: "haiku", batch: true, maxTokens: 16_000 },
+      skillGrader: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: 16_000 },
+      coach: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: 16_000 },
+      worker: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: 16_000 },
+      journeyCommentary: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: 16_000 },
+      nightlyBatch: { model: "sonnet", lowCredits: "haiku", batch: true, effort: "high", maxTokens: 16_000 },
       linker: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
       classifier: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
       categoriser: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
@@ -37,6 +37,17 @@ describe("routing (BUILD §10.1)", () => {
       designReview: { model: "opus", lowCredits: "keep", effort: "low", vision: true, maxTokens: 8_000 },
       webSearch: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
     });
+  });
+
+  it("every route writes its effort down, but the six Haiku utilities (WP-09 T6 step 1; T4 step 2 waits on its live evals)", () => {
+    const haikuUtilities = ["linker", "classifier", "categoriser", "quarantinedReader", "moderation", "founderTitle"];
+    const without = (Object.entries(ROUTES) as [string, { effort?: string }][]).filter(([, r]) => !r.effort).map(([k]) => k);
+    expect(without).toEqual(haikuUtilities);
+  });
+
+  it("a route's written effort is what its model's API default was: Opus medium, Sonnet high", () => {
+    for (const route of ["chiefOfStaff", "departmentLead", "codeReview", "documentReview", "skillGrader", "coach"] as const) expect(resolveModel(route)).toMatchObject({ modelKey: "opus", effort: "medium" });
+    for (const route of ["worker", "journeyCommentary", "nightlyBatch"] as const) expect(resolveModel(route)).toMatchObject({ modelKey: "sonnet", effort: "high" });
   });
 
   it("the goal route (the founder's Change it words) is Sonnet at low effort (founder, 2026-11-07)", () => {
@@ -78,14 +89,14 @@ describe("routing (BUILD §10.1)", () => {
     expect(up.warning).toBeUndefined();
   });
 
-  it("first-draft routes stay on Opus at low effort and ask for fast mode; the agents' own planning routes keep the API default", () => {
+  it("first-draft routes stay on Opus at low effort and ask for fast mode; the agents' own planning routes write the API default (medium) down", () => {
     for (const route of ["ideation", "ideationSlate", "logoDesigner", "foundations", "foundationsSkeleton"] as const) {
       expect(resolveModel(route)).toMatchObject({ modelKey: "opus", effort: "low", speed: "fast" });
     }
     for (const route of ["coach", "chiefOfStaff", "departmentLead"] as const) {
       const r = resolveModel(route);
       expect(r.modelKey).toBe("opus");
-      expect(r.effort).toBeUndefined();
+      expect(r.effort).toBe("medium");
       expect(r.speed).toBeUndefined();
     }
   });
@@ -118,14 +129,18 @@ describe("routing (BUILD §10.1)", () => {
     });
   });
 
-  it("runs every route on Haiku 5.5 on the free plan and on GLM in a free session, locked ones included, with no warning and no credit saver (WP-13)", () => {
+  it("runs the free plan's allowed routes on Haiku 5.5 and keeps every other route on its own model; GLM in a free session; no credit saver (WP-13)", () => {
     for (const route of Object.keys(ROUTES) as RouteKey[]) {
       const free = resolveModel(route, "opus", { lowCredits: true, freePlan: true });
-      expect([free.modelKey, free.modelId, free.warning, free.lowCredits, free.speed]).toEqual(["haiku", MODELS.haiku, undefined, undefined, undefined]);
+      if (FREE_PLAN_HAIKU_ROUTES.has(route)) expect([free.modelKey, free.modelId, free.warning, free.lowCredits, free.speed]).toEqual(["haiku", MODELS.haiku, undefined, undefined, undefined]);
+      // Off the list, a free account runs as routed (Haiku 5.5 leaked injections there, T8): never the credit saver.
+      else expect([free.modelKey, free.lowCredits]).toEqual([resolveModel(route, "opus").modelKey, undefined]);
       const session = resolveModel(route, "glm", { lowCredits: true });
       expect([session.modelKey, session.modelId, session.warning, session.lowCredits, session.speed]).toEqual(["glm", MODELS.glm, undefined, undefined, undefined]);
     }
     expect(resolveModel("ideation", undefined, { freePlan: true }).effort).toBe("low");
+    // The readers and the agents of a free account keep their models (T8, Nov 17, 2026).
+    for (const route of ["quarantinedReader", "worker", "departmentLead", "conversation", "inboxComposer", "planCompiler"] as const) expect(resolveModel(route, undefined, { freePlan: true }).modelKey).toBe(ROUTES[route].model);
     expect([MODEL_PROVIDER.glm, MODEL_PROVIDER.haiku, MODEL_ENDPOINTS.zai.baseURL]).toEqual(["zai", "anthropic", "https://api.z.ai/api/anthropic"]);
   });
 

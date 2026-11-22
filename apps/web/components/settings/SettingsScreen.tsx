@@ -8,7 +8,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Briefcase, CircleDot, Building2, CalendarClock, CreditCard, KeyRound, LayoutList, Plug, SlidersHorizontal, SpellCheck, Users, type LucideIcon } from "lucide-react";
 import { useCallback, type ReactNode } from "react";
-import { Chip, Icon, ShellLink, useBuilderView } from "@foundmill/dugout";
+import { Chip, Explainer, Icon, ShellLink, useBuilderView } from "@foundmill/dugout";
+import { EXPLAINERS } from "@foundmill/modules/explainers";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { SETTINGS_TABS, type SettingsTabSlug } from "@/lib/search";
 import { trpcPathPrefix } from "@/lib/trpc";
@@ -110,7 +111,10 @@ export function SettingsScreen({ tab }: { tab: SettingsTabSlug }) {
           return link;
         })}
       </nav>
-      <div className="flex min-w-0 flex-col gap-gutter">{Body()}</div>
+      <div className="flex min-w-0 flex-col gap-gutter">
+        <Explainer {...EXPLAINERS[`settings/${tab}`]!} />
+        {Body()}
+      </div>
     </div>
   );
 }

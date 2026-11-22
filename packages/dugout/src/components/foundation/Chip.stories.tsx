@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Cpu, Filter, Flag, Users } from "lucide-react";
-import { Chip, DeptChip, ProvenanceChip } from "./Chip";
+import { Chip, DeptChip, EstimateLegend, ProvenanceChip } from "./Chip";
 
 const meta = {
   title: "Foundation/Chip",
@@ -50,27 +50,56 @@ export const Departments: Story = {
   ),
 };
 
-/** "Not measured": the dashed 18 px chip with the word in full, at least 4 px from its figure; in reading prose, the word alone. */
+/**
+ * "Not measured" (DESIGN §8 and §10): one style for every estimate. The figure keeps its size and color and takes a
+ * dashed underline; the word is its tooltip and its accessible name. Where no one figure carries it (a chart, a panel,
+ * a sentence) the word is shown in the same style. The screen carries the one legend line.
+ */
 export const Provenance: Story = {
   name: "Forecast / Estimate",
   render: () => (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
+    <div className="flex max-w-reading flex-col gap-4">
+      <div className="flex items-baseline gap-8">
         <span className="t-display-lg">
-          <span className="t-currency">£</span>48,200
+          <ProvenanceChip kind="forecast">
+            <span className="t-currency">£</span>48,200
+          </ProvenanceChip>
         </span>
+        <span className="t-display-lg">
+          <ProvenanceChip kind="estimate">
+            11.4<span className="t-unit">mo</span>
+          </ProvenanceChip>
+        </span>
+        <span className="t-display-lg">
+          <span className="t-currency">£</span>25,010
+        </span>
+      </div>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-body tabular-nums">
+        <dt className="t-data">Session cost</dt>
+        <dd>
+          <ProvenanceChip kind="estimate">$0.42</ProvenanceChip>
+        </dd>
+        <dt className="t-data">Paid this month</dt>
+        <dd>$12.00</dd>
+      </dl>
+      <div className="flex items-center gap-3">
+        <span className="t-title">Cash by month</span>
         <ProvenanceChip kind="forecast" />
-        <span className="ml-6 t-display-lg">
-          11.4<span className="t-unit">mo</span>
-        </span>
-        <ProvenanceChip kind="estimate" />
-        <ProvenanceChip kind="forecast" showIcon className="ml-6" />
+        <ProvenanceChip kind="estimate" showIcon />
       </div>
       <p className="t-reading">
-        At 60% sell-through we clear £18,900 <ProvenanceChip kind="estimate" appearance="word" />, and batch 002 already covers the units.
+        At 60% sell-through we clear <ProvenanceChip kind="estimate">£18,900</ProvenanceChip>, and batch 002 already covers the units. The whole plan is a{" "}
+        <ProvenanceChip kind="forecast" appearance="word" />.
       </p>
+      <EstimateLegend className="border-t border-line pt-2" />
     </div>
   ),
+};
+
+/** The legend line alone: the shell shows it under any screen that holds an estimate; a screen outside the shell renders it once. */
+export const Legend: Story = {
+  name: "Estimate legend",
+  render: () => <EstimateLegend />,
 };
 
 /** Chips never truncate by default: in a squeezed cell the words wrap and the chip grows. With `fit` they step down, then truncate with a tooltip. */

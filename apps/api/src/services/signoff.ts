@@ -17,9 +17,10 @@
  * Nothing here calls a model except the Planner (through `planTaskGraph`); no plan compiler runs for a sign-off.
  */
 import { CHANNEL_SCORING_TASK, getArchetypeSeed, planRoadmapHref, SITE_FIRST_BUILD } from "@foundmill/agents";
+import { connectorKeysFor } from "@foundmill/connectors";
 import { sitesEnabled } from "@foundmill/shared/sites";
 import { LIMITS } from "@foundmill/config";
-import { bothSignedOff, buildDestinationOf, loadProductStage, planDecisionBlock, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
+import { raiseStageToolNeeds, bothSignedOff, buildDestinationOf, loadProductStage, planDecisionBlock, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
 import { AppError, CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, ConflictError, ForbiddenError, isAdminRole, isPlanReadyDecision, PLAN_READY_NOTE, ValidationError, type BuildDestination, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
@@ -33,6 +34,7 @@ import { assertAgentsRunning } from "./stop-guard";
 import { planTaskGraph } from "./task-graph";
 import { startTaskByHand } from "./task-start";
 import type { TemporalResult } from "./temporal";
+import { assertEntryPlan } from "./payments";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Views
@@ -375,7 +377,7 @@ export async function decidePlanNote(ctx: BusinessContext, item: InboxItem, inpu
  */
 export function changesRequestedBody(voiceName: string, words: { the: string; tab: string }, notes: string, revision: SignoffResult["revision"]): string {
   const quoted = `Noted: “${clipWords(notes, 40)}”.`;
-  const now = revision?.started ? `${voiceName} is revising ${words.the} now; you are asked to sign off the new version when it is ready, and nothing else is built until you approve it.` : `${voiceName} revises ${words.the} first thing next cycle${revision?.reason ? ` (it could not start right away: ${revision.reason.replace(/\.$/, "")})` : ""}; press Continue to start it now. You are asked to sign off the new version when it is ready, and nothing else is built until you approve it.`;
+  const now = revision?.started ? `${voiceName} is revising ${words.the} now; you are asked to sign off the new version when it is ready, and nothing else is built until you approve it.` : `${voiceName} revises ${words.the} first thing next round of work${revision?.reason ? ` (it could not start right away: ${revision.reason.replace(/\.$/, "")})` : ""}; press Continue to start it now. You are asked to sign off the new version when it is ready, and nothing else is built until you approve it.`;
   return `${quoted} ${now} You can also edit it yourself on the ${words.tab} tab and approve it there.`;
 }
 
@@ -422,7 +424,7 @@ export async function startBuilding(ctx: BusinessContext): Promise<BuildStart> {
   let cycle: BuildStart["cycle"];
   try {
     const started: StartCycleResult = await startCycle(ctx);
-    cycle = { started: started.action !== "already_running" || started.status.running, mode: started.mode, workflowId: started.status.workflowId ?? started.workflow?.workflowId ?? null, reason: started.action === "already_running" ? "a cycle is already running" : null };
+    cycle = { started: started.action !== "already_running" || started.status.running, mode: started.mode, workflowId: started.status.workflowId ?? started.workflow?.workflowId ?? null, reason: started.action === "already_running" ? "a round of work is already running" : null };
   } catch (err) {
     if (!(err instanceof AppError)) throw err;
     cycle = { started: false, mode: null, workflowId: null, reason: err.message };
@@ -540,6 +542,8 @@ export function scoringTaskFor(available: readonly ChannelKey[]): { title: strin
 export async function startDistribution(ctx: BusinessContext, input: { via: "board" | "inbox"; itemId?: string | null }): Promise<StartDistributionResult> {
   if (!isAdminRole(ctx.role)) throw new ForbiddenError("Owners, cofounders and admins start distribution.");
   await assertAgentsRunning(ctx, "distribution");
+  // Paid entry (WP-09 T16): the channel engines are agents' work, so they wait for the entry plan like Continue.
+  await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
   const seed = ctx.business.archetype ? getArchetypeSeed(ctx.business.archetype) : null;
 
   const written = await ctx.rls(async (tx) => {
@@ -603,6 +607,11 @@ export async function startDistribution(ctx: BusinessContext, input: { via: "boa
     return { enabled, answered, scoringTaskId, boardItemId, strategist, chief, noneSentence: availability.noneSentence, allAvailable };
   });
   if (!written) return { started: false, boardItemId: null, scoringTaskId: null, engines: [], followUp: null, answered: null };
+
+  // The first outside people are about to arrive: the tools this kind of business needs before they do (founder,
+  // Nov 22, 2026), each raised once for the Chief of Staff. On the service connection: the scout's memory is the
+  // services' to write (0154). A raise that fails never undoes the start; the next agent that misses the tool raises it.
+  await raiseStageToolNeeds(ctx.db, ctx.businessId, "first_customers", connectorKeysFor).catch((err: unknown) => ctx.log.warn({ businessId: ctx.businessId, err: err instanceof Error ? err.message : String(err) }, "tool needs not raised at distribution start"));
 
   // After commit: the engines (each records its id on the channel; the reconciler starts any Temporal could not take now).
   const engines = await ensureChannelEngines({ db: ctx.db, temporal: ctx.temporal, businessId: ctx.businessId }, written.enabled);

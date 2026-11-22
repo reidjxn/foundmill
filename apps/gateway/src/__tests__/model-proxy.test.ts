@@ -7,7 +7,7 @@
 import { createDefaultRegistry } from "@foundmill/connectors";
 import { BYOK_CREDENTIAL_KIND, repos, type Db } from "@foundmill/db";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
-import { MODELS } from "@foundmill/models";
+import { FAST_MODE_BETA, MODELS, SERVER_FALLBACK_BETA } from "@foundmill/models";
 import { buildAad, encryptJson, generateMasterKey, LocalVault } from "@foundmill/shared/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createGatewayApp } from "../app";
@@ -95,6 +95,9 @@ describe("the own-key model route (WP-13 T11)", () => {
     // The beta endpoint (fast mode) keeps its query.
     await send(app, ownKeyId, { search: "?beta=true" });
     expect(upstream[2]!.url).toBe("https://api.anthropic.com/v1/messages?beta=true");
+    // The server-side fallback (WP-09 T5) runs on the founder's key too, with fast mode or alone.
+    expect((await send(app, ownKeyId, { search: "?beta=true", beta: `${FAST_MODE_BETA}, ${SERVER_FALLBACK_BETA}` })).status).toBe(200);
+    expect(upstream[3]!.headers["anthropic-beta"]).toBe(`${FAST_MODE_BETA},${SERVER_FALLBACK_BETA}`);
   });
 
   it("refuses a credits business and a byok business with no stored key, with 409 and no call", async () => {

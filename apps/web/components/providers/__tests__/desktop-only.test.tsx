@@ -74,7 +74,7 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
   });
 
   it("a project's public page and a person's public profile work from 390 px: the one list of small-screen routes, nothing else changes", () => {
-    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/onboarding", "/new/write", "/public-profile", "/network", "/communities", "/communities/", "/profiles/", "/i/", "/start"]);
+    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/explore", "/u/", "/m/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/onboarding", "/new/write", "/public-profile", "/network", "/communities", "/communities/", "/profiles/", "/i/", "/start", "/waitlist"]);
     expect(worksOnSmallScreens("/new/card/11111111-1111-4111-8111-111111111111")).toBe(true);
     // The three questions after a kept card (WP-04 T1): exactly /onboarding, so a phone goes on from the card.
     expect(worksOnSmallScreens("/onboarding")).toBe(true);
@@ -91,9 +91,10 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     expect(worksOnSmallScreens("/terms")).toBe(true);
     expect(worksOnSmallScreens("/privacy")).toBe(true);
     for (const p of ["/terms/x", "/privacy/x", "/termsx"]) expect(worksOnSmallScreens(p), p).toBe(false);
-    // An invitation (THESIS_REVIEW 3.1) works from 390 px; nothing about waiting has a route of its own.
+    // An invitation (THESIS_REVIEW 3.1) works from 390 px; so does the public waitlist page (WP-14 T15), and only it.
     expect(worksOnSmallScreens("/i/AbC_123-xyz")).toBe(true);
-    expect(worksOnSmallScreens("/waitlist")).toBe(false);
+    expect(worksOnSmallScreens("/waitlist")).toBe(true);
+    expect(worksOnSmallScreens("/waitlist/x")).toBe(false);
     // The pages an email opens (founder, 2026-11-12): the one-click answer and the pause page, and nothing beside them.
     expect(worksOnSmallScreens("/a/AbC_123-xyz")).toBe(true);
     expect(worksOnSmallScreens("/email/pause")).toBe(true);

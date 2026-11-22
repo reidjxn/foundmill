@@ -57,7 +57,7 @@ describe("universal search", () => {
     expect(items.filter((i) => i.href === `/b/${BID}/settings/preferences`)).toHaveLength(1);
   });
 
-  it("calls the glossary tab Your words (the slug and the old name still find it) and says what Refresh does without a cycle (§7.17, B12)", () => {
+  it("calls the glossary tab Your words (the slug and the old name still find it) and says what Refresh does without a round of work (§7.17, B12)", () => {
     const items = localPaletteItems({ businessId: BID, departments, live: false });
     const words = items.find((i) => i.id === "command:settings:glossary");
     expect(words).toMatchObject({ label: "Settings · Your words", href: `/b/${BID}/settings/glossary` });

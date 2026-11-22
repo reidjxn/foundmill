@@ -41,6 +41,8 @@ export interface CustomerUpdateCardProps extends Omit<HTMLAttributes<HTMLElement
   standoutAgent?: string | null;
   /** The founders' own line; left out when they wrote none. */
   note?: string | null;
+  /** True only for a payment Foundmill verified (a "Sign in with Stripe" account); the card says "Verified by" then. Default false: never claimed unless told. */
+  verified?: boolean;
   /** Brand colors (hex): accents only. */
   brandPrimary: string;
   brandSecondary: string;
@@ -71,7 +73,7 @@ export function updateCardDay(occurredOn: string): Date | null {
   return Number.isFinite(d.getTime()) ? d : null;
 }
 
-export function CustomerUpdateCard({ name, headline, occurredOn, leadChannelKey, standoutAgent, note, brandPrimary, brandSecondary, logo, pageHref, mark = "visitor", startHref = "/", variant = "page", className, style, ...rest }: CustomerUpdateCardProps) {
+export function CustomerUpdateCard({ name, headline, occurredOn, leadChannelKey, standoutAgent, note, verified = false, brandPrimary, brandSecondary, logo, pageHref, mark = "visitor", startHref = "/", variant = "page", className, style, ...rest }: CustomerUpdateCardProps) {
   const rootStyle: CSSProperties = { ...kitStyle({ primary: brandPrimary, secondary: brandSecondary }), ...style };
   // A full page is the document's one main landmark; a preview sits inside the console's own <main>, as an article.
   const Root = variant === "page" ? "div" : "article";
@@ -108,9 +110,9 @@ export function CustomerUpdateCard({ name, headline, occurredOn, leadChannelKey,
             {UPDATE_CARD_HEADLINE_WORDS[headline]}
           </h1>
           <div className="flex min-w-0 flex-col items-start gap-2">
-            <VerifiedMark />
-            <p className="t-small min-w-0 break-words text-secondary" data-card-note="">
-              {CUSTOMER_UPDATE_CARD_WORDS.verifiedNote}
+            {verified ? <VerifiedMark /> : null}
+            <p className="t-small min-w-0 break-words text-secondary" data-card-note="" data-recorded={verified ? undefined : ""}>
+              {verified ? CUSTOMER_UPDATE_CARD_WORDS.verifiedNote : CUSTOMER_UPDATE_CARD_WORDS.recordedNote}
             </p>
           </div>
           {channel || agent ? (

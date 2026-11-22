@@ -8,6 +8,8 @@ import { repos } from "@foundmill/db";
 import { MemoryRedis, userStreamKey } from "@foundmill/events";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { MemoryRateLimitStore, RateLimitedError } from "../services/rate-limit";
+import { takeCommunity, takeCommunityEdit, takeCommunityInvite, takeCommunityJoin, takeMessage, takePostReport } from "../services/live-limits";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -115,5 +117,60 @@ describe("posts", () => {
     const community = await repos.social.createCommunity(hz.db, { name: "Limits Club", slug: "limits-club", visibility: "public", createdBy: hz.A.ownerId, ownerBusinessId: hz.A.businessId });
     const burst = await outcomes(Array.from({ length: 10 }, (_, i) => owner.live.communities.post({ communityId: community.id, bodyMd: `post ${i}` })));
     expect(burst).toEqual({ OK: LIMITS.livePostsPerUserPerMinute, TOO_MANY_REQUESTS: 10 - LIMITS.livePostsPerUserPerMinute });
+  });
+});
+
+describe("limits that two replicas count together", () => {
+  // Two replicas share one store; a call made through either spends the same allowance.
+  const replicas = () => {
+    const store = new MemoryRateLimitStore();
+    return [store, store] as const;
+  };
+  const refused = async (call: Promise<void>) => {
+    try {
+      await call;
+      return false;
+    } catch (e) {
+      return e instanceof RateLimitedError;
+    }
+  };
+
+  it("the fourth community of a day is refused on the second replica", async () => {
+    const [a, b] = replicas();
+    for (let i = 0; i < LIMITS.liveCommunitiesPerUserPerDay; i++) await takeCommunity(i % 2 ? b : a, "u1");
+    expect(await refused(takeCommunity(b, "u1"))).toBe(true);
+    expect(await refused(takeCommunity(a, "u2"))).toBe(false);
+  });
+
+  it("the 51st invitation of a day is refused on the second replica", async () => {
+    const [a, b] = replicas();
+    for (let i = 0; i < LIMITS.liveInvitesPerUserPerDay; i++) await takeCommunityInvite(i % 2 ? b : a, "u1");
+    expect(await refused(takeCommunityInvite(b, "u1"))).toBe(true);
+  });
+
+  it("the 31st report of an hour is refused on the second replica", async () => {
+    const [a, b] = replicas();
+    for (let i = 0; i < LIMITS.liveReportsPerUserPerHour; i++) await takePostReport(i % 2 ? b : a, "u1");
+    expect(await refused(takePostReport(b, "u1"))).toBe(true);
+  });
+
+  it("joins and community changes past the day's allowance are refused on the second replica (H1, H3)", async () => {
+    const [a, b] = replicas();
+    for (let i = 0; i < LIMITS.liveJoinsPerUserPerDay; i++) await takeCommunityJoin(i % 2 ? b : a, "u1");
+    expect(await refused(takeCommunityJoin(b, "u1"))).toBe(true);
+    for (let i = 0; i < LIMITS.liveCommunityEditsPerUserPerDay; i++) await takeCommunityEdit(i % 2 ? b : a, "u1");
+    expect(await refused(takeCommunityEdit(b, "u1"))).toBe(true);
+    expect(await refused(takeCommunityEdit(a, "u2"))).toBe(false);
+  });
+
+  it("the 201st message of an hour is refused, whichever thread it goes to", async () => {
+    let at = 0;
+    const store = new MemoryRateLimitStore(() => at);
+    // 4 seconds apart keeps the per-minute allowance (20) from binding; 200 messages fit in the first 13 minutes.
+    for (let i = 0; i < LIMITS.liveMessagesPerUserPerHour; i++) {
+      await takeMessage(store, "u1", `thread-${i}`);
+      at += 4_000;
+    }
+    expect(await refused(takeMessage(store, "u1", "thread-new"))).toBe(true);
   });
 });

@@ -102,6 +102,11 @@ export async function recordPostVisit(
         },
         `visit.attributed:${first.id}`,
       );
+      // The founder said they posted this one: the first visit through its own link is the second `post.published`.
+      const said = (await repos.teamPosts.published(tx, first.businessId, [first.assetId])).get(first.assetId);
+      if (said && !said.visited && said.network === first.network) {
+        await writeEventRow(tx, { businessId: first.businessId, type: "post.published", actor: { kind: "system", id: "public-page" }, payload: { assetId: first.assetId, network: first.network, url: said.url, source: "founder", visited: true }, occurredAt: at.toISOString() }, `post.published:${first.assetId}:${first.network ?? "none"}:true`);
+      }
     });
   } catch (err) {
     // Never the code: it was in an address a stranger may have typed.

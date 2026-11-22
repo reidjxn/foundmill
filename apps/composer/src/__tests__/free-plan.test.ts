@@ -15,13 +15,15 @@ afterAll(async () => {
 });
 
 describe("composerModelClient (WP-13)", () => {
-  it("writes a free business's Inbox note on Haiku 5.5 and a paid plan's on its locked model", async () => {
+  it("writes every Inbox note on its locked model, and a free business's journey commentary on Haiku 5.5 (WP-13 T8)", async () => {
     const events: UsageEvent[] = [];
     const client = composerModelClient(new MockModelClient({ onUsage: (e) => void events.push(e) }), hz.db);
     await repos.businesses.update(hz.db, hz.A.businessId, { planTier: "free", modelBilling: "credits" });
     await repos.businesses.update(hz.db, hz.B.businessId, { planTier: "pro", modelBilling: "credits" });
+    // The note reads events and task reports, so it stays off Haiku 5.5 for a free account (it failed the bar there).
     for (const businessId of [hz.A.businessId, hz.B.businessId]) await client.complete({ route: "inboxComposer", attribution: { businessId, kind: "test" }, messages: [{ role: "user", content: "today" }] });
-    expect(events.map((e) => e.model)).toEqual([MODELS.haiku, MODELS.opus]);
+    await client.complete({ route: "journeyCommentary", attribution: { businessId: hz.A.businessId, kind: "test" }, messages: [{ role: "user", content: "today" }] });
+    expect(events.map((e) => e.model)).toEqual([MODELS.opus, MODELS.opus, MODELS.haiku]);
   });
 });
 
@@ -44,7 +46,7 @@ describe("composerModelClient on a founder's own key (WP-13 T11)", () => {
     const note = await client.complete({ route: "inboxComposer", attribution: { businessId: hz.A.businessId, kind: "test" }, messages: [{ role: "user", content: "today" }] });
     expect(note.text).toBe("Your note.");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe(`http://gateway.internal:4001/v1/models/anthropic/${hz.A.businessId}/v1/messages`);
+    expect(calls[0]!.url).toBe(`http://gateway.internal:4001/v1/models/anthropic/${hz.A.businessId}/v1/messages?beta=true`);
     expect(own.map((e) => e.billedTo)).toEqual(["byok"]);
     await client.complete({ route: "inboxComposer", attribution: { businessId: hz.B.businessId, kind: "test" }, messages: [{ role: "user", content: "today" }] });
     expect(calls).toHaveLength(1);

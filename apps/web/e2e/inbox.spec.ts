@@ -103,7 +103,7 @@ test.describe("inbox", () => {
     await expect(rows).toHaveCount(before + 1);
   });
 
-  test("the plan note waits in Needs you without holding Continue; 1 approves it and starts the build, Continue runs a cycle step, and 1 approves the first goal", async ({ page, playwright }) => {
+  test("the plan note waits in Needs you without holding Continue; 1 approves it and starts the build, Continue runs a round of work step, and 1 approves the first goal", async ({ page, playwright }) => {
     test.setTimeout(360_000);
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);
@@ -161,8 +161,8 @@ test.describe("inbox", () => {
     // a toast carries the api's one sentence: the cycle and what is ready to build, or, without an orchestrator, that no
     // agent worked and one note stood in.
     await idle.click();
-    await expect(page.locator("[data-coachmark='processing-strip'][data-notice]")).toHaveAttribute("aria-label", /Starting the next (cycle|round of work)|(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i, { timeout: 1_000 });
-    await expect(page.getByText(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i).first()).toBeVisible({ timeout: LONG });
+    await expect(page.locator("[data-coachmark='processing-strip'][data-notice]")).toHaveAttribute("aria-label", /Starting the next (cycle|round of work)|(cycle|round of work) \d* ?started|cannot run right now|(cycle|round of work) \d* ?resumed|already running/i, { timeout: 1_000 });
+    await expect(page.getByText(/(cycle|round of work) \d* ?started|cannot run right now|(cycle|round of work) \d* ?resumed|already running/i).first()).toBeVisible({ timeout: LONG });
 
     // After the plan's approval and a round of work the Chief of Staff proposes the first goal (founder, 2026-11-07): Home asks
     // `goal.ensure` once per visit, the proposal is a decision note in Needs you that never holds Continue, and one tap on
@@ -431,6 +431,25 @@ test.describe("inbox", () => {
     }
     // Information stays whatever the switch: every option's consequence or cost line, and the Holds Continue tooltip.
     expect(await options.count()).toBeGreaterThanOrEqual(2);
+  });
+
+  test("the suggestion is in the first viewport at 1440 and comes before the note body (WP-10 T10)", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openInbox(page, "respond");
+    await rowsOf(page).filter({ hasText: "Approve batch 002" }).first().click();
+    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open", { timeout: LONG });
+    const lead = page.getByTestId("decision-lead");
+    // The lead is part of the guided layer: with the account's guidance switch off there is none, and the bar is the whole ask.
+    if ((await page.getByTestId("decision-bar").locator("[data-decision-guided-line]").count()) === 0) {
+      await expect(lead).toHaveCount(0);
+      return;
+    }
+    await expect(lead).toBeVisible();
+    await expect(lead.getByTestId("decision-lead-sentence")).toContainText(" suggests: ");
+    const box = (await page.getByTestId("decision-lead-recommended").boundingBox())!;
+    expect(box.y + box.height, "the suggested button is above the fold").toBeLessThanOrEqual(900);
+    const before = await lead.evaluate((el) => Boolean(el.compareDocumentPosition(document.querySelector("[data-testid=inbox-note]")!) & Node.DOCUMENT_POSITION_FOLLOWING));
+    expect(before, "the lead precedes the note body in DOM order").toBe(true);
   });
 
   test("a money decision reads in the business's own currency: pounds for Northwind, never euros", async ({ page }) => {

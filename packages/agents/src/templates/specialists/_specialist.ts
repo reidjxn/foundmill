@@ -22,19 +22,23 @@ export interface SpecialistTemplateInit {
   craftSkills: string[];
   negotiation?: Negotiation;
   neverDoes: string[];
+  /** The kind of business the specialist serves, as its role line ends. Default: a physical-product business. */
+  businessKind?: string;
 }
 
 /**
- * Platform capabilities every specialist holds beyond the base set. Documents, RFQ and quote tracking, samples, the
- * costing model and new CRM records have no agent tool yet (templates/PLANNED_GRANTS.md): add each back with its tool.
+ * Platform capabilities every specialist holds beyond the base set. Documents, RFQ and quote tracking, samples and the
+ * costing model have no agent tool yet (templates/PLANNED_GRANTS.md): add each back with its tool.
  */
 export const SPECIALIST_PLATFORM_TOOLS = [
   "crm.entities.search",
+  "crm.entities.create",
+  "crm.interactions.append",
   "spec.read",
 ];
 
 export function defineSpecialistTemplate(init: SpecialistTemplateInit): AgentTemplate {
-  const description = `${init.summary} Inputs: ${init.inputs}. Outputs: ${init.outputs}. Tools: documents in Google Drive, CRM search, email drafts, web research through the quarantined reader. Never does: ${init.neverDoes.join("; ")}.`;
+  const description = `${init.summary} Inputs: ${init.inputs}. Outputs: ${init.outputs}. Tools: documents in Google Drive, CRM search and new CRM records, email drafts, web research through the quarantined reader. Never does: ${init.neverDoes.join("; ")}.`;
   return defineTemplate({
     key: init.key,
     name: init.name,
@@ -46,7 +50,7 @@ export function defineSpecialistTemplate(init: SpecialistTemplateInit): AgentTem
     route: "worker",
     description,
     instructions: {
-      role: `${init.role} for a physical-product business.`,
+      role: `${init.role} for ${init.businessKind ?? "a physical-product business"}.`,
       goals: init.goals,
       rules: [...PHYSICAL_SPECIALIST_RULES, ...WORKER_COMMON_RULES, SAVE_REPORT_RULE, ...init.rules],
       playbook: init.playbook,
@@ -57,7 +61,7 @@ export function defineSpecialistTemplate(init: SpecialistTemplateInit): AgentTem
       grant("platform", [...PLATFORM_BASE_TOOLS, ...SPECIALIST_PLATFORM_TOOLS] as [string, ...string[]]),
       grant("quarantine", QUARANTINE_TOOLS),
       grant("web", WEB_TOOLS),
-      grant("gmail", ["drafts.create", "threads.read"]),
+      grant("gmail", ["drafts.create", "drafts.read", "threads.read"]),
       grant("google_drive", ["files.list", "files.read", "files.write"]),
       ...init.connectors,
     ],

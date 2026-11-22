@@ -14,6 +14,7 @@ export interface CreateUpdateCardInput {
   leadChannelKey: string | null;
   standoutAgent: string | null;
   note: string | null;
+  verified: boolean;
   createdBy: string;
 }
 

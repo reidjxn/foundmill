@@ -173,6 +173,24 @@ describe("The saved line promises the email only where the waitlist sends it (WP
     expect(joinWaitlist).toHaveBeenCalledTimes(1);
   });
 
+  it("with emails, the page's own sentence is the batch one, and without them today's sentence stays (WP-14 T15)", () => {
+    const on = render(<NotInvitedPage message="today's sentence" email="maya@example.com" emails />);
+    expect(screen.getByText("maya@example.com isn't on this batch's list yet")).toBeTruthy();
+    expect(screen.getByText("Join the waitlist, and we'll send your invitation when the next batch opens.")).toBeTruthy();
+    expect(screen.queryByText("today's sentence")).toBeNull();
+    expect(screen.getByRole("link", { name: "See when the next batch opens" }).getAttribute("href")).toBe("/waitlist");
+    on.unmount();
+    const off = render(<NotInvitedPage message="today's sentence" email="maya@example.com" />);
+    expect(screen.getByText("maya@example.com has a place in line")).toBeTruthy();
+    expect(screen.getByText("today's sentence")).toBeTruthy();
+    expect(screen.queryByText(/this batch's list/)).toBeNull();
+    off.unmount();
+    // An address that still has to be confirmed is asked to confirm it, whatever the switch says.
+    render(<NotInvitedPage message="confirm" email="maya@example.com" emails unconfirmed />);
+    expect(screen.getByText("Confirm maya@example.com first")).toBeTruthy();
+    expect(screen.queryByText(/this batch's list/)).toBeNull();
+  });
+
   it("with emails and a kept card, says both", async () => {
     joinWaitlist.mockResolvedValueOnce({ status: "joined", cardKept: true });
     render(<NotInvitedPage message="x" email="maya@example.com" emails />);

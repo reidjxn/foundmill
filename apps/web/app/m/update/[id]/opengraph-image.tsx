@@ -10,7 +10,7 @@ import { updateCardImage } from "@/lib/update-card-image";
 
 export const size = CARD_IMAGE_WIDE;
 export const contentType = CARD_IMAGE_TYPE;
-export const alt = `A Customer Update verified by ${APP_NAME}`;
+export const alt = `A Customer Update from a project on ${APP_NAME}`;
 export const dynamic = "force-dynamic";
 
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {

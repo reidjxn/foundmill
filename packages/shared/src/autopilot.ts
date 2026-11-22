@@ -17,7 +17,7 @@
  * Days are UTC days and the daily hour is a UTC hour: a business has no time zone of its own.
  */
 
-export const AUTOPILOT_CADENCES = ["after_cycle", "every_1h", "every_4h", "every_12h", "daily"] as const;
+export const AUTOPILOT_CADENCES = ["after_cycle", "every_1h", "every_4h", "every_12h", "daily", "every_3_days"] as const;
 export type AutopilotCadence = (typeof AUTOPILOT_CADENCES)[number];
 
 /** Why Autopilot paused itself (`businesses.autopilot_paused_reason`); the founder turns it back on by hand. */
@@ -38,12 +38,16 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
 export const AUTOPILOT_CADENCE_INFO: Record<AutopilotCadence, { label: string; summary: string; intervalMs: number | null }> = {
-  after_cycle: { label: "As soon as the last cycle ends", summary: "The next cycle starts right after the previous one finishes.", intervalMs: 0 },
-  every_1h: { label: "Every hour", summary: "One hour after the last cycle ends.", intervalMs: HOUR_MS },
-  every_4h: { label: "Every 4 hours", summary: "Four hours after the last cycle ends.", intervalMs: 4 * HOUR_MS },
-  every_12h: { label: "Every 12 hours", summary: "Twelve hours after the last cycle ends.", intervalMs: 12 * HOUR_MS },
+  after_cycle: { label: "As soon as the last round of work ends", summary: "The next round of work starts right after the previous one finishes.", intervalMs: 0 },
+  every_1h: { label: "Every hour", summary: "One hour after the last round of work ends.", intervalMs: HOUR_MS },
+  every_4h: { label: "Every 4 hours", summary: "Four hours after the last round of work ends.", intervalMs: 4 * HOUR_MS },
+  every_12h: { label: "Every 12 hours", summary: "Twelve hours after the last round of work ends.", intervalMs: 12 * HOUR_MS },
   daily: { label: "Daily", summary: "Once a day at the hour you choose (UTC).", intervalMs: null },
+  every_3_days: { label: "Every third day", summary: "Once every three days at the hour you choose (UTC).", intervalMs: null },
 };
+
+/** A cadence that runs at the founder's chosen hour (`dailyHour`): daily, or every third day (WP-09 T12). */
+export const isHourlyScheduledCadence = (cadence: AutopilotCadence): boolean => cadence === "daily" || cadence === "every_3_days";
 
 /** The founder's Autopilot choices (the `businesses.autopilot_*` columns). */
 export interface AutopilotSettings {
@@ -77,7 +81,7 @@ export const AUTOPILOT_DEFAULT_SETTINGS: AutopilotSettings = {
 };
 
 /** Why Autopilot is holding off for now (it stays on). */
-export const AUTOPILOT_WAIT_REASONS = ["vacation", "cycle_running", "inbox", "daily_cycles", "daily_spend", "schedule"] as const;
+export const AUTOPILOT_WAIT_REASONS = ["vacation", "cycle_running", "inbox", "daily_cycles", "daily_spend", "schedule", "entry_plan"] as const;
 export type AutopilotWaitReason = (typeof AUTOPILOT_WAIT_REASONS)[number];
 
 /** One finished cycle, newest first in the lists below. */
@@ -129,6 +133,8 @@ export function plannedCycleAt(settings: Pick<AutopilotSettings, "cadence" | "da
   const basis = last.endedAt ?? since;
   let at: number;
   if (settings.cadence === "daily") at = nextDailyAt(basis, settings.dailyHour);
+  // Every third day: the chosen hour, two days after the next one once a cycle has run (the first is the next one).
+  else if (settings.cadence === "every_3_days") at = nextDailyAt(basis, settings.dailyHour) + (last.endedAt === null ? 0 : 2 * DAY_MS);
   else if (last.endedAt === null) at = since;
   else at = basis + (AUTOPILOT_CADENCE_INFO[settings.cadence].intervalMs ?? 0);
   if (last.startedAt !== null) at = Math.max(at, last.startedAt + AUTOPILOT_LIMITS.minIntervalMs);
@@ -138,6 +144,11 @@ export function plannedCycleAt(settings: Pick<AutopilotSettings, "cadence" | "da
 /** Everything the decision reads, gathered by `loadAutopilotFacts` (packages/db) with a clock reading. */
 export interface AutopilotFacts {
   now: number;
+  /**
+   * Paid entry (WP-09 T16): false while sign-up is paid and no owner holds the entry plan, so no cycle starts on its
+   * own and a run ends. Absent or true: open (the switch is off, or the plan is paid).
+   */
+  entryPlanOpen?: boolean;
   /** Autopilot is turned on. */
   enabled: boolean;
   /** Set once Autopilot paused itself; cleared when the founder turns it on again. */
@@ -184,7 +195,7 @@ export const CONTINUE_RUN_END_REASONS = ["done", "hard_stop", "paused", "stopped
 export type ContinueRunEndReason = (typeof CONTINUE_RUN_END_REASONS)[number];
 
 /** The sentence a press that started a run adds (Nov 7, 2026): new cycles keep starting on their own. */
-export const RUN_UNTIL_DONE = "New cycles start on their own until nothing is left to do, or until you pause.";
+export const RUN_UNTIL_DONE = "New rounds of work start on their own until nothing is left to do, or until you pause.";
 
 export const CONTINUE_RUN_LIMITS = {
   /** No two rounds of a run start closer than this (stops a hot loop of empty rounds); no 15-minute floor. */
@@ -224,7 +235,7 @@ export function decideRun(f: AutopilotFacts): ContinueRunDecision | null {
   const run = f.run;
   if (!run) return null;
   if (f.archived) return { action: "end", reason: "archived" };
-  if (f.stopReason || (f.creditsRemainingMinor !== null && f.creditsRemainingMinor <= 0) || f.blockingItems > 0) return { action: "end", reason: "hard_stop" };
+  if (f.stopReason || (f.creditsRemainingMinor !== null && f.creditsRemainingMinor <= 0) || f.blockingItems > 0 || f.entryPlanOpen === false) return { action: "end", reason: "hard_stop" };
   if (f.vacation) return { action: "end", reason: "vacation" };
   if (f.cycleOpen) return { action: "wait", why: "cycle_running", until: null };
   if (run.lastRound?.outcome === "stopped") return { action: "end", reason: "stopped" };
@@ -247,15 +258,15 @@ export function continueRunEndedMessage(reason: ContinueRunEndReason, maxCyclesP
     case "done":
       return { title: "The team has done all it can for now", description: "Anything waiting for you is in the Inbox's Needs you tab.", tone: "good" };
     case "daily_cycles":
-      return { title: typeof maxCyclesPerDay === "number" ? `Today's limit of ${maxCyclesPerDay} cycle${maxCyclesPerDay === 1 ? "" : "s"} is reached` : "Today's cycle limit is reached", description: "No more cycles start on their own today. Raise the limit in Settings › What the team can do, or press Continue for one more.", tone: "warn" };
+      return { title: typeof maxCyclesPerDay === "number" ? `Today's limit of ${maxCyclesPerDay} ${maxCyclesPerDay === 1 ? "round" : "rounds"} of work is reached` : "Today's round of work limit is reached", description: "No more rounds of work start on their own today. Raise the limit in Settings › What the team can do, or press Continue for one more.", tone: "warn" };
     case "daily_spend":
-      return { title: "Today's spend ceiling is reached (Estimate)", description: "No more cycles start on their own today. Raise the ceiling in Settings › What the team can do, or press Continue for one more.", tone: "warn" };
+      return { title: "Today's spend ceiling is reached (Estimate)", description: "No more rounds of work start on their own today. Raise the ceiling in Settings › What the team can do, or press Continue for one more.", tone: "warn" };
     case "hard_stop":
       return { title: "The team stopped working", description: "Something needs you before the team can carry on. Open Needs you.", tone: "warn" };
     case "vacation":
-      return { title: "You are on vacation", description: "The Chief of Staff runs the cycles until you come back.", tone: "info" };
+      return { title: "You are on vacation", description: "The Chief of Staff runs the rounds of work until you come back.", tone: "info" };
     case "lost":
-      return { title: "New cycles stopped starting", description: "Press Continue to keep the team working.", tone: "warn" };
+      return { title: "New rounds of work stopped starting", description: "Press Continue to keep the team working.", tone: "warn" };
     case "paused":
     case "stopped":
     case "archived":
@@ -284,7 +295,7 @@ export function pauseNote(reason: AutopilotPauseReason, idleCycles: number = AUT
     case "credits_exhausted":
       return "This month's credits are used up, so Autopilot paused. Top up in Settings › Billing, then turn Autopilot back on.";
     case "idle_cycles":
-      return `The last ${idleCycles} cycle${idleCycles === 1 ? "" : "s"} failed or did nothing, so Autopilot paused. Read the note in the Inbox, then turn it back on.`;
+      return `The last ${idleCycles} ${idleCycles === 1 ? "round" : "rounds"} of work failed or did nothing, so Autopilot paused. Read the note in the Inbox, then turn it back on.`;
   }
 }
 
@@ -332,17 +343,18 @@ export function decideAutopilot(f: AutopilotFacts): AutopilotDecision {
 
   const nextAt = plannedCycleAt(f.settings, { startedAt: f.lastCycleStartedAt, endedAt: f.lastCycleEndedAt }, f.since);
   const tomorrow = utcDayStart(f.now) + DAY_MS;
-  if (f.vacation) return { action: "wait", why: "vacation", note: "You are on vacation; the Chief of Staff runs the cycles until you come back.", nextAt: null, until: null };
-  if (f.cycleOpen) return { action: "wait", why: "cycle_running", note: "A cycle is running; the next one is planned when it ends.", nextAt: null, until: null };
+  if (f.entryPlanOpen === false) return { action: "wait", why: "entry_plan", note: "The team starts working once you subscribe in Settings › Billing.", nextAt: null, until: null };
+  if (f.vacation) return { action: "wait", why: "vacation", note: "You are on vacation; the Chief of Staff runs the rounds of work until you come back.", nextAt: null, until: null };
+  if (f.cycleOpen) return { action: "wait", why: "cycle_running", note: "A round of work is running; the next one is planned when it ends.", nextAt: null, until: null };
   if (f.blockingItems > 0) return { action: "wait", why: "inbox", note: inboxWaitNote(f.blockingItems), nextAt, until: null };
-  if (f.cyclesToday >= f.settings.maxCyclesPerDay) return { action: "wait", why: "daily_cycles", note: `Today's limit of ${f.settings.maxCyclesPerDay} cycle${f.settings.maxCyclesPerDay === 1 ? "" : "s"} is reached; Autopilot continues tomorrow (UTC).`, nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
+  if (f.cyclesToday >= f.settings.maxCyclesPerDay) return { action: "wait", why: "daily_cycles", note: `Today's limit of ${f.settings.maxCyclesPerDay} ${f.settings.maxCyclesPerDay === 1 ? "round" : "rounds"} of work is reached; Autopilot continues tomorrow (UTC).`, nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
   const ceiling = effectiveSpendCeiling(f.settings, f.spentTodayMinor, f.creditsRemainingMinor);
   if (ceiling !== null && f.spentTodayMinor >= ceiling) return { action: "wait", why: "daily_spend", note: "Today's spend ceiling is reached (Estimate); Autopilot continues tomorrow (UTC).", nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
   // Autopilot's own limits: only the cycles it starts itself count (a press of Continue never uses them up).
   const own = f.settings.ownMaxCyclesPerDay;
-  if (own !== null && own !== undefined && (f.ownCyclesToday ?? 0) >= own) return { action: "wait", why: "daily_cycles", note: `Autopilot's own limit of ${own} cycle${own === 1 ? "" : "s"} a day is reached; it continues tomorrow (UTC). Continue still works.`, nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
+  if (own !== null && own !== undefined && (f.ownCyclesToday ?? 0) >= own) return { action: "wait", why: "daily_cycles", note: `Autopilot's own limit of ${own} ${own === 1 ? "round" : "rounds"} of work a day is reached; it continues tomorrow (UTC). Continue still works.`, nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
   if (autopilotCycleBudgetMinor(f) === 0) return { action: "wait", why: "daily_spend", note: "Autopilot's own spend for today is reached (Estimate); it continues tomorrow (UTC). Continue still works.", nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
-  if (nextAt > f.now) return { action: "wait", why: "schedule", note: "The next cycle is planned.", nextAt, until: nextAt };
+  if (nextAt > f.now) return { action: "wait", why: "schedule", note: "The next round of work is planned.", nextAt, until: nextAt };
   return { action: "start", nextAt };
 }
 
@@ -382,19 +394,20 @@ export function autopilotView(d: AutopilotDecision): AutopilotView {
       if (d.why === "daily_spend") return { state: "waiting", label: "Waiting: spend ceiling reached", detail: d.note, nextAt: d.nextAt };
       return { state: "on", label: "On", detail: d.why === "cycle_running" ? d.note : "Autopilot is running the business.", nextAt: d.nextAt };
     case "start":
-      return { state: "on", label: "On", detail: "A cycle is about to start.", nextAt: d.nextAt };
+      return { state: "on", label: "On", detail: "A round of work is about to start.", nextAt: d.nextAt };
   }
 }
 
 /**
- * The overnight shift (retention plan, founder 2026-11-11: "on by default with a small cap"): Commit turns Autopilot on
- * with the daily cadence at about 2 AM in the founder's time zone, so there is news every morning. The cap is one round
- * of work a night with a budget of $0.15 (an Estimate; about $4.50 a month, inside the free tier's $5): Autopilot's own limits (one cycle a day, its own spend ceiling,
- * which is also that cycle's budget), apart from Continue's (founder, 2026-11-12); every Autopilot guard rail still holds (used-up credits,
+ * The overnight shift (retention plan, founder 2026-11-11; off when Commit opens since 2026-11-17, founder's answer A4,
+ * WP-14 T11): when the founder turns it on, Commit turns Autopilot on at about 2 AM in the founder's time zone. Every
+ * third night (founder, Nov 16, 2026, WP-09 D7 option B): one round of work with a budget of $0.45, three nights' worth
+ * (founder, Nov 16: enough to finish one session; an Estimate, about $4.50 a month, inside the free tier's $5). Autopilot's own limits
+ * (one cycle a day, its own spend ceiling, which is also that cycle's budget), apart from Continue's (founder, 2026-11-12); every Autopilot guard rail still holds (used-up credits,
  * failed or empty nights in a row, a hard stop, a vacation) and it never answers a note. Settings › What the team can do
  * changes or turns it off.
  */
-export const OVERNIGHT_SHIFT = { localHour: 2, cadence: "daily" as AutopilotCadence, ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15 } as const;
+export const OVERNIGHT_SHIFT = { localHour: 2, cadence: "every_3_days" as AutopilotCadence, ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 45 } as const;
 
 /** The UTC hour that is `localHour` in `timeZone` on the day of `now` (UTC when the zone is unknown). */
 export function overnightUtcHour(timeZone: string | null | undefined, now: Date = new Date(), localHour: number = OVERNIGHT_SHIFT.localHour): number {

@@ -52,7 +52,8 @@ async function main(): Promise<void> {
 
     print("\nAgent sessions by model and outcome");
     for (const x of r.sessionsByModelAndOutcome) {
-      print(`  ${x.modelKey}  ${x.outcome ?? "-"}  sessions=${x.sessions}  avg tokens in=${x.avgTokensIn} out=${x.avgTokensOut}  avg ${usd(x.avgUsd, sessions)}  total ${usd(x.usd, sessions, 2)}`);
+      const turns = x.p50Turns === null ? "turns not recorded" : `turns p50=${x.p50Turns} p90=${x.p90Turns}`;
+      print(`  ${x.modelKey}  ${x.route ?? "-"}  effort ${x.effort ?? "-"}  ${x.outcome ?? "-"}  sessions=${x.sessions}  avg tokens in=${x.avgTokensIn} out=${x.avgTokensOut}  ${turns}  avg ${usd(x.avgUsd, sessions)}  total ${usd(x.usd, sessions, 2)}`);
     }
 
     const fd = r.firstDayPerProject;
@@ -62,6 +63,28 @@ async function main(): Promise<void> {
       print(`  ${k}: total ${usd(s.total, fd.projects)}  foundations ${usd(s.foundations, fd.projects)}  sessions ${usd(s.sessions, fd.projects)}  notes and replies ${usd(s.notesAndReplies, fd.projects)}`);
     }
     for (const x of fd.rows) print(`  ${x.businessId}  ${x.createdAt.slice(0, 10)}  ${own(x.usd)}`);
+
+    const fw = r.firstWeekPerProject;
+    print(`\nFirst 7 days per project, from commit (${fw.projects} projects)`);
+    if (!fw.projects) print("  no data");
+    else print(`  median ${usd(fw.median, fw.projects)}  p90 ${usd(fw.p90, fw.projects)}`);
+
+    const pc = r.preCommitPerProject;
+    print(`\nDrafting before commit per project (${pc.projects} projects)`);
+    if (!pc.projects) print("  no data");
+    else print(`  median ${usd(pc.median, pc.projects, 4)}  p90 ${usd(pc.p90, pc.projects, 4)}`);
+
+    print("\nOne round of work (cycles that ended)");
+    if (r.rounds.medianMinor === null) print("  no data");
+    else print(`  rounds=${r.rounds.rounds}  median ${usd(r.rounds.medianMinor / 100, ledger, 2)}  the free allowance pays for ${r.rounds.perAllowance} (Estimate)`);
+
+    print("\nCache-read share per route");
+    if (!r.cacheShareByRoute.length) print("  no data");
+    for (const x of r.cacheShareByRoute) print(`  ${x.route}  read=${x.cacheRead}  write=${x.cacheWrite}  uncached=${x.uncachedInput}  ${x.cacheReadPct === null ? "no data" : `${x.cacheReadPct}% read from cache`}`);
+
+    print("\nIdea box, signed out (live cards per day)");
+    if (!r.ideaBox.length) print("  no data");
+    for (const x of r.ideaBox) print(`  ${x.day.slice(0, 10)}  cards=${x.cards}  ${own(x.usd, 4)}`);
 
     const d = r.projectWeeks.distribution;
     print(`\nProject-weeks (${d.projectWeeks} weeks across ${d.projects} projects)`);

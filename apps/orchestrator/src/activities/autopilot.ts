@@ -11,6 +11,7 @@ import { autopilotChangedPayload, loadAutopilotFacts, repos, runRoundsOf } from 
 import { CONTINUE_RUN_LIMITS, autopilotCycleBudgetMinor, decideAutopilot, decideRun, pauseNote, type AutopilotCadence, type AutopilotDecision, type AutopilotPauseReason, type ContinueRunDecision, type ContinueRunEndReason } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
+import { entryPlanOpenFor } from "../entry-plan";
 
 /** How often a standing wait (an Inbox item, a vacation, a running cycle) is looked at again. */
 export const AUTOPILOT_POLL_MS = 5 * 60 * 1000;
@@ -43,7 +44,9 @@ export function createAutopilotActivities(deps: OrchestratorDeps) {
       const { db, clock } = deps;
       const now = clock.now();
       const business = await repos.businesses.get(db, input.businessId, { includeArchived: true });
-      const facts = await loadAutopilotFacts(db, business, now, { unrecordedFailures: input.unrecordedFailures, run: input.run ?? null });
+      // Paid entry (WP-09 T16): until a founder holds the entry plan, no cycle starts on its own and a run ends.
+      const entryPlanOpen = await entryPlanOpenFor(deps, input.businessId);
+      const facts = await loadAutopilotFacts(db, business, now, { unrecordedFailures: input.unrecordedFailures, run: input.run ?? null, entryPlanOpen });
       const decision = decideAutopilot(facts);
       const runDecision = decideRun(facts);
       const run = runDecision ? { decision: runDecision, waitMs: runDecision.action === "wait" ? Math.max(1_000, Math.min(CONTINUE_RUN_LIMITS.pollMs, runDecision.until !== null ? runDecision.until - now.getTime() : CONTINUE_RUN_LIMITS.pollMs)) : 0 } : null;
@@ -74,7 +77,7 @@ export function createAutopilotActivities(deps: OrchestratorDeps) {
             type: "warning",
             from_agent_id: chief.id,
             subject: "Autopilot paused: nothing got done",
-            body_md: `${note}\n\nAutopilot starts no more cycles until you turn it back on in Settings › What the team can do. Look at the last cycle's tasks for what is stuck; a blocked task, a missing connection or an empty plan are the usual causes.`,
+            body_md: `${note}\n\nAutopilot starts no more rounds of work until you turn it back on in Settings › What the team can do. Look at the last round of work's tasks for what is stuck; a blocked task, a missing connection or an empty plan are the usual causes.`,
             status_strip: [],
             exhibit: { kind: "none", spec_ref: null },
             decision: null,
@@ -121,12 +124,12 @@ export function createAutopilotActivities(deps: OrchestratorDeps) {
       if (daily && max !== null) {
         const chief = await repos.agents.chiefOfStaff(db, input.businessId);
         if (chief) {
-          const what = input.reason === "daily_cycles" ? `today's limit of ${max} cycle${max === 1 ? "" : "s"}` : "today's spend ceiling (Estimate)";
+          const what = input.reason === "daily_cycles" ? `today's limit of ${max} ${max === 1 ? "round" : "rounds"} of work` : "today's spend ceiling (Estimate)";
           const item = await repos.inbox.createItem(db, input.businessId, {
             type: "update",
             from_agent_id: chief.id,
-            subject: input.reason === "daily_cycles" ? "Today's cycle limit is reached" : "Today's spend ceiling is reached (Estimate)",
-            body_md: `The team worked through ${rounds.rounds} cycle${rounds.rounds === 1 ? "" : "s"} after you pressed Continue and stopped at ${what}. No more cycles start on their own today. Press Continue for one more, or raise the limit in Settings › What the team can do.`,
+            subject: input.reason === "daily_cycles" ? "Today's round of work limit is reached" : "Today's spend ceiling is reached (Estimate)",
+            body_md: `The team worked through ${rounds.rounds} ${rounds.rounds === 1 ? "round" : "rounds"} of work after you pressed Continue and stopped at ${what}. No more rounds of work start on their own today. Press Continue for one more, or raise the limit in Settings › What the team can do.`,
             status_strip: [],
             exhibit: { kind: "none", spec_ref: null },
             decision: null,

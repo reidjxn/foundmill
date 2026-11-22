@@ -468,7 +468,7 @@ export function createMergeActivities(deps: OrchestratorDeps) {
         await postNote(deps, input.businessId, input.agentId, {
           type: "update",
           subject: notLiveYetSubject(agent.name),
-          body: `**What happened:** ${what} ${input.approvalId ? "You had already said yes to putting it live." : ""}\n\n**What happens next:** the team tries again on the next cycle; nothing is needed from you. The work (“${(task.founderTitle ?? task.title).slice(0, 120)}”) stays saved and waits.`.replace(/ {2,}/g, " "),
+          body: `**What happened:** ${what} ${input.approvalId ? "You had already said yes to putting it live." : ""}\n\n**What happens next:** the team tries again on the next round of work; nothing is needed from you. The work (“${(task.founderTitle ?? task.title).slice(0, 120)}”) stays saved and waits.`.replace(/ {2,}/g, " "),
           blocksContinue: false,
         });
       } catch (err) {

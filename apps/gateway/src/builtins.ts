@@ -10,10 +10,12 @@
  */
 import { bookUsage, loadByokApiKey, repos, type Db } from "@foundmill/db";
 import { createBuiltinConnectors, quarantinedReaderRequest, type Connector, type LiveConnectorOptions, type QuarantinedReader } from "@foundmill/connectors";
-import { createModelClient, QuarantinedReaderOutput, type ModelClient, type ModelMode, type UsageSink } from "@foundmill/models";
+import { createModelClient, QuarantinedReaderOutput, usageForLedger, type ModelClient, type ModelMode, type UsageSink } from "@foundmill/models";
 import { AppError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import { createDbPlatformHost, type RepositoryFiles } from "./platform-host";
+import { createCliRunner } from "./cli-runner";
+import { createSkillReader } from "./skill-reader";
 import { safeError, type GatewayLogger } from "./pipeline";
 
 /**
@@ -23,17 +25,18 @@ import { safeError, type GatewayLogger } from "./pipeline";
  * and to whoever's key ran it (`credits` on the platform key, `byok` on the business's own), so credits are charged for
  * what the call cost. The call has already run: a failed write is logged, never thrown.
  */
-export function gatewayUsageSink(db: Db, log: GatewayLogger): UsageSink {
+export function gatewayUsageSink(db: Db, log: GatewayLogger, topUps = false): UsageSink {
   return async (event) => {
     const a = event.attribution;
     if (!a?.businessId) return;
+    const { quantity, tokens } = usageForLedger(event.usage);
     try {
       await bookUsage(db, a.businessId, {
         agentId: a.agentId ?? null,
         sessionId: a.sessionId ?? null,
         kind: "tokens",
         modelKey: event.modelKey,
-        quantity: event.usage.inputTokens + event.usage.outputTokens,
+        quantity,
         unit: "tokens",
         costMinor: Math.max(0, event.cost.costMinorInt),
         // The exact cost (0039): credits are charged this, so a 0.6-cent read is not booked as 1 cent (or 0).
@@ -50,10 +53,11 @@ export function gatewayUsageSink(db: Db, log: GatewayLogger): UsageSink {
           label: event.cost.label,
           pricingAsOf: event.cost.pricingAsOf,
           attempt: event.attempt,
+          tokens,
           ...(event.cost.breakdown.webSearch ? { webSearchFeeMinor: event.cost.breakdown.webSearch } : {}),
           ...(event.aborted ? { aborted: true } : {}),
         },
-      });
+      }, { topUps });
     } catch (e) {
       log.error({ err: safeError(e), route: event.route }, "model usage could not be booked");
     }
@@ -133,5 +137,7 @@ export interface GatewayBuiltinsDeps extends QuarantinedReaderDeps {
 /** The built-in connectors, wired to this gateway's database and model client. */
 export function createGatewayBuiltins(deps: GatewayBuiltinsDeps): Connector[] {
   const searchWeb = deps.live?.searchWeb ?? platformSearchWeb(deps.models);
-  return createBuiltinConnectors({ ...deps.live, platform: createDbPlatformHost({ db: deps.db, log: deps.log, ...(deps.repository ? { repository: deps.repository } : {}) }), quarantinedReader: createQuarantinedReader(deps), ...(searchWeb ? { searchWeb } : {}) });
+  // read_skill comes from its own module (./skill-reader), next to the rest of the platform host.
+  const platform = { ...createDbPlatformHost({ db: deps.db, log: deps.log, ...(deps.repository ? { repository: deps.repository } : {}) }), readSkill: createSkillReader({ db: deps.db, log: deps.log }) };
+  return createBuiltinConnectors({ ...deps.live, platform, cliRunner: createCliRunner({ db: deps.db }), quarantinedReader: createQuarantinedReader(deps), ...(searchWeb ? { searchWeb } : {}) });
 }

@@ -66,6 +66,7 @@ export const inboxItemReads = pgTable(
   },
   (t) => [
     foreignKey({ name: "inbox_item_reads_item_fkey", columns: [t.inboxItemId, t.businessId], foreignColumns: [inboxItems.id, inboxItems.businessId] }).onDelete("cascade"),
+    index("inbox_item_reads_item_business_idx").on(t.inboxItemId, t.businessId),
     unique("inbox_item_reads_item_user_key").on(t.inboxItemId, t.userId),
     index("inbox_item_reads_business_id_idx").on(t.businessId),
     index("inbox_item_reads_user_id_idx").on(t.userId, t.businessId),

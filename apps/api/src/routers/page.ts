@@ -6,6 +6,8 @@
  * - `page.saveDraft`, `page.setSlug`: Product write (the right that edits the vision); audited.
  * - `page.publish`, `page.unpublish`: an owner or an admin with Product write, by their own press (no agent tool calls
  *   these); audited, with `page.published` / `page.unpublished` through the outbox in the same transaction.
+ * - `page.setExplore`: an owner or an admin; the opt-in to the public gallery, audited.
+ * - `publicPage.explore`: anyone; the gallery of pages whose owners opted in (the view `public_explore_projects` only).
  * - `publicPage.indexNowKeyFile`: anyone; the IndexNow key file of a public page whose founders connected IndexNow for it
  *   (`/p/<slug>/<key>.txt`), or null.
  * - `publicPage.bySlug`: anyone, signed in or not; the view `public_project_pages` only; null for an unknown address
@@ -27,7 +29,7 @@ import { FOLLOW_EMAIL_MAX, PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PA
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { z } from "zod";
 import { publicCardById, publicStoryBySlug } from "../services/milestones";
-import { followPage, pageView, siteFollowConsent, publicIndexNowKeyFile, publicPageBySlug, publishPage, savePageDraft, setPageSlug, unpublishPage } from "../services/pages";
+import { followPage, pageView, siteFollowConsent, publicExplore, publicIndexNowKeyFile, publicListedPages, publicPageBySlug, publishPage, savePageDraft, setPageExplore, setPageSlug, unpublishPage } from "../services/pages";
 import { recordPostVisit } from "../services/post-attribution";
 import { publicProcedure, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
 import { publicUpdateCardById } from "../services/update-cards";
@@ -52,11 +54,16 @@ export const pageRouter = router({
   setSlug: write.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2), draft: ContentInput.optional() })).mutation(({ ctx, input }) => setPageSlug(ctx, input)),
   publish: publish.input(z.object({ content: ContentInput })).mutation(({ ctx, input }) => publishPage(ctx, { content: input.content })),
   unpublish: publish.mutation(({ ctx }) => unpublishPage(ctx)),
+  setExplore: publish.input(z.object({ listed: z.boolean() })).mutation(({ ctx, input }) => setPageExplore(ctx, input)),
 });
 
 export const publicPageRouter = router({
   bySlug: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => publicPageBySlug(ctx, input.slug)),
   storyBySlug: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => publicStoryBySlug(ctx, input.slug)),
+  /** Listed pages for the sitemap (WP-08 T7): address, last change, story; paged by address. */
+  listed: publicProcedure.input(z.object({ cursor: z.string().max(PAGE_SLUG_MAX).nullish(), limit: z.number().int().min(1).max(5_000).default(5_000) })).query(({ ctx, input }) => publicListedPages(ctx, input)),
+  /** The opt-in gallery (`/explore`, 0149): newest projects whose owners chose to be listed and whose pages are live. */
+  explore: publicProcedure.query(({ ctx }) => publicExplore(ctx)),
   cardById: publicProcedure.input(z.object({ id: z.string().max(80) })).query(({ ctx, input }) => publicCardById(ctx, input.id)),
   indexNowKeyFile: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2), key: z.string().max(128) })).query(({ ctx, input }) => publicIndexNowKeyFile(ctx, input)),
   follow: publicProcedure

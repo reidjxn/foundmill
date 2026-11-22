@@ -429,10 +429,8 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
         ) : null}
         <span className="inline-flex shrink-0 items-center gap-1.5" title="Cost (estimate)">
           <Icon icon={Coins} size={12} className="hidden text-tertiary @xs/foot:inline" />
-          {formatMoney(session.cost)}
-          {/* Every cost carries its Estimate label at every width: the chip where it fits, the word in the smallest tiles. */}
-          <ProvenanceChip kind="estimate" className="hidden @xs/foot:inline-flex" />
-          <ProvenanceChip kind="estimate" appearance="word" className="@xs/foot:hidden" />
+          {/* Every cost is an estimate at every width: the figure carries the style, the word is its tooltip and name. */}
+          <ProvenanceChip kind="estimate">{formatMoney(session.cost)}</ProvenanceChip>
         </span>
         {eta && !over ? (
           <span className="hidden shrink-0 items-center gap-1 @xs/foot:inline-flex" title="Estimated time remaining">

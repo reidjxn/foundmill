@@ -42,7 +42,7 @@ These exist in `apps/api` today and the skill documents their names. Confirm the
 - `team.agents.list`: items carry `presence`, `currentTask.founderTitle`, `currentTask.progress`, `expectedReturnAt` for down agents, and `persona.portraitUrl`.
 - `journey.ribbon`: carries `chapters`, `milestones` (all eight with reached/outlined), `runway` sentence and months, and daily series in minor units with the currency.
 - `journey.get`: carries the staged structure the player needs (`stages`, `commentary` per stage, `debrief.agentRatings`, `standoutAgentId`, `leadChannelKey`).
-- `cycle.continueState`: a single discriminated value the Continue pill can render (`idle | blocked(n) | processing(cycle) | customer_update(journeyId) | vacation(until)`).
+- `cycle.continueState`: a single discriminated value the Continue pill can render (`idle | blocked(n) | processing(round of work) | customer_update(journeyId) | vacation(until)`).
 - `agent.profile.get`: carries `nudgePresets` for the agent's type.
 - `distribution.channels.list`: carries `line`, `fit`, `enabled`, `costTrend` (five weeks), `costToWin`.
 
@@ -83,7 +83,8 @@ Where a field is missing, add it to the existing procedure rather than a mobile-
 
 ## 13. Collisions to watch between sessions
 
-- The retention session plans **migration 0075** (`founder_visits`, `founder_signals`) and email columns on `account_preferences`. Main already has `0075_founder_devices` and `account_preferences.notifications` (#75), and the roadmap branch has 0076 and 0077. The retention work must take the next free number after whatever merges first and add its email kinds beside the push kinds in `founder.preferences.notifications`, not as a second preferences shape, so the app keeps one place to read them.
+- Resolved Nov 12: the retention work (branch `claude/brave-allen-52yii5`) takes migrations **0082 and up**, and its email switches live in the same `founder.preferences.notifications()` read as push (an `email` map beside `notifications`), with `founder.email.get|update|recent` for the brief's hour and pausing. The separate email column and `founder_mail` are gone.
+- Originally: the retention session planned **migration 0075** (`founder_visits`, `founder_signals`) and email columns on `account_preferences`. Main already has `0075_founder_devices` and `account_preferences.notifications` (#75), and the roadmap branch has 0076 and 0077. The retention work must take the next free number after whatever merges first and add its email kinds beside the push kinds in `founder.preferences.notifications`, not as a second preferences shape, so the app keeps one place to read them.
 - The roadmap branch edited `docs/mobile` too (its commit "The mobile prompt pack follows the thesis"). This pack (PR #77) already carries the same rules; whichever merges second resolves the conflict by keeping both sets of lines (channel availability, "simulated is never done").
 
 ## 11. Repo hygiene

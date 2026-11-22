@@ -9,7 +9,7 @@
  * The rows are written on the service connection after the team-write check (agent_skills is service-written), as
  * hiring and custom skills are.
  */
-import { SKILL_FILE_MAX_BYTES, SKILL_LIBRARY, SKILL_LIBRARY_CATEGORY_LABELS, getLibrarySkill, getTemplate, getTemplateByAgentType, librarySkillKey, parseSkillFile, suggestFor, type AgentSkillPrompt, type LibrarySkill, type ParsedSkillFile } from "@foundmill/agents";
+import { NO_TOOL_LOOP_PRELOAD_BODIES, SKILL_FILE_MAX_BYTES, SKILL_LIBRARY, SKILL_LIBRARY_CATEGORY_LABELS, attachedSkills, getLibrarySkill, selectSkills, getTemplate, getTemplateByAgentType, librarySkillKey, parseSkillFile, suggestFor, type AgentSkillPrompt, type LibrarySkill, type ParsedSkillFile } from "@foundmill/agents";
 import { BUILTIN_CONNECTOR_FACTORIES, CONNECTOR_FACTORIES, channelAvailabilityFacts, type ChannelAvailabilityFacts, type ConnectorFactory } from "@foundmill/connectors";
 import { attachAddedSkills, loadProductStage, repos, resolveLibrarySkill, resolveSkillFile, type AddedAgentSkill, type Agent, type Executor, type ResolvedSkill } from "@foundmill/db";
 import { NotFoundError, ValidationError } from "@foundmill/shared";
@@ -147,7 +147,7 @@ export function resolveSkillChoice(choice: SkillChoice): ResolvedSkill {
  * one audit entry each.
  */
 export async function attachSkills(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, agent: Pick<Agent, "id" | "name" | "agentType">, skills: readonly ResolvedSkill[]): Promise<AddedAgentSkill[]> {
-  return attachAddedSkills(tx, ctx.businessId, agent, skills, (definition, s) => audit(tx, ctx, { action: "agent.skills.add", target: { kind: "skill_definition", id: definition.id }, details: { agentId: agent.id, skillKey: s.skillKey, source: s.source, fileName: s.fileName, contentHash: s.contentHash } }).then(() => undefined));
+  return attachAddedSkills(tx, ctx.businessId, agent, skills, (definition, s) => audit(tx, ctx, { action: "agent.skills.add", target: { kind: "skill_definition", id: definition.id }, details: { agentId: agent.id, skillKey: s.skillKey, source: s.source, fileName: s.fileName, contentHash: s.contentHash } }).then(() => undefined), "founder");
 }
 
 /** Takes an added skill off an agent (its definition stays as the record) and audits it; 400 when it has none. */
@@ -159,9 +159,13 @@ export async function detachSkill(tx: Executor, ctx: Pick<BusinessContext, "busi
   return added;
 }
 
-/** The skills an agent's prompt carries, in the order they were added (`buildSystemPrompt` `skills`). */
-export function promptSkills(added: readonly Pick<AddedAgentSkill, "name" | "source" | "instructionsMd">[]): AgentSkillPrompt[] {
-  return added.filter((a) => a.instructionsMd.trim()).map((a) => ({ name: a.name, source: a.source, instructionsMd: a.instructionsMd }));
+/**
+ * The skills a conversation reply carries (`buildSystemPrompt` `skills`, WP-06 T4): every added skill in the index, in
+ * the order added. A reply has no tool loop, so up to two bodies are loaded, chosen by the founder's message. Library
+ * skills follow the catalog.
+ */
+export function promptSkills(added: readonly Pick<AddedAgentSkill, "skillKey" | "name" | "source" | "description" | "instructionsMd">[], message: string): AgentSkillPrompt[] {
+  return selectSkills({ skills: attachedSkills([], added), message, maxBodies: NO_TOOL_LOOP_PRELOAD_BODIES });
 }
 
 /** An added skill as the profile lists it (no instructions body beyond its first lines). */
@@ -175,6 +179,8 @@ export function addedSkillView(a: AddedAgentSkill) {
     source: a.source,
     fileName: a.fileName,
     untested: a.tested === null,
+    /** "template": it came with the role (WP-06 T6), shown as "Came with the role"; removable like any other. */
+    addedBy: a.addedBy,
     displayed: a.displayed,
     preview: a.instructionsMd.split("\n").filter((l) => l.trim()).slice(0, 4),
     addedAt: a.addedAt,

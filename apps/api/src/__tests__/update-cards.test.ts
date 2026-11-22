@@ -41,7 +41,7 @@ async function project(name: string, options: { demo?: boolean; publish?: boolea
 }
 
 /** A win as ingest records it: a customer, a touch an agent worked, the payment's event, the conversion and its journey. */
-async function win(businessId: string, opts: { kind?: "payment" | "signup"; actor?: { kind: "webhook" | "system"; id: string }; simulated?: boolean; firstPayment?: boolean; at?: string } = {}) {
+async function win(businessId: string, opts: { kind?: "payment" | "signup"; actor?: { kind: "webhook" | "system"; id: string }; simulated?: boolean; platformSigned?: boolean; firstPayment?: boolean; at?: string } = {}) {
   const kind = opts.kind ?? "payment";
   const at = new Date(opts.at ?? "2026-11-12T15:30:00Z");
   const entity = await repos.entities.create(hz.db, businessId, { kind: "person", displayName: CUSTOMER, identifiers: { email: CUSTOMER_EMAIL } });
@@ -51,7 +51,7 @@ async function win(businessId: string, opts: { kind?: "payment" | "signup"; acto
     type: kind === "payment" ? "payment.received" : "customer.converted",
     actor: opts.actor ?? { kind: "webhook", id: "stripe" },
     entityIds: [entity.id],
-    payload: { entityId: entity.id, amount: { amountMinor: 4_900, currency: "USD" }, provider: "stripe", externalId: `in_${n}_${Math.random().toString(36).slice(2)}`, firstPayment: opts.firstPayment ?? true, ...(opts.simulated ? { simulated: true } : {}) },
+    payload: { entityId: entity.id, amount: { amountMinor: 4_900, currency: "USD" }, provider: "stripe", externalId: `in_${n}_${Math.random().toString(36).slice(2)}`, firstPayment: opts.firstPayment ?? true, ...(opts.simulated ? { simulated: true } : {}), ...(opts.platformSigned ? { platformSigned: true } : {}) },
     occurredAt: at,
   } as never);
   const conversion = await repos.journeys.recordConversion(hz.db, businessId, { entityId: entity.id, kind, amountMinor: 4_900, occurredAt: at, sourceEventId: event.id, firstPayment: opts.firstPayment ?? true });
@@ -85,11 +85,24 @@ describe("sharing a Customer Update", () => {
     const everything = JSON.stringify(seen);
     for (const hidden of [CUSTOMER, "Marguerite", CUSTOMER_EMAIL, "4900", "49.00", w.journeyId, w.conversionId, w.entityId, w.agentId, b.id, b.ownerId]) expect(everything, hidden).not.toContain(hidden);
     // No count of any kind: the public card has no number but its date.
-    expect(Object.keys(seen.card).sort()).toEqual(["headline", "id", "leadChannelKey", "note", "occurredOn", "standoutAgent", "url"]);
+    expect(Object.keys(seen.card).sort()).toEqual(["headline", "id", "leadChannelKey", "note", "occurredOn", "standoutAgent", "url", "verified"]);
 
     expect(await cardEvents(b.id)).toEqual([{ type: "customer_update.shared", payload: { cardId: card.id, journeyId: w.journeyId, slug: b.slug, url: card.url, hasNote: true } }]);
     const audits = await repos.audit.list(hz.db, b.id, { action: "customer_update.shared" } as never);
     expect(JSON.stringify(audits)).not.toContain("Thank you");
+  });
+
+  it("only a payment signed with Foundmill's own secret (Sign in with Stripe) is verified; a pasted-key payment is shared as recorded, not verified (founder, Nov 22, 2026)", async () => {
+    const b = await project("Verified");
+    const connect = await win(b.id, { platformSigned: true });
+    const pasted = await win(b.id, { at: "2026-11-13T15:30:00Z" });
+    expect((await b.owner.journey.updateCard({ businessId: b.id, journeyId: connect.journeyId })).facts?.verified).toBe(true);
+    expect((await b.owner.journey.updateCard({ businessId: b.id, journeyId: pasted.journeyId })).facts?.verified).toBe(false);
+    const a = (await b.owner.journey.shareUpdate({ businessId: b.id, journeyId: connect.journeyId })).card!;
+    const c = (await b.owner.journey.shareUpdate({ businessId: b.id, journeyId: pasted.journeyId })).card!;
+    expect((await pub(a.id))!.card.verified).toBe(true);
+    expect((await pub(c.id))!.card.verified).toBe(false);
+    expect(c.facts.verified).toBe(false);
   });
 
   it("each Customer Update needs its own press, and pressing twice changes nothing twice", async () => {

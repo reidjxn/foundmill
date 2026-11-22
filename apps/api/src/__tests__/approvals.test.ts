@@ -165,7 +165,7 @@ describe("deciding an approval's Inbox item", () => {
 const waitSignal = (approvalId: string, outcome: "approved" | "rejected") => [{ workflowId: `approval:${approvalId}`, signal: "decision", args: [expect.objectContaining({ approvalId, outcome })] }];
 
 describe("an answer that comes after the session ended", () => {
-  it("Approve makes the task ready and starts a cycle on an idle business; no session is signalled, only the approval's own wait", async () => {
+  it("Approve makes the task ready and starts a round of work on an idle business; no session is signalled, only the approval's own wait", async () => {
     const g = await gatedCall({ sessionEnded: true, title: "Index the usage events" });
     await answerOtherBlockingNotes(g.itemId);
     const result = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.approve });
@@ -176,10 +176,10 @@ describe("an answer that comes after the session ended", () => {
     temporalStarted.push({ workflowId: temporal.starts[0]!.workflowId });
     expect(temporal.starts[0]).toMatchObject({ type: "businessCycle", workflowId: expect.stringMatching(new RegExp(`^cycle:${hz.A.businessId}:\\d+$`)), args: [expect.objectContaining({ businessId: hz.A.businessId, trigger: "wake" })] });
     expect(result.approval).toMatchObject({ sessionWaiting: false, task: { id: g.taskId, status: "ready" }, cycle: { started: true, workflowId: temporal.starts[0]!.workflowId, reason: null } });
-    expect(result.approval?.summary).toBe(`You approved ${agentName}'s request to run GitHub › run a change to the data layout. “Index the usage events” runs again on the next cycle.`);
+    expect(result.approval?.summary).toBe(`You approved ${agentName}'s request to run GitHub › run a change to the data layout. “Index the usage events” runs again on the next round of work.`);
   });
 
-  it("no cycle starts over a hard stop (credits used up), or while the Chief of Staff runs the vacation; the task is ready for the next one", async () => {
+  it("no round of work starts over a hard stop (credits used up), or while the Chief of Staff runs the vacation; the task is ready for the next one", async () => {
     await answerOtherBlockingNotes("");
     // The cycle the test before started is over: the workflow of that press reports it finished.
     for (const start of temporalStarted) await repos.events.write(hz.db, hz.A.businessId, { type: "cycle.completed", actor: { kind: "system", id: "orchestrator" }, payload: { cycleId: start.workflowId, cycleNumber: Number(start.workflowId.split(":").at(-1)), workflowId: start.workflowId, outcome: "time_box", tasksStarted: 0 } });
@@ -219,7 +219,7 @@ describe("an answer that comes after the session ended", () => {
     }
   });
 
-  it("a task already running again in another session is left to it: no block, no note, no cycle", async () => {
+  it("a task already running again in another session is left to it: no block, no note, no round of work", async () => {
     const g = await gatedCall({ sessionEnded: true, title: "Ship the export button" });
     // Started again by hand before the founder answered the first session's request.
     await repos.tasks.setStatus(hz.db, hz.A.businessId, g.taskId, "running", { force: true });

@@ -50,7 +50,7 @@ export async function seedE2eProject(ctx: SeedCtx): Promise<{ businessId: string
     type: "payment.received",
     actor: { kind: "webhook", id: "stripe" },
     entityIds: [customer.id],
-    payload: { entityId: customer.id, amount: { amountMinor: E2E_PROJECT_CUSTOMER.amountMinor, currency: "USD" }, provider: "stripe", externalId: "in_e2e_harbor_bikes_1", firstPayment: true },
+    payload: { entityId: customer.id, amount: { amountMinor: E2E_PROJECT_CUSTOMER.amountMinor, currency: "USD" }, provider: "stripe", externalId: "in_e2e_harbor_bikes_1", firstPayment: true, platformSigned: true },
     occurredAt: at,
     idempotencyKey: "e2e-project:payment:1",
   });

@@ -100,13 +100,6 @@ export const TERMS = {
     long: "A way of saying monthly subscription revenue as a yearly figure. It is a run rate, not money already in the bank.",
     learn: "finance/overview",
   },
-  churn: {
-    id: "churn",
-    word: "Churn",
-    short: "Customers who leave, as a share of the customers you had at the start of the month.",
-    long: "Five customers leaving out of a hundred is 5% monthly churn. Lower is better; it is the leak that growth has to outrun.",
-    learn: "finance/overview",
-  },
   gross_margin: {
     id: "gross_margin",
     word: "Gross margin",
@@ -456,8 +449,8 @@ export const TERMS = {
   autopilot: {
     id: "autopilot",
     word: "Autopilot",
-    short: "The business starts its own cycles on a schedule instead of waiting for you to press Continue.",
-    long: "Set in Settings › What the team can do with a cadence and daily limits. It pauses itself when credits run out, when agents are stopped or after a few empty cycles, and it waits while a note holds Continue.",
+    short: "The business starts its own rounds of work on a schedule instead of waiting for you to press Continue.",
+    long: "Set in Settings › What the team can do with a cadence and daily limits. It pauses itself when credits run out, when agents are stopped or after a few empty rounds of work, and it waits while a note holds Continue.",
     learn: "settings/mode",
   },
   vacation: {
@@ -472,13 +465,6 @@ export const TERMS = {
     short: "A password-like code that lets this product use an AI provider's models on your own account.",
     long: "Add one in Settings › Keys to pay the provider directly instead of using credits. It is stored encrypted and never shown again after you save it.",
     learn: "settings/keys",
-  },
-  integration: {
-    id: "integration",
-    word: "Integration",
-    short: "A connection to an outside service such as GitHub, Stripe or a bank.",
-    long: "Set up in Settings › Integrations. Each one has a practice version so the whole product can run without real accounts, and a real one that asks you to sign in.",
-    learn: "settings/integrations",
   },
   archetype: {
     id: "archetype",
@@ -507,7 +493,21 @@ export const TERMS = {
     id: "credits",
     word: "Credits",
     short: "Prepaid balance that pays for the team's AI usage, in US dollars.",
-    long: "Every agent session draws down credits by the tokens it used. When they run out the team stops until you top up or add your own API key.",
+    long: "Every agent session draws down credits by the tokens it used. When the month's budget is used the team finishes the task it is on and rests until the budget resets, you top up or you add your own API key.",
+    learn: "settings/billing",
+  },
+  team_budget: {
+    id: "team_budget",
+    word: "Team budget",
+    short: "What your team can spend on its work this month, in US dollars.",
+    long: "Your plan includes a team budget every month, and credits you buy add to it. Billing shows it first as the outcomes it is enough for at your current pace, an Estimate, with the dollar balance beneath.",
+    learn: "settings/billing",
+  },
+  resting: {
+    id: "resting",
+    word: "Resting",
+    short: "A team that has used the month's budget, until the date shown.",
+    long: "Paused is a choice. Resting is a team out of budget until the date shown. Nothing is stopped part-way: the task that was running finishes, and the team picks up again when the budget resets, after a top-up or on your own key.",
     learn: "settings/billing",
   },
 
@@ -515,7 +515,7 @@ export const TERMS = {
   chief_of_staff: {
     id: "chief_of_staff",
     word: "Chief of Staff",
-    short: "The agent that plans each cycle, hands work to the department leads and turns your replies into plans.",
+    short: "The agent that plans each round of work, hands work to the department leads and turns your replies into plans.",
     long: "It never spends, signs or acts on a hard gate; those come to you. On vacation it decides inside the authority you gave it and writes down why.",
     learn: "team/agents",
   },
@@ -614,8 +614,8 @@ export const TERMS = {
   // ---- The loop, the journey and provenance --------------------------------------------------------------------
   cycle: {
     id: "cycle",
-    word: "Cycle",
-    short: "One round of work: the team works for a while, then reports back in the Inbox.",
+    word: "Round of work",
+    short: "A stretch where the team works for a while, then reports back in the Inbox.",
     long: "Press Continue to run one. Each agent gets a task and a time limit; what they finished, what they need from you and what went wrong come back as notes.",
     learn: "home",
   },
@@ -640,13 +640,6 @@ export const TERMS = {
     long: "Brief is one line for a sign-up; standard adds who was involved; featured, for a payment, tells the whole story with a standout agent. The level follows the kind of win.",
     learn: "inbox",
   },
-  runway_horizon: {
-    id: "runway_horizon",
-    word: "Runway horizon",
-    short: "The date your cash runs out at today's net burn, drawn on the Journey; amber under 9 months, red under 6.",
-    long: "Today plus the runway in months. It is an Estimate until a bank is connected, and it moves every time spending or revenue changes.",
-    learn: "journey",
-  },
   estimate: {
     id: "estimate",
     word: "Estimate",
@@ -659,6 +652,110 @@ export const TERMS = {
     short: "A projection of what could happen, not a measurement.",
     long: "Built from today's figures and a set of assumptions you can change. The cone on the Journey widens the further out it looks because the uncertainty grows.",
     learn: "finance/runway",
+  },
+
+  // ---- The first words a first-timer meets on Today and Needs you (WP-10 T4) ------------------------------------
+  goal: {
+    id: "goal",
+    word: "Goal",
+    short: "The one outcome you are working toward right now.",
+    long: "Your team plans its work around it. You can change it at any time, and Today shows how far along it is.",
+  },
+  round_of_work: {
+    id: "round_of_work",
+    word: "Round of work",
+    short: "One stretch of work your team does after you press Continue, ending with notes for you.",
+    long: "Each agent takes a task and works until it is done or its time is up. What they finished, what they need from you and what went wrong come back as notes in Needs you.",
+    learn: "inbox",
+  },
+  note: {
+    id: "note",
+    word: "Note",
+    short: "A message from your team: what they finished, what they need, or something to decide.",
+    long: "Notes arrive in Needs you. Open one to read it, and answer if it asks you something.",
+    learn: "inbox",
+  },
+  needs_you: {
+    id: "needs_you",
+    word: "Needs you",
+    short: "The few things only you can decide, while your team keeps working on everything else.",
+    long: "A note lands here when your team cannot go on without your answer, or wants your yes before it spends money or contacts someone outside. Everything else carries on without you.",
+    learn: "inbox",
+  },
+  continue: {
+    id: "continue",
+    word: "Continue",
+    short: "The button that starts the next round of work for your team.",
+    long: "Press it when you are ready for more. It runs one round, then stops and waits for you.",
+  },
+  public_page: {
+    id: "public_page",
+    word: "Public page",
+    short: "The one page anyone can open to see what your project is, at its own address.",
+    long: "Foundmill hosts it for free. Nothing is public until you publish it, and you can take it down at any time.",
+    learn: "product/public-page",
+  },
+  follower: {
+    id: "follower",
+    word: "Follower",
+    short: "Someone who asked to hear about your project and gets your updates.",
+    long: "They signed up on your public page and agreed to be contacted. They are not customers yet.",
+    learn: "crm",
+  },
+  project: {
+    id: "project",
+    word: "Project",
+    short: "Your business before its first sale; after that Foundmill calls it a business.",
+    long: "While you build it there is no pressure to be a company. The name changes once the first sale happens.",
+  },
+  cofounder: {
+    id: "cofounder",
+    word: "Cofounder",
+    short: "A person who builds the project with you and has an equal say.",
+    long: "Cofounders share the project's credits, and there is no limit on how many you invite. You can build alone, and invite one only if you want to.",
+    learn: "settings/members",
+  },
+  collaborator: {
+    id: "collaborator",
+    word: "Collaborator",
+    short: "Someone trying out the project or helping with it, with limited access.",
+    long: "A collaborator sees only what you let them open. You can make them a cofounder later.",
+    learn: "settings/members",
+  },
+  spend_line: {
+    id: "spend_line",
+    word: "Spend line",
+    short: "The amount your team may spend on one action without asking you first.",
+    long: "Anything above it waits in Needs you for your go-ahead. You set it in Settings, under what the team can do.",
+    learn: "settings/mode",
+  },
+  go_ahead: {
+    id: "go_ahead",
+    word: "Go-ahead",
+    short: "Your yes to one action that spends money or contacts someone outside; nothing like that runs without it.",
+    long: "You give it in Needs you, one action at a time. Some things, like moving money or signing for you, are never open to your team at all.",
+    learn: "inbox",
+  },
+  decision: {
+    id: "decision",
+    word: "Decision",
+    short: "A choice your team cannot make for you, with its options, their cost and whether each can be undone.",
+    long: "Each option says what it does, what it costs (an Estimate) and whether you can undo it. Your team suggests one, and you choose.",
+    learn: "inbox",
+  },
+  builder_view: {
+    id: "builder_view",
+    word: "Builder view",
+    short: "A switch that shows every tab and the engine's own numbers, for when you want the detail.",
+    long: "With it off you see only the surfaces your project needs now. Nothing is removed, and turning it on shows all of it.",
+    learn: "settings/preferences",
+  },
+  ai_usage: {
+    id: "ai_usage",
+    word: "AI usage",
+    short: "The credits your team uses each time an agent works.",
+    long: "A larger model or a longer task uses more. Settings › Billing shows what was used and what is left.",
+    learn: "settings/billing",
   },
 
   // ---- Legal ---------------------------------------------------------------------------------------------------
@@ -723,7 +820,6 @@ export const DEFINE_TIER_IDS = [
   "ledger",
   "mrr",
   "arr",
-  "churn",
   "gross_margin",
   "payback",
   "cap_table",
@@ -767,14 +863,17 @@ export const DEFINE_TIER_IDS = [
   // AI usage.
   "tokens",
   "credits",
+  "team_budget",
+  "resting",
   // Team.
   "chief_of_staff",
   "potential",
   "playbook",
   // The loop and provenance.
   "cycle",
+  // The founder's word for a cycle (main's plain-language test holds it in the define tier).
+  "round_of_work",
   "chapter",
-  "runway_horizon",
   "estimate",
   "forecast",
   // Legal.
@@ -823,8 +922,6 @@ export const PLAIN_TIER_IDS = [
   "autopilot",
   // Away from work, the everyday meaning; the top bar says what the team may do meanwhile.
   "vacation",
-  // A connection to another service; Settings › Integrations lists them with a line each.
-  "integration",
   // "The AI an agent runs on" is how people already say it; the model picker shows sizes and costs beside each.
   "model",
   // Ordinary words for a team: who reports to whom, how good someone is, how they have been doing lately.
@@ -846,6 +943,22 @@ export const PLAIN_TIER_IDS = [
   "customer_update",
   // A form or report sent to a government office by a date, the everyday meaning ("a tax filing").
   "filing",
+  // The first words on Today and Needs you (WP-10 T4): ordinary words, defined on hover where they first appear, so
+  // the linter does not ask for them again on every screen.
+  "goal",
+  "note",
+  "needs_you",
+  "continue",
+  "public_page",
+  "follower",
+  "project",
+  "cofounder",
+  "collaborator",
+  "spend_line",
+  "go_ahead",
+  "decision",
+  "builder_view",
+  "ai_usage",
 ] as const satisfies readonly TermId[];
 
 const DEFINE_TIER = new Set<string>(DEFINE_TIER_IDS);

@@ -135,10 +135,10 @@ test.describe("settings, plain words", () => {
     const screen = await openSettings(page, "billing");
     await expect(screen.locator("[data-tier]").first()).toBeVisible({ timeout: LONG });
     await expect(screen).not.toContainText(/\b1 (businesses|seats|agents)\b/);
-    // No business limit on any plan for now (founder, 2026-10-16); the included credits still cover one business.
-    await expect(screen.locator("[data-tier=free]")).toContainText("Unlimited businesses");
-    await expect(screen.locator("[data-tier=free]")).toContainText("for 1 business");
-    await expect(screen.locator("[data-tier=free]")).toContainText("$5.00 of model credits a month");
+    // A plan limits projects, never people (WP-14 T14): Try holds 1, with $5.00 of credits a month.
+    await expect(screen.locator("[data-tier=free]")).toContainText("1 project");
+    await expect(screen.locator("[data-tier=free]")).toContainText("As many people as you like");
+    await expect(screen.locator("[data-tier=free]")).toContainText("$5.00 of credits a month");
     // Northwind keeps its books in pounds, but credits and metered model costs are US dollars, never relabeled.
     await expect(screen.getByTestId("credits-balance")).toContainText("$");
     await expect(screen.getByTestId("spent-this-month")).toContainText("$");
@@ -165,6 +165,17 @@ test.describe("settings, plain words", () => {
     const anthropic = list.locator('[data-connector="anthropic"]');
     await expect(anthropic.getByRole("button", { name: /Disconnect|^Connect$/ })).toHaveCount(0);
     await expect(anthropic.getByTestId("manage-in-keys")).toHaveAttribute("href", /\/settings\/keys$/);
+  });
+
+  test("Integrations: Stripe has its own box above the other connectors, and appears once (founder, Nov 18, 2026)", async ({ page }) => {
+    const screen = await openSettings(page, "integrations");
+    const box = screen.getByTestId("stripe-payments");
+    await expect(box).toBeVisible({ timeout: LONG });
+    await expect(box).toContainText("Accept payments with Stripe");
+    await expect(box.locator('[data-connector="stripe"]')).toHaveCount(1);
+    await expect(screen.getByTestId("connector-list").locator('[data-connector="stripe"]')).toHaveCount(0);
+    const [boxTop, listTop] = await Promise.all([box.boundingBox(), screen.getByTestId("connector-list").boundingBox()]);
+    expect(boxTop!.y).toBeLessThan(listTop!.y);
   });
 
   test("Integrations: a live API-key connector asks for the founder's own key (masked) and connects with it", async ({ page }) => {
@@ -205,6 +216,34 @@ test.describe("settings, plain words", () => {
     expect(sent).toMatchObject({ connectorKey: "sendgrid", input: { apiKey: "SG.e2e-founder-key" } });
   });
 
+  test("Integrations: a founder lets the team read their Gmail for context; the inbox waits for Google's permission (founder, Nov 19, 2026)", async ({ page }) => {
+    // The list is replayed with Gmail connected on drafts only, as after a sign-in without gmail.readonly.
+    await page.route(/\/trpc\/[^?]*integrations\.list/, async (route) => {
+      const response = await route.fetch();
+      const procedures = decodeURIComponent(new URL(route.request().url()).pathname.split("/trpc/")[1] ?? "").split(",");
+      const body = (await response.json()) as { result?: { data?: { json?: { catalogue?: { key: string; integration: unknown }[] } } } }[];
+      const list = body[procedures.indexOf("integrations.list")]?.result?.data?.json;
+      for (const c of list?.catalogue ?? []) if (c.key === "gmail") c.integration = { id: "00000000-0000-4000-8000-0000000000e1", connectorKey: "gmail", status: "connected", scopes: ["https://www.googleapis.com/auth/gmail.compose"], settings: {}, accountLabel: "founder@example.com", lastError: null, lastHealthAt: null };
+      await route.fulfill({ response, json: body });
+    });
+    let sent: Record<string, unknown> | null = null;
+    await page.route(/\/trpc\/[^?]*integrations\.setContextReads/, async (route) => {
+      const body = JSON.parse(route.request().postData() ?? "{}") as Record<string, { json?: Record<string, unknown> }>;
+      sent = Object.values(body)[0]?.json ?? null;
+      await route.abort();
+    });
+    const screen = await openSettings(page, "integrations");
+    const panel = screen.getByTestId("google-context");
+    await expect(panel).toBeVisible({ timeout: LONG });
+    await expect(panel).toContainText("sending mail and inviting people always ask you first");
+    await expect(panel).toContainText("Your inbox is read once Google grants inbox access.");
+    await expect(async () => {
+      await panel.getByRole("checkbox", { name: /Let the team read your Gmail/ }).click();
+      expect(sent).not.toBeNull();
+    }).toPass({ timeout: LONG });
+    expect(sent).toMatchObject({ connectorKey: "gmail", on: true });
+  });
+
   test("Integrations: back from a vendor's consent page, the founder finishes or is told why nothing connected (#225)", async ({ page }) => {
     // The vendor's redirect lands on /integrations/oauth/callback, which sends the founder to the business the signed
     // state names (the api checks the signature when the founder finishes; nothing is connected on the way).
@@ -219,10 +258,19 @@ test.describe("settings, plain words", () => {
     await expect(screen.getByTestId("oauth-finish")).toHaveCount(0);
     await expect(page).not.toHaveURL(/oauth_/);
 
-    // With a code and the state, one button finishes it (not pressed here: this spec saves nothing).
+    // With a code and the state, it finishes by itself with no press (founder, Nov 18, 2026). The request is caught
+    // here, so this spec saves nothing; the address loses the code either way.
+    let sent: Record<string, unknown> | null = null;
+    await page.route(/\/trpc\/[^?]*integrations\.connect/, async (route) => {
+      // The call can ride in a batch: take the entry for integrations.connect by its place in the path.
+      const procedures = decodeURIComponent(new URL(route.request().url()).pathname.split("/trpc/")[1] ?? "").split(",");
+      const body = JSON.parse(route.request().postData() ?? "{}") as Record<string, { json?: Record<string, unknown> }>;
+      sent = body[String(procedures.indexOf("integrations.connect"))]?.json ?? null;
+      await route.abort();
+    });
     await page.goto(`${B}/settings/integrations?oauth_connector=gmail&oauth_code=4%2F0Adeu5&oauth_state=${encodeURIComponent(state)}`);
-    await settled(page);
-    await expect(settingsScreen(page).getByTestId("oauth-finish").getByRole("button", { name: "Connect Gmail" })).toBeVisible({ timeout: LONG });
+    await expect.poll(() => sent, { timeout: LONG }).toMatchObject({ connectorKey: "gmail", input: { code: "4/0Adeu5", state } });
+    await expect(page).not.toHaveURL(/oauth_/, { timeout: LONG });
   });
 
   test("Your words and Departments: the glossary tab is called Your words, no retired default words, modules named in words", async ({ page }) => {

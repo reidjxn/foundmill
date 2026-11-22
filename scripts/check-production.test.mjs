@@ -84,3 +84,13 @@ test("sites-headers is skipped without --sites, and checks the header set and th
   assert.equal(bad.results[0].status, "differs");
   assert.equal(bad.exitCode, 1);
 });
+
+test("landing-robots: hidden accepts a 404 or a 200 that disallows everything", async () => {
+  const row = { area: "Landing indexing", expected: "`noindex` and robots", state: "", check: "landing-robots" };
+  const page = { status: 200, headers: new Map(), text: async () => '<meta name="robots" content="noindex, nofollow"/>' };
+  const robots = (status, body) => ({ status, headers: new Map(), text: async () => body });
+  const run = async (answer) => (await runChecks([row], { fetch: async (url) => (url.endsWith("/robots.txt") ? answer : page) })).results[0].status;
+  assert.equal(await run(robots(404, "")), "ok");
+  assert.equal(await run(robots(200, "User-Agent: *\nDisallow: /\n")), "ok");
+  assert.notEqual(await run(robots(200, "User-Agent: *\nAllow: /\nDisallow: /api/\n")), "ok");
+});

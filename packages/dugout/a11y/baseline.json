@@ -89,12 +89,10 @@
       "landmark-unique"
     ],
     "shell-autopilotchip--as-button": [
-      "nested-interactive",
-      "target-size"
+      "nested-interactive"
     ],
     "shell-autopilotchip--with-guide": [
-      "nested-interactive",
-      "target-size"
+      "nested-interactive"
     ],
     "shell-chips-and-breadcrumbs--trail": [
       "landmark-unique"

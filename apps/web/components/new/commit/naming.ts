@@ -274,17 +274,25 @@ export const BUSINESS_MODE_CARDS: ModeCard<BusinessMode>[] = [
 ];
 
 /**
- * Default spend line per business mode, in minor units of the founder's currency (labeled an estimate in the UI): the
- * suggestion Settings › What the team can do makes too (`recommendedSpendLineMinor` in @foundmill/shared).
+ * The spend line each business mode suggests, in minor units of the founder's currency: the suggestion Settings › What
+ * the team can do makes (`recommendedSpendLineMinor` in @foundmill/shared). Commit no longer starts on it
+ * (`defaultSpendCapMinor`).
  */
 export const DEFAULT_SPEND_CAP_MINOR = Object.fromEntries(BUSINESS_MODES.map((m) => [m, recommendedSpendLineMinor(m, LIMITS.approvalThresholdMinorDefault)])) as Record<BusinessMode, number>;
 
 /**
- * The spend line Commit starts with: the mode's default, or 0 for a founder whose profile names no budget, so every
- * spend asks first in every mode (WP-04 T3; founder, 2026-11-16 D4). 0 is "ask above nothing"; empty is no limit.
+ * The spend cap for each action that Commit starts on: 0, so every spending action asks the founder first, whatever the
+ * amount (founder, 2026-11-22; it was 5.00 from WP-14 T11). The founder raises it on Commit (More options) and later in
+ * Settings › What the team can do.
  */
-export function defaultSpendCapMinor(mode: BusinessMode, founder: { hasBudget: boolean }): number {
-  return founder.hasBudget ? DEFAULT_SPEND_CAP_MINOR[mode] : 0;
+export const COMMIT_SPEND_CAP_MINOR = 0;
+
+/**
+ * The spend cap Commit selects for a mode: 0 in every mode, for every founder. 0 is "ask above nothing"; empty is no
+ * limit.
+ */
+export function defaultSpendCapMinor(mode: BusinessMode): number {
+  return Math.min(DEFAULT_SPEND_CAP_MINOR[mode], COMMIT_SPEND_CAP_MINOR);
 }
 
 export interface ArchetypeCard {
@@ -320,8 +328,9 @@ export interface CommitForm {
   spendCap: string;
   currency: string;
   /**
-   * "Overnight shift" (retention plan, founder 2026-11-11: on by default with a small cap): Autopilot with the daily
-   * cadence at about 2 AM in the founder's time zone, one round of work a night. Settings › What the team can do changes it.
+   * "Overnight shift": Autopilot with the daily cadence at about 2 AM in the founder's time zone, one round of work a
+   * night. Off when Commit opens (founder's answer A4, 2026-11-17; it was on by default from 2026-11-11). The founder
+   * turns it on here or later in Settings › What the team can do. A project that already runs is never changed by this.
    */
   autopilot: boolean;
   /** "Anthropomorphic agents": the team shows human first names and AI-generated faces. Starts as the founder's account preference. */
@@ -330,7 +339,7 @@ export interface CommitForm {
   agentStyle: AgentStyle;
 }
 
-export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string, anthropomorphicAgents = false, agentStyle: AgentStyle = DEFAULT_AGENT_STYLE, founder: { hasBudget: boolean } = { hasBudget: true }): CommitForm {
+export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string, anthropomorphicAgents = false, agentStyle: AgentStyle = DEFAULT_AGENT_STYLE): CommitForm {
   return {
     name: idea.title.replace(VARIANT_SUFFIX_RE, "").trim(),
     kit,
@@ -339,9 +348,9 @@ export function initialCommitForm(idea: { title: string; archetype: Archetype | 
     adult: false,
     archetype: idea.archetype,
     businessMode: "assisted",
-    spendCap: String(defaultSpendCapMinor("assisted", founder) / 100),
+    spendCap: String(defaultSpendCapMinor("assisted") / 100),
     currency,
-    autopilot: true,
+    autopilot: false,
     anthropomorphicAgents,
     agentStyle,
   };

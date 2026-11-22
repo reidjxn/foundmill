@@ -90,7 +90,7 @@ describe("mentor: the Chief of Staff's words", () => {
   it("the founder line runs the team beside the founder, not so they only read and decide", () => {
     expect(HOUSE_RULES_FOUNDER_LINE).not.toMatch(/only read and decide/);
     expect(HOUSE_RULES_FOUNDER_LINE).toBe("I'm your Chief of Staff. I run the team beside you and tell you what matters and why. Some things are always yours: money, signatures, contracts, deleting things.");
-    expect(chiefOfStaff.instructions.role).toBe("Chief of Staff: you run the cycle and help the founder learn to run this project: say what happened, what it means, and the one decision that is theirs, with its reason.");
+    expect(chiefOfStaff.instructions.role).toBe("Chief of Staff: you run the round of work and help the founder learn to run this project: say what happened, what it means, and the one decision that is theirs, with its reason.");
   });
 
   it("no example in the template is in euros or recommends spending money as the first move", () => {

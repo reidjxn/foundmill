@@ -27,8 +27,9 @@ import { audit, emit } from "../trpc";
 import { maskFinance } from "./inbox-redaction";
 import { alreadyRunningSummary, orchestratorUnreachableSummary, resumedSummary, startedSummary, type ContinueSummary } from "./continue-summary";
 import { redispatchPlans } from "./plans";
-import { assertAgentsRunning } from "./stop-guard";
+import { AgentsStoppedError, assertAgentsRunning } from "./stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
+import { requireEntryPlanForRun } from "./payments";
 
 export const CYCLE_OUTCOMES = ["completed", "time_box", "waiting", "stopped", "failed"] as const;
 
@@ -87,6 +88,8 @@ export const PAUSE_ACTION = "business.pause_cycle";
 export const RESUME_ACTION = "business.resume_cycle";
 /** Audit actions that record a cycle workflow being started on Temporal: the founder's press, and the first cycle at Commit. */
 export const CONTINUE_ACTION = "business.continue";
+/** A press of Continue that was refused (WP-14 T12): the nightly numbers read it to see whether a first press worked. */
+export const CONTINUE_REFUSED_ACTION = "business.continue_refused";
 export const QUEUE_ACTION = "cycle.queue";
 /** A run started for a cycle already open (a resume, a press while one runs) and a run's end written here. */
 export const RUN_START_ACTION = "cycle.run_start";
@@ -290,6 +293,16 @@ export class ContinueBlockedError extends AppError {
 }
 
 /**
+ * The record of a refused press (WP-14 T12): one audit row, so `repos.metrics` can tell a first press that worked from
+ * one that did not. It never changes the refusal: a failed write is logged and the press is refused as before.
+ */
+async function noteRefusedPress(ctx: BusinessContext, reason: "stopped" | "vacation" | "blocked"): Promise<void> {
+  await ctx
+    .rls((tx) => audit(tx, ctx, { action: CONTINUE_REFUSED_ACTION, target: { kind: "business", id: ctx.businessId }, details: { reason } }))
+    .catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "refused press not recorded"));
+}
+
+/**
  * One press of Continue. Refuses while the team is stopped (Stop all agents, a revoked key, used-up credits: no cycle,
  * and no Chief of Staff plan to pay for, until an owner or admin resumes it), blocked or on vacation; resumes a paused
  * cycle; otherwise starts the next one. A cycle that is already queued or planning answers `already_running` (no second
@@ -300,15 +313,26 @@ export class ContinueBlockedError extends AppError {
  * cycle (none when one is open already). Without Temporal one in-process step runs, as before, and no run starts.
  */
 export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult> {
+  // Paid entry (WP-09 T16): no cycle and no plan to pay for until an owner subscribes; the drafts stay as they are.
+  await requireEntryPlanForRun(ctx.db, ctx.env, ctx.businessId);
   // The stop, the Continue state and the cycle status are read at once (one wave of independent reads; until 2026-10-15
   // the status was read three times, one after another). A stopped team is still refused first.
   const first = cycleStatus(ctx);
-  const [stop, ready] = await Promise.allSettled([assertAgentsRunning(ctx, "the next cycle"), Promise.all([continueStateFor(ctx, first), first])]);
-  if (stop.status === "rejected") throw stop.reason;
+  const [stop, ready] = await Promise.allSettled([assertAgentsRunning(ctx, "the next round of work"), Promise.all([continueStateFor(ctx, first), first])]);
+  if (stop.status === "rejected") {
+    if (stop.reason instanceof AgentsStoppedError) await noteRefusedPress(ctx, "stopped");
+    throw stop.reason;
+  }
   if (ready.status === "rejected") throw ready.reason;
   const [before, read] = ready.value;
-  if (before.kind === "holiday") throw new ContinueBlockedError("The Chief of Staff is running the business while you are away. End the vacation to take over.", { continueState: before });
-  if (before.kind === "blocked") throw new ContinueBlockedError(`${before.count} thing${before.count === 1 ? " needs" : "s need"} you before the team can work: open the Inbox's Needs you tab.`, { continueState: before });
+  if (before.kind === "holiday") {
+    await noteRefusedPress(ctx, "vacation");
+    throw new ContinueBlockedError("The Chief of Staff is running the business while you are away. End the vacation to take over.", { continueState: before });
+  }
+  if (before.kind === "blocked") {
+    await noteRefusedPress(ctx, "blocked");
+    throw new ContinueBlockedError(`${before.count} thing${before.count === 1 ? " needs" : "s need"} you before the team can work: open the Inbox's Needs you tab.`, { continueState: before });
+  }
   // Neither a vacation nor a hard stop comes after this point: the cycle's own state.
   const continueStateAfter = (s: CycleStatus): ContinueState => cycleContinueState(s);
 
@@ -550,7 +574,7 @@ export async function runLocalCycleStep(ctx: BusinessContext, cycleNumber: numbe
     await audit(tx, ctx, {
       action: CONTINUE_ACTION,
       target: { kind: "cycle", id: cycleId },
-      details: { cycleNumber, mode: "local", workflowId, reason, readyTasks: dispatchable.length, inboxItemId: item.id, note: "No orchestrator reachable: one in-process cycle step ran (no agent sessions were started)." },
+      details: { cycleNumber, mode: "local", workflowId, reason, readyTasks: dispatchable.length, inboxItemId: item.id, note: "No orchestrator reachable: one in-process round of work step ran (no agent sessions were started)." },
     });
   });
   return { item, status: await cycleStatus(ctx), cycleId };
@@ -576,7 +600,7 @@ export interface PauseResult {
 export async function pauseCycle(ctx: BusinessContext, status?: CycleStatus): Promise<PauseResult> {
   const s = await reconcileCycle(ctx, status);
   const runEnded = s.run ? (await endRun(ctx, s.run, "paused", { signal: true }), true) : false;
-  if (!s.running) return runEnded ? { paused: false, runEnded, workflow: null, pausedTasks: 0, reason: "no cycle is running; no new cycle starts on its own", status: await cycleStatus(ctx) } : { paused: false, runEnded, workflow: null, pausedTasks: 0, reason: "no cycle is running", status: s };
+  if (!s.running) return runEnded ? { paused: false, runEnded, workflow: null, pausedTasks: 0, reason: "no round of work is running; no new round of work starts on its own", status: await cycleStatus(ctx) } : { paused: false, runEnded, workflow: null, pausedTasks: 0, reason: "no round of work is running", status: s };
   if (s.paused) return { paused: true, runEnded, workflow: null, pausedTasks: 0, reason: "already paused", status: runEnded ? await cycleStatus(ctx) : s };
   const workflow = s.workflowId ? await ctx.temporal.signal(s.workflowId, "pause", { by: ctx.userId, taskIds: s.activeTaskIds }) : null;
   const pausedTaskIds = await ctx.rls(async (tx) => {
@@ -604,10 +628,10 @@ export interface ResumeResult {
  * stopped: the tasks Stop all agents paused wait for the resume of the agents, not of a cycle.
  */
 export async function resumeCycle(ctx: BusinessContext, status?: CycleStatus): Promise<ResumeResult> {
-  await assertAgentsRunning(ctx, "the cycle");
+  await assertAgentsRunning(ctx, "the round of work");
   const s = await reconcileCycle(ctx, status);
-  if (!s.running) return { resumed: false, workflow: null, resumedTasks: 0, reason: "no cycle is running", status: s };
-  if (!s.paused) return { resumed: false, workflow: null, resumedTasks: 0, reason: "the cycle is not paused", status: s };
+  if (!s.running) return { resumed: false, workflow: null, resumedTasks: 0, reason: "no round of work is running", status: s };
+  if (!s.paused) return { resumed: false, workflow: null, resumedTasks: 0, reason: "the round of work is not paused", status: s };
   const workflow = s.workflowId ? await ctx.temporal.signal(s.workflowId, "resume", { by: ctx.userId, taskIds: s.pausedTaskIds }) : null;
   const resumedTasks = await ctx.rls(async (tx) => {
     let n = 0;

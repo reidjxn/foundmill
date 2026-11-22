@@ -8,12 +8,16 @@
  * written `:as_of_end` and bound as a literal timestamp (`boundMetricSql`): the start of the UTC day after `asOf`.
  * Windows are that UTC day, and 7 and 14 days back from it. The retention report's totals come from
  * `presenceRepo.retentionReport`, the existing definition, rather than a second copy in SQL.
+ *
+ * WP-14 T12 adds four measures (`first_session`, `resting`, `customer_updates`). Two of them read events nothing
+ * writes yet (`PENDING_SOURCES`): they count zero, with a null share, until WP-14 T1 and T9 write them.
  */
 import { HOUSE_BUSINESS_ID } from "@foundmill/config";
 import { sql } from "drizzle-orm";
 import { platformMetricDays } from "../schema";
 import { rowsOf, type Executor } from "./_shared";
 import { presenceRepo } from "./presence";
+import { reportsRepo } from "./reports";
 
 const DAY_MS = 86_400_000;
 const HOUSE = `'${HOUSE_BUSINESS_ID}'`;
@@ -32,13 +36,37 @@ export const REAL_OUTCOME_PREDICATE = `(
           or (e.type = 'mail.sent'        and e.payload->>'simulated' = 'false')
           or (e.type = 'page.followed'    and e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-page')
           or (e.type = 'payment.received' and e.actor->>'kind' = 'webhook')
-          or (e.type = 'lead.replied'     and e.actor->>'kind' = 'webhook' and e.payload->>'sentiment' in ('positive','neutral'))))`;
+          or (e.type = 'booking.confirmed' and e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-booking')
+          or (e.type = 'lead.replied'     and e.actor->>'kind' = 'webhook' and e.payload->>'sentiment' in ('positive','neutral'))
+          or (e.type = 'post.published'   and e.payload->>'visited' = 'true' and (e.actor->>'kind' = 'user' or (e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-page')))))`;
 
 /** The first page a person published, per project (the funnel's step and the north star's one-time page). */
 const FIRST_PAGES = `select e.business_id, min(e.occurred_at) as at
       from events e join businesses b on b.id = e.business_id
      where not b.is_demo and e.type = 'page.published' and e.occurred_at < :as_of_end and ${REAL_OUTCOME_PREDICATE}
      group by e.business_id`;
+
+/**
+ * Sources two of WP-14 T12's measures wait for. Until the task named writes the event, its counts are zero and its
+ * shares null. If a task lands the fact under another name, change the name here and nowhere else.
+ */
+export const PENDING_SOURCES = {
+  /** WP-14 T1: the team used the month's budget and rests. One event each time a project starts resting. */
+  resting: "team.resting",
+  /** WP-14 T1 (or the billing code it builds on): credits were added to the project after it rested. */
+  toppedUp: "credits.topped_up",
+  /** WP-14 T14: the owner's plan changed. */
+  planChanged: "plan.changed",
+  /** WP-14 T9: the founder shared one Customer Update as a card; `payload.conversionId` names the update. */
+  customerUpdateShared: "customer_update.shared",
+} as const;
+
+/** The actions a press of Continue leaves in the audit log (apps/api services/cycle.ts); the last one is a refusal. */
+const PRESS_ACTIONS = ["business.continue", "cycle.run_start", "business.resume_cycle", "business.continue_refused"] as const;
+export const CONTINUE_REFUSED_ACTION = "business.continue_refused";
+
+/** Minutes after which the median time from commit to the first plan is the operator's to hear about (WP-14 T12). */
+export const FIRST_PLAN_SLOW_MINUTES = 10;
 
 export interface MetricQuery {
   name: string;
@@ -123,7 +151,8 @@ select (select percentile_cont(0.5) within group (order by extract(epoch from c.
           or (e.type = 'mail.sent'        and e.payload->>'simulated' = 'false')
           or (e.type = 'page.followed'    and e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-page')
           or (e.type = 'payment.received' and e.actor->>'kind' = 'webhook')
-          or (e.type = 'lead.replied'     and e.actor->>'kind' = 'webhook' and e.payload->>'sentiment' in ('positive','neutral')))
+          or (e.type = 'lead.replied'     and e.actor->>'kind' = 'webhook' and e.payload->>'sentiment' in ('positive','neutral'))
+          or (e.type = 'post.published'   and e.payload->>'visited' = 'true' and (e.actor->>'kind' = 'user' or (e.actor->>'kind' = 'system' and e.actor->>'id' = 'public-page'))))
 ), people as (
   select business_id, count(*) as n from memberships
    where source <> 'example' and (expires_at is null or expires_at > :as_of_end) group by 1
@@ -190,6 +219,91 @@ select count(*)::int as projects_with_cycles,
 select coalesce(max(notes), 0)::int as max, percentile_cont(0.5) within group (order by notes) as median from per`,
   },
   {
+    // WP-14 T12: projects committed in the 14 days, and how long each took to its first plan (the first sign-off the
+    // team asked for) and to the first thing a founder approved (a sign-off or an approval, by a person).
+    name: "first_session_times",
+    text: `with fresh as (
+  select b.id, b.committed_at,
+         (select min(s.requested_at) from product_signoffs s where s.business_id = b.id and s.requested_at < :as_of_end) as plan_at,
+         least((select min(s.decided_at) from product_signoffs s
+                 where s.business_id = b.id and s.status = 'approved' and s.decided_by_kind = 'user' and s.decided_at < :as_of_end),
+               (select min(a.resolved_at) from approvals a
+                 where a.business_id = b.id and a.outcome = 'approved' and a.by_kind = 'user' and a.resolved_at < :as_of_end)) as approved_at
+    from businesses b
+   where not b.is_demo and b.committed_at >= :as_of_end - interval '14 days' and b.committed_at < :as_of_end
+)
+select count(*)::int as projects,
+       count(*) filter (where plan_at >= committed_at)::int as with_plan,
+       count(*) filter (where approved_at >= committed_at)::int as with_approval,
+       percentile_cont(0.5) within group (order by extract(epoch from plan_at - committed_at) / 60) filter (where plan_at >= committed_at) as plan_median_min,
+       percentile_cont(0.9) within group (order by extract(epoch from plan_at - committed_at) / 60) filter (where plan_at >= committed_at) as plan_p90_min,
+       percentile_cont(0.5) within group (order by extract(epoch from approved_at - committed_at) / 60) filter (where approved_at >= committed_at) as approval_median_min,
+       percentile_cont(0.9) within group (order by extract(epoch from approved_at - committed_at) / 60) filter (where approved_at >= committed_at) as approval_p90_min
+  from fresh`,
+  },
+  {
+    // WP-14 T12: each founder's first press of Continue on a project they started, when it fell in the 14 days, and
+    // whether it was refused (`business.continue_refused`, written since this task; a press before it left no row
+    // when it was refused, so older founders count from their first press that worked).
+    name: "first_session_continue",
+    text: `with presses as (
+  select l.action, l.created_at, row_number() over (partition by b.created_by order by l.created_at, l.id) as n
+    from audit_log l join businesses b on b.id = l.business_id
+   where not b.is_demo and b.created_by is not null and l.actor_kind = 'user' and l.actor_id = b.created_by
+     and l.action in (${PRESS_ACTIONS.map((a) => `'${a}'`).join(", ")}) and l.created_at < :as_of_end
+)
+select count(*)::int as founders, count(*) filter (where action <> '${CONTINUE_REFUSED_ACTION}')::int as succeeded
+  from presses where n = 1 and created_at >= :as_of_end - interval '14 days'`,
+  },
+  {
+    // WP-14 T12, waiting for T1 (PENDING_SOURCES): projects that started resting 7 to 21 days before the window's end
+    // (so each has had a week to act), by the first thing that followed in that week: credits added, a plan change,
+    // a visit with neither (waiting for the reset), or no visit at all.
+    name: "resting",
+    text: `with rested as (
+  select e.business_id, min(e.occurred_at) as at
+    from events e join businesses b on b.id = e.business_id
+   where ${REAL_OUTSIDE} and e.type = '${PENDING_SOURCES.resting}'
+     and e.occurred_at >= :as_of_end - interval '21 days' and e.occurred_at < :as_of_end - interval '7 days'
+   group by e.business_id
+), nxt as (
+  select r.business_id,
+         (select n.type from events n where n.business_id = r.business_id and n.type in ('${PENDING_SOURCES.toppedUp}', '${PENDING_SOURCES.planChanged}')
+            and n.occurred_at > r.at and n.occurred_at < r.at + interval '7 days' order by n.occurred_at limit 1) as did,
+         exists (select 1 from founder_visit_days v where v.business_id = r.business_id
+                  and v.day > (r.at at time zone 'utc')::date and v.day <= (r.at at time zone 'utc')::date + 7) as visited
+    from rested r
+)
+select (select count(*) from businesses b where ${REAL_OUTSIDE} and b.committed_at < :as_of_end - interval '7 days')::int as projects,
+       count(*)::int as rested,
+       count(*) filter (where did = '${PENDING_SOURCES.toppedUp}')::int as top_up,
+       count(*) filter (where did = '${PENDING_SOURCES.planChanged}')::int as change_plan,
+       count(*) filter (where did is null and visited)::int as wait,
+       count(*) filter (where did is null and not visited)::int as leave
+  from nxt`,
+  },
+  {
+    // WP-14 T12, waiting for T9 (PENDING_SOURCES): real Customer Updates of the 14 days (a customer won, never one
+    // from the Simulate panel) and the shares of them.
+    name: "customer_updates",
+    text: `with updates as (
+  select e.payload->>'conversionId' as conversion_id
+    from events e join businesses b on b.id = e.business_id
+   where ${REAL_OUTSIDE} and e.type = 'customer.converted'
+     and not (e.actor->>'kind' = 'system' and e.actor->>'id' = 'simulate')
+     and not (e.payload ? 'simulated' and e.payload->>'simulated' is distinct from 'false')
+     and e.occurred_at >= :as_of_end - interval '14 days' and e.occurred_at < :as_of_end
+), shares as (
+  select e.payload->>'conversionId' as conversion_id
+    from events e join businesses b on b.id = e.business_id
+   where ${REAL_OUTSIDE} and e.type = '${PENDING_SOURCES.customerUpdateShared}'
+     and e.occurred_at >= :as_of_end - interval '14 days' and e.occurred_at < :as_of_end
+)
+select (select count(*) from updates)::int as updates,
+       (select count(*) from shares)::int as shares,
+       (select count(distinct u.conversion_id) from updates u join shares s on s.conversion_id = u.conversion_id)::int as updates_shared`,
+  },
+  {
     // WP-02 T4's read-only check, as written there (house included, demo out); now() is the snapshot's end.
     name: "honesty_fabricated_left",
     text: `select (select count(*) from entities e join businesses b on b.id = e.business_id join entity_roles r on r.entity_id = e.id
@@ -205,7 +319,7 @@ select coalesce(max(notes), 0)::int as max, percentile_cont(0.5) within group (o
     text: `select count(*)::int as simulated_outcomes_excluded
   from events e join businesses b on b.id = e.business_id
  where ${REAL_OUTSIDE}
-   and e.type in ('page.published', 'mail.sent', 'page.followed', 'payment.received', 'lead.replied')
+   and e.type in ('page.published', 'mail.sent', 'page.followed', 'payment.received', 'lead.replied', 'post.published')
    and e.occurred_at >= date_trunc('week', (:as_of_end - interval '1 day') at time zone 'utc') at time zone 'utc' - interval '11 weeks'
    and e.occurred_at < :as_of_end
    and ((e.actor->>'kind' = 'system' and e.actor->>'id' = 'simulate') or (e.payload ? 'simulated' and e.payload->>'simulated' is distinct from 'false'))`,
@@ -255,10 +369,25 @@ export interface MetricFacts {
     tool_missing_stopped: number;
     notes_day_one: { max: number; median: number | null };
   };
+  /** WP-14 T12, over the 14 days: projects committed in them, and founders whose first press of Continue fell in them. */
+  first_session: {
+    projects: number;
+    to_first_plan: { projects: number; median_min: number | null; p90_min: number | null };
+    to_first_approval: { projects: number; median_min: number | null; p90_min: number | null };
+    first_continue: { founders: number; succeeded: number; share: number | null };
+    /** Set when the median time to the first plan passed FIRST_PLAN_SLOW_MINUTES: the operator's note. */
+    note: string | null;
+  };
+  /** WP-14 T12, zeros until T1 writes its events: projects that rested 7 to 21 days ago, by what they did in the week after. */
+  resting: { projects: number; rested: number; share: number | null; next: { top_up: number; change_plan: number; wait: number; leave: number } };
+  /** WP-14 T12, shares zero until T9 writes its event: real Customer Updates of the 14 days and how often they were shared. */
+  customer_updates: { updates: number; shares: number; updates_shared: number; shares_per_update: number | null };
   honesty: {
     fabricated_left: { mock_leads: number; estimate_rows: number; mock_integrations: number; live_campaigns: number; stale_launch_approvals: number };
     simulated_outcomes_excluded: number;
   };
+  /** Reports of people, profiles and messages waiting for review, and those past the response target (0136). */
+  safety: { reports_open: number; reports_overdue: number };
 }
 
 /** The start of the UTC day after `asOf`'s UTC day: every window ends there. */
@@ -275,6 +404,14 @@ export function boundMetricSql(text: string, end: Date): string {
 const dayKey = (d: Date) => d.toISOString().slice(0, 10);
 const num = (v: unknown): number => Number(v ?? 0);
 const numOrNull = (v: unknown): number | null => (v === null || v === undefined ? null : Math.round(Number(v) * 10) / 10);
+const share = (part: number, whole: number): number | null => (whole ? Math.round((100 * part) / whole) / 100 : null);
+
+/** The operator's note when the first plan is slow (WP-14 T12): the tour promises "within minutes" (WP-14 T10). */
+export function firstPlanNote(medianMin: number | null): string | null {
+  if (medianMin === null || medianMin <= FIRST_PLAN_SLOW_MINUTES) return null;
+  return `The median time from commit to the first plan is ${medianMin} minutes, over ${FIRST_PLAN_SLOW_MINUTES}. Change the tour's "Within minutes you'll have a product plan" line (WP-14 T10) or make the first plan faster.`;
+}
+
 const zeros = (): Record<FunnelMetric, number> => Object.fromEntries(FUNNEL_METRICS.map((m) => [m, 0])) as Record<FunnelMetric, number>;
 
 async function run(db: Executor, name: string, end: Date): Promise<Record<string, unknown>[]> {
@@ -340,8 +477,14 @@ export const metricsRepo = {
     }
     const approvals = await one("agent_approvals");
     const notes = await one("agent_notes_day_one");
+    const times = await one("first_session_times");
+    const presses = await one("first_session_continue");
+    const resting = await one("resting");
+    const updates = await one("customer_updates");
+    const planMedian = numOrNull(times.plan_median_min);
     const fabricated = await one("honesty_fabricated_left");
     const simulated = await one("honesty_simulated");
+    const reports = await reportsRepo.counts(db, end);
 
     return {
       day: dayKey(new Date(end.getTime() - DAY_MS)),
@@ -372,10 +515,25 @@ export const metricsRepo = {
         tool_missing_stopped: num(approvals.tool_missing_stopped),
         notes_day_one: { max: num(notes.max), median: numOrNull(notes.median) },
       },
+      first_session: {
+        projects: num(times.projects),
+        to_first_plan: { projects: num(times.with_plan), median_min: planMedian, p90_min: numOrNull(times.plan_p90_min) },
+        to_first_approval: { projects: num(times.with_approval), median_min: numOrNull(times.approval_median_min), p90_min: numOrNull(times.approval_p90_min) },
+        first_continue: { founders: num(presses.founders), succeeded: num(presses.succeeded), share: share(num(presses.succeeded), num(presses.founders)) },
+        note: firstPlanNote(planMedian),
+      },
+      resting: {
+        projects: num(resting.projects),
+        rested: num(resting.rested),
+        share: share(num(resting.rested), num(resting.projects)),
+        next: { top_up: num(resting.top_up), change_plan: num(resting.change_plan), wait: num(resting.wait), leave: num(resting.leave) },
+      },
+      customer_updates: { updates: num(updates.updates), shares: num(updates.shares), updates_shared: num(updates.updates_shared), shares_per_update: share(num(updates.shares), num(updates.updates)) },
       honesty: {
         fabricated_left: { mock_leads: num(fabricated.mock_leads), estimate_rows: num(fabricated.estimate_rows), mock_integrations: num(fabricated.mock_integrations), live_campaigns: num(fabricated.live_campaigns), stale_launch_approvals: num(fabricated.stale_launch_approvals) },
         simulated_outcomes_excluded: num(simulated.simulated_outcomes_excluded),
       },
+      safety: { reports_open: reports.open, reports_overdue: reports.overdue },
     };
   },
 

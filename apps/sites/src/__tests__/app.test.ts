@@ -82,6 +82,8 @@ describe("apps/sites", () => {
     expect(body.match(/data-fm-footer/g)).toHaveLength(1);
     expect(body).toContain('href="/_fm/report"');
     expect(body).toContain("Built on Foundmill");
+    // One step larger than the bar's other text (13 px against 12 px).
+    expect(body).toMatch(/style="[^"]*font:13px[^"]*">Built on Foundmill<\/a>/);
     expect(body.indexOf("data-fm-footer")).toBeLessThan(body.indexOf("</body>"));
   });
 

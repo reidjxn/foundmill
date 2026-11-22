@@ -6,7 +6,7 @@ const day = Date.UTC(2026, 10, 12);
 const at = (h: number) => new Date(day + h * 3_600_000);
 
 describe("ownAutopilotToday", () => {
-  it("counts Autopilot's own starts today and what those cycles cost", () => {
+  it("counts Autopilot's own starts today and what those rounds of work cost", () => {
     const events = [
       { type: "autopilot.cycle_started", occurredAt: at(2), payload: { cycleNumber: 7, cadence: "daily" } },
       { type: "cycle.completed", occurredAt: at(3), payload: { cycleNumber: 7, cost: { amountMinor: 12, currency: "USD" } } },

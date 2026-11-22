@@ -23,6 +23,7 @@ const meta = {
     occurredOn: "2026-11-12",
     leadChannelKey: "seo",
     standoutAgent: "Search Writer",
+    verified: true,
     note: null,
     brandPrimary: "#2f7d6b",
     brandSecondary: "#f4efe6",
@@ -52,6 +53,7 @@ export const WithNote390: Story = { name: "390 px · with the founders' own line
 export const Returning1280: Story = { name: "1280 px · a customer who came back", decorators: [Desktop], args: { headline: "returning_customer", leadChannelKey: "email_automation", standoutAgent: "Email Marketer" } };
 export const NoTouches390: Story = { name: "390 px · no measured touch (the day and the headline only)", decorators: [Phone], args: { leadChannelKey: null, standoutAgent: null } };
 export const MarkForMember390: Story = { name: "390 px · the foot for a signed-in member (the sentence, no link)", decorators: [Phone], args: { mark: "member" } };
+export const Recorded390: Story = { name: "390 px · recorded, not verified (a pasted Stripe key)", decorators: [Phone], args: { verified: false } };
 export const NoMark390: Story = { name: "390 px · no mark (verified stays, no foot)", decorators: [Phone], args: { mark: "none" } };
 export const LongWords390: Story = {
   name: "390 px · long words wrap",

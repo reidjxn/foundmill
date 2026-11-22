@@ -16,7 +16,7 @@ import { MemoryRateLimitStore } from "../../../gateway/src/rate-limit";
 import { UntrustedRecipientRegistry } from "../../../gateway/src/recipients";
 import { TEST_SESSION_TOKEN_SECRET } from "./harness";
 
-const RUNS = new Set(["connect", "healthcheck", "callTool"]);
+const RUNS = new Set(["connect", "healthcheck", "callTool", "disconnect"]);
 
 export function guardLiveCalls(registry: ConnectorRegistry): { registry: ConnectorRegistry; liveCalls: string[] } {
   const liveCalls: string[] = [];

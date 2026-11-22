@@ -6,7 +6,7 @@
  */
 import { repos, entities as entitiesTable, agents as agentsTable } from "@foundmill/db";
 import { personaByKey, type AgentStyle } from "@foundmill/shared";
-import { eq, isNull } from "drizzle-orm";
+import { eq, isNull, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { backfillPersonasOnBoot } from "../services/persona-backfill";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -20,12 +20,18 @@ afterAll(() => hz.close());
 async function founder(email: string) {
   const userId = await hz.h.createUser(email);
   const caller = hz.caller({ userId, email });
-  await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 12 }, targetMarkets: ["US"], riskAppetite: "medium" });
+  await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 12 }, targetMarkets: ["US"], riskAppetite: "medium" });
+  ownerOf.set(caller, userId);
   return { userId, caller };
 }
 
+/** Whose caller it is, so a test that commits several projects can move the owner to Studio (Try holds one project). */
+const ownerOf = new WeakMap<object, string>();
+
 async function commit(caller: Awaited<ReturnType<typeof founder>>["caller"], name: string, extra: { anthropomorphicAgents?: boolean; agentStyle?: AgentStyle } = {}) {
   const generated = await caller.idea.generate({ prompt: `${name} for small teams` });
+  // Try holds one project (A14): this owner takes charge of several, so their plan is Studio before the next commit.
+  await hz.db.execute(sql`update businesses set plan_tier = 'scale' where created_by = ${ownerOf.get(caller) ?? null}`);
   return caller.idea.commit({ ideaId: generated.ideas[0]!.id, name, archetype: "b2b_saas", gameMode: "personal", ...extra });
 }
 
@@ -34,19 +40,20 @@ const quiet = { info: () => undefined, warn: () => undefined };
 describe("idea.commit and the Launch step's switch", () => {
   it("writes the choice to the founder's preferences; leaving it out changes nothing", async () => {
     const { caller } = await founder("persona-launch@test.local");
+    // A first-time founder's new profile starts with named agents on (WP-14 T6); the Launch step's choice still decides.
+    expect((await caller.founder.preferences.guidance()).anthropomorphicAgents).toBe(true);
+    await commit(caller, "Plain Roles", { anthropomorphicAgents: false });
+    expect((await caller.founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
+    await commit(caller, "Second Without Choice");
     expect((await caller.founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
     await commit(caller, "Friendly Faces", { anthropomorphicAgents: true });
     expect((await caller.founder.preferences.guidance()).anthropomorphicAgents).toBe(true);
-    await commit(caller, "Second Without Choice");
-    expect((await caller.founder.preferences.guidance()).anthropomorphicAgents).toBe(true);
-    await commit(caller, "Third Off", { anthropomorphicAgents: false });
-    expect((await caller.founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
     await expect(commit(caller, "Bad Input", { anthropomorphicAgents: "yes" as never })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("0069: the Launch step's style goes on the account with the switch, alone or together; leaving it out changes nothing", async () => {
     const { caller } = await founder("persona-launch-style@test.local");
-    expect(await caller.founder.preferences.guidance()).toMatchObject({ anthropomorphicAgents: false, agentStyle: "humans" });
+    expect(await caller.founder.preferences.guidance()).toMatchObject({ anthropomorphicAgents: true, agentStyle: "humans" });
     await commit(caller, "Elves And Wizards", { anthropomorphicAgents: true, agentStyle: "fantasy" });
     expect(await caller.founder.preferences.guidance()).toMatchObject({ anthropomorphicAgents: true, agentStyle: "fantasy" });
     await commit(caller, "Style Only", { agentStyle: "cartoon_2d" });
@@ -62,13 +69,14 @@ describe("idea.commit and the Launch step's switch", () => {
     const { caller } = await founder("persona-launch-fail@test.local");
     const spy = vi.spyOn(repos.preferences, "update").mockRejectedValueOnce(new Error("database blip"));
     try {
-      const result = await commit(caller, "Still Committed", { anthropomorphicAgents: true });
+      const result = await commit(caller, "Still Committed", { anthropomorphicAgents: false });
       expect(result.alreadyCommitted).toBe(false);
       expect(result.agentIds.length).toBeGreaterThan(0);
     } finally {
       spy.mockRestore();
     }
-    expect((await caller.founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
+    // The choice was not saved: the account keeps what it had (on, for this first-time founder).
+    expect((await caller.founder.preferences.guidance()).anthropomorphicAgents).toBe(true);
   });
 
   it("the committed team has catalog keys, unique in the business, and the founder's next business avoids them", async () => {

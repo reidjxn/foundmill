@@ -26,7 +26,7 @@ beforeEach(() => hz.limits.reset());
 async function freshBusiness(email: string, name: string) {
   const userId = await hz.h.createUser(email);
   const caller = hz.caller({ userId, email });
-  await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["Nordics"], riskAppetite: "medium", budgetMinor: 2_500_000 });
+  await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["Nordics"], riskAppetite: "medium", budgetMinor: 2_500_000 });
   const generated = await caller.idea.generate({ prompt: "bookkeeping for independent accountants in the Nordics" });
   const result = await caller.idea.commit({ ideaId: generated.ideas[0]!.id, name, archetype: "b2b_saas", gameMode: "personal" });
   const businessId = result.business.id;
@@ -128,7 +128,7 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     expect(audit.items.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("the second approval (the roadmap, from its tab) plans the first build and starts the next cycle", async () => {
+  it("the second approval (the roadmap, from its tab) plans the first build and starts the next round of work", async () => {
     const now = (await repos.product.listRoadmap(hz.db, b.businessId, { horizon: "now" })).sort((x, y) => x.position - y.position);
     expect(now.length).toBeGreaterThan(0);
     const res = await b.caller.product.signoff.decide({ businessId: b.businessId, kind: "roadmap", decision: "approve" });
@@ -146,7 +146,7 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     expect(plans.items).toHaveLength(Math.min(2, now.length));
     // The next cycle as Continue starts it: here cycle 1 (started at commit on the fake Temporal, never finished) still
     // counts as running, so nothing new is queued and the follow-up says the build cycle is under way.
-    expect(build.cycle).toMatchObject({ started: true, mode: "temporal", reason: "a cycle is already running" });
+    expect(build.cycle).toMatchObject({ started: true, mode: "temporal", reason: "a round of work is already running" });
     expect(temporal.starts.filter((s) => s.type === "businessCycle" && s.workflowId.startsWith(`cycle:${b.businessId}:`)).length).toBeGreaterThanOrEqual(1);
     // The follow-up and the event say the build started; distribution still waits.
     const note = (await bySubject(b.caller, b.businessId, `Building starts: ${build.plannedTaskIds.length} tasks planned`))[0];

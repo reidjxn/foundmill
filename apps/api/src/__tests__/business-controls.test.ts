@@ -7,7 +7,7 @@ import { repos, stopBusinessAgents } from "@foundmill/db";
 import { CHOOSABLE_MODEL_KEYS } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
+import { createApiHarness, spendAllCredits, fakeTemporalClient, type ApiHarness } from "./harness";
 
 const KEY = "sk-ant-api03-test-key-0123456789abcdef";
 
@@ -51,7 +51,7 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
     expect((await repos.agents.get(hz.db, A(), hz.A.agent2Id)).status).toBe("paused");
 
     await expect(member().distribution.channels.enable({ businessId: A(), channelKey: "seo" })).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(owner().business.continue({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/next cycle/) });
+    await expect(owner().business.continue({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/next round of work/) });
     // Resuming a cycle would set the tasks the stop paused back to running.
     await expect(member().business.resumeCycle({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repos.tasks.get(hz.db, A(), task.id)).status).not.toBe("running");
@@ -71,6 +71,8 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
 
   it("while stopped a model change applies but its retest waits, queued, until Resume agents starts it; a hire starts paused and comes back with the others", async () => {
     await owner().business.stopAllAgents({ businessId: A() });
+    // Opus and Sonnet are a paid plan's to choose (WP-13 T7); this test is about the stop, not the plan.
+    await repos.businesses.update(hz.db, A(), { planTier: "pro" });
     const agent = await repos.agents.get(hz.db, A(), hz.A.agentId);
     const target = CHOOSABLE_MODEL_KEYS.find((m) => m !== agent.modelKey)!;
     const set = await member().agent.model.set({ businessId: A(), agentId: agent.id, modelKey: target });
@@ -99,6 +101,7 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
     expect(temporal.starts.map((s) => s.type)).toEqual(["trainingRun"]);
     await repos.training.cancelActive(hz.db, A(), { coachSummaryMd: "test cleanup" });
     await repos.agents.release(hz.db, A(), hired.id);
+    await repos.businesses.update(hz.db, A(), { planTier: "free" });
   });
 
   it("only an owner or admin resumes: agents back to idle, the flag cleared, health events and the audit written, engines restarted", async () => {
@@ -133,7 +136,7 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
     expect(started.workflow.workflowId).toBe(`session:${started.session.id}`);
   });
 
-  it("a member's Pause, Nudge and Stop reach a session opened by a cycle before 0023 (stored placeholder): the id is computed", async () => {
+  it("a member's Pause, Nudge and Stop reach a session opened by a round of work before 0023 (stored placeholder): the id is computed", async () => {
     const task = await readyTask();
     await repos.tasks.setStatus(hz.db, A(), task.id, "running", { force: true });
     const session = await repos.agents.createSession(hz.db, A(), { agentId: hz.A.agent2Id, taskId: task.id });
@@ -252,7 +255,7 @@ describe("dev.tasks.start guards (RA-05, api-services-14)", () => {
     }
   });
 
-  it("a task nobody is assigned to gets an agent that does its kind of work, the way the cycle picks one, written on the task (lead, 2026-10-24)", async () => {
+  it("a task nobody is assigned to gets an agent that does its kind of work, the way the round of work picks one, written on the task (lead, 2026-10-24)", async () => {
     for (const open of (await repos.agents.listSessions(hz.db, A(), { openOnly: true, limit: 100 })).items) await repos.agents.endSession(hz.db, A(), open.id, { outcome: "done" });
     const engineer = await repos.agents.create(hz.db, A(), { name: "Auto Backend", agentType: "backend_engineer", layer: "worker", departmentIds: [hz.A.departmentId] });
     const t = await repos.tasks.create(hz.db, A(), { kind: "code", title: "Unassigned code task", status: "planned", departmentId: hz.A.departmentId });
@@ -324,7 +327,7 @@ describe("a new key and a top-up lift the stop they caused, never Stop all agent
       await owner().business.resumeAgents({ businessId: A() });
       const period = new Date().toISOString().slice(0, 7);
       await repos.usage.grantCredits(hz.db, A(), period, 100);
-      await repos.usage.chargeCredits(hz.db, A(), period, 100);
+      await spendAllCredits(hz.db, A(), period);
       await stopBusinessAgents(hz.db, A(), { reason: "credits_exhausted" });
       await expect(owner().business.resumeAgents({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/credits are used up/) });
       // A top-up is a checkout; its (mock) payment grants the credits and lifts the stop.

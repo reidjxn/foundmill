@@ -3,20 +3,29 @@
  * charged only when it finished, so it could spend any amount past the business's credits, and so could every session
  * running beside it. Now a session on the platform key:
  *
- * - starts only while the month's credits allow a live call (`checkPlatformCredits`, simulated credits not counted);
- * - hands the Agent SDK what is spendable as its `maxBudgetUsd`, so the SDK itself stops past it;
+ * - starts only while the month's credits allow a live call (`checkPlatformCredits`, simulated credits not counted) and
+ *   what is spendable covers a reserve for it (WP-14 T1; packages/config `SESSION_RESERVE`): the larger of a minimum
+ *   and the recent average cost of that agent type's sessions times a safety factor. Under the reserve the session
+ *   does not start, nothing is booked, what is left stays in the balance and the team rests (`restBeforeSession`);
+ * - hands the Agent SDK what is spendable plus the backstop ceiling as its `maxBudgetUsd`;
  * - books what it spends as it goes (every finished turn and every `SESSION_CREDIT_CHECK_MS`), through `bookUsage` like
- *   every other sink, so concurrent sessions and the api see one balance; the charge that empties it stops the team;
- * - ends cleanly (`blocked`, reason `budget`) when the credits are used up, with what it spent booked; a turn that
- *   finished the task stays done (the task is not run again for the credit its last turn used).
+ *   every other sink, so concurrent sessions and the api see one balance; the charge that empties it rests the team;
+ * - is never stopped part-way because the balance ran out (founder, Nov 17, 2026): a session that outgrows its reserve
+ *   finishes on the backstop, spending at most `backstopCeilingMinor` after the balance is empty. That is logged each
+ *   time, with the reserve and what the session cost, so the reserve can be tuned. Only at the ceiling does it end
+ *   (`blocked`, reason `budget`), with what it spent booked.
+ *
+ * A team waiting at the platform's monthly cap (WP-13 T4, T6) is a different state with its own message: it is not
+ * Resting and nothing here sets it.
  *
  * `finishSession` books only what the session has not booked yet (`repos.usage.sessionTokens`). A session on the
  * business's own key never comes here: its spend is the founder's, billed by Anthropic.
  */
 import { grantsActOutside } from "@foundmill/connectors";
-import { bookUsage, checkPlatformCredits, repos } from "@foundmill/db";
+import { costCoveredMinor, SESSION_RESERVE, sessionReserveMinor } from "@foundmill/config";
+import { bookUsage, checkPlatformCredits, repos, restBeforeSession } from "@foundmill/db";
 import { resolveModel, type RouteKey, type RouteResolution } from "@foundmill/models";
-import type { ModelKey, ModuleKey } from "@foundmill/shared";
+import { topUpsOnSale, type ModelKey, type ModuleKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 
 /** The modules whose agents do money and legal work: low credits never move their sessions to a lower-cost model. */
@@ -55,7 +64,10 @@ export function keptModelForRun(launch: { modelKey: ModelKey; lowCredits?: boole
 /** How often a running session books its spend and re-reads the balance between turns. */
 export const SESSION_CREDIT_CHECK_MS = 15_000;
 
-export const CREDITS_USED_UP_SUMMARY = "Blocked: this month's credits are used up, so the session stopped. What it spent is booked; the task runs again after a top-up in Settings › Billing or with next month's credits.";
+/** A task that did not start because the team is resting (nothing was spent on it). Names no top-up: one is named only where it can be bought (WP-09 T13), and the Inbox note does that. */
+export const RESTING_SUMMARY = "Resting: this month's team budget is used, so this task did not start and nothing was spent on it. It runs when there is budget again: with next month's budget or your own Anthropic key in Settings › Keys.";
+/** A session that reached the backstop ceiling after the balance was empty (rare: the reserve is meant to prevent it). */
+export const CREDITS_USED_UP_SUMMARY = "Resting: this month's team budget is used and this task needed more than the small amount set aside to let a running task finish, so it stopped there. What it spent is booked and its work is kept; it carries on when there is budget again.";
 
 export interface SpentSoFar {
   tokensIn: number;
@@ -64,7 +76,14 @@ export interface SpentSoFar {
   costMinor: number;
 }
 
-export type SessionCreditsOpen = { ok: true; credits: SessionCredits } | { ok: false; reason: string };
+export type SessionCreditsOpen = { ok: true; credits: SessionCredits } | { ok: false; reason: string; resting: boolean; summary: string };
+
+export interface SessionReserveConfig {
+  minMinor: number;
+  safetyFactor: number;
+  sampleSessions: number;
+  backstopCeilingMinor: number;
+}
 
 export class SessionCredits {
   private bookedMinor = 0;
@@ -78,25 +97,52 @@ export class SessionCredits {
     this.session = { ...this.session, modelKey };
   }
 
+  /** What the session had spent (US cents) when the balance was first seen empty; null while there is balance. */
+  private backstopFromMinor: number | null = null;
+
   private constructor(
     private readonly deps: OrchestratorDeps,
     private session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey },
     /** What a live call may spend at launch, USD cents. */
     readonly spendableMinor: number,
+    /** The reserve this session started against, USD cents. */
+    readonly reserveMinor: number,
+    private readonly reserve: SessionReserveConfig,
   ) {
     this.lastCheckMs = deps.clock.nowMs();
   }
 
-  /** The session's credits at launch, or why it may not start. */
-  static async open(deps: OrchestratorDeps, session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey }): Promise<SessionCreditsOpen> {
-    const check = await checkPlatformCredits(deps.db, session.businessId, { live: true, now: deps.clock.now() });
-    if (!check.ok) return { ok: false, reason: check.reason === "mock_only" ? "only simulated credits are left this month, and they never pay for live model calls" : "this month's credits are used up" };
-    return { ok: true, credits: new SessionCredits(deps, session, check.spendableMinor) };
+  /**
+   * The session's credits at launch, or why it may not start. Under the reserve it does not start and the team rests
+   * (one note; a team already resting is left as it is). `agentType` picks the sessions the reserve is averaged over.
+   */
+  static async open(deps: OrchestratorDeps, session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey; agentType?: string }, reserve: SessionReserveConfig = SESSION_RESERVE): Promise<SessionCreditsOpen> {
+    const now = deps.clock.now();
+    const check = await checkPlatformCredits(deps.db, session.businessId, { live: true, now });
+    if (!check.ok) {
+      const mockOnly = check.reason === "mock_only";
+      return { ok: false, resting: !mockOnly, reason: mockOnly ? "only simulated credits are left this month, and they never pay for live model calls" : "the team is resting: this month's team budget is used", summary: RESTING_SUMMARY };
+    }
+    // Credits are charged at cost plus the markup (Nov 17, 2026): the reserve and the session's limit are at cost.
+    const coveredMinor = costCoveredMinor(check.spendableMinor);
+    const recent = session.agentType ? await repos.agents.recentSessionCost(deps.db, session.businessId, session.agentType, reserve.sampleSessions) : { averageMinor: null, sessions: 0 };
+    const reserveMinor = sessionReserveMinor(recent.averageMinor, reserve);
+    if (coveredMinor < reserveMinor) {
+      await restBeforeSession(deps.db, session.businessId, { reserveMinor, now, topUps: topUpsOnSale(deps.env) });
+      deps.log.info({ businessId: session.businessId, sessionId: session.sessionId, agentType: session.agentType ?? null, reserveMinor, spendableMinor: coveredMinor, sampledSessions: recent.sessions }, "what is left is under the session's reserve: the session does not start and the team rests");
+      return { ok: false, resting: true, reason: "the team is resting: what is left of this month's team budget is under the reserve for this task", summary: RESTING_SUMMARY };
+    }
+    return { ok: true, credits: new SessionCredits(deps, session, coveredMinor, reserveMinor, reserve) };
   }
 
-  /** The Agent SDK's `maxBudgetUsd`: what is spendable at launch, in US dollars. */
+  /** The Agent SDK's `maxBudgetUsd`: what is spendable at launch plus the backstop ceiling, in US dollars. */
   get maxBudgetUsd(): number {
-    return this.spendableMinor / 100;
+    return (this.spendableMinor + this.reserve.backstopCeilingMinor) / 100;
+  }
+
+  /** True once the session runs on the backstop (the balance was seen empty while it was running). */
+  get onBackstop(): boolean {
+    return this.backstopFromMinor !== null;
   }
 
   /** True once `SESSION_CREDIT_CHECK_MS` passed since the last settle (the control loop asks every poll). */
@@ -105,9 +151,10 @@ export class SessionCredits {
   }
 
   /**
-   * Books what was spent since the last settle and says whether the session may go on: `exhausted` when that charge (or
-   * one before it, by this session, another or the api) used the last credit, or the credits no longer allow a live
-   * call. A failed write is logged and the session goes on: `finishSession` books the rest.
+   * Books what was spent since the last settle and says whether the session may go on. An empty balance does not end
+   * it: from the settle that first sees the balance empty (emptied by this session, another or the api) the session
+   * runs on the backstop, logged once, and `exhausted` is returned only when it has spent `backstopCeilingMinor` since
+   * then. A failed write is logged and the session goes on: `finishSession` books the rest.
    */
   settle(spent: SpentSoFar): Promise<"ok" | "exhausted"> {
     this.lastCheckMs = this.deps.clock.nowMs();
@@ -133,17 +180,31 @@ export class SessionCredits {
           billedTo: "credits",
           occurredAt: this.deps.clock.now(),
           details: { source: "claude-agent-sdk", label: "Estimate", partial: true },
-        });
+        }, { topUps: topUpsOnSale(this.deps.env) });
         this.bookedMinor += costMinor;
         this.bookedTokens += tokens;
-        if (booked.credits?.exhausted) return "exhausted";
+        if (booked.credits?.exhausted) return this.backstop(spent);
       }
       const check = await checkPlatformCredits(this.deps.db, this.session.businessId, { live: true, now: this.deps.clock.now() });
-      return check.ok ? "ok" : "exhausted";
+      return check.ok ? "ok" : this.backstop(spent);
     } catch (err) {
       this.deps.log.warn({ err: (err as Error).message, sessionId: this.session.sessionId }, "session credits could not be settled; trying again on the next check");
       return "ok";
     }
+  }
+
+  /** The balance is empty while the session runs: it goes on, up to the ceiling. */
+  private backstop(spent: SpentSoFar): "ok" | "exhausted" {
+    const spentMinor = Math.round(spent.costMinor);
+    if (this.backstopFromMinor === null) {
+      this.backstopFromMinor = spentMinor;
+      // Logged each time a session outgrows its reserve, so the reserve can be tuned (WP-14 T1).
+      this.deps.log.warn({ businessId: this.session.businessId, sessionId: this.session.sessionId, reserveMinor: this.reserveMinor, spendableAtStartMinor: this.spendableMinor, spentMinor, backstopCeilingMinor: this.reserve.backstopCeilingMinor }, "session outgrew its reserve: the balance is empty and it finishes on the backstop");
+    }
+    const pastEmptyMinor = spentMinor - this.backstopFromMinor;
+    if (pastEmptyMinor < this.reserve.backstopCeilingMinor) return "ok";
+    this.deps.log.error({ businessId: this.session.businessId, sessionId: this.session.sessionId, reserveMinor: this.reserveMinor, spentMinor, pastEmptyMinor }, "session reached the backstop ceiling: it stops here");
+    return "exhausted";
   }
 }
 

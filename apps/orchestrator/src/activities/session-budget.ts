@@ -20,10 +20,11 @@
  * A task with nothing left does not start: it is blocked (`budget`) with the amounts. All figures are US cents, an
  * Estimate. A task budget in another currency cannot be compared with US cents, so the default applies to it.
  */
-import { CREDITS_CURRENCY } from "@foundmill/config";
+import { costCoveredMinor, CREDITS_CURRENCY, SESSION_RESERVE } from "@foundmill/config";
 import { creditsState, modelBudgetState, periodOf, repos, type Business, type Task } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { DEFAULT_TASK_RESERVE_MINOR } from "../cycle-contract";
+import { CREDITS_USED_UP_SUMMARY } from "./session-credits";
 
 /** What can bound a session: the task's budget, the month's credits, the agent's wage cap, the business's monthly model budget. */
 export type BudgetLimit = "task" | "credits" | "wage_cap" | "model_budget" | "cycle";
@@ -57,7 +58,7 @@ export function taskBudgetMinor(task: Pick<Task, "budgetMinor" | "currency">): n
  * business's monthly model budget and the agent's wage cap. A limit that is not set is null; on a tie the earlier one
  * stays the reason.
  */
-export function boundSpend(input: { taskBudgetMinor: number; taskSpentMinor: number; creditsLeftMinor: number | null; wageLeftMinor?: number | null; modelBudgetLeftMinor?: number | null; cycleCapMinor?: number | null }): Pick<SessionBudget, "remainingMinor" | "limit"> {
+export function boundSpend(input: { taskBudgetMinor: number; taskSpentMinor: number; creditsLeftMinor: number | null; creditsBackstopMinor?: number; wageLeftMinor?: number | null; modelBudgetLeftMinor?: number | null; cycleCapMinor?: number | null }): Pick<SessionBudget, "remainingMinor" | "limit"> {
   let remainingMinor = Math.max(0, input.taskBudgetMinor - input.taskSpentMinor);
   let limit: BudgetLimit = "task";
   const tighten = (left: number | null | undefined, by: BudgetLimit) => {
@@ -65,7 +66,8 @@ export function boundSpend(input: { taskBudgetMinor: number; taskSpentMinor: num
     remainingMinor = Math.max(0, left);
     limit = by;
   };
-  tighten(input.creditsLeftMinor, "credits");
+  // A session that outgrows what is left still finishes, up to the backstop ceiling (WP-14 T1, ./session-credits).
+  tighten(input.creditsLeftMinor === null || input.creditsLeftMinor === undefined ? null : input.creditsLeftMinor + (input.creditsBackstopMinor ?? 0), "credits");
   tighten(input.modelBudgetLeftMinor, "model_budget");
   tighten(input.wageLeftMinor, "wage_cap");
   // Its share of a capped cycle's budget (Autopilot's own spend ceiling, 0077).
@@ -96,17 +98,18 @@ export async function sessionBudget(deps: OrchestratorDeps, input: { business: P
     repos.usage.agentSpend(deps.db, input.business.id, input.agentId, periodOf(now)),
     modelBudgetState(deps.db, business, now),
   ]);
-  const creditsLeftMinor = credits ? credits.balanceMinor : null;
+  // What the credits left pay for at cost (they are charged at cost plus the markup, Nov 17, 2026).
+  const creditsLeftMinor = credits ? costCoveredMinor(credits.balanceMinor) : null;
   const wageLeftMinor = wage.remainingMinor;
   const modelBudgetLeftMinor = monthly.remainingMinor;
-  const bound = boundSpend({ taskBudgetMinor: budget, taskSpentMinor: spent, creditsLeftMinor, wageLeftMinor, modelBudgetLeftMinor, cycleCapMinor: input.spendCapMinor ?? null });
+  const bound = boundSpend({ taskBudgetMinor: budget, taskSpentMinor: spent, creditsLeftMinor, creditsBackstopMinor: SESSION_RESERVE.backstopCeilingMinor, wageLeftMinor, modelBudgetLeftMinor, cycleCapMinor: input.spendCapMinor ?? null });
   return { ...bound, maxUsd: bound.remainingMinor / 100, taskBudgetMinor: budget, taskSpentMinor: spent, creditsLeftMinor, wageLeftMinor, modelBudgetLeftMinor };
 }
 
 /** How the session's reason line names each limit: when a session cannot start for it, and when it stopped at it. */
 export const LIMIT_WORDS: Record<BudgetLimit, { used: string; spent: string }> = {
   task: { used: "the task's budget is spent", spent: "the task's budget" },
-  credits: { used: "this month's credits are used up", spent: "the credits it was given" },
+  credits: { used: "the team is resting: this month's team budget is used", spent: "what was left of the month's team budget and the amount set aside to let it finish" },
   wage_cap: { used: "the agent's wage cap for the month is reached", spent: "what was left of the agent's wage cap" },
   model_budget: { used: "the business's monthly model budget is used up", spent: "what was left of the monthly model budget" },
   cycle: { used: "Autopilot's own spend for today is used up", spent: "its share of Autopilot's spend for today" },
@@ -119,7 +122,7 @@ const usd = (minor: number) => `$${(minor / 100).toLocaleString("en-US", { minim
 
 /** What the founder reads when a session cannot start, or stops, because its budget is spent. */
 export function budgetSummary(limit: BudgetLimit, b: Pick<SessionBudget, "taskBudgetMinor" | "taskSpentMinor">): string {
-  if (limit === "credits") return "Blocked: this month's credits are used up, so the session stopped. What it spent is booked; the task runs again after a top-up in Settings › Billing or with next month's credits.";
+  if (limit === "credits") return CREDITS_USED_UP_SUMMARY;
   if (limit === "wage_cap") return "Blocked: this agent reached its wage cap for the month, so the session stopped. What it spent is booked (an Estimate). Raise the cap on the agent's profile, then run the task again, or wait for next month.";
   if (limit === "cycle") return "Paused: this round of work reached Autopilot's own spend for today (an Estimate), so the session stopped. What it spent is booked; the task carries on in the next round, or raise Autopilot's own limit in Settings › What the team can do.";
   if (limit === "model_budget") return "Blocked: the business reached its monthly model budget, so the session stopped. What it spent is booked (an Estimate). An owner or admin can raise or remove the budget, then the task runs again; otherwise it waits for next month.";

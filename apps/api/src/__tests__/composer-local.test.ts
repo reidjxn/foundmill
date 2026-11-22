@@ -6,7 +6,7 @@ import { localNextBestDecisions } from "../services/composer";
  * in the current state, never a "Decision needed: next step · No fresh events" filler note.
  */
 describe("localNextBestDecisions", () => {
-  it("puts blocked tasks first, then a missing channel, and always ends with the next cycle's focus", () => {
+  it("puts blocked tasks first, then a missing channel, and always ends with the next round of work's focus", () => {
     const all = localNextBestDecisions({ tasks: { blocked: 2, running: 1 }, channelsEnabled: 0, customers30d: 0, signups30d: 0 });
     expect(all.map((d) => d.kind)).toEqual(["unblock_tasks", "start_distribution", "plan_next_cycle"]);
     expect(all[0]).toMatchObject({ title: "Blocked tasks need a call", facts: { blocked_tasks: 2, running_tasks: 1 } });
@@ -30,7 +30,7 @@ describe("localNextBestDecisions", () => {
     }
     expect(all[0]!.options.find((o) => o.id === "reassign")?.consequence).toBe("The lead sorts them out and only brings you the ones that need your signature or money.");
   });
-  it("with nothing blocked and channels live, offers only the next cycle's focus, leaning to distribution once customers arrive", () => {
+  it("with nothing blocked and channels live, offers only the next round of work's focus, leaning to distribution once customers arrive", () => {
     const [only, ...rest] = localNextBestDecisions({ tasks: { running: 3, done: 9 }, channelsEnabled: 2, customers30d: 4, signups30d: 10 });
     expect(rest).toHaveLength(0);
     expect(only?.kind).toBe("plan_next_cycle");

@@ -31,6 +31,7 @@ import { startIdeaBoxSweep } from "./services/idea-box";
 import { startShowcaseSweep } from "./services/showcase";
 import { DEMO_ROLL_BOOT_WAIT_MS, demoRollForwardEnabled, startDemoRollForward } from "./services/demo-roll-forward";
 import { notifyEmailEnabled, startNotifyEmail } from "./services/push/email-pass";
+import { backfillDefaultSkillsOnBoot } from "./services/default-skills-backfill";
 import { backfillPersonasOnBoot } from "./services/persona-backfill";
 import { startWorkflowReconciler } from "./services/workflow-reconcile";
 
@@ -240,6 +241,8 @@ export async function main(): Promise<void> {
   const bootWork = seedSettled
     // Agents hired before 0067 get their persona keys (idempotent; failures are logged and never block).
     .then(() => (migrated && !lifecycle.stopping ? backfillPersonasOnBoot(deps) : undefined))
+    // Agents hired before a release of role defaults get the ones they lack, never one a founder removed (WP-06 T6).
+    .then(() => (migrated && !lifecycle.stopping ? backfillDefaultSkillsOnBoot(deps) : undefined))
     .catch(() => undefined);
   // The sample businesses roll forward with the calendar (DECISIONS 2026-11-10), after the seed and every hour after;
   // DEMO_ROLL_FORWARD=off turns it off. The reconciler below waits for the boot roll at most DEMO_ROLL_BOOT_WAIT_MS (a

@@ -22,6 +22,7 @@ import { Field } from "../foundation/Label";
 import { ProgressBar, type ProgressBarTone } from "../foundation/ProgressBar";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
 import { Textarea } from "../foundation/Textarea";
+import { Term } from "../guidance/Term";
 import { Panel } from "../shell/Panel";
 import type { GridSpan } from "../shell/types";
 
@@ -211,7 +212,7 @@ export function GoalPanel({ active, proposed, canDecide, loading, error, onRetry
   const [changing, setChanging] = useState<string | null>(null);
   const empty = !loading && !error && !active && !proposed ? { icon: Target, children: waitingText, tone: "kit" as const, compact: true, "data-testid": "goal-waiting" } : undefined;
   return (
-    <Panel title={GOAL_PANEL_WORDS.title} span={span} glow="brand" help={GOAL_PANEL_WORDS.help} loading={loading} error={error} onRetry={onRetry} empty={empty} className={className} data-testid="goal-panel" data-goal={active ? "active" : proposed ? "proposed" : "waiting"}>
+    <Panel title={<>Your <Term id="goal">goal</Term></>} helpLabel={GOAL_PANEL_WORDS.title} span={span} glow="brand" help={GOAL_PANEL_WORDS.help} loading={loading} error={error} onRetry={onRetry} empty={empty} className={className} data-testid="goal-panel" data-goal={active ? "active" : proposed ? "proposed" : "waiting"}>
       <div className="flex flex-col gap-4">
         {active ? <ActiveGoal goal={active} /> : null}
         {proposed ? (

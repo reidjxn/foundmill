@@ -2,7 +2,7 @@
  * Plan executor on PGlite: hard gates never execute (AC-11.3.5), deny is recorded, ask opens an approval and waits,
  * allow runs the typed handler. Also the pure policy evaluation per action type and business mode.
  */
-import { getSkillDefinition, getTemplate } from "@foundmill/agents";
+import { defaultSkillKeysFor, getSkillDefinition, getTemplate, librarySkillKey } from "@foundmill/agents";
 import { repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { compilePlanRuleBased, quarterBounds } from "@foundmill/models";
 import { MODEL_KEYS, PLAN_ACTION_TYPES } from "@foundmill/shared";
@@ -233,7 +233,10 @@ describe("executePlanAction on PGlite", () => {
       const agent = await repos.agents.get(t.db, t.businessId, agentId);
       expect(agent).toMatchObject({ departmentIds: [departmentId], lineManagerId: t.workerId, currency: "USD", wageCapMinor: template.wageCapMinor });
       expect((await repos.departments.listMembers(t.db, t.businessId, departmentId)).some((m) => m.memberKind === "agent" && m.memberId === agentId)).toBe(true);
-      const skills = (await repos.skills.listForAgent(t.db, t.businessId, agentId)).map((s) => ({ skillKey: s.skillKey, group: s.group, tested: s.tested === null ? null : Number(s.tested), displayed: s.displayed, potential: s.potential })).sort((a, b) => a.skillKey.localeCompare(b.skillKey));
+      const rows = await repos.skills.listForAgent(t.db, t.businessId, agentId);
+      // And the role's default library skills, as every hire gets them (WP-06 T6).
+      expect(rows.filter((s) => s.addedBy === "template").map((s) => s.skillKey).sort()).toEqual(defaultSkillKeysFor("docs_writer").map(librarySkillKey).sort());
+      const skills = rows.filter((s) => s.addedBy !== "template").map((s) => ({ skillKey: s.skillKey, group: s.group, tested: s.tested === null ? null : Number(s.tested), displayed: s.displayed, potential: s.potential })).sort((a, b) => a.skillKey.localeCompare(b.skillKey));
       expect(skills).toEqual(
         template.skills
           .map((skillKey) => ({ skillKey, group: getSkillDefinition(skillKey)?.group ?? "craft", tested: template.baselineRating, displayed: template.baselineRating, potential: template.baselineRating }))

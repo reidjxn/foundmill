@@ -1,6 +1,7 @@
 export { sourcingManufacturing } from "./sourcing_manufacturing";
 export { formulationChemist } from "./formulation_chemist";
 export { pharmacologyRegulatory } from "./pharmacology_regulatory";
+export { financialRegulatory } from "./financial_regulatory";
 export { certification } from "./certification";
 export { packagingDesign } from "./packaging_design";
 export { quality } from "./quality";

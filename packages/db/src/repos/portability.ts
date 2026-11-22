@@ -42,6 +42,9 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   project_pages: t(s.projectPages, "product"),
   // 0105: the page quiz and its anonymous counts per result (numbers only, nothing about any visitor).
   page_quizzes: t(s.pageQuizzes, "product"),
+  // 0161 booking: the setup and the services sit with the page they are booked from.
+  booking_settings: t(s.bookingSettings, "product"),
+  booking_services: t(s.bookingServices, "product"),
   page_quiz_counts: t(s.pageQuizCounts, "product"),
   change_proposals: t(s.changeProposals, "product"),
   proposal_hunks: t(s.proposalHunks, "product"),
@@ -65,6 +68,12 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   site_releases: t(s.siteReleases, "development", { omit: ["previewToken"] }),
   // 0131: the project's payment links (the founder's own; their URLs are what visitors are sent to).
   pay_links: t(s.payLinks, "development"),
+  // 0154: what the project needs a tool for, what was recommended and why, and the founder's answer.
+  tool_needs: t(s.toolNeeds, "team"),
+  // 0162: each write step the team took in a website (deleted with the project, like every record here). The page's
+  // screenshot stays out, like post_media's file: it may hold other people's personal data and one page of rows would
+  // carry hundreds of PNGs.
+  browser_steps: t(s.browserSteps, "team", { omit: ["screenshot"] }),
   // team
   departments: t(s.departments, "team"),
   department_members: t(s.departmentMembers, "team"),
@@ -106,6 +115,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   mentions: t(s.mentions, "crm"),
   field_provenance: t(s.fieldProvenance, "crm"),
   contact_consents: t(s.contactConsents, "crm"),
+  // 0161: a booking is a customer record, like an entity; the hold token hash is a link credential.
+  bookings: t(s.bookings, "crm", { omit: ["holdTokenHash"] }),
   project_updates: t(s.projectUpdates, "distribution"),
   merge_log: t(s.mergeLog, "crm"),
   // finance
@@ -125,6 +136,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   credit_balances: t(s.creditBalances, "billing"),
   // Credit top-ups: what was bought and when. The Stripe session and its payment page stay out (provider plumbing).
   billing_checkouts: t(s.billingCheckouts, "billing", { omit: ["externalId", "checkoutUrl", "paidEventId"] }),
+  // 0144: the project's place on the Partner waitlist (who asked, and when they agreed to be contacted).
+  partner_waitlist: t(s.partnerWaitlist, "billing"),
   // Bought credits by purchase: how much is left of each and when it expires (0098).
   credit_lots: t(s.creditLots, "billing"),
   // legal
@@ -147,6 +160,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   memberships: t(s.memberships, "settings", { pick: ["id", "userId", "role", "createdAt"], rows: ne(s.memberships.source, "example") }),
   integrations: t(s.integrations, "settings", { pick: ["id", "connectorKey", "status", "authKind", "scopes", "accountLabel", "lastHealthAt", "lastError", "createdAt", "updatedAt"] }),
   project_mail: t(s.projectMail, "settings", { pick: ["id", "localPart", "status", "dailyCap", "createdAt"] }),
+  // The project's own domain (0147) and its records; SendGrid's id is Foundmill's, not the business's.
+  project_domains: t(s.projectDomains, "settings", { pick: ["id", "domain", "senderLocalPart", "records", "status", "checkedAt", "verifiedAt", "createdAt", "source", "registeredAt", "expiresAt", "priceMinor"] }),
   // The founders' postal address for marketing email (0101): the business's own, so it travels with it.
   project_postal_addresses: t(s.projectPostalAddresses, "settings", { pick: ["id", "address", "createdAt", "updatedAt"] }),
   app_installations: t(s.appInstallations, "settings", { pick: ["id", "connectorKey", "accountLabel", "verifiedAt", "createdAt"] }),
@@ -162,6 +177,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
 /** Business-scoped tables left out of the archive, with the reason the archive states. */
 export const EXPORT_EXCLUDED_TABLES: Readonly<Record<string, string>> = {
   credentials: "Credentials and connector tokens are never exported (ciphertext or plaintext).",
+  domain_registrants: "One founder's own name, address and phone between paying for a domain and registering it; deleted once registered, and never readable by the other founders.",
   webhooks: "Webhook endpoints and their secret references are connector plumbing, not business data.",
   events: "The internal event log; the audit log and the Inbox in this archive record what happened.",
   outbox: "The event delivery queue (internal).",
@@ -204,8 +220,10 @@ export const portabilityRepo = {
     const spec = EXPORT_TABLES[tableName];
     if (!spec) throw new Error(`table ${tableName} is not exported`);
     const limit = Math.min(Math.max(options.limit ?? 1000, 1), 5000);
-    const rows = (await db
-      .select()
+    // With a pick, only those columns (and the id the cursor needs) are asked for: a table whose app-role grant covers
+    // only some columns (`project_domains`) is exported under RLS without touching the rest.
+    const columns = spec.pick ? Object.fromEntries(Object.entries(getTableColumns(spec.table)).filter(([k]) => k === "id" || spec.pick!.includes(k))) : undefined;
+    const rows = (await (columns ? db.select(columns) : db.select())
       .from(spec.table)
       .where(and(eq(spec.table.businessId, businessId), spec.rows, options.after ? gt(spec.table.id, options.after) : undefined))
       .orderBy(asc(spec.table.id))

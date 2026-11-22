@@ -33,6 +33,7 @@ const REQUIRED = [
 ];
 /** Fields that must be present but may be empty. */
 const MAY_BE_EMPTY = ["default_for"];
+/** Optional: the defaults release that first attached the skill (WP-06 T6); absent means 1. */
 const ALLOW_SUFFIX = / # us-english-allow$/;
 const GROUPS = ["craft", "judgement", "execution"];
 
@@ -86,6 +87,7 @@ export function parseSkillSource(text, where) {
   }
   for (const f of REQUIRED) if (!fields[f]) throw new Error(`${where}: missing field ${f}`);
   for (const f of MAY_BE_EMPTY) if (!(f in fields)) throw new Error(`${where}: missing field ${f}`);
+  if (fields.default_since && !/^[1-9]\d*$/.test(fields.default_since)) throw new Error(`${where}: default_since is not a whole number: ${fields.default_since}`);
   if (!/^[1-9]\d*$/.test(fields.version)) throw new Error(`${where}: version is not a whole number: ${fields.version}`);
   const body = text.slice(end + 5).replace(/\n$/, "");
   if (!body.trim()) throw new Error(`${where}: empty body`);
@@ -121,7 +123,9 @@ function mapSkill(f, body, where) {
     whenToUse: f.when_to_use,
     roles: list(f.roles),
     defaultFor: list(f.default_for),
-    defaultSince: 1,
+    // The release of the role defaults a skill joined (`default_since`, 1 when absent): an agent hired under an earlier
+    // release receives it from the backfill.
+    defaultSince: f.default_since ? Number(f.default_since) : 1,
     stages: PRODUCT_STAGES.filter((p) => stageSet.has(p)),
     requires,
     notYetOnFoundmill: notYet,

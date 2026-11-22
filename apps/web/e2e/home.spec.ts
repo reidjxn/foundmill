@@ -232,7 +232,7 @@ test.describe("home > Autopilot chip", () => {
  * seed has no failed cycle, so `cycle.status` is rewritten on the way to the page.
  */
 test.describe("home > blocker banner", () => {
-  test("a last cycle that failed for credit is a banner at the top of Home with the way to Settings › Keys", async ({ page }) => {
+  test("a last round of work that failed for credit is a banner at the top of Home with the way to Settings › Keys", async ({ page }) => {
     await page.route(/\/trpc\/[^?]*cycle\.status/, async (route) => {
       const response = await route.fetch();
       const body = (await response.json()) as unknown;
@@ -256,7 +256,7 @@ test.describe("home > blocker banner", () => {
     await expect(page).toHaveURL(/\/settings\/keys$/, { timeout: LONG });
   });
 
-  test("a completed last cycle shows no banner", async ({ page }) => {
+  test("a completed last round of work shows no banner", async ({ page }) => {
     await openBusiness(page);
     await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("home-blocker")).toHaveCount(0);
@@ -268,7 +268,7 @@ test.describe("home > blocker banner", () => {
  * state and its Pause. The seed has no run, so `cycle.status` is rewritten on the way to the page.
  */
 test.describe("home > Continue during a run", () => {
-  test("between cycles of a run Continue reads Pause, and its tooltip says new cycles start on their own", async ({ page }) => {
+  test("between rounds of work of a run Continue reads Pause, and its tooltip says new rounds of work start on their own", async ({ page }) => {
     await page.route(/\/trpc\/[^?]*cycle\.status/, async (route) => {
       const response = await route.fetch();
       const body = (await response.json()) as unknown;
@@ -286,7 +286,7 @@ test.describe("home > Continue during a run", () => {
     await expect(button).toHaveAttribute("data-continue-state", "processing", { timeout: LONG });
     await expect(button).toHaveText("Pause");
     await button.hover();
-    await expect(page.getByText("New cycles start on their own until nothing is left to do.", { exact: false }).first()).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("New rounds of work start on their own until nothing is left to do.", { exact: false }).first()).toBeVisible({ timeout: LONG });
   });
 });
 

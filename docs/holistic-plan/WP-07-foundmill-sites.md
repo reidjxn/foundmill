@@ -63,7 +63,7 @@ Order: T1, T11, T12 any time. Then T2 → T3 → T4 → T5 → T6 → T7 → T8 
 
 ### T1: Specialists can record a supplier and an interaction   [M] [ships alone] [no go-ahead needed]
 
-- [ ] done
+- [x] done
 
 **Why:** A4-07. Acceptance "At least 20 suppliers recorded as CRM entities" against a grant list with no CRM write (`packages/agents/src/templates/specialists/_specialist.ts:33-36`); the description still says "Tools: documents in Google Drive, CRM search, email drafts" (`:39`).
 
@@ -173,7 +173,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 - [x] done (the note, "Live product" and the first-week line come with T3)
 
-**Why:** A4-03 ("where is my product?"); §8 items 4 and 5 and "Screens"; CLAUDE.md small-screen rule (Needs you works from 390 px).
+**Why:** A4-03 ("where is my product?"); §8 items 4 and 5 and "Screens"; FOUNDMILL.md small-screen rule (Needs you works from 390 px).
 
 **Files:** create `packages/shared/src/site-screen.ts` (+ test), `apps/api/src/services/sites.ts`, `apps/api/src/routers/site.ts`, `apps/api/src/__tests__/site.test.ts`, `packages/modules/src/product/SiteScreen.tsx` (+ story, + `__tests__/site.test.tsx`), `apps/web/e2e/site.spec.ts`. Modify `apps/api/src/router.ts` (mount), `apps/orchestrator/src/activities/site-workspace.ts` (use the content rules; write the note), `packages/shared/src/constants.ts` (`MODULE_TABS.product` gains `{ slug: "site", title: "Site" }`; `DEFAULT_TABS.product` gains `"site"`), the module's tab registry, `packages/modules/src/development/founder-views.tsx` ("Live product" shows the site address), `packages/shared/src/first-week.ts`, `apps/api/src/services/inbox.ts` or wherever `decidePageNote` is dispatched.
 
@@ -354,7 +354,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 ## Starting prompt
 
 ```
-You are executing docs/holistic-plan/WP-07-foundmill-sites.md in the Foundmill repo. Read, in this order: CLAUDE.md; docs/holistic-plan/README.md; the work package file in full; docs/holistic-plan/audits/a4-building-product.md §1.4, §1.5, §3 (A4-02, A4-03, A4-04, A4-07, A4-14, A4-17, A4-18), §5 and §8; docs/holistic-plan/audits/a3a-agent-runtime.md §1.4 to §1.7; the CLAUDE.md of each package you touch.
+You are executing docs/holistic-plan/WP-07-foundmill-sites.md in the Foundmill repo. Read, in this order: FOUNDMILL.md; docs/holistic-plan/README.md; the work package file in full; docs/holistic-plan/audits/a4-building-product.md §1.4, §1.5, §3 (A4-02, A4-03, A4-04, A4-07, A4-14, A4-17, A4-18), §5 and §8; docs/holistic-plan/audits/a3a-agent-runtime.md §1.4 to §1.7; the CLAUDE.md of each package you touch.
 
 Before any code: check docs/DECISIONS.md and docs/DEPLOY.md for the two go-aheads the package names (pages and email "proven"; a separate domain). If go-ahead A is not recorded, do only T1, T11 and T12 and stop. If it is, do T2 to T10 in order, building against SITES_DOMAIN=sites.localhost with mock integrations; do not start T3 or T9 while any WP-05 pull request that edits apps/orchestrator/src/activities/session.ts is open.
 

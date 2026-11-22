@@ -1,11 +1,11 @@
 /**
  * The tiles Today's health strip reuses (founder, 2026-11-07): Cash, Runway and Customers this week are the status
- * strip's own builders, so Today and Details always show the same figures; spend is never added across currencies.
+ * strip's own builders, so Today and Details always show the same figures. Today has no spend tile (WP-14 T4).
  */
 import { describe, expect, it } from "vitest";
 import { routes } from "../shared/routes";
 import { NOT_KNOWN_YET } from "../shared/cash";
-import { SPEND_WORDS, cashTile, customersThisWeek, customersWeekTile, runwayTile, spendWeekTiles, statusTiles } from "../widgets/status-strip";
+import { cashTile, customersThisWeek, customersWeekTile, runwayTile, statusTiles } from "../widgets/status-strip";
 import { TODAY, finance, ribbon as ribbonOf } from "./fixtures";
 
 const ribbon = ribbonOf();
@@ -29,6 +29,13 @@ describe("Today's tiles are the status strip's", () => {
     expect(tile.caption).toBe("No bank connected");
   });
 
+  it("Runway with a balance below zero says so in the top bar's words, never a negative figure (B8)", () => {
+    const overdrawn = { ...finance, cash: { ...finance.cash, amountMinor: -914_900 }, runway: { ...finance.runway, months: -4.2 } } as typeof finance;
+    const tile = runwayTile(overdrawn, false, noop);
+    expect(tile.value).toBe("Cash is below zero");
+    expect(tile.unit).toBeUndefined();
+  });
+
   it("counts first payments over the last 7 days against the 7 before", () => {
     const c = customersThisWeek(ribbon, TODAY)!;
     expect(c.spark).toHaveLength(14);
@@ -45,32 +52,6 @@ describe("Today's tiles are the status strip's", () => {
     // A response for another day (a tab left open past midnight) falls back to the rows for the asked day.
     const stale = { ...ribbon, customers: { today: "2000-01-01", thisWeek: 99, previousWeek: 0, total: 99 } };
     expect(customersThisWeek(stale, TODAY)!.week).toBe(customersThisWeek(ribbon, TODAY)!.week);
-  });
-});
-
-describe("spendWeekTiles", () => {
-  it("shows two figures, never summed, when the business is not in dollars", () => {
-    const tiles = spendWeekTiles({ aiUsage: { amountMinor: 420, currency: "USD" }, channel: { amountMinor: 10_000, currency: "GBP", otherCurrencies: [] } }, false, noop);
-    expect(tiles.map((t) => t.label)).toEqual([SPEND_WORDS.ai, SPEND_WORDS.channel]);
-    expect(tiles[0]).toMatchObject({ value: { amountMinor: 420, currency: "USD" }, estimate: "estimate" });
-    expect(tiles[1]).toMatchObject({ value: { amountMinor: 10_000, currency: "GBP" }, estimate: "estimate" });
-  });
-
-  it("leaves out channel spend when there was none, and names a channel kept in another currency", () => {
-    expect(spendWeekTiles({ aiUsage: { amountMinor: 420, currency: "USD" }, channel: { amountMinor: 0, currency: "GBP", otherCurrencies: [] } }, false, noop).map((t) => t.label)).toEqual([SPEND_WORDS.ai]);
-    const mixed = spendWeekTiles({ aiUsage: { amountMinor: 420, currency: "USD" }, channel: { amountMinor: 0, currency: "GBP", otherCurrencies: [{ currency: "EUR", amountMinor: 900 }] } }, false, noop);
-    expect(mixed[1]!.caption).toMatch(/plus spend in EUR, not added/);
-  });
-
-  it("is one combined figure for a business in dollars", () => {
-    const tiles = spendWeekTiles({ aiUsage: { amountMinor: 420, currency: "USD" }, channel: { amountMinor: 1_000, currency: "USD", otherCurrencies: [] } }, false, noop);
-    expect(tiles).toHaveLength(1);
-    expect(tiles[0]).toMatchObject({ label: SPEND_WORDS.combined, value: { amountMinor: 1_420, currency: "USD" }, estimate: "estimate" });
-  });
-
-  it("says Not known yet, never a zero, without the figures", () => {
-    expect(spendWeekTiles(null, false, noop)[0]).toMatchObject({ value: "Not known yet" });
-    expect(spendWeekTiles(undefined, true, noop)[0]).toMatchObject({ value: null, loading: true });
   });
 });
 

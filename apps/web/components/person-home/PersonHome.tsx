@@ -15,11 +15,12 @@
  *   on a wide one to `/new` (the doors). Each concept's Continue still offers the link by email on a small screen
  *   (`EmailMeALink`; WP-03 T3).
  */
-import { ArrowRight, Inbox, Lightbulb, Users } from "lucide-react";
+import { ArrowRight, Globe, Inbox, Lightbulb, Users } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Icon, Panel, isViewportTooSmall, useViewportWidth, type IconComponent } from "@foundmill/dugout";
 import { plural } from "@/lib/format";
+import { accountRoutes } from "@/lib/account-routes";
 import { useTRPC } from "@/lib/trpc-react";
 import { LinkButton } from "@/components/new/LinkButton";
 import { StudioFrame } from "@/components/new/StudioFrame";
@@ -162,7 +163,7 @@ export function PersonHome({ viewer, displayName, liveMode }: PersonHomeProps) {
           icon={Users}
           kicker="If you want company"
           title="Find a project or people"
-          lede="Join someone's project, or meet people to build yours with. Only if you want to: you can do all of it on your own."
+          lede="Find people by what they are good at, and see what others are building. Only if you want to: you can do all of it on your own."
           action={
             <LinkButton
               variant="default"
@@ -176,6 +177,13 @@ export function PersonHome({ viewer, displayName, liveMode }: PersonHomeProps) {
           }
         />
         ) : null}
+      </div>
+
+      {/* The person's own page at /u/<handle> (package 2.3): a link for everyone, never a step or a nudge. */}
+      <div className="mt-gutter flex justify-end">
+        <LinkButton variant="ghost" size="sm" href={accountRoutes.publicProfile} icon={Globe} className="min-h-tap" data-testid="home-public-profile-link">
+          Your public page
+        </LinkButton>
       </div>
 
       {waiting.length > 0 ? (

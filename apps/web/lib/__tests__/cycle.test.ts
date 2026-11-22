@@ -3,7 +3,7 @@ import { EMPTY_CYCLE, cycleFromSnapshot, initialCycle, nextPulseKey, reduceCycle
 
 const deptOf = (agentId: string) => ({ a1: "d1", a2: "d2" })[agentId];
 
-describe("cycle status", () => {
+describe("round of work status", () => {
   it("adopts the API's cycle.status snapshot", () => {
     const s = cycleFromSnapshot({ running: true, paused: false, cycleId: "c9", cycleNumber: 9, activeDepartmentIds: ["d1"], activeAgentIds: ["a1"], completedCount: 8, lastCompletedAt: "2026-10-06T10:00:00.000Z", lastOutcome: "completed" });
     expect(s).toEqual({ running: true, paused: false, cycleId: "c9", cycleNumber: 9, activeDepartmentIds: ["d1"], activeAgentIds: ["a1"], completedCount: 8, lastCompletedAt: "2026-10-06T10:00:00.000Z", lastOutcome: "completed", run: false, runId: null });
@@ -12,7 +12,7 @@ describe("cycle status", () => {
     expect(cycleFromSnapshot({ running: false, run: null })).toMatchObject({ run: false, runId: null });
   });
 
-  it("follows a run (Nov 7, 2026): open from cycle.run_started across its cycles until cycle.run_ended of the same run", () => {
+  it("follows a run (Nov 7, 2026): open from cycle.run_started across its rounds of work until cycle.run_ended of the same run", () => {
     let s = reduceCycleEvent(EMPTY_CYCLE, { type: "cycle.run_started", payload: { runId: "r1", firstCycleNumber: 3 } });
     expect(s).toMatchObject({ run: true, runId: "r1", running: false });
     s = reduceCycleEvent(s, { type: "cycle.started", payload: { cycleId: "c3", cycleNumber: 3 } });
@@ -26,7 +26,7 @@ describe("cycle status", () => {
     expect(reduceCycleEvent(s, { type: "agents.stopped" })).toMatchObject({ run: false });
   });
 
-  it("pause and resume are local transitions; a new cycle clears the pause", () => {
+  it("pause and resume are local transitions; a new round of work clears the pause", () => {
     const running = cycleFromSnapshot({ running: true, cycleId: "c1" });
     const paused = setPaused(running, true);
     expect(paused).toMatchObject({ running: true, paused: true });
@@ -64,8 +64,8 @@ describe("cycle status", () => {
   });
 });
 
-describe("Continue's pulse (audit WEB-15: it pulsed on every load of a business with finished cycles)", () => {
-  it("starts from the snapshot the page arrived with, so finished cycles are counted from the first render", () => {
+describe("Continue's pulse (audit WEB-15: it pulsed on every load of a business with finished rounds of work)", () => {
+  it("starts from the snapshot the page arrived with, so finished rounds of work are counted from the first render", () => {
     expect(initialCycle({ running: false, completedCount: 3 }).completedCount).toBe(3);
     expect(initialCycle(undefined)).toBe(EMPTY_CYCLE);
   });

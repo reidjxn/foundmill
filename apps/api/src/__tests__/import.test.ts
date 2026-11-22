@@ -213,7 +213,7 @@ describe("import.start / import.status — Door B (BUILD §11.1, AC-11.1.5)", ()
   it("Door B commit stores the sources as not read and starts importBusiness to read them", async () => {
     const userId = await hz.h.createUser("door-b-commit@test.local");
     const caller = hz.caller({ userId, email: "door-b-commit@test.local" });
-    await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", targetMarkets: ["Nordics"], riskAppetite: "medium", budgetMinor: 2_500_000 });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", timeCommitment: "full_time", residence: "United States", experience: "first-time", targetMarkets: ["Nordics"], riskAppetite: "medium", budgetMinor: 2_500_000 });
     const started = await caller.import.start({ sources: [{ key: "github", value: "acme/ledgerly" }, { key: "bank", value: "" }], stepMs: 1 });
     await sleep(20);
     const generated = await caller.idea.generate({ prompt: "Ledgerly", archetypeHint: "b2b_saas", single: true, importJobId: started.job.id });

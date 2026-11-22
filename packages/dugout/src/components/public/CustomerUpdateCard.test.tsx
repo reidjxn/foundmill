@@ -10,6 +10,7 @@ const props: CustomerUpdateCardProps = {
   occurredOn: "2026-11-12",
   leadChannelKey: "seo",
   standoutAgent: "Search Writer",
+  verified: true,
   brandPrimary: "#2f7d6b",
   brandSecondary: "#f4efe6",
   pageHref: "/p/northwind",
@@ -26,7 +27,20 @@ describe("CustomerUpdateCard", () => {
     // A date, never a time of day.
     expect(time.getAttribute("dateTime")).toBe("2026-11-12");
     expect(document.querySelector("[data-verified]")!.textContent).toBe(`Verified by ${APP_NAME}`);
-    expect(screen.getByText(`${APP_NAME} recorded this when the project's payment provider reported the payment. It was not typed in.`)).toBeTruthy();
+    expect(screen.getByText(`${APP_NAME} recorded this payment when it arrived. It was not typed in.`)).toBeTruthy();
+  });
+
+  it("a payment that is not verified says where it comes from and never says Verified (a pasted Stripe key; founder, Nov 22, 2026)", () => {
+    render(<CustomerUpdateCard {...props} verified={false} />);
+    expect(document.querySelector("[data-verified]")).toBeNull();
+    expect(document.querySelector("[data-recorded]")!.textContent).toBe("Recorded from the founder's Stripe account.");
+    expect(document.body.textContent).not.toMatch(/Verified|not typed in/);
+  });
+
+  it("never claims to be verified unless told", () => {
+    const { verified: _v, ...rest } = props;
+    render(<CustomerUpdateCard {...rest} />);
+    expect(document.querySelector("[data-verified]")).toBeNull();
   });
 
   it("names the lead channel by its display name and the standout agent as an AI agent", () => {

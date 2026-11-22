@@ -18,11 +18,14 @@ import { ideaRouter } from "./routers/idea";
 import { ideaBoxRouter, waitlistRouter } from "./routers/idea-box";
 import { importRouter } from "./routers/import";
 import { inboxRouter, planRouter } from "./routers/inbox";
+import { browserRouter, browserStepRouter } from "./routers/browser";
 import { integrationsRouter, keysRouter } from "./routers/integrations";
 import { journeyRouter } from "./routers/journey";
 import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
+import { operatorRouter, reportRouter } from "./routers/report";
 import { pageRouter, publicPageRouter } from "./routers/page";
+import { bookingRouter, publicBookingRouter } from "./routers/booking";
 import { siteRouter } from "./routers/site";
 import { payLinkRouter } from "./routers/pay-link";
 import { pageQuizRouter, publicQuizRouter } from "./routers/page-quiz";
@@ -59,6 +62,9 @@ export const appRouter = router({
   site: siteRouter,
   payLink: payLinkRouter,
   publicPage: publicPageRouter,
+  // Foundmill's own booking (founder, Nov 22, 2026): the console's setup and list, and the signed-out booking page.
+  booking: bookingRouter,
+  publicBooking: publicBookingRouter,
   // The optional quiz on a public page (0105): the console's review, approve and on/off, and the signed-out read and count.
   pageQuiz: pageQuizRouter,
   positioning: positioningRouter,
@@ -84,9 +90,14 @@ export const appRouter = router({
   legal: legalRouter,
   crm: crmRouter,
   integrations: integrationsRouter,
+  // The hosted browser: Working now's sessions and their controls, and a hard-gate note's page-before screenshot.
+  browser: browserRouter,
+  browserStep: browserStepRouter,
   keys: keysRouter,
   billing: billingRouter,
   live: liveRouter,
+  report: reportRouter,
+  operator: operatorRouter,
 });
 
 export type AppRouter = typeof appRouter;

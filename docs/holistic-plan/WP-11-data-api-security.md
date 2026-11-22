@@ -60,10 +60,10 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 | [ ] | T1 Real Postgres in CI | M | F1 after merge |
 | [ ] | T2 A failed migration fails readiness | S | |
 | [ ] | T3 Backup and restore runbook | S | F2 (founder) |
-| [ ] | T4 Advisor test, pinned service-only tables, `search_path` migration | S | T1 |
-| [ ] | T5 Migration: `auth.uid()` once per statement | S | T1 |
+| [x] | T4 Advisor test, pinned service-only tables, `search_path` migration | S | T1 |
+| [x] | T5 Migration: `auth.uid()` once per statement | S | T1 |
 | [ ] | T6 Migration: split the `for all` write policies | M | T1, T2 |
-| [ ] | T7 Migration: six foreign-key indexes | S | T1 |
+| [x] | T7 Migration: six foreign-key indexes | S | T1 |
 | [ ] | T8 `bak_20261013` and the production schema check | S | F3, WP-00 S16 (founder) |
 | [ ] | T9 Demo data out of every cross-project number | S | F3 |
 | [ ] | T10 Measure the api under 100 Today loads | M | F3, F4 |
@@ -158,7 +158,7 @@ Steps:
 4. Record per-table retention as it is today (everything kept) and the two triggers in "Accepted for now" (outbox rows, `journey_daily_mv`).
 Tests: none (documents). Done when: the blanks are filled and one drill is dated in §6, before T6 is deployed.
 
-### T4: Advisor test, pinned service-only tables, `search_path` migration            [size S] [ships alone] Review: security-reviewer
+### [x] T4: Advisor test, pinned service-only tables, `search_path` migration            [size S] [ships alone] Review: security-reviewer
 Why: A8-05, A8-19. The repo has exactly 13 functions without a `search_path` (checked against all 96 migrations; none is `security definer`).
 Files: create `packages/db/migrations/0108_function_search_path.sql`, `packages/db/src/__tests__/rls/advisors.test.ts`; modify `meta/_journal.json`, `packages/db/src/__tests__/rls/tables.ts`, `packages/db/CLAUDE.md` (one line: every new function sets `search_path`; the service-only list lives in `tables.ts`).
 Interfaces: consumes `createTestDb()`, `h.db.execute(sql…)`. Produces `SERVICE_ONLY_TABLES: readonly string[]` in `tables.ts`, each with a comment naming its migration: `account_admissions` (0091), `account_outbox` (0085), `attributions` (0088), `credentials` (0011), `founder_cancel_links` (0097), `idea_drafts`, `waitlist_entries` (0086), `person_handle_releases` (0080), `persona_portraits` (0067), `retired_mail_local_parts` (0078).
@@ -171,7 +171,7 @@ Note for T5 and T6: `create or replace function` resets what `alter function …
 Tests: `rls/advisors.test.ts` (a) no function without a `search_path`, (b) the policy-less tables are exactly the ten and no client role reads them, (c) every table has RLS on; `packages/db/src/seed/__tests__/roll-forward.test.ts` unchanged and green.
 Done when: the advisor's 13 are gone on a database migrated from `main`, and an eleventh policy-less table fails the suite.
 
-### T5: Migration: `auth.uid()` once per statement            [size S] [ships alone] Review: security-reviewer
+### [x] T5: Migration: `auth.uid()` once per statement            [size S] [ships alone] Review: security-reviewer
 Why: A8-03. 45 policies: 39 written by hand and 6 from `fm_idea_table` (`0002_accounts_businesses_ideas.sql:145-158`). No policy on `main` contains `select auth.uid()` today, so one textual pass is safe.
 Files: create `packages/db/migrations/0109_rls_initplan.sql`; modify `meta/_journal.json`, `advisors.test.ts`.
 Interfaces: consumes `pg_policies` (`qual`, `with_check` as Postgres prints them) and `fm_idea_table(tbl text)`; produces no new name: the same policies and the same helper signature.
@@ -191,7 +191,7 @@ begin
   end loop;
 end $$;
 ```
-Then, in the same file, `create or replace function fm_idea_table(tbl text)` with the body of 0002 unchanged except that each `auth.uid()` reads `(select auth.uid())` and the header carries `set search_path = pg_catalog, public, pg_temp`, so the helper cannot bring the old form back.
+Then, in the same file, `create or replace function fm_idea_table(tbl text)` with the body of 0156's split helper (not 0002's `for all`) unchanged except that each `auth.uid()` reads `(select auth.uid())` and the header carries `set search_path = pg_catalog, public, pg_temp`, so the helper cannot bring the old form back.
 Steps:
 1. Add to `advisors.test.ts`: policies where `regexp_replace(coalesce(qual, ''), 'select\s+auth\.uid\(\)', '', 'gi') ~ 'auth\.uid\(\)'`, or the same on `with_check`: `[]`. And one plan check: `explain (costs off) select 1 from founder_profiles` run with `h.asUser(userId)` contains `InitPlan`. verify: the first fails listing 45 policies on 28 tables (the 25 tables `audits/e0-production-evidence.md` names plus `founder_departures`, `inbox_items`, `showcase_consents`).
 2. Add the migration. verify: `test:rls` green on both engines with no other test edited: this task changes no rule, only when the function is evaluated.
@@ -254,7 +254,7 @@ Steps:
 Tests: `advisors.test.ts` (no table outside the allow-list has two permissive policies for one command; a table made by the helper is born split); `people-roles.test.ts` and `founder-departures.test.ts` edited as named; `cross-tenant.test.ts` unchanged.
 Done when: the advisor's 320 fall to the allow-listed tables, and no suite changed what a role may read or write.
 
-### T7: Migration: six foreign-key indexes            [size S] [ships alone]
+### [x] T7: Migration: six foreign-key indexes            [size S] [ships alone]
 Why: A8-18. Each of the six already has an index led by its first column, so no query gets faster: this clears the lint so the next real finding is visible. The six new indexes will sit under "unused index" until used.
 Files: create `packages/db/migrations/0111_fk_indexes.sql`; modify `meta/_journal.json`, `advisors.test.ts`, and the mirror: `packages/db/src/schema/governance.ts` (`account_outbox`), `conversations.ts` (`agent_messages`), `inbox.ts` (`inbox_item_reads`), `showcase.ts` (`showcase_consents`: replace `showcase_consents_inbox_item_id_idx`), `team-calls.ts` (two).
 Interfaces: none beyond the index names below, each mirrored with `index("<name>").on(…)` in its schema file.
@@ -538,7 +538,7 @@ Each line goes into T19's DECISIONS entry with its trigger.
 ```
 You are executing docs/holistic-plan/WP-11-data-api-security.md in the Foundmill repository, in this cloud session. Never build or test on the founder's machine.
 
-Read first, in this order: CLAUDE.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-11-data-api-security.md in full; packages/db/CLAUDE.md, apps/api/CLAUDE.md, apps/gateway/CLAUDE.md, apps/ingest/CLAUDE.md; then, for the task in hand only, the finding it cites in docs/holistic-plan/audits/ (a8-data-api-security.md, a7-models-gateway-economics.md §1.5 and A7-15/A7-16, a11-roadmap-status.md §5 C and §7, e0-production-evidence.md) and the decisions it names (node scripts/decisions-index.mjs <words>, then only the printed range of docs/DECISIONS.md). Where the plan and the code disagree, the code is right: say so in the pull request and fix the plan in the same change.
+Read first, in this order: FOUNDMILL.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-11-data-api-security.md in full; packages/db/CLAUDE.md, apps/api/CLAUDE.md, apps/gateway/CLAUDE.md, apps/ingest/CLAUDE.md; then, for the task in hand only, the finding it cites in docs/holistic-plan/audits/ (a8-data-api-security.md, a7-models-gateway-economics.md §1.5 and A7-15/A7-16, a11-roadmap-status.md §5 C and §7, e0-production-evidence.md) and the decisions it names (node scripts/decisions-index.mjs <words>, then only the printed range of docs/DECISIONS.md). Where the plan and the code disagree, the code is right: say so in the pull request and fix the plan in the same change.
 
 Work one task at a time, in the order of the table under "## Tasks", starting with T1. For each task: run the plan-change skill (other branches, the next free migration number); branch claude/wp11-t<n>; write the failing test the task names; make it pass with the smallest change; run its verify lines; for a migration, run pnpm --filter @foundmill/db test:rls on PGlite and again with RLS_TEST_DATABASE_URL on the cluster from scripts/ci/supabase-like.sql; where the task says "Review: security-reviewer", run that agent on the diff and put its findings in the pull request; run verify-done; add one line to docs/PROGRESS.md, tick the task in the plan, open the pull request, and stop. Do not merge and do not push to main.
 

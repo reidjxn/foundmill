@@ -9,6 +9,7 @@ import { loadEnv, type Env } from "@foundmill/shared";
 import type { FetchLike } from "./http";
 import type { BusinessResolver } from "./webhooks";
 import type { PlatformHost } from "./connectors/platform/tools";
+import type { BrowserHost } from "./connectors/browser";
 
 export interface PlatformSecrets {
   anthropicApiKey?: string;
@@ -24,8 +25,14 @@ export interface PlatformSecrets {
   e2bApiKey?: string;
   stripeSecretKey?: string;
   stripeWebhookSecret?: string;
+  /** Stripe Connect: the platform's OAuth client id (`ca_…`) and, when it differs from STRIPE_SECRET_KEY, its secret key. */
   stripeConnectClientId?: string;
+  stripeConnectSecretKey?: string;
   sendgridApiKey?: string;
+  /** OpenSRS reseller username and API key (the `opensrs` connector), and which of its two hosts: test or live. */
+  opensrsUsername?: string;
+  opensrsApiKey?: string;
+  opensrsEnv?: string;
   sendgridWebhookPublicKey?: string;
   /** Shared token the Inbound Parse URL carries as `?token=`; Inbound Parse has no signature scheme. */
   sendgridInboundToken?: string;
@@ -54,6 +61,12 @@ export interface PlatformSecrets {
   notionClientId?: string;
   notionClientSecret?: string;
   dropboxSignApiKey?: string;
+  /** Remote MCP servers (founder, 2026-11-19): the secret the PKCE verifiers derive from, and Foundmill's pre-registered OAuth client at each vendor. */
+  mcpOauthSecret?: string;
+  notionMcpClientId?: string;
+  hubspotMcpClientId?: string;
+  hubspotMcpClientSecret?: string;
+  shopifyMcpClientId?: string;
 }
 
 /**
@@ -78,7 +91,11 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   set("stripeSecretKey", env.STRIPE_SECRET_KEY);
   set("stripeWebhookSecret", env.STRIPE_WEBHOOK_SECRET);
   set("stripeConnectClientId", env.STRIPE_CONNECT_CLIENT_ID);
+  set("stripeConnectSecretKey", env.STRIPE_CONNECT_SECRET_KEY);
   set("sendgridApiKey", env.SENDGRID_API_KEY);
+  set("opensrsUsername", env.OPENSRS_USERNAME);
+  set("opensrsApiKey", env.OPENSRS_API_KEY);
+  set("opensrsEnv", env.OPENSRS_ENV);
   set("sendgridWebhookPublicKey", env.SENDGRID_WEBHOOK_PUBLIC_KEY);
   set("sendgridInboundToken", env.SENDGRID_INBOUND_TOKEN);
   set("githubAppId", env.GITHUB_APP_ID);
@@ -105,10 +122,27 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   set("notionClientId", env.NOTION_CLIENT_ID);
   set("notionClientSecret", env.NOTION_CLIENT_SECRET);
   set("dropboxSignApiKey", env.DROPBOX_SIGN_API_KEY);
+  set("mcpOauthSecret", env.MCP_OAUTH_SECRET);
+  set("notionMcpClientId", env.NOTION_MCP_CLIENT_ID);
+  set("hubspotMcpClientId", env.HUBSPOT_MCP_CLIENT_ID);
+  set("hubspotMcpClientSecret", env.HUBSPOT_MCP_CLIENT_SECRET);
+  set("shopifyMcpClientId", env.SHOPIFY_MCP_CLIENT_ID);
   return s;
 }
 
+/**
+ * The sandbox behind the `cli_*` connectors (CLI-Anything): the gateway runs one command in the business's sandbox with
+ * egress closed (packages/sandbox `runCliAnything`) and, on a founder's approval, moves one finished file out of the
+ * working folder (`release`). Absent: those connectors say they are not configured.
+ */
+export interface CliRunner {
+  run(input: { businessId: string; program: "inkscape" | "libreoffice" | "ffmpeg" | "gimp"; argv: string[]; folder: string }): Promise<{ ok: boolean; summary: string; stderr: string; produced: { path: string; bytes: number }[] }>;
+  release(input: { businessId: string; folder: string; path: string; target: "logo" }): Promise<{ released: boolean; target: "logo"; path: string; where: string }>;
+}
+
 export interface LiveConnectorOptions {
+  /** The sandbox runner behind `cli_inkscape`, `cli_libreoffice`, `cli_ffmpeg` and `cli_gimp`; the gateway provides it. */
+  cliRunner?: CliRunner;
   secrets?: PlatformSecrets;
   /** Injected for tests of the live code paths; defaults to global fetch. */
   fetch?: FetchLike;
@@ -132,6 +166,8 @@ export interface LiveConnectorOptions {
    * The web search behind live `web.search_web` (WP-09 T3): the gateway's platform model client, which asks the
    * business's credits first and books the search's tokens and fee to the caller. Absent: live search is not available.
    */
+  /** The hosted browser's host hooks (sessions, the step record, project files); the gateway provides them. */
+  browser?: BrowserHost;
   searchWeb?: (input: { businessId: string; agentId?: string; sessionId?: string; query: string; limit: number }) => Promise<{ url: string; title: string; pageAge: string | null }[]>;
 }
 

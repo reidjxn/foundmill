@@ -374,7 +374,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 ## Starting prompt
 
 ```
-You are executing docs/holistic-plan/WP-04-the-first-session.md. Read, in order: CLAUDE.md; docs/holistic-plan/README.md; the work package; the CLAUDE.md of each package the next task touches; and the audit sections the task cites under docs/holistic-plan/audits/. Line numbers have drifted: find each citation by the function or string it names.
+You are executing docs/holistic-plan/WP-04-the-first-session.md. Read, in order: FOUNDMILL.md; docs/holistic-plan/README.md; the work package; the CLAUDE.md of each package the next task touches; and the audit sections the task cites under docs/holistic-plan/audits/. Line numbers have drifted: find each citation by the function or string it names.
 
 Take the first unticked task in the order the package gives (T1, T2, T3, T6, T5, T4, T7, T8, then T9 to T16). For that task: run plan-change (other branches, next free migration number); state your assumptions; write the failing test the task names; make the smallest change that passes it; run verify-done and report every check with its result. One task is one pull request on branch claude/wp04-t<n>; never push to main and never merge. Tick the task in the work package file, add one line to docs/PROGRESS.md and any judgment call to docs/DECISIONS.md in the same pull request.
 

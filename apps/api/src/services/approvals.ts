@@ -28,6 +28,7 @@ import { assertMayResolveApproval } from "./approver";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
+import { entryPlanOpen } from "./payments";
 
 export type ApprovalOutcome = "approved" | "rejected";
 
@@ -124,7 +125,7 @@ export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, appro
     // The session's wait ran out before the answer: the task runs again, and its gated call goes on under this approval.
     if (task.status === "blocked") task = await repos.tasks.setStatus(tx, ctx.businessId, task.id, "ready", { force: true });
     wantsCycle = task.status === "ready";
-    next = stop.stopped ? `${quoted(task.title)} runs again once the agents are resumed.` : `${quoted(task.title)} runs again on the next cycle.`;
+    next = stop.stopped ? `${quoted(task.title)} runs again once the agents are resumed.` : `${quoted(task.title)} runs again on the next round of work.`;
   } else if (task && outcome === "rejected") {
     task = await repos.tasks.setStatus(tx, ctx.businessId, task.id, "blocked", { force: true });
     followUp = await rejectionNote(tx, ctx, approval, task, agent, action, note);
@@ -152,7 +153,7 @@ async function rejectionNote(tx: DbTx, ctx: BusinessContext, approval: Approval,
   const body = [
     // The agent as markup with its stored name: each reader sees it under their own preference (One name everywhere).
     `You rejected the request${agent && agentMention(agent) ? ` from ${agentMention(agent)}` : ""} to run **${action}**${reason ? `, saying: “${reason}”` : ""}.`,
-    `${quoted(task.title)} stays blocked: the next cycles leave it alone, and nothing runs in its place. Start it again from the Plan when it should try another way.`,
+    `${quoted(task.title)} stays blocked: the next rounds of work leave it alone, and nothing runs in its place. Start it again from the Plan when it should try another way.`,
   ].join("\n\n");
   const item = await repos.inbox.createItem(tx, ctx.businessId, { type: "update", from_agent_id: chief.id, subject: `${task.title} stays blocked`.slice(0, 80), body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: eventId ? [eventId] : [], entity_ids: [] });
   if (eventId) await repos.events.markNarrated(tx, ctx.businessId, [eventId]);
@@ -246,7 +247,7 @@ export async function deliverApprovalAnswer(ctx: BusinessContext, recorded: Reco
   if (approval.planActionId || !approval.sessionId || !recorded.sessionWaiting) signalled.push(await ctx.temporal.signal(workflowIds.approval(approval.id), SIGNALS.decision, decision));
   const cycle = recorded.wantsCycle ? await cycleForApprovedTask(ctx, recorded.stopped) : null;
   // The answer is stored either way; do not claim the session carries on when it could not be told.
-  const summary = toSession && !toSession.queued ? `${recorded.summary} The team could not be told right now: the answer is saved and the task goes on at the next cycle.` : recorded.summary;
+  const summary = toSession && !toSession.queued ? `${recorded.summary} The team could not be told right now: the answer is saved and the task goes on at the next round of work.` : recorded.summary;
   return { approvalId: approval.id, outcome, summary, signalled, sessionWaiting: recorded.sessionWaiting, task: recorded.task, cycle, note: recorded.followUp };
 }
 
@@ -258,11 +259,12 @@ export async function deliverApprovalAnswer(ctx: BusinessContext, recorded: Reco
  */
 async function cycleForApprovedTask(ctx: BusinessContext, stopped: boolean): Promise<{ started: boolean; workflowId: string | null; reason: string | null }> {
   if (stopped) return { started: false, workflowId: null, reason: "agents are stopped; the task runs once they are resumed" };
+  if (!(await entryPlanOpen(ctx.db, ctx.env, ctx.businessId))) return { started: false, workflowId: null, reason: "the team starts working once you subscribe in Settings › Billing" };
   const status = await cycleStatus(ctx);
-  if (status.running) return { started: false, workflowId: status.workflowId, reason: "a cycle is running; the next one picks the task up" };
+  if (status.running) return { started: false, workflowId: status.workflowId, reason: "a round of work is running; the next one picks the task up" };
   const state = await continueStateFor(ctx, status);
-  if (state.kind === "holiday") return { started: false, workflowId: null, reason: "the Chief of Staff runs the cycles while you are on vacation" };
-  if (state.kind === "blocked") return { started: false, workflowId: null, reason: `${state.count} other Inbox item${state.count === 1 ? "" : "s"} wait for you before the next cycle` };
+  if (state.kind === "holiday") return { started: false, workflowId: null, reason: "the Chief of Staff runs the rounds of work while you are on vacation" };
+  if (state.kind === "blocked") return { started: false, workflowId: null, reason: `${state.count} other Inbox item${state.count === 1 ? "" : "s"} wait for you before the next round of work` };
   const cycleNumber = status.nextCycleNumber;
   const workflowId = workflowIds.cycle(ctx.businessId, cycleNumber);
   // Round 1 of a free project on credits is capped wherever it starts (WP-09 T11).
@@ -437,6 +439,19 @@ export async function releaseReview(tx: DbTx | Db, businessId: string, approval:
 }
 
 /**
+ * The step a hosted-browser hard stop is about: the one the gateway named in the approval's arguments, else the newest
+ * hard-gate step the approval's own session recorded on its site; null when none was kept.
+ */
+async function browserStepOf(tx: DbTx, businessId: string, approval: Approval): Promise<{ stepId: string; siteKey: string } | null> {
+  const siteKey = (approval.connectorKey ?? "").slice("browser_".length);
+  const named = (approval.args as { stepId?: unknown } | null)?.stepId;
+  if (typeof named === "string" && /^[0-9a-f-]{36}$/.test(named)) return { stepId: named, siteKey };
+  const steps = await repos.browserSteps.listForSession(tx, businessId, approval.sessionId!);
+  const step = steps.filter((s) => s.siteKey === siteKey && s.class === "hard_gate" && s.hasScreenshot).at(-1);
+  return step ? { stepId: step.id, siteKey } : null;
+}
+
+/**
  * What exactly the call would run, with what the arguments only name loaded (a campaign and its drafts), for the reading
  * pane's "What exactly" block (first-time founder report, Nov 8, 2026). Walled from the section the call changes, the
  * founder's walls hide it as they hide the arguments; walled from Finance, every figure is masked.
@@ -483,6 +498,8 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
   // A GitHub call: whether there is anywhere for it to run (null for every other call).
   // A collaborator reads no integration (0094): for them the pane says nothing about where the call would run.
   const githubConnected = approval.connectorKey === "github" && ctx.role !== "collaborator" ? integrationConnected(await repos.integrations.getByKey(tx, ctx.businessId, "github")) : null;
+  // A hard stop in a website the team works in (hosted browser): the step it stopped at, whose screenshot is the page as it was.
+  const browserStep = approval.connectorKey?.startsWith("browser_") && approval.sessionId && !argsWalled ? await browserStepOf(tx, ctx.businessId, approval) : null;
   // A batched note: every request it covers, each with what it would run, so the pane can show one expander per channel.
   const agents = linked.length > 1 ? new Map((await repos.agents.list(tx, ctx.businessId, { limit: 500 })).items.map((a) => [a.id, a])) : null;
   const batch =
@@ -531,6 +548,8 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
     what,
     /** A GitHub call with no repository connected has nowhere to run: the pane says so and points to Settings › Integrations. */
     githubConnected,
+    /** The step a hosted-browser hard stop is about (`browserStep.get` reads its page); null for every other request. */
+    browserStep,
     /** Every request a batched note covers (empty for an ordinary note): one answer decides them all. */
     batch,
   };

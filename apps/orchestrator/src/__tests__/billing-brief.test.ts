@@ -3,6 +3,7 @@
  * already open, its budget is the business's credits in US dollars (the tier's included credits before the first charge
  * of a month; none for a business on its own key), a full plan defers every start, and a small balance still runs work.
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { CREDITS_CURRENCY, includedCreditsMinor, TIERS } from "@foundmill/config";
 import { periodOf, repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -39,12 +40,11 @@ describe("loadBrief: the plan tier and credits", () => {
     await repos.businesses.update(t.db, t.businessId, { modelBilling: "credits" });
   });
 
-  it("with this month's credits used up, the brief has no budget and the cycle plan drafts nothing on the platform's key", async () => {
+  it("with this month's credits used up, the brief has no budget and the round of work plan drafts nothing on the platform's key", async () => {
     const { loadBrief } = createBriefActivities(t.deps);
     const { planCycle } = createCycleActivities(t.deps);
     const period = periodOf(t.deps.clock.now());
-    const { balance } = await repos.usage.ensurePeriodCredits(t.db, t.businessId, period, includedCreditsMinor("free"));
-    await repos.usage.chargeCredits(t.db, t.businessId, period, Number(balance.balanceMinor));
+    await spendAllCredits(t.db, t.businessId, period);
     try {
       const brief = await loadBrief({ businessId: t.businessId });
       expect(brief.budgetRemainingMinor).toBe(0);
@@ -60,7 +60,7 @@ describe("loadBrief: the plan tier and credits", () => {
     }
   });
 
-  it("with every slot of the plan in use, the cycle plan defers each start", async () => {
+  it("with every slot of the plan in use, the round of work plan defers each start", async () => {
     const { loadBrief } = createBriefActivities(t.deps);
     const { planCycle } = createCycleActivities(t.deps);
     let brief = await loadBrief({ businessId: t.businessId });

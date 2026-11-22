@@ -38,6 +38,7 @@ import {
   PLATFORM_MAIL_KEY,
   readForQuarantine,
   readableContent,
+  remoteHardGateCall,
   toAgentEnvelope,
   type Connector,
   type ConnectorMode,
@@ -58,7 +59,9 @@ import { grantsOutboundTools, READER_UNAVAILABLE, type UntrustedReader } from ".
 import { decideFirstParty, FIRST_PARTY_REPO_TOOLS, type RepoMetadataCache } from "./code-repository";
 import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
-import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
+import { AGENTS_STOPPED_POLICY_ID, BUSINESS_ARCHIVED_POLICY_ID, checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
+import type { BrowserSessions } from "@foundmill/connectors";
+import { stopBrowserSessions } from "./browser";
 import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
 import { ownSenderUnsubscribeUrl, platformMailSwitchRefusal, preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
 import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallRequestParsed, type CallResponse, type DenyResponse, type RateLimitedResponse } from "./types";
@@ -90,6 +93,10 @@ export interface GatewayDeps {
    */
   reader?: UntrustedReader;
   log: GatewayLogger;
+  /** The entry plan's recurring Stripe price (`STRIPE_ENTRY_PRICE_ID`, WP-09 T16); unset, a live entry-plan checkout answers 503. */
+  entryPriceId?: string;
+  /** `PAID_ENTRY` (WP-09 T16): sign-up is paid entry, so an owner's credit pack also removes the "Built on" mark. */
+  paidEntry?: boolean;
   /** Team call's streamed speech (ElevenLabs' streaming endpoint on the platform key); unset, `/v1/speech/stream` answers 503. */
   speechStreamer?: SpeechStreamer;
   now?: () => Date;
@@ -113,6 +120,8 @@ export interface GatewayDeps {
   recipientBasis?: RecipientBasisCheck;
   /** The idea box's bot check (turnstile.ts); no secret: mock on a development stack, refused elsewhere. */
   turnstile?: TurnstileConfig;
+  /** The hosted browser's live sessions (browser.ts); null or absent without the provider's key. */
+  browserSessions?: BrowserSessions | null;
 }
 
 const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();
@@ -238,6 +247,8 @@ export const SESSION_SCOPE_POLICY_ID = "session-scope";
 /** A tool its connector declares no policy hints for is refused: a missing entry must not read as "internal, never asks". */
 export const MISSING_POLICY_HINTS_POLICY_ID = "missing-policy-hints";
 export const HARD_GATE_POLICY_ID = "hard-gate";
+/** The Cedar policy that refuses mail to someone with no basis (15-mail-basis.cedar); on an unconnected connector "not connected" answers first. */
+export const MAIL_NEEDS_BASIS_POLICY_ID = "mail-needs-basis";
 /** The Cedar policy that forbids a call the gateway recognised as a security-settings change (security-settings.ts). */
 export const SECURITY_SETTINGS_POLICY_ID = "hard-gate-security-settings";
 export const AUDIT_ACTION_TOOL_CALL = "tool.call";
@@ -358,6 +369,16 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
     return { status: 403, body: { outcome: "deny", reasons, policyIds: [MISSING_POLICY_HINTS_POLICY_ID], costMinor: 0, auditId: audit.id } };
   }
 
+  // 2c. A remote MCP server's unlisted tool whose name would move money, sign, accept terms, delete permanently or change
+  // security settings is a hard gate: denied before anyone is asked (the tool is not on Foundmill's list for that server).
+  const gatedRemote = remoteHardGateCall(connector.key, tool.name, args);
+  if (gatedRemote) {
+    const reasons = [`${gatedRemote} on ${connector.displayName} would move money, sign, accept terms, delete permanently or change security settings: only the founder does that, at ${connector.displayName}`];
+    const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [HARD_GATE_POLICY_ID] });
+    log.info({ remoteTool: gatedRemote }, "tool call refused: hard-gated remote tool");
+    return { status: 403, body: { outcome: "deny", reasons, policyIds: [HARD_GATE_POLICY_ID], costMinor: 0, auditId: audit.id } };
+  }
+
   // 3. Rate limit per connector per business.
   const limit = await checkRateLimit(deps.rateLimits, { businessId, connector: connector.key, limits: connector.rateLimits ?? {} }, now().getTime());
   if (!limit.allowed) {
@@ -383,6 +404,8 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
       const { policyId, reasons } = e.denial;
       const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [policyId] });
       log.warn({ reasons, policyIds: [policyId] }, "tool call refused: agent or club state");
+      // Stop all agents also ends the project's browser sessions; the api asks for that too (`/v1/browser/stop`).
+      if (policyId === AGENTS_STOPPED_POLICY_ID || policyId === BUSINESS_ARCHIVED_POLICY_ID) await stopBrowserSessions(deps, { businessId }, "gateway").catch(() => undefined);
       return { status: 403, body: { outcome: "deny", reasons, policyIds: [policyId], costMinor: 0, auditId: audit.id } };
     }
     throw e;
@@ -408,7 +431,28 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
     const policyInput = await buildPolicyInput(deps, session, req, loaded, args);
     const decision = evaluate(policyInput, deps.policyEngine ?? getPolicyEngine());
 
-    if (decision.outcome === "deny") return deny(deps, session, req, loaded, decision, args, log);
+    // A connector that cannot run here (not connected, or the project's Foundmill address off) is answered as that,
+    // before the founder is asked. On a deny it is answered so only when the deny is the basis rule alone
+    // (`mail-needs-basis`), so the agent learns mail is not connected; every other deny (untrusted or suppressed
+    // recipient, spend cap, hard gate) keeps its own answer. Cedar's deny is audited either way.
+    const notRunnable = async (cedarDeny?: EvaluateResult): Promise<ToolCallResult | null> => {
+      const refused = connectionRefusal(deps, loaded, modeFor(deps, connector.key));
+      if (refused) {
+        if (cedarDeny) await appendAudit(deps, session, req, { outcome: "deny", reasons: cedarDeny.reasons, policyIds: cedarDeny.policyIds, errorCode: refused.code });
+        throw refused;
+      }
+      // The project's Foundmill address switched off here: refused as `allow` would refuse it, before anyone is asked.
+      const mailOff = connector.key === PLATFORM_MAIL_KEY ? platformMailSwitchRefusal({ config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, mode: modeFor(deps, connector.key) }) : null;
+      if (!mailOff) return null;
+      const reasons = [mailOff.reason];
+      const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons: [...reasons, ...(cedarDeny?.reasons ?? [])], policyIds: [mailOff.policyId, ...(cedarDeny?.policyIds ?? [])] });
+      log.info({ policyId: mailOff.policyId }, "tool call refused: Foundmill sending address");
+      return { status: 403, body: { outcome: "deny", reasons, policyIds: [mailOff.policyId], costMinor: 0, auditId: audit.id } };
+    };
+    if (decision.outcome === "deny") {
+      const basisOnly = decision.policyIds.length > 0 && decision.policyIds.every((id) => id === MAIL_NEEDS_BASIS_POLICY_ID);
+      return (basisOnly ? await notRunnable(decision) : null) ?? deny(deps, session, req, loaded, decision, args, log);
+    }
     if (decision.outcome === "ask") {
       // The founder already approved this very call (0030): it runs once under that approval instead of asking again,
       // whether the session still waiting retries it or the next session on the task makes it. The approval covers the
@@ -419,17 +463,7 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
         log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
         return runUnderApproval(deps, session, req, loaded, decision, args, log, now, granted);
       }
-      const refused = connectionRefusal(deps, loaded, modeFor(deps, connector.key));
-      if (refused) throw refused;
-      // The project's Foundmill address switched off here: refused as `allow` would refuse it, before anyone is asked.
-      const mailOff = connector.key === PLATFORM_MAIL_KEY ? platformMailSwitchRefusal({ config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, mode: modeFor(deps, connector.key) }) : null;
-      if (mailOff) {
-        const reasons = [mailOff.reason];
-        const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [mailOff.policyId] });
-        log.info({ policyId: mailOff.policyId }, "tool call refused before asking: Foundmill sending address");
-        return { status: 403, body: { outcome: "deny", reasons, policyIds: [mailOff.policyId], costMinor: 0, auditId: audit.id } };
-      }
-      return ask(deps, session, req, loaded, decision, args, log, now);
+      return (await notRunnable()) ?? ask(deps, session, req, loaded, decision, args, log, now);
     }
     return allow(deps, session, req, loaded, decision, args, log, now);
   };
@@ -559,7 +593,10 @@ export function policyAmountMinor(input: { spendsMoney: boolean; declaredMinor: 
 
 async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, args: unknown): Promise<EvaluateInputInput> {
   const { connector, tool, business, agent } = loaded;
-  const hints = connector.policyHints[tool.name] ?? {};
+  // The hosted browser reads the step from the page (the element behind the ref): a change the founder can undo runs,
+  // one that sends asks, one that pays or agrees is a hard gate. Unreadable: the tool's own, strictest hints stand.
+  const stepHints = connector.stepHints ? await connector.stepHints(tool.name, args, session.businessId).catch(() => null) : null;
+  const hints = stepHints ?? connector.policyHints[tool.name] ?? {};
   const attrs = toolAttributes(connector.key, tool.name);
   const autonomy = agentAutonomy(agent, business.businessMode);
 
@@ -571,6 +608,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     requiresKitMode: hints.requiresKitMode ?? false,
     irreversible: hints.irreversible ?? false,
     hardGate: hints.hardGate ?? false,
+    unclassified: hints.unclassified ?? false,
     finance: attrs.finance,
     contract: attrs.contract,
     paymentRecord: attrs.paymentRecord,
@@ -731,6 +769,9 @@ async function hardGateDescriptor(deps: GatewayDeps, session: SessionToken, load
     reason: "hard_gate",
   };
   try {
+    // A step read from the page (the hosted browser) is described only while it still reads as a hard gate: the page
+    // may have moved since the policy saw it, and nothing but a description may come out of this call.
+    if (loaded.connector.stepHints && loaded.connector.policyHints[loaded.tool.name]?.hardGate !== true && (await loaded.connector.stepHints(loaded.tool.name, args, session.businessId).catch(() => null))?.hardGate !== true) return fallback;
     const ctx: ToolContext = { businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId, integration: placeholderIntegration(loaded, modeFor(deps, loaded.connector.key)), log, mode: modeFor(deps, loaded.connector.key) };
     const result = await loaded.connector.callTool(loaded.tool.name, args, ctx);
     if (result.error?.code === "hard_gate" && result.data && typeof result.data === "object") return result.data as HumanActionDescriptor;
@@ -748,6 +789,10 @@ function placeholderIntegration(loaded: Loaded, mode: ConnectorMode): Integratio
 }
 
 async function queueApproval(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, hardGate: boolean, humanAction?: HumanActionDescriptor): Promise<{ id: string; approvedByAgent: boolean }> {
+  // A hard stop on a website (the hosted browser) is the founder's own press, and the founder hears of it in the Inbox
+  // like an ask. What it stores is what the founder needs (the site, the address, the words on the button, the amount,
+  // the step whose screenshot shows the page), never the ref: a hard gate is denied before any approval is used.
+  const websiteStop = hardGate && humanAction !== undefined && loaded.connector.stepHints !== undefined;
   const amount = req.context.amountMinor !== undefined && req.context.amountMinor > 0 ? { amountMinor: req.context.amountMinor, currency: req.context.currency ?? loaded.agent.currency } : null;
   const summary = humanAction ? `${humanAction.title}: ${humanAction.instructions}`.slice(0, 1000) : `${loaded.agent.name} wants to run ${loaded.connector.displayName} › ${loaded.tool.name}${req.context.recipient ? ` for ${req.context.recipient}` : ""}`.slice(0, 1000);
   return deps.db.transaction(async (tx) => {
@@ -759,7 +804,7 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
       ...(hardGate ? { taskId: null } : {}),
       connectorKey: loaded.connector.key,
       tool: loaded.tool.name,
-      args: argsObject(args),
+      args: argsObject(websiteStop ? humanAction.args : args),
       reasons: decision.reasons,
       ...(amount ? { amountMinor: amount.amountMinor, currency: amount.currency } : {}),
       // Routed by Team › Responsibilities (AC-11.9.2); a hard gate is always the founder's, never routed.
@@ -798,7 +843,7 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
     });
     // The founder answers an "ask" in the Inbox (audit FR-01): one decision item names the agent, the task, the call
     // and its amount, and its Approve or Reject reaches the session waiting on it. A hard gate stays a note.
-    if (!hardGate) {
+    if (!hardGate || websiteStop) {
       const { item } = await openApprovalItem(tx, session.businessId, approval, { agentId: session.agentId, agentName: loaded.agent.name, connectorName: loaded.connector.displayName, sourceEventIds: [requested.id] });
       await writeGatewayEvent(tx, {
         businessId: session.businessId,
@@ -813,6 +858,9 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
 
 function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: EvaluateResult) {
   const hints = loaded.connector.policyHints[loaded.tool.name] ?? {};
+  // A step on a website is read from the page, not from a list: only the founder approves one, never an agent the
+  // Responsibilities matrix names (security review, Nov 22, 2026).
+  if (loaded.connector.stepHints) return null;
   // A merge is a merge whatever its amount: checked before the spend threshold, so a merge carrying an amount is not routed as spend.
   if (loaded.connector.key === "github" && loaded.tool.name === "merge_pr") return "merge_to_main" as const;
   // An invoice or payment page is the founder's to approve (founder, Nov 16, 2026): never routed as spend, so an agent

@@ -17,7 +17,7 @@ import {
   reviewAgent,
 } from "./workers";
 import { CHANNEL_TEMPLATES } from "./channels";
-import { certification, costing, formulationChemist, logistics, packagingDesign, pharmacologyRegulatory, quality, sourcingManufacturing } from "./specialists";
+import { certification, costing, financialRegulatory, formulationChemist, logistics, packagingDesign, pharmacologyRegulatory, quality, sourcingManufacturing } from "./specialists";
 import { categoriser, classifier, entityLinker, moderation, triage } from "./utilities";
 
 export * from "./chief_of_staff";
@@ -51,6 +51,7 @@ export const SPECIALIST_TEMPLATES: readonly AgentTemplate[] = Object.freeze([
   sourcingManufacturing,
   formulationChemist,
   pharmacologyRegulatory,
+  financialRegulatory,
   certification,
   packagingDesign,
   quality,

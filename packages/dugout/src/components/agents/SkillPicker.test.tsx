@@ -62,9 +62,19 @@ describe("SkillFilePreview and ChosenSkillList", () => {
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
     expect(within(list).getByText("Library")).toBeTruthy();
     expect(within(list).getByText("Skill file")).toBeTruthy();
-    expect(within(list).getAllByText("Untested")).toHaveLength(1);
+    expect(within(list).getAllByText("Not tested yet")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Remove Changelog digest" }));
     expect(onRemove).toHaveBeenCalledWith("b");
+  });
+
+  it("marks a skill that came with the agent's role, still removable (WP-06 T6)", () => {
+    const onRemove = vi.fn();
+    render(<ChosenSkillList items={[{ id: "library_week_one_plan", name: "Week one plan", source: "library", untested: true, cameWithRole: true }, { id: "library_meeting_notes", name: "Meeting notes", source: "library" }]} onRemove={onRemove} />);
+    const [first, second] = within(screen.getByRole("list", { name: "Chosen skills" })).getAllByRole("listitem");
+    expect(within(first!).getByText("Came with the role")).toBeTruthy();
+    expect(within(second!).queryByText("Came with the role")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Week one plan" }));
+    expect(onRemove).toHaveBeenCalledWith("library_week_one_plan");
   });
 
   it("says so when nothing is chosen", () => {
@@ -126,5 +136,82 @@ describe("suggested skills and reading a skill (WP-06 T7)", () => {
     expect(screen.getByRole("status").textContent).toBe("Loading the skill…");
     rerender(<SkillReader name="Pricing" instructionsMd={null} error="The skill did not load." onBack={() => undefined} />);
     expect(screen.getByRole("alert").textContent).toBe("The skill did not load.");
+  });
+});
+
+describe("the library's look (WP-10 T8)", () => {
+  it("a chip filters to one category, with counts, and the status line says how many are shown", () => {
+    const onCategoryChange = vi.fn();
+    render(<SkillLibraryList skills={SKILLS} selected={[]} onToggle={() => undefined} onCategoryChange={onCategoryChange} />);
+    const chips = within(screen.getByRole("group", { name: "Categories" })).getAllByRole("button");
+    expect(chips.map((c) => c.textContent)).toEqual(["All 3", "Product 1", "Finance 1", "Operations 1"]);
+    expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("status").textContent).toBe("3 skills");
+    fireEvent.click(screen.getByRole("button", { name: "Finance 1" }));
+    expect(onCategoryChange).toHaveBeenCalledWith("Finance");
+    expect(screen.getByRole("checkbox", { name: /Pricing analysis/ })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /Release notes/ })).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("1 skill");
+    fireEvent.change(screen.getByRole("textbox", { name: "Search skills" }), { target: { value: "notes" } });
+    // A search looks through every category, whichever chip was chosen.
+    expect(screen.getByRole("status").textContent).toBe("2 skills match “notes”");
+    expect(screen.getByRole("button", { name: "All 2" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("a search on the Suggested chip still finds a skill that is not suggested", () => {
+    render(<SkillLibraryList skills={SKILLS} selected={[]} onToggle={() => undefined} suggested={[{ key: "meeting_notes", reason: "Fits" }]} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search skills" }), { target: { value: "margin" } });
+    expect(screen.getByRole("checkbox", { name: /Pricing analysis/ })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("1 skill matches “margin”");
+  });
+
+  it("puts Suggested first, and opens on it, when suggestions are given", () => {
+    render(<SkillLibraryList skills={SKILLS} selected={[]} onToggle={() => undefined} suggested={[{ key: "meeting_notes", reason: "Fits an operations lead" }]} />);
+    const chips = within(screen.getByRole("group", { name: "Categories" })).getAllByRole("button");
+    expect(chips[0]!.textContent).toBe("Suggested 1");
+    expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getAllByRole("heading")[0]!.textContent).toMatch(/^Suggested/);
+    expect(screen.getByText("Fits an operations lead")).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /Pricing analysis/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "All 3" }));
+    expect(screen.getAllByRole("heading")[0]!.textContent).toMatch(/^Suggested/);
+    expect(screen.getByRole("checkbox", { name: /Pricing analysis/ })).toBeTruthy();
+  });
+
+  it("has no Suggested group or chip when none is given", () => {
+    render(<SkillLibraryList skills={SKILLS} selected={[]} onToggle={() => undefined} suggested={[]} />);
+    expect(screen.queryByRole("button", { name: /^Suggested/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Suggested/ })).toBeNull();
+  });
+
+  it("reads a skill in the pane beside the list, which keeps the search", () => {
+    const onPreview = vi.fn();
+    const { rerender } = render(<SkillLibraryList skills={SKILLS} selected={[]} onToggle={() => undefined} onPreview={onPreview} previewKey={null} preview={(k) => <p>Text of {k}</p>} />);
+    expect(screen.getByText("Pick a skill to read what it says.")).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search skills" }), { target: { value: "pricing" } });
+    fireEvent.click(screen.getByRole("button", { name: "Read the skill: Pricing analysis" }));
+    expect(onPreview).toHaveBeenCalledWith("pricing_analysis");
+    rerender(<SkillLibraryList skills={SKILLS} selected={[]} onToggle={() => undefined} onPreview={onPreview} previewKey="pricing_analysis" preview={(k) => <p>Text of {k}</p>} />);
+    expect(screen.getByText("Text of pricing_analysis")).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Search skills" }) as HTMLInputElement).value).toBe("pricing");
+    expect(screen.getByRole("button", { name: "Read the skill: Pricing analysis" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("draws only what is in view above 50 skills", () => {
+    const many: LibrarySkillOption[] = Array.from({ length: 120 }, (_, i) => ({ key: `s${i}`, name: `Skill ${i}`, description: "A skill.", categoryLabel: i % 2 ? "Product" : "Finance", attribute: { name: `Skill ${i}`, group: "craft" as const } }));
+    const { container } = render(<SkillLibraryList skills={many} selected={[]} onToggle={() => undefined} />);
+    expect(screen.getByRole("status").textContent).toBe("120 skills");
+    expect(container.querySelector("[data-virtual]")).toBeTruthy();
+    expect(container.querySelectorAll("[data-library-skill]").length).toBeLessThan(120);
+  });
+
+  it("the skill's text says what it adds to, who it is for and what it never changes", () => {
+    render(<SkillReader name="Pricing" instructionsMd="Compare margin." attribute={{ name: "Pricing judgment", group: "judgement" }} agentName="Quill" />);
+    const reader = screen.getByRole("region", { name: "Pricing" });
+    expect(within(reader).getByText("Adds to Judgment · Pricing judgment")).toBeTruthy();
+    expect(within(reader).getByRole("heading", { name: "What Quill will do" })).toBeTruthy();
+    expect(within(reader).getByText("It never changes tools, spend limits or approvals.")).toBeTruthy();
+    // Beside the list there is no way back to it, and focus stays where it was.
+    expect(within(reader).queryByRole("button", { name: "Back to the library" })).toBeNull();
   });
 });

@@ -12,7 +12,7 @@
  * waiting for the founder with the reason. A stopped team decides nothing.
  */
 import { LIMITS } from "@foundmill/config";
-import { isApprovalOption, repos, type Agent, type Business, type Executor, type InboxItem } from "@foundmill/db";
+import { isApprovalOption, nextCycleNumberOf, repos, type Agent, type Business, type Executor, type InboxItem } from "@foundmill/db";
 import { PRICING_CURRENCY, compileOptionPlan, type PlanAction } from "@foundmill/models";
 import { DECISION_TYPES, formatMoney, planSectionWalls, type DecisionType, type EventType, type SectionMembership } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
@@ -473,7 +473,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const awayFor = describeAway(now.getTime() - since.getTime());
 
       const lines = [
-        `You were away ${awayFor}; the team ran ${input.cyclesRun} cycle${input.cyclesRun === 1 ? "" : "s"} and the vacation ended because ${describeReason(input.reason, input.wakeEventType)}.`,
+        `You were away ${awayFor}; the team ran ${input.cyclesRun} ${input.cyclesRun === 1 ? "round" : "rounds"} of work and the vacation ended because ${describeReason(input.reason, input.wakeEventType)}.`,
         ``,
         `**Decisions I took (${chiefDecisions.length})** — each one inside the authority you set, run as a plan like your own decisions; open any item to see the plan and how far it got.`,
         ...taken,
@@ -540,7 +540,7 @@ function describeReason(reason: NonNullable<HolidayCheck["reason"]>, wake: strin
     case "kill_switch":
       return "the kill switch was pressed";
     case "cycle_cap":
-      return `it reached its safety limit of ${MAX_HOLIDAY_CYCLES} cycles without you coming back`;
+      return `it reached its safety limit of ${MAX_HOLIDAY_CYCLES} rounds of work without you coming back`;
   }
 }
 
@@ -549,12 +549,5 @@ export const holidayEndedKey = (holidayId: string) => `holiday.ended:${holidayId
 
 export type HolidayActivities = ReturnType<typeof createHolidayActivities>;
 
-/**
- * The number the next cycle takes: one past every cycle seen so far (started, completed, or queued by the api and not yet
- * started), the rule `cycleStatus` in apps/api uses, so a cycle the vacation starts never collides with the founder's press.
- */
-export async function nextCycleNumberOf(db: Executor, businessId: string): Promise<number> {
-  const [events, queued] = await Promise.all([repos.events.list(db, businessId, { type: ["cycle.started", "cycle.completed"], limit: 500 }), repos.audit.list(db, businessId, { action: ["business.continue", "cycle.queue"], limit: 8 })]);
-  const numbers = [...events.items.map((e) => (e.payload as { cycleNumber?: unknown }).cycleNumber), ...queued.items.map((q) => (q.details as { cycleNumber?: unknown }).cycleNumber)];
-  return numbers.reduce<number>((max, n) => (typeof n === "number" && Number.isFinite(n) ? Math.max(max, n) : max), 0) + 1;
-}
+/** The number the next cycle takes (packages/db `nextCycleNumberOf`, shared with ingest's resume after a payment). */
+export { nextCycleNumberOf };

@@ -53,6 +53,7 @@ export const BARRELS = [
   "components/firstrun.ts",
   "components/today.ts",
   "components/public.ts",
+  "components/booking.ts",
   "components/share.ts",
   "brand.ts",
 ];
@@ -126,12 +127,16 @@ export const SERVER_SAFE_FILES = [
   "components/public/ProjectPage.tsx",
   "components/public/ProjectStory.tsx",
   "components/public/MilestoneCard.tsx",
+  "components/public/ExploreGallery.tsx",
   "components/public/CustomerUpdateCard.tsx",
   "components/public/PersonPage.tsx",
   // The Terms and the Privacy Policy (founder, 2026-11-13): rendered by their static routes as Server Components.
   "components/public/LegalPage.tsx",
   // "Get the app" (WP-03 T9): plain links any server-rendered page can show.
   "components/public/GetTheApp.tsx",
+  "components/booking/BookingBlock.tsx",
+  "components/booking/UpcomingBookingsStrip.tsx",
+  "components/booking/format.ts",
   // The landing page's pieces (DESIGN §9a): plain markup the prerendered page renders as Server Components.
   "components/landing/ScreenFrame.tsx",
   "components/landing/LandingSection.tsx",

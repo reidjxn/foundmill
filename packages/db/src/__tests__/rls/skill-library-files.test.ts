@@ -83,4 +83,22 @@ describe("skill_definitions added from the library or a file (0061)", () => {
     await expect(insert({ businessId: A.businessId, source: "upload", instructionsMd: "Body", contentHash: HASH })).rejects.toThrow(/skill_definitions_upload_file_check/);
     await expect(insert({ businessId: A.businessId, source: "other" as never, instructionsMd: "Body" })).rejects.toThrow(/skill_definitions_source_check/);
   });
+
+  it("0141: who added a skill and an agent's release of defaults are as private as the rows, and app roles change neither", async () => {
+    await repos.skills.addTemplateDefaults(h.db, A.businessId, [{ agentId: A.agentId, skillKey: "library_meeting_notes", group: "execution", displayed: 8 }]);
+    await repos.agents.setDefaultSkillsVersion(h.db, A.businessId, [A.agentId], 1);
+    const mine = await h.asUser(A.memberId).run((tx) => tx.select({ addedBy: s.agentSkills.addedBy }).from(s.agentSkills).where(eq(s.agentSkills.agentId, A.agentId)));
+    expect(mine.map((r) => r.addedBy)).toContain("template");
+    expect(await h.asUser(B.ownerId).run((tx) => tx.select().from(s.agentSkills).where(eq(s.agentSkills.agentId, A.agentId)))).toHaveLength(0);
+    expect(await h.asUser(B.ownerId).run((tx) => tx.select({ v: s.agents.defaultSkillsVersion }).from(s.agents).where(eq(s.agents.id, A.agentId)))).toHaveLength(0);
+    // Another business cannot reset A's release (which would make the backfill re-add a removed default).
+    expect(await h.asUser(B.ownerId).run((tx) => tx.update(s.agents).set({ defaultSkillsVersion: 0 }).where(eq(s.agents.id, A.agentId)).returning())).toHaveLength(0);
+    // Nor can the business's own owner, by writing the table directly (security review L2).
+    await expect(h.asUser(A.ownerId).run((tx) => tx.update(s.agents).set({ defaultSkillsVersion: 0 }).where(eq(s.agents.id, A.agentId)))).rejects.toThrow(/default skills is set by the platform/);
+    // Inside the business the rating rows stay service-written: no app role relabels a skill.
+    expect(await h.asUser(A.ownerId).run((tx) => tx.update(s.agentSkills).set({ addedBy: "founder" }).where(eq(s.agentSkills.agentId, A.agentId)).returning())).toHaveLength(0);
+    const [agent] = await h.db.select({ v: s.agents.defaultSkillsVersion }).from(s.agents).where(eq(s.agents.id, A.agentId));
+    expect(agent!.v).toBe(1);
+    await expect(h.service().run((tx) => tx.update(s.agentSkills).set({ addedBy: "someone" as never }).where(eq(s.agentSkills.agentId, A.agentId)))).rejects.toThrow(/agent_skills_added_by_check/);
+  });
 });

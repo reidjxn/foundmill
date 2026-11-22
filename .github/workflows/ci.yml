@@ -200,7 +200,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Config and guard self-tests (Railway, .env.example, Supabase, the decisions index, the unit matrix, the e2e shards, the affected packages and screens, the log entries, the Vercel ignore step)
-        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs scripts/e2e-shard.test.mjs scripts/ci-affected.test.mjs scripts/log-entries.test.mjs scripts/vercel-ignore.test.mjs scripts/test-inventory.test.mjs scripts/check-production.test.mjs
+        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs scripts/e2e-shard.test.mjs scripts/ci-affected.test.mjs scripts/log-entries.test.mjs scripts/vercel-ignore.test.mjs scripts/test-inventory.test.mjs scripts/check-production.test.mjs scripts/load-today.test.mjs
       # On a pull request HEAD is the merge commit, so a branch that is merely behind does not trip this (WP-01 T6).
       - name: The frozen logs are not edited (new entries go in docs/log/)
         if: ${{ github.event_name == 'pull_request' }}
@@ -424,6 +424,8 @@ jobs:
       API_PORT: 4000
       # The LIVE pages (Network, Communities) and Go live are closed without it (apps/web/e2e/README.md).
       LIVE_MODE: 1
+      # The dev founder reviews reports (/operator/reports; apps/web/e2e/reports.spec.ts; playwright.config.ts STACK_ENV).
+      OPERATOR_USER_IDS: 0f0a0d00-0000-4000-8000-00000000f0a1
       # A project's Foundmill sending address, on its mock (apps/web/e2e/platform-mail.spec.ts; playwright.config.ts STACK_ENV).
       PLATFORM_MAIL_DOMAIN: mail.foundmill.test
       # The screens press Take charge and the other model-backed buttons far more often than one person does in an hour, and a

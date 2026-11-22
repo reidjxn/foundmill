@@ -43,13 +43,14 @@ import { useBusinessLogoSrc, useBusinessLogos } from "@/components/logo/useBusin
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
 import { publicPaletteItems, publicSearchText } from "@/lib/public-search";
 import { entityPaletteItems, filterLocal, helpPaletteItems, localPaletteItems, searchInputFor } from "@/lib/search";
+import type { StageFacts } from "@foundmill/shared/areas";
 import { SIDEBAR_BRAND, SIDEBAR_IDS, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { signOut } from "@/lib/auth/sign-out";
 import { useStreamSubscription } from "@/lib/stream-client";
 import { CONNECTION_GRACE_MS, LATE_NOTICE_MS, SAFETY_POLL_MS, streamPollInterval, useBusinessLive, useConnectionNotice } from "@/lib/stream-status";
 import { browserTimeZone, timeZoneToClaim, useClientToday } from "@/lib/today";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
-import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
+import { appErrorCode, errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { WidgetDataHost } from "@/lib/widget-data";
 import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
@@ -57,7 +58,7 @@ import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/component
 import { useNetworkBadge } from "@/components/live/signals";
 import { termsFor } from "@/components/providers/GuidanceHost";
 import { useKeyboardShortcutsOn } from "@/components/providers/guidance-context";
-import { isTodayPath, worksOnSmallScreens } from "@/components/providers/DesktopOnly";
+import { worksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { agentOfAskItem, agentOfCallItem, askPaletteItems, askQuestion, callPaletteItems, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { switcherBusinesses } from "./business-switcher";
@@ -212,12 +213,38 @@ type ContinueResult = RouterOutputs["business"]["continue"];
 export { RUN_UNTIL_DONE };
 
 /** What the strip says the instant Continue is pressed, before the answer lands (first-time founder report, Nov 8, 2026). */
-export const CONTINUE_PRESSED_NOTICE = "Starting the next cycle…";
+export const CONTINUE_PRESSED_NOTICE = "Starting the next round of work…";
 /** The same with Builder view off, in the founder's words ("round of work", as the live feed and the team's notes say). */
 export const CONTINUE_PRESSED_NOTICE_PLAIN = "Starting the next round of work…";
+/**
+ * Which chips the top bar draws (WP-10 T2): the runway words once a bank is connected or a payment has arrived, the mode
+ * chip once the team has done a round of work or the founder moved off the starting mode. Builder view shows both.
+ * Stop all agents is never hidden here.
+ */
+export function topBarChips(stage: StageFacts | undefined, builder: boolean, businessMode: string): { showRunway: boolean; showMode: boolean } {
+  if (builder || !stage) return { showRunway: true, showMode: true };
+  return { showRunway: stage.bankConnected || stage.firstPayment, showMode: stage.roundCompleted || businessMode !== "augmented" };
+}
+
 export const continuePressedNotice = (builder: boolean): string => (builder ? CONTINUE_PRESSED_NOTICE : CONTINUE_PRESSED_NOTICE_PLAIN);
 /** How long the answer to a press stays as the strip's sentence when no cycle event replaces it sooner. */
 export const CONTINUE_NOTICE_MS = 15_000;
+/**
+ * Continue's refusal while paid entry's plan is missing (api `entry_plan_required`), as the request the founder sees:
+ * what is bought, its price and the one press. Null for any other error.
+ */
+export function entryPlanRequestOf(err: unknown): { title: string; description: string; action: string } | null {
+  if (appErrorCode(err) !== "entry_plan_required") return null;
+  const request = (err as { data?: { details?: { request?: { name?: string; priceMonthlyMinor?: number; includedCreditsMinor?: number } } } }).data?.details?.request;
+  const price = formatCredits({ amountMinor: request?.priceMonthlyMinor ?? 0, currency: "USD" });
+  const included = formatCredits({ amountMinor: request?.includedCreditsMinor ?? 0, currency: "USD" });
+  return {
+    title: "Your team is ready to start",
+    description: `Subscribe to the ${request?.name ?? "entry"} plan for ${price} a month, with ${included} of AI included, and the team starts as soon as the payment is confirmed.`,
+    action: `Subscribe · ${price}/month`,
+  };
+}
+
 /** Under Continue's tooltip while the orchestrator cannot be reached: what a press does and does not do. */
 export const ORCHESTRATOR_DOWN_CAVEAT = "The team cannot start right now. Pressing Continue will only write a short note.";
 
@@ -510,8 +537,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   // Builder view (docs/DESIGN.md): its tabs are not linked and cycle numbers are not shown while it is off.
   const builder = useBuilderView();
   const sidebarItems = useMemo(
-    () => buildSidebarItems({ businessId, departments, inboxCounts: inboxQ.data?.counts, inboxItems: inboxQ.data?.items, live, network, access, builder }),
-    [businessId, departments, inboxQ.data?.counts, inboxQ.data?.items, live, network, access, builder],
+    () => buildSidebarItems({ businessId, departments, inboxCounts: inboxQ.data?.counts, inboxItems: inboxQ.data?.items, live, network, access, builder, stage: data.stageFacts }),
+    [businessId, departments, inboxQ.data?.counts, inboxQ.data?.items, live, network, access, builder, data.stageFacts],
   );
   const cycleNumber = builder ? cycle.cycleNumber : null;
   const activeId = useMemo(() => activeSidebarId(pathname, businessId, departments), [pathname, businessId, departments]);
@@ -596,10 +623,25 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       onError: (err) => {
         const code = trpcErrorCode(err);
         void invalidate(["cycle", "inbox", "business"]);
+        // Paid entry (WP-09 T16): the refusal is the request, with its one press to Stripe; once the payment is
+        // confirmed the team starts by itself (the pay-and-resume loop), so there is nothing to press afterwards.
+        const request = entryPlanRequestOf(err);
+        if (request) {
+          announce(request.title, CONTINUE_NOTICE_MS);
+          toast({ title: request.title, description: request.description, tone: "info", action: { label: request.action, onClick: () => subscribe.mutate({ businessId, resume: "continue" }) } });
+          return;
+        }
         const title = code === "CONFLICT" ? "Continue is waiting on you" : "Continue failed";
         announce(`${title}: ${errorMessage(err)}`, CONTINUE_NOTICE_MS);
         toast({ title, description: errorMessage(err), tone: code === "CONFLICT" ? "warn" : "bad" });
       },
+    }),
+  );
+  const subscribe = useMutation(
+    trpc.billing.subscribe.mutationOptions({
+      // Stripe's own page; in mock mode the simulated checkout on the Billing tab.
+      onSuccess: (r) => (r.mode === "live" ? window.location.assign(r.checkoutUrl) : router.push(`${routes.settings(businessId, "billing")}?checkout=${r.checkout.id}`)),
+      onError: (err) => toast({ title: "Checkout not opened", description: errorMessage(err), tone: "bad" }),
     }),
   );
   const pauseCycle = useMutation(
@@ -840,8 +882,6 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
               <AppShell
                 // Today and Needs you work from 390 px (package 2.1): the shell's phone layout; other routes keep the 1280 px floor.
                 phone={worksOnSmallScreens(pathname)}
-                // "Explain this page" in the phone title row on Today only (WP-04 T7).
-                phoneExplain={isTodayPath(pathname)}
                 mode={business.gameMode}
                 businessMode={business.businessMode}
                 // The mode chip says the setting in words with the business's own currency ("Asks before spending over £50").
@@ -919,6 +959,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 // A cash figure only when a bank account backs it (no account reads "Not known yet", never "Cash £0").
                 cash={financeQ.data && financeQ.data.cash.accounts > 0 ? { amountMinor: financeQ.data.cash.amountMinor, currency: financeQ.data.cash.currency } : undefined}
                 runwayEstimate
+                {...topBarChips(data.stageFacts, builder, business.businessMode)}
                 onRunwayClick={financeDept ? onRunwayClick : undefined}
                 onModeClick={() => router.push(routes.settings(businessId, "mode"))}
                 keyboard={{

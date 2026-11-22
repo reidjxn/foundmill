@@ -1,7 +1,7 @@
 /**
  * PGlite test harness (docs/DECISIONS.md "No Docker on the build machine").
  *
- * createTestDb() boots an in-memory Postgres 17 (WASM) through bootPglite (src/pglite.ts: pg_trgm, pgvector when
+ * createTestDb() boots an in-memory Postgres 17 (WASM) through bootPglite (src/pglite.ts: pg_trgm, btree_gist, pgvector when
  * `@electric-sql/pglite-pgvector` is installed, the Supabase roles and the stub `auth` schema), applies every
  * migration in journal order and returns role-switching runners so RLS can be exercised exactly as apps/api
  * does it through withRls().

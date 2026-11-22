@@ -4,10 +4,11 @@
  * does money or legal work; a business on its own key and a business above the line are unchanged; and the orchestrator's
  * per-business client sends the call with `lowCredits`, so its routine routes move while its kept routes do not.
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { lowCreditsThresholdMinor, includedCreditsMinor } from "@foundmill/config";
 import { periodOf, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
-import { MockModelClient, type UsageEvent } from "@foundmill/models";
+import { MockModelClient, ROUTES, type UsageEvent } from "@foundmill/models";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createSessionActivities } from "../activities/session";
 import { keptModelForRun, LOW_CREDITS_KEPT_MODULES, sessionKeepsModelOnLowCredits } from "../activities/session-credits";
@@ -26,15 +27,13 @@ afterAll(async () => {
 
 const B = () => t.businessId;
 const period = () => periodOf(t.clock.now());
-const LINE = lowCreditsThresholdMinor(includedCreditsMinor("free"));
+// The project is on Founder (above), so the line is a fifth of Founder's month.
+const LINE = lowCreditsThresholdMinor(includedCreditsMinor("pro"));
 
-/** Sets this month's balance to exactly `minor` (the row is created with the tier's included credits first). */
+/** Sets this month's balance to exactly `minor`: the owner's shared budget and the project's own are used up first (the budget is the plan's, opened by the first charge), then `minor` is granted. */
 async function setBalance(minor: number, p: string = period()) {
-  await repos.usage.ensurePeriodCredits(t.db, B(), p, includedCreditsMinor("free"));
-  const now = (await repos.usage.creditBalance(t.db, B(), p))!;
-  const diff = minor - Number(now.balanceMinor);
-  if (diff > 0) await repos.usage.grantCredits(t.db, B(), p, diff);
-  if (diff < 0) await repos.usage.chargeCredits(t.db, B(), p, -diff);
+  await spendAllCredits(t.db, B(), p);
+  if (minor > 0) await repos.usage.grantCredits(t.db, B(), p, minor);
 }
 
 async function prepare() {
@@ -189,10 +188,10 @@ describe("the per-business client with low credits", () => {
     await repos.businesses.update(t.db, B(), { planTier: "free" });
   });
 
-  it("runs every route of a free business on Haiku 5.5, with or without low credits (WP-13)", async () => {
+  it("runs a free business's allowed routes on Haiku 5.5 and its planning and notes on their own models, without the credit saver (WP-13 T8)", async () => {
     const events: UsageEvent[] = [];
     const client = createBusinessModelClient(new MockModelClient({ onUsage: (e) => void events.push(e) }), { db: t.db, vault: null, mode: "mock", now: () => t.clock.nowMs() });
-    for (const route of ["planner", "chiefOfStaff", "inboxComposer"] as const) await client.complete({ route, system: "Answer.", messages: [{ role: "user", content: "Plan the week." }], attribution: { businessId: B() } });
-    expect(events.map((e) => e.modelKey)).toEqual(["haiku", "haiku", "haiku"]);
+    for (const route of ["planner", "chiefOfStaff", "inboxComposer", "journeyCommentary"] as const) await client.complete({ route, system: "Answer.", messages: [{ role: "user", content: "Plan the week." }], attribution: { businessId: B() } });
+    expect(events.map((e) => e.modelKey)).toEqual([ROUTES.planner.model, ROUTES.chiefOfStaff.model, ROUTES.inboxComposer.model, "haiku"]);
   });
 });

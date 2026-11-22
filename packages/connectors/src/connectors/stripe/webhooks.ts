@@ -3,7 +3,7 @@
  * the signed payload is `${t}.${rawBody}` and the expected signature HMAC-SHA256(endpoint secret) in hex. The
  * timestamp must be within the tolerance (5 min, Stripe's library default) and the event id feeds the replay
  * guard. Normalisation (BUILD §11.4): `invoice.paid` and one-off `checkout.session.completed` →
- * `payment.received`; `customer.subscription.created` in trial → `signup.created`; the other
+ * `payment.received` (`simulated` when the event is test mode: `livemode: false`); `customer.subscription.created` in trial → `signup.created`; the other
  * `customer.subscription.*` events verify and parse but map to no catalogue event yet.
  */
 import type { ConnectorWebhook, PlatformEvent } from "../../contract";
@@ -47,6 +47,8 @@ export interface StripeWebhookDeps {
   /** Endpoint secret for a business (per-business endpoint) or the platform endpoint (`businessId` null). */
   secretFor(businessId: string | null): Promise<string | null>;
   resolveBusinessId?: BusinessResolver;
+  /** Foundmill's own platform endpoint secret: a delivery that verifies with it is `platformSigned` (a Connect account, never a founder's own key). */
+  platformSecret?(): string | null;
   replay?: ReplayGuard;
   now?: () => Date;
   toleranceSeconds?: number;
@@ -75,12 +77,21 @@ export function createStripeWebhook(deps: StripeWebhookDeps): ConnectorWebhook {
     async accountOf(req) {
       return parseJsonBody<StEvent>(await rawBody(req))?.account ?? null;
     },
+    // The founder removed Foundmill's access in their Stripe dashboard (a Connect sign-in only).
+    async revokedAccount(req) {
+      const event = parseJsonBody<StEvent>(await rawBody(req));
+      return event?.type === "account.application.deauthorized" ? (event.account ?? null) : null;
+    },
     async normalise(req) {
       const event = parseJsonBody<StEvent>(await rawBody(req));
       if (!event) return [];
       const businessId = await businessFor(req, event);
       if (!businessId) return [];
-      return normaliseStripeEvent(event, businessId);
+      // Signed by the platform secret itself (re-checked here, not inferred from the address): only Stripe holds it.
+      const sig = header(req, STRIPE_SIGNATURE_HEADER);
+      const platform = deps.platformSecret?.() ?? null;
+      const platformSigned = !!(sig && platform && verifyStripeSignature(platform, await rawBody(req), sig, now().getTime(), deps.toleranceSeconds));
+      return normaliseStripeEvent(event, businessId, { platformSigned });
     },
   };
 }
@@ -91,7 +102,11 @@ export const stripeCustomerEntityId = (customerId: string | null, email: string 
 const stripeCustomer = (customerId: string | null, email: string | null | undefined, name: string | null | undefined) =>
   customerId || email || name ? { externalId: customerId, email: email?.trim() || null, name: name?.trim() || null } : null;
 
-export function normaliseStripeEvent(event: StEvent, businessId: string): PlatformEvent[] {
+/** Stripe says so on every event: `livemode: false` is test mode, where no money moves. Nothing else says "test". */
+const isTestMode = (event: StEvent): boolean => event.livemode === false;
+
+export function normaliseStripeEvent(event: StEvent, businessId: string, opts: { platformSigned?: boolean } = {}): PlatformEvent[] {
+  const platformSigned = opts.platformSigned === true;
   const occurredAt = new Date(event.created * 1000);
   const actor = { kind: "webhook" as const, id: STRIPE_KEY };
   switch (event.type) {
@@ -121,6 +136,8 @@ export function normaliseStripeEvent(event: StEvent, businessId: string): Platfo
             fee: null,
             customer: stripeCustomer(customerId, inv.customer_email, inv.customer_name),
             source: null,
+            simulated: isTestMode(event),
+            platformSigned,
           },
         }),
       ];
@@ -151,6 +168,8 @@ export function normaliseStripeEvent(event: StEvent, businessId: string): Platfo
             productRef: s.metadata?.productRef ?? null,
             fee: null,
             customer: stripeCustomer(customerId, email, s.customer_details?.name),
+            simulated: isTestMode(event),
+            platformSigned,
             source: s.metadata?.utm_source || s.metadata?.utm_medium || s.metadata?.promo_code ? { utmSource: s.metadata.utm_source ?? null, utmMedium: s.metadata.utm_medium ?? null, utmCampaign: s.metadata.utm_campaign ?? null, referrer: null, code: s.metadata.promo_code ?? null } : null,
           },
         }),

@@ -111,7 +111,7 @@ export function holidayCaptionParts(state: Extract<ContinueState, { kind: "holid
 /** "One round of work: …" → "A cycle is one round of work: …": the definition as a sentence of its own. */
 export function cycleDefinitionSentence(short: string): string {
   const text = short.trim();
-  return text ? `A cycle is ${text.charAt(0).toLowerCase()}${text.slice(1)}` : "";
+  return text ? `A round of work is ${text.charAt(0).toLowerCase()}${text.slice(1)}` : "";
 }
 
 /**
@@ -133,8 +133,8 @@ export function continueTooltip(state: ContinueState, cycleNumber?: number | nul
     case "blocked":
       return `${state.count} ${state.count === 1 ? "thing needs" : "things need"} you before the team can work (credits used up or a key to replace). Press to open the first.`;
     case "processing": {
-      const working = typeof cycleNumber === "number" && cycleNumber > 0 ? `The team is working · cycle ${cycleNumber}` : "The team is working";
-      return state.run ? `${working}. New cycles start on their own until nothing is left to do.` : working;
+      const working = typeof cycleNumber === "number" && cycleNumber > 0 ? `The team is working · round of work ${cycleNumber}` : "The team is working";
+      return state.run ? `${working}. New rounds of work start on their own until nothing is left to do.` : working;
     }
     case "matchday":
       return "A customer was won";

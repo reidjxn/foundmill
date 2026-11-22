@@ -44,6 +44,11 @@ export interface UpdateCardFacts {
   occurredOn: string;
   leadChannelKey: string | null;
   standoutAgent: string | null;
+  /**
+   * True only for a payment delivered with Foundmill's own platform webhook secret (a "Sign in with Stripe" account):
+   * the card says "Verified by". A payment through a pasted key is real and shown, but not verified (founder, Nov 22, 2026).
+   */
+  verified: boolean;
 }
 
 /** `journey.updateCard`: what the Customer Update screen needs to offer, or not offer, the share action. */
@@ -68,7 +73,7 @@ const REFUSAL_ERRORS: Record<UpdateCardRefusal, () => AppError> = {
 /** The right that publishes the page, held by someone who can also read Customer Updates. */
 const mayShare = (ctx: BusinessContext): boolean => isAdminRole(ctx.role) && hasSectionAccess(ctx.membership, "product", "write") && hasSectionAccess(ctx.membership, "distribution", "read");
 
-const factsOf = (card: CustomerUpdateCard): UpdateCardFacts => ({ headline: card.headline, occurredOn: card.occurredOn, leadChannelKey: card.leadChannelKey, standoutAgent: card.standoutAgent });
+const factsOf = (card: CustomerUpdateCard): UpdateCardFacts => ({ headline: card.headline, occurredOn: card.occurredOn, leadChannelKey: card.leadChannelKey, standoutAgent: card.standoutAgent, verified: card.verified });
 
 interface Checked {
   facts: UpdateCardFacts | null;
@@ -98,6 +103,7 @@ async function check(ctx: BusinessContext, journeyId: string): Promise<Checked> 
         occurredOn: dayKeyIn(conversion.occurredAt, ctx.business.timeZone),
         leadChannelKey: channelKey && /^[a-z0-9_]{1,60}$/.test(channelKey) ? channelKey : null,
         standoutAgent: agent?.name.trim().slice(0, UPDATE_CARD_AGENT_MAX) || null,
+        verified: (source!.payload as { platformSigned?: unknown }).platformSigned === true,
       };
     }
     return { facts, card, slug: page?.slug ?? null, published: !!page?.published };
@@ -178,6 +184,6 @@ export async function publicUpdateCardById(ctx: PublicContext, id: string): Prom
     if (!card) return null;
     const project = await projectFacts(ctx, card.slug);
     if (!project) return null;
-    return { ...project, card: { id: card.id, headline: card.headline, occurredOn: card.occurredOn, leadChannelKey: card.leadChannelKey, standoutAgent: card.standoutAgent, note: card.note, url: updateCardUrl(ctx.env.APP_URL, card.id) } };
+    return { ...project, card: { id: card.id, headline: card.headline, occurredOn: card.occurredOn, leadChannelKey: card.leadChannelKey, standoutAgent: card.standoutAgent, verified: card.verified, note: card.note, url: updateCardUrl(ctx.env.APP_URL, card.id) } };
   });
 }

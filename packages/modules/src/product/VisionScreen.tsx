@@ -195,7 +195,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
         loading={roadmap.isLoading}
         error={roadmap.error ? roadmap.error.message : undefined}
         onRetry={roadmap.refetch}
-        empty={roadmap.data && now.length === 0 && next.length === 0 ? { icon: MapIcon, children: "Nothing is in Now. Move items there on the Roadmap tab and the team picks them up next cycle.", action: { label: "Open roadmap", onClick: () => navigate(href("roadmap")) } } : undefined}
+        empty={roadmap.data && now.length === 0 && next.length === 0 ? { icon: MapIcon, children: "Nothing is in Now. Move items there on the Roadmap tab and the team picks them up next round of work.", action: { label: "Open roadmap", onClick: () => navigate(href("roadmap")) } } : undefined}
         footer={roadmap.data ? <button type="button" className="text-link hover:underline focus-visible:outline-2 focus-visible:outline-link" onClick={() => navigate(href("roadmap"))}>Open the roadmap</button> : undefined}
         flush
       >

@@ -27,9 +27,9 @@ function departmentOptions(departments: readonly DepartmentRow[] | undefined) {
 /** Letting an agent go: what happens, said the same way in the dialog and the Team moves footer. */
 export const RELEASE_CONSEQUENCE = "Running tasks stop; history and logs stay on the profile. Nothing is deleted.";
 /** Lending: the agent gains a department. Moving: it leaves its current ones and follows the new lead. */
-export const LOAN_CONSEQUENCE = { lend: "It joins the other department from the next cycle and keeps its tasks, skills, tools and model.", move: "It leaves its current departments; the new department's lead becomes its line manager." } as const;
+export const LOAN_CONSEQUENCE = { lend: "It joins the other department from the next round of work and keeps its tasks, skills, tools and model.", move: "It leaves its current departments; the new department's lead becomes its line manager." } as const;
 /** Hiring: the agent starts next cycle; its wage cap is the most it can cost. */
-export const HIRE_CONSEQUENCE = "Starts next cycle with the template's instructions, tools and skills, plus any you add here.";
+export const HIRE_CONSEQUENCE = "Starts next round of work with the template's instructions, tools and skills, plus any you add here.";
 
 /* ---------- Hire ---------- */
 
@@ -129,7 +129,7 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
                   label: <Term id="wage_cap">Wage cap (USD)</Term>,
                   value: (
                     <span className="inline-flex items-center gap-1.5 tabular-nums">
-                      {formatMoney({ amountMinor: template.wageCapMinor, currency })}/mo <ProvenanceChip kind="estimate" />
+                      <ProvenanceChip kind="estimate">{formatMoney({ amountMinor: template.wageCapMinor, currency })}/mo</ProvenanceChip>
                     </span>
                   ),
                 },
@@ -201,7 +201,7 @@ export function ReleaseDialog({ agent, onOpenChange, onReleased }: ReleaseDialog
           <DialogDescription id={`${id}-desc`}>
             {cos ? (
               <>
-                The <Term id="chief_of_staff">Chief of Staff</Term> plans every <Term id="cycle">cycle</Term> and cannot be let go.
+                The <Term id="chief_of_staff">Chief of Staff</Term> plans every <Term id="cycle">round of work</Term> and cannot be let go.
               </>
             ) : (
               `${shown} leaves the team.`

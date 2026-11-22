@@ -5,9 +5,12 @@
  */
 import { includedCreditsMinor } from "@foundmill/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { bookUsage } from "../../billing";
+import { bookUsage as bookUsageAtCost } from "../../billing";
 import { HolidayRunningError, repos } from "../../repos";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
+
+/** These tests state amounts at cost: the charge's own mechanics, without the markup (its test is in billing-markup.test.ts). */
+const bookUsage: typeof bookUsageAtCost = (db, businessId, input, options = {}) => bookUsageAtCost(db, businessId, input, { markup: 0, ...options });
 
 let r: RepoHarness;
 beforeAll(async () => {

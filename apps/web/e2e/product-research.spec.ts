@@ -62,7 +62,7 @@ test.describe("product research", () => {
     await expect(panel).toHaveAttribute("data-research-state", "ready", { timeout: LONG });
     await expect(panel).toContainText("Testing the specification with");
     expect(await panel.getByRole("list", { name: "Research artifacts" }).getByRole("listitem").count()).toBeGreaterThanOrEqual(5);
-    await expect(panel.locator("[data-research-first-steps]")).toContainText(/research tasks? for the next cycles/);
+    await expect(panel.locator("[data-research-first-steps]")).toContainText(/research tasks? for the next rounds of work/);
 
     // The researcher's note is an update (it blocks nothing). In the project's first week it is folded into the Chief of
     // Staff's note of the day (WP-04 T8), which lists it by its subject.

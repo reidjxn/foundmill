@@ -65,6 +65,8 @@ export interface ProjectPageProps extends Omit<HTMLAttributes<HTMLElement>, "chi
   follow?: ReactNode;
   /** The optional "Which one is for you?" quiz (`ProjectQuiz`, 0105), just before the Follow form; nothing when it is off. */
   quiz?: ReactNode;
+  /** Foundmill's own booking (`BookingBlock`), above the quiz and the Follow form; nothing when booking is not live. */
+  booking?: ReactNode;
 }
 
 /** Who the foot's mark is drawn for; "none" leaves the foot out (a paid plan). */
@@ -78,7 +80,7 @@ export const PROJECT_PAGE_WORDS = {
   builtOn: builtOnWords(APP_NAME).mark,
 } as const;
 
-export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, mark = "visitor", markHref = "/", titleLevel = 1, variant = "page", follow, quiz, className, style, ...rest }: ProjectPageProps) {
+export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, mark = "visitor", markHref = "/", titleLevel = 1, variant = "page", follow, quiz, booking, className, style, ...rest }: ProjectPageProps) {
   const Title = titleLevel === 1 ? "h1" : "h3";
   const Sub = titleLevel === 1 ? "h2" : "h4";
   const paragraphs = pageParagraphs(about);
@@ -146,6 +148,8 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
           </p>
         ) : null}
 
+        {booking ?? null}
+
         {quiz ?? null}
 
         {/* The quiz's Follow buttons lead here (`#follow`). */}
@@ -159,7 +163,7 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
         <footer className="border-t border-line-faint" data-project-mark={mark}>
           <div className="mx-auto flex w-full max-w-reading px-gutter">
             {mark === "visitor" ? (
-              <a href={markHref} className="mark-arrive t-small inline-flex min-h-tap items-center rounded-sm text-secondary transition-colors duration-hover hover:text-primary focus-ring">
+              <a href={markHref} className="mark-arrive t-body inline-flex min-h-tap items-center rounded-sm text-secondary transition-colors duration-hover hover:text-primary focus-ring">
                 {PROJECT_PAGE_WORDS.builtOn}
               </a>
             ) : (

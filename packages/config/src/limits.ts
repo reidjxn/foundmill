@@ -69,9 +69,18 @@ export const LIMITS = {
   /** Requests to one person per day, so request, withdraw and request again is stopped quickly. */
   liveRequestsPerPairPerDay: 3,
   liveMessagesPerUserPerMinute: 20,
+  liveMessagesPerUserPerHour: 200,
   liveMessagesPerThreadPerMinute: 10,
   livePostsPerUserPerMinute: 6,
-  livePostsPerUserPerHour: 60,
+  livePostsPerUserPerHour: 40,
+  /** New communities, invitations to a community and post reports per person (counted in the shared store, so every replica agrees). */
+  liveCommunitiesPerUserPerDay: 3,
+  liveInvitesPerUserPerDay: 50,
+  liveReportsPerUserPerHour: 30,
+  /** Communities a person joins per day (H1: a burst of fresh accounts joining to report together is slowed). */
+  liveJoinsPerUserPerDay: 30,
+  /** Changes to a community a person owns per day (H3: each change to its name or description is a screening model call). */
+  liveCommunityEditsPerUserPerDay: 20,
   /** Messages a thread shows at first (and per "Load earlier"). */
   liveMessagePageSize: 50,
   /** Largest tRPC request body the api reads (bytes); a request carrying a logo file may be larger (`trpcMaxLogoBodyBytes`). */
@@ -80,6 +89,8 @@ export const LIMITS = {
   trpcMaxLogoBodyBytes: 6 * 1024 * 1024,
   /** Largest skill file a founder may upload for an agent (UTF-8 bytes); checked in the browser and again by the api. */
   skillFileMaxBytes: 64 * 1024,
+  /** Library and file skills one agent may carry (WP-06 T4): the api refuses more, the picker counts down to it. */
+  skillsPerAgentMax: 40,
   /** Largest plan file a founder may import on Product › Vision (UTF-8 bytes); checked in the browser and again by the api. */
   planFileMaxBytes: 256 * 1024,
   /** Largest body of one specification section in an imported plan file (UTF-8 bytes). */
@@ -138,6 +149,14 @@ export const INPUT_LIMITS = {
 } as const;
 
 /**
+ * Booking's own email (founder, Nov 22, 2026): confirmations, reminders and change notices to a customer who booked.
+ * They answer the customer's own action, so they are counted here and never against the project's daily outreach cap.
+ * 200 a project a day covers a busy week in one day (a full calendar of half-hour slots is 16 a day, each with a
+ * confirmation, a reminder and perhaps a change); 5,000 across the deployment keeps a flood on many pages bounded.
+ */
+export const BOOKING_MAIL = { dailyCap: 200, dailyCeiling: 5_000 } as const;
+
+/**
  * The approval threshold a spend is checked against (Cedar `principal.approvalThresholdMinor`): the agent's own (the
  * policy default when it has none), lowered to the business's "Spend cap per action" when the founder set one (Commit,
  * Settings › What the team can do; `businesses.spend_cap_minor`). Undefined when neither is set: the policy default applies. The gateway
@@ -147,3 +166,25 @@ export function effectiveApprovalThresholdMinor(agentThresholdMinor: number | nu
   if (businessCapMinor === null || businessCapMinor === undefined) return agentThresholdMinor ?? undefined;
   return Math.min(agentThresholdMinor ?? LIMITS.approvalThresholdMinorDefault, businessCapMinor);
 }
+
+/**
+ * The hosted browser (founder, Nov 22, 2026): the team works a website in the founder's signed-in account, in an E2B
+ * desktop sandbox (E2B Hobby caps one at an hour, so a session stays well inside it). A session
+ * that reaches a limit ends as a checkpoint, not a failure. The cost is an Estimate from the provider's price per
+ * browser hour, booked to the usage ledger as the session runs.
+ */
+export const BROWSER_LIMITS = {
+  /** Longest one session runs. */
+  sessionMinutes: 20,
+  /** Most steps (opens, reads and writes) in one session. */
+  sessionSteps: 80,
+  /** Longest a founder's sign-in session stays open before it is closed unsaved. */
+  signInMinutes: 15,
+  /**
+   * Most sessions running at once across every project. With `sessionMinutes` this bounds what a month can cost; the
+   * backstop is the spending limit the founder set on the E2B team (about $100 a month).
+   */
+  maxConcurrentSessions: 10,
+  /** Minor units per browser hour (Estimate): an E2B sandbox at the `e2b` connector's rate per minute. */
+  costMinorPerHour: 60,
+} as const;

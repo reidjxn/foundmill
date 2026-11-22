@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET_THE_APP_WORDS } from "@foundmill/dugout";
 import { LandingPage } from "../LandingPage";
 import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "../flags";
-import { LANDING_VARIANTS, type LandingVariant } from "@/lib/landing-variant";
+import { LANDING_VARIANTS, PROFILE_VARIANTS, type LandingVariant } from "@/lib/landing-variant";
 import { LANDING_WORDS as W, VARIANT_WORDS } from "../words";
+import { STUDIO_SETS } from "../first-timer-examples";
+import { EXAMPLE_STORIES } from "../stories";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 
@@ -19,7 +21,7 @@ const renderPage = (switches: Partial<LandingSwitches> = {}) => render(<LandingP
 const text = () => document.body.textContent ?? "";
 
 /** The page's sections, in order (DESIGN §9a): daylight, the blue, then the night. */
-const ORDER = ["hero", "result", "ways", "studio", "people", "first-week", "control", "questions", "start"];
+const ORDER = ["hero", "result", "ways", "studio", "people", "first-week", "control", "vacation", "questions", "start"];
 
 describe("LandingPage (signed-out /, DIRECTION §3)", () => {
   it("has one h1, the first-timer's headline", () => {
@@ -45,14 +47,26 @@ describe("LandingPage (signed-out /, DIRECTION §3)", () => {
     expect(hero.querySelectorAll(".idea-gen-filled")).toHaveLength(1);
   });
 
-  it("labels the idea field visibly and gives all three assurances at every width", () => {
+  it("labels the idea field visibly and gives every assurance at every width", () => {
     renderPage();
     const field = screen.getByLabelText("What do you want to make?");
     expect(field.tagName).toBe("TEXTAREA");
     expect(document.querySelector('label[for="' + field.id + '"]')!.className).not.toContain("sr-only");
-    for (const a of ["Shaping your first idea is free and needs no sign-up", "Your idea stays private until you choose to share it", "Nothing spends money or signs in your name without you"]) {
+    for (const a of ["Free to start · no card", "Your idea stays private until you choose to share it", "Nothing spends, signs or files without you", "Built for a big screen and your full attention"]) {
       expect(screen.getByText(a)).toBeTruthy();
     }
+  });
+
+  it("the free line follows sign-up's stage, and the hero never names a price or promises the product stays free (WP-14 A1)", () => {
+    const { unmount } = renderPage({ signupOpen: false });
+    expect(screen.getByText(W.hero.assure.freeInvite)).toBeTruthy();
+    expect(screen.queryByText(W.hero.assure.freeOpen)).toBeNull();
+    unmount();
+    renderPage({ signupOpen: true });
+    expect(screen.queryByText(W.hero.assure.freeInvite)).toBeNull();
+    expect(screen.getByText(W.hero.assure.freeOpen)).toBeTruthy();
+    expect(document.getElementById("hero")!.textContent).not.toMatch(/\$\d/);
+    expect(text()).not.toMatch(/does not expire|free forever|always free|stays free/i);
   });
 
   it("shows a real rated example, labeled with the founder's words, beside the box, and says what comes back", () => {
@@ -82,7 +96,8 @@ describe("LandingPage (signed-out /, DIRECTION §3)", () => {
 
   it("never calls the rated idea a card: the word reads as a payment card (founder, 2026-11-16)", () => {
     renderPage();
-    expect(text()).not.toMatch(/\bcards?\b/i);
+    // The one use of the word is a payment card, in the founder's own line (WP-14 A1).
+    expect(text().replace(W.hero.assure.freeInvite, "")).not.toMatch(/\bcards?\b/i);
   });
 
   it("names the three ways to start: one sentence, the Ideation Studio, and bringing what already exists", () => {
@@ -129,6 +144,14 @@ describe("LandingPage (signed-out /, DIRECTION §3)", () => {
     expect(document.getElementById("cost")!.textContent).toContain(W.cost.allowance);
     expect(W.cost.allowance).toContain("$5.00");
     expect(document.querySelectorAll("#questions details").length).toBeGreaterThanOrEqual(W.questions.always.length);
+  });
+
+  it("offers a vacation, and says by the house rules that estimates are labeled (WP-14 T10)", () => {
+    renderPage();
+    const vacation = document.getElementById("vacation")!;
+    expect(within(vacation).getByRole("heading", { level: 2 }).textContent).toBe("Take a vacation.");
+    expect(vacation.textContent).toContain("Vacation mode: your Chief of Staff keeps things moving within the limits you set, and writes you a report for when you come back.");
+    expect(within(document.getElementById("control")!).getByTestId("control-honest").textContent).toBe(W.control.honest);
   });
 
   it("ends with a way back to the box and the paragraph an answer engine can quote", () => {
@@ -213,6 +236,40 @@ describe("LandingPage variants (lib/landing-variant.ts)", () => {
     const titles = LANDING_VARIANTS.map((v) => VARIANT_WORDS[v].title);
     expect(new Set(titles).size).toBe(titles.length);
     for (const v of LANDING_VARIANTS) expect([...VARIANT_WORDS[v].ways].sort()).toEqual(["bring", "sentence", "studio"]);
+  });
+
+  it("a profile page puts its own hero example first, chosen, and shows its own Studio set", () => {
+    const { container } = renderVariant("developer");
+    const pills = [...container.querySelectorAll("[data-example-idea]")];
+    expect(pills.map((b) => b.getAttribute("data-example-idea"))).toEqual(VARIANT_WORDS.developer.examples);
+    expect(pills[0]!.getAttribute("aria-checked")).toBe("true");
+    const studio = container.querySelector("#studio")!.textContent!;
+    expect(studio).toContain(W.studio.brief(STUDIO_SETS.games.brief));
+    expect(studio).toContain("Patchnote");
+    expect(studio).not.toContain("Lace Lab");
+  });
+
+  it("a profile page shows its own founder, project page and first week; the student's keeps Sole Revival", () => {
+    const { container, unmount } = renderVariant("trades");
+    const s = EXAMPLE_STORIES.trades!;
+    expect(container.querySelector("#people")!.textContent).toContain(s.person.name);
+    const week = container.querySelector("#first-week")!.textContent!;
+    expect(week).toContain(s.project.pitch);
+    expect(week).toContain(s.days.d7);
+    expect(week).not.toContain(W.firstWeek.days.d7);
+    unmount();
+    expect(renderVariant("student").container.querySelector("#first-week")!.textContent).toContain(W.firstWeek.days.d7);
+  });
+
+  it("every profile page but the student's has its own story", () => {
+    for (const v of PROFILE_VARIANTS) if (v !== "student") expect(EXAMPLE_STORIES[v], v).toBeDefined();
+    const names = Object.values(EXAMPLE_STORIES).map((s) => s!.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("every Studio set has three ideas, and not every page shows the sneakers set", () => {
+    for (const set of Object.values(STUDIO_SETS)) expect(set.cards).toHaveLength(3);
+    expect(new Set(LANDING_VARIANTS.map((v) => VARIANT_WORDS[v].studio ?? "sneakers")).size).toBeGreaterThan(5);
   });
 
   it("the page for a visitor with no idea opens Surprise me; the others leave it closed", () => {

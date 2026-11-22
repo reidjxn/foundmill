@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, MapPin, Plug, RefreshCw, Unplug } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, StatusPill, Term, cn, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, StatusPill, Term, cn, useBuilderView, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
 import {
   normalizePostalAddress,
   PLATFORM_MAIL_APPROVAL_LINE,
@@ -39,8 +39,11 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
+import { BrowserSitesSection } from "./BrowserSitesSection";
 import { GitHubRepositoryPanel } from "./GitHubRepositoryPanel";
+import { GoogleContextPanel } from "./GoogleContextPanel";
 import { OAuthFinish } from "./OAuthFinish";
+import { OwnDomainSection } from "./OwnDomainSection";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -59,6 +62,15 @@ export const AUTH_WORD: Record<string, string> = {
   app: "Install the app",
   none: "No sign-in needed",
 };
+
+/**
+ * Which connector rows Settings lists: one that cannot be connected here (unbuilt or mock-only, `available` false) is
+ * hidden unless it is already connected, so it can still be disconnected; the custom MCP server field is Builder view's
+ * (LAUNCH_EVALUATION §2, MCP 6).
+ */
+export function visibleConnectors<T extends { key: string; available?: boolean; integration: { status: string } | null }>(rows: readonly T[], builder: boolean): T[] {
+  return rows.filter((r) => (r.available !== false || (r.integration !== null && r.integration.status !== "disconnected")) && (r.key !== "mcp_custom" || builder));
+}
 
 /** The six panel actions BUILD §13.3 names; the ingest catalogue may add more. */
 export const SIMULATIONS: { name: string; label: string; description: string }[] = [
@@ -100,11 +112,25 @@ export function showsModeChip(mode: string, rows: readonly { live?: boolean; ava
   return mode !== "mock" || !rows.some((r) => !r.live && r.available === false);
 }
 
+/** The connector that has its own box on Settings › Integrations, "Accept payments with Stripe". */
+export const STRIPE_CONNECTOR_KEY = "stripe";
+
 /** The connectors' mode: "Live", "Mock mode", or "Mock mode · GitHub live" when named connectors run live anyway. */
 export function modeLabel(mode: string, rows: readonly { displayName: string; live?: boolean }[]): string {
   if (mode !== "mock") return "Live";
   const live = rows.filter((r) => r.live).map((r) => r.displayName);
   return live.length ? `Test mode · ${live.join(", ")} live` : "Test mode";
+}
+
+/** The toast after a connection is made: the vendor and the project it now works for (founder, Nov 18, 2026). */
+export function connectedTitle(vendor: string, project: string | null | undefined): string {
+  return project ? `Connected ${vendor} to ${project}` : `Connected ${vendor}`;
+}
+
+/** The vendor account under that title, unless it only repeats the project's name ("foundmill" under "… to Foundmill"). */
+export function connectedAccountLine(account: string | null | undefined, project: string | null | undefined): string | undefined {
+  if (!account) return undefined;
+  return project && account.trim().toLowerCase() === project.trim().toLowerCase() ? undefined : account;
 }
 
 /** The toast line for a healthy check: a test connection says nothing was asked of the vendor, never the connector's own words. */
@@ -170,6 +196,23 @@ export interface ConnectFieldView {
 export function needsConnectFields(c: { live?: boolean; connectFields?: readonly ConnectFieldView[] }): boolean {
   return Boolean(c.live) && (c.connectFields?.length ?? 0) > 0;
 }
+
+/**
+ * Two ways in, both offered (Stripe, founder Nov 17, 2026): signing in on the vendor's page, or the founder's own key.
+ * Only when the connector runs live; a test connection connects with one click as before.
+ */
+export function offersSignInAndKey(c: { live?: boolean; auth: { authorizationCode?: boolean }; connectFields?: readonly ConnectFieldView[] }): boolean {
+  return needsConnectFields(c) && c.auth.authorizationCode === true;
+}
+
+/** How a connector signs in, in words, for the row's second line. */
+export function authWordFor(c: { displayName: string; live?: boolean; auth: { kind: string; authorizationCode?: boolean }; connectFields?: readonly ConnectFieldView[] }): string {
+  if (offersSignInAndKey(c)) return `Sign in with ${c.displayName}, or an API key`;
+  return AUTH_WORD[c.auth.kind] ?? plainWords(c.auth.kind);
+}
+
+/** The connection was made with a pasted key (Stripe's `config.kind` "own"), so renewing asks for a key again. */
+const connectedWithKey = (integ: { settings?: unknown } | null): boolean => ((integ?.settings as { config?: { kind?: unknown } } | undefined)?.config?.kind ?? null) === "own";
 
 /** The `connect()` input from what was typed (trimmed; empty optional fields left out), or null while a required one is empty. */
 export function connectInputFrom(fields: readonly ConnectFieldView[], values: Record<string, string>): Record<string, string> | null {
@@ -359,17 +402,18 @@ export function PlatformMailSection({ data, businessId }: { data: PlatformMailVi
 
 export function IntegrationsTab() {
   const datePrefs = useDateFormat();
-  const { businessId } = useBusiness();
+  const { businessId, data: businessData, isOwner } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
   const list = useQuery(trpc.integrations.list.queryOptions({ businessId }));
+  const vendorName = (key: string) => list.data?.catalogue.find((c) => c.key === key)?.displayName ?? plainWords(key);
   const platformMail = useQuery(trpc.integrations.platformMail.queryOptions({ businessId }));
   /** The connector whose key dialog is open (Connect on a live API-key connector). */
   const [keyForKey, setKeyForKey] = useState<string | null>(null);
   const connect = useMutation(
     trpc.integrations.connect.mutationOptions({
-      onSuccess: (r) => {
+      onSuccess: (r, vars) => {
         void invalidate(["integrations"]);
         if (r.consentUrl) {
           // The vendor's page opens in this tab: a new tab opened after the request returns is a pop-up browsers block
@@ -377,7 +421,7 @@ export function IntegrationsTab() {
           // Google, Notion, Shopify: /integrations/oauth/callback, finished in OAuthFinish).
           t.info("Your consent is needed", "Opening the vendor's page; the connection completes when you accept and come back here.");
           navigateTo(r.consentUrl);
-        } else t.saved("Connected", r.record.accountLabel ?? undefined);
+        } else t.saved(connectedTitle(vendorName(vars.connectorKey), businessData?.business.name), connectedAccountLine(r.record.accountLabel, businessData?.business.name));
       },
       onError: (e) => t.failed(e, "Could not connect"),
     }),
@@ -410,8 +454,85 @@ export function IntegrationsTab() {
     installState &&
     connect.mutate({ businessId, connectorKey: "github", input: { installationId: Number(pendingInstallation), code: installCode, state: installState } }, { onSettled: () => router.replace(pathname ?? `/b/${businessId}/settings/integrations`) });
 
+  const builder = useBuilderView();
   if (loadFailed(list)) return <ErrorPanel title="Integrations" message={errorMessage(list.error)} onRetry={() => void list.refetch()} />;
   const rows = list.data?.catalogue ?? [];
+  // One row per connector, the same wherever it appears (Stripe's own box above the list, and the list).
+  const renderRow = (c: (typeof rows)[number]) => {
+    const integ = c.integration;
+    const status = STATUS_TONE[(integ?.status ?? "disconnected") as IntegrationStatus] ?? STATUS_TONE.disconnected;
+    const connected = integ !== null && integ.status !== "disconnected";
+    const renew = connected && needsRenewal(integ);
+    const expiry = consentExpiry(integ);
+    const both = offersSignInAndKey(c);
+    const renewWithKey = both ? connectedWithKey(integ) : needsConnectFields(c);
+    const renewWord = both ? (renewWithKey ? "Reconnect" : `Sign in with ${c.displayName} again`) : c.auth.kind === "oauth" ? "Renew consent" : "Reconnect";
+    const pending = connect.isPending && connect.variables?.connectorKey === c.key;
+    const signIn = () => connect.mutate({ businessId, connectorKey: c.key, input: {} });
+    return (
+      <li key={c.key} className={cn("flex min-h-row-comfortable items-start gap-3 border-b border-line-faint py-2.5 last:border-b-0", focusKey === c.key && "rounded-panel bg-panel-alt outline outline-2 -outline-offset-2 outline-link")} data-connector={c.key} aria-current={focusKey === c.key ? "true" : undefined}>
+        <span className="flex w-40 shrink-0 flex-col">
+          <span className="text-body-strong text-primary">{c.displayName}</span>
+          <span className="text-small text-tertiary">{authWordFor(c)}</span>
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="flex flex-wrap items-center gap-1.5">
+            <StatusPill tone={status.tone}>{status.word}</StatusPill>
+            {list.data?.mode === "mock" && c.live ? <Chip tone="good">Live</Chip> : null}
+          </span>
+          <span className="break-words text-small text-secondary" title={integ?.scopes.length ? `Permissions: ${integ.scopes.join(", ")}` : undefined}>
+            {connectorDetail(c, integ, datePrefs)}
+          </span>
+          {connected && expiry ? <span className={cn("text-small", renew ? "text-status-warn" : "text-tertiary")}>Consent until {formatDateTime(expiry, datePrefs)}</span> : null}
+          {integ?.lastError ? <span className="break-words text-small text-status-bad">{integ.lastError}</span> : null}
+        </span>
+        <span className="flex shrink-0 items-center gap-1 pt-0.5">
+          {MANAGED_ON_KEYS_TAB.has(c.key) ? (
+            <ShellLinkButton size="sm" icon={KeyRound} href={routes.settings(businessId, "keys")} data-testid="manage-in-keys">
+              Manage in Keys
+            </ShellLinkButton>
+          ) : connected ? (
+            <>
+              {renew ? (
+                <Button size="sm" icon={renewWithKey ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : RefreshCw} loading={pending} onClick={() => (renewWithKey ? setKeyFor(c) : signIn())}>
+                  {renewWord}
+                </Button>
+              ) : null}
+              {c.key === "gmail" ? (
+                // Reading asks Google for a second, stricter permission, so it is the founder's choice, made by signing in again.
+                <Button size="sm" variant="ghost" icon={ExternalLink} loading={pending} onClick={() => connect.mutate({ businessId, connectorKey: c.key, input: { readMail: !(integ?.scopes ?? []).some((x) => x.endsWith("/gmail.readonly")) } })} data-testid="gmail-reading-toggle">
+                  {(integ?.scopes ?? []).some((x) => x.endsWith("/gmail.readonly")) ? "Turn off reading" : "Turn on reading"}
+                </Button>
+              ) : null}
+              <IconButton label={`Check ${c.displayName} health`} icon={Activity} size="sm" disabled={health.isPending} onClick={() => integ && health.mutate({ businessId, integrationId: integ.id })} />
+              <IconButton label={`Disconnect ${c.displayName}`} icon={Unplug} size="sm" disabled={disconnect.isPending} onClick={() => integ && disconnect.mutate({ businessId, integrationId: integ.id })} />
+            </>
+          ) : c.available === false ? (
+            <Chip tone="neutral" data-testid="connector-not-available">
+              Not available yet
+            </Chip>
+          ) : both ? (
+            <>
+              <Button size="sm" variant="primary" icon={ExternalLink} loading={pending} onClick={signIn} data-testid="sign-in-with-vendor">
+                Sign in with {c.displayName}
+              </Button>
+              <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setKeyFor(c)} data-testid="use-an-api-key">
+                Use an API key
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : Plug} loading={pending} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : signIn())}>
+              Connect
+            </Button>
+          )}
+        </span>
+      </li>
+    );
+  };
+  // Stripe has its own box above the other connectors (founder, Nov 18, 2026), so it is listed once.
+  const stripeRow = rows.find((r) => r.key === STRIPE_CONNECTOR_KEY) ?? null;
+  // The hosted-browser sites (`browser_*`) are listed once, in their own section below, never as ordinary connectors.
+  const listed = visibleConnectors(rows.filter((r) => r.key !== STRIPE_CONNECTOR_KEY && !r.browser), builder);
   const keyFor = rows.find((r) => r.key === keyForKey) ?? null;
   const setKeyFor = (c: { key: string } | null) => setKeyForKey(c?.key ?? null);
 
@@ -437,65 +558,23 @@ export function IntegrationsTab() {
         </SettingsSection>
       ) : null}
       <PlatformMailSection data={platformMail.data} businessId={businessId} />
-      <OAuthFinish businessId={businessId} connectors={rows} pending={connect.isPending} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
-      <SettingsSection wide title="Connectors" meta={list.data ? plural(rows.filter((r) => r.integration && r.integration.status !== "disconnected").length, "connected", "connected") : undefined} actions={list.data && showsModeChip(list.data.mode, rows) ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
+      {platformMail.data ? <OwnDomainSection businessId={businessId} /> : null}
+      <OAuthFinish businessId={businessId} connectors={rows} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
+      {stripeRow ? (
+        <SettingsSection wide title="Accept payments with Stripe" data-testid="stripe-payments" loading={list.isLoading}>
+          <Hint>Take payments on your own Stripe account. Sign in with Stripe, or use a restricted key from your Stripe dashboard. Stripe's fees stay on your account.</Hint>
+          <ul className="flex flex-col">{renderRow(stripeRow)}</ul>
+        </SettingsSection>
+      ) : null}
+      <SettingsSection wide title="Connectors" meta={list.data ? plural(listed.filter((r) => r.integration && r.integration.status !== "disconnected").length, "connected", "connected") : undefined} actions={list.data && showsModeChip(list.data.mode, rows) ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
         <Hint>Consents and API keys are yours to grant: a connector that needs one opens the vendor's page and waits for you. Secrets are stored encrypted and never shown again.</Hint>
         <ul className="flex flex-col" data-testid="connector-list">
-          {rows.map((c) => {
-            const integ = c.integration;
-            const status = STATUS_TONE[(integ?.status ?? "disconnected") as IntegrationStatus] ?? STATUS_TONE.disconnected;
-            const connected = integ !== null && integ.status !== "disconnected";
-            const renew = connected && needsRenewal(integ);
-            const expiry = consentExpiry(integ);
-            const renewWord = c.auth.kind === "oauth" ? "Renew consent" : "Reconnect";
-            return (
-              <li key={c.key} className={cn("flex min-h-row-comfortable items-start gap-3 border-b border-line-faint py-2.5 last:border-b-0", focusKey === c.key && "rounded-panel bg-panel-alt outline outline-2 -outline-offset-2 outline-link")} data-connector={c.key} aria-current={focusKey === c.key ? "true" : undefined}>
-                <span className="flex w-40 shrink-0 flex-col">
-                  <span className="text-body-strong text-primary">{c.displayName}</span>
-                  <span className="text-small text-tertiary">{AUTH_WORD[c.auth.kind] ?? plainWords(c.auth.kind)}</span>
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    <StatusPill tone={status.tone}>{status.word}</StatusPill>
-                    {list.data?.mode === "mock" && c.live ? <Chip tone="good">Live</Chip> : null}
-                  </span>
-                  <span className="break-words text-small text-secondary" title={integ?.scopes.length ? `Permissions: ${integ.scopes.join(", ")}` : undefined}>
-                    {connectorDetail(c, integ, datePrefs)}
-                  </span>
-                  {connected && expiry ? <span className={cn("text-small", renew ? "text-status-warn" : "text-tertiary")}>Consent until {formatDateTime(expiry, datePrefs)}</span> : null}
-                  {integ?.lastError ? <span className="break-words text-small text-status-bad">{integ.lastError}</span> : null}
-                </span>
-                <span className="flex shrink-0 items-center gap-1 pt-0.5">
-                  {MANAGED_ON_KEYS_TAB.has(c.key) ? (
-                    <ShellLinkButton size="sm" icon={KeyRound} href={routes.settings(businessId, "keys")} data-testid="manage-in-keys">
-                      Manage in Keys
-                    </ShellLinkButton>
-                  ) : connected ? (
-                    <>
-                      {renew ? (
-                        <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : RefreshCw} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : connect.mutate({ businessId, connectorKey: c.key, input: {} }))}>
-                          {renewWord}
-                        </Button>
-                      ) : null}
-                      <IconButton label={`Check ${c.displayName} health`} icon={Activity} size="sm" disabled={health.isPending} onClick={() => integ && health.mutate({ businessId, integrationId: integ.id })} />
-                      <IconButton label={`Disconnect ${c.displayName}`} icon={Unplug} size="sm" disabled={disconnect.isPending} onClick={() => integ && disconnect.mutate({ businessId, integrationId: integ.id })} />
-                    </>
-                  ) : c.available === false ? (
-                    <Chip tone="neutral" data-testid="connector-not-available">
-                      Not available yet
-                    </Chip>
-                  ) : (
-                    <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : Plug} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : connect.mutate({ businessId, connectorKey: c.key, input: {} }))}>
-                      Connect
-                    </Button>
-                  )}
-                </span>
-              </li>
-            );
-          })}
+          {listed.map(renderRow)}
         </ul>
       </SettingsSection>
+      {rows.some((r) => r.browser) ? <BrowserSitesSection businessId={businessId} catalogue={rows} canEdit loading={list.isLoading} /> : null}
       {rows.some((r) => r.key === "github" && r.integration && r.integration.status !== "disconnected") ? <GitHubRepositoryPanel /> : null}
+      {rows.some((r) => (r.key === "gmail" || r.key === "google_calendar") && r.integration && r.integration.status !== "disconnected") ? <GoogleContextPanel businessId={businessId} rows={rows} canEdit={isOwner} /> : null}
       <ConnectFieldsDialog
         connector={keyFor}
         pending={connect.isPending}

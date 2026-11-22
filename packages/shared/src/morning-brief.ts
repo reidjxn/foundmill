@@ -42,7 +42,14 @@ export interface BriefItemLike {
 }
 
 /** Events that can be a real outcome of the project (the north star's list, as the catalog declares them). */
-export const REAL_OUTCOME_EVENT_TYPES = ["page.published", "mail.sent", "page.followed", "payment.received", "lead.replied"] as const;
+export const REAL_OUTCOME_EVENT_TYPES = ["page.published", "mail.sent", "page.followed", "payment.received", "lead.replied", "post.published", "booking.confirmed"] as const;
+/**
+ * Whether a post the founder said they posted counts as a real outcome. Founder answer D1 (Nov 16, 2026, docs/log
+ * 2026-11-16-claude-wp08-founder-decisions.md): "visited", a `post.published` whose `visited` is true, that is, the
+ * founder said "I posted it" and a first visit came back through that post's own link. "never" turns it off. The same
+ * rule is in the three outcome clauses of packages/db `repos/metrics.ts`.
+ */
+export const REAL_OUTCOME_POST_RULE: "never" | "visited" = "visited";
 /** Read beside them only for what caused a payment (the journey's lead channel). */
 export const BRIEF_CAUSE_EVENT_TYPES = ["customer.converted"] as const;
 export const BRIEF_EVENT_TYPES: readonly string[] = [...REAL_OUTCOME_EVENT_TYPES, ...BRIEF_CAUSE_EVENT_TYPES];
@@ -68,6 +75,8 @@ export function isRealOutcome(e: Pick<BriefEventLike, "type" | "actor" | "payloa
     case "page.published":
       // The founder publishes the page themselves (the event's actor is the person).
       return e.actor.kind === "user";
+    case "post.published":
+      return REAL_OUTCOME_POST_RULE === "visited" && p.visited === true && (e.actor.kind === "user" || (e.actor.kind === "system" && e.actor.id === "public-page"));
     case "mail.sent":
       // Only a message the vendor accepted for real: the gateway writes `simulated: false` then, and only then.
       return p.simulated === false;
@@ -78,6 +87,10 @@ export function isRealOutcome(e: Pick<BriefEventLike, "type" | "actor" | "payloa
       return e.actor.kind === "webhook";
     case "lead.replied":
       return e.actor.kind === "webhook" && typeof p.sentiment === "string" && REPLIES_THAT_WORKED.has(p.sentiment);
+    case "booking.confirmed":
+      // A customer booked a time on the project's public booking page (founder, Nov 22, 2026). A test booking, or one a
+      // member made on their own page, carries `simulated: true` and was dropped above.
+      return e.actor.kind === "system" && e.actor.id === "public-booking";
     default:
       return false;
   }
@@ -98,11 +111,15 @@ export type RealOutcome =
   | { kind: "email_sent"; at: Date; agentId: string | null; channelKey: string | null }
   | { kind: "follower"; at: Date; viaPost?: ViaPost }
   | { kind: "payment"; at: Date; amountMinor: number; currency: string; firstPayment: boolean; channelKey: string | null; viaPost?: ViaPost }
-  | { kind: "reply"; at: Date; channelKey: string | null; requestsMeeting: boolean; viaPost?: ViaPost };
+  | { kind: "reply"; at: Date; channelKey: string | null; requestsMeeting: boolean; viaPost?: ViaPost }
+  /** A post the founder said they posted, with a first visit through its own link (D1). */
+  | { kind: "post_visited"; at: Date }
+  /** A customer booked a time on the project's booking page. */
+  | { kind: "booking"; at: Date; startsAt: Date | null };
 export type RealOutcomeKind = RealOutcome["kind"];
 
 /** The section a reader must be able to read to see an outcome of this kind (the gateway applies it). */
-export const OUTCOME_SECTION: Readonly<Record<RealOutcomeKind, Section>> = { page_live: "product", email_sent: "distribution", follower: "crm", payment: "finance", reply: "crm" };
+export const OUTCOME_SECTION: Readonly<Record<RealOutcomeKind, Section>> = { page_live: "product", email_sent: "distribution", follower: "crm", payment: "finance", reply: "crm", post_visited: "distribution", booking: "crm" };
 
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
 
@@ -143,6 +160,12 @@ export function realOutcomes(events: readonly BriefEventLike[], since: Date, now
         out.push({ kind: "payment", at: e.occurredAt, amountMinor: typeof amount.amountMinor === "number" ? amount.amountMinor : 0, currency: str(amount.currency) ?? "USD", firstPayment: p.firstPayment === true, channelKey: conversionId ? (leadChannel.get(conversionId) ?? null) : null, ...via(e) });
         break;
       }
+      case "post.published":
+        out.push({ kind: "post_visited", at: e.occurredAt });
+        break;
+      case "booking.confirmed":
+        out.push({ kind: "booking", at: e.occurredAt, startsAt: typeof p.startsAt === "string" && !Number.isNaN(Date.parse(p.startsAt)) ? new Date(p.startsAt) : null });
+        break;
       case "lead.replied":
         out.push({ kind: "reply", at: e.occurredAt, channelKey: str(p.channelKey), requestsMeeting: p.requestsMeeting === true, ...via(e) });
         break;
@@ -199,6 +222,11 @@ export interface MorningBriefInput {
   recipientUserId?: string | null;
   /** Walled from Money or Customers: no amounts. */
   hideAmounts?: boolean;
+  /**
+   * The window's effort as one sentence of counted records (WP-14 T5, ./effort `effortSentence`): "Your team ran 14
+   * quality checks and read 3 sources." Null or absent: nothing was counted, or the person cannot read Development.
+   */
+  effort?: string | null;
 }
 
 export interface BriefLine {
@@ -315,6 +343,9 @@ function workedLines(input: MorningBriefInput): BriefLine[] {
     lines.push({ text: followers === 1 ? "A person chose to follow your project" : `${followers.toLocaleString("en-US")} people chose to follow your project`, cause: post ?? "they signed up on your public page and confirmed by email" });
   }
 
+  const posts = o.filter((x) => x.kind === "post_visited").length;
+  if (posts > 0) lines.push({ text: posts === 1 ? "Someone opened a post you shared" : `${posts.toLocaleString("en-US")} people opened posts you shared`, cause: "you shared it" });
+
   const pages = o.filter((x): x is Extract<RealOutcome, { kind: "page_live" }> => x.kind === "page_live");
   if (pages.length > 0) {
     const byYou = input.recipientUserId ? pages.some((p) => p.byUserId === input.recipientUserId) : false;
@@ -376,9 +407,12 @@ function leadOf(input: MorningBriefInput, booked: number): string {
   if (payments > 0) return payments === 1 ? "a payment came in" : `${payments.toLocaleString("en-US")} payments came in`;
   const replies = count("reply");
   if (replies > 0) return replies === 1 ? "a person replied" : `${replies.toLocaleString("en-US")} people replied`;
+  const bookings = count("booking");
+  if (bookings > 0) return bookings === 1 ? "a customer booked a time" : `${bookings.toLocaleString("en-US")} customers booked a time`;
   const followers = count("follower");
   if (followers > 0) return followers === 1 ? "a new follower" : `${followers.toLocaleString("en-US")} new followers`;
   if (count("page_live") > 0) return "your page went live";
+  if (count("post_visited") > 0) return "someone visited your post";
   const emails = count("email_sent");
   if (emails > 0) return `${countOf(emails, "email")} went out`;
   if (input.waiting.length > 0) return input.waiting.length === 1 ? "1 thing needs you" : `${input.waiting.length.toLocaleString("en-US")} things need you`;
@@ -400,7 +434,9 @@ export function morningBrief(input: MorningBriefInput): MorningBrief {
   }).length;
   const w = input.work;
   const spend = !input.hideAmounts && w.costMinor > 0 ? `, team spend ${formatMoney({ amountMinor: w.costMinor, currency: w.costCurrency })} (Estimate)` : "";
-  const behindTheScenes = w.rounds > 0 || w.tasksDone > 0 ? `Behind the scenes: ${countOf(w.rounds, "round")} of work, ${countOf(w.tasksDone, "task")} done${spend}.` : null;
+  const workLine = w.rounds > 0 || w.tasksDone > 0 ? `Behind the scenes: ${countOf(w.rounds, "round")} of work, ${countOf(w.tasksDone, "task")} done${spend}.` : null;
+  // Effort beside the results (WP-14 T5): counted records only, said after the rounds and tasks, or alone.
+  const behindTheScenes = [workLine, input.effort ?? null].filter((s): s is string => !!s).join(" ") || null;
   const waiting = input.waiting.slice(0, BRIEF_SECTION_MAX);
   const count = input.waiting.length;
   return {

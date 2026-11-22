@@ -13,7 +13,7 @@ import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
 import { routes } from "../shared/routes";
-import { RUNWAY_WORDS, runwayWords } from "../shared/runway";
+import { RUNWAY_WORDS, runwayFigure, runwayWords } from "../shared/runway";
 import type { FinanceOverview, ForecastRecord, ForecastSeriesPoint } from "../shared/types";
 
 export const CashRunwaySettings = z.object({
@@ -69,7 +69,7 @@ export function monthlySeries(finance: FinanceOverview | undefined, months: numb
  * Estimate chip, since nothing has been estimated.
  */
 export function runwayTileProps(f: FinanceOverview): Pick<MetricTileProps, "label" | "value" | "unit" | "estimate" | "caption" | "provenance"> {
-  const months = f.runway.months;
+  const months = runwayFigure(f);
   const provenance = { source: "Cash ÷ net burn", note: "Plus the forecast-based runway on the Finance tab" };
   if (months === null) {
     const words = runwayWords(f) ?? RUNWAY_WORDS.no_bank;
@@ -119,7 +119,7 @@ function CashRunwayWidget({ settings }: WidgetProps<CashRunwaySettings>) {
             ) : (
               <p className="text-small text-secondary">{settings.chart === "forecast" ? (
                   <>
-                    No forecast yet. The Finance lead drafts one after the first <Term id="cycle">cycle</Term>.
+                    No forecast yet. The Finance lead drafts one after the first <Term id="cycle">round of work</Term>.
                   </>
                 ) : (
                   "Monthly cash flow appears after two months of transactions."

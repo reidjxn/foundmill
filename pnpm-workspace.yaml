@@ -12,7 +12,7 @@ allowBuilds:
   unrs-resolver: true
 
 catalog:
-  next: 16.4.3
+  next: 16.4.5
   react: 19.3.0
   react-dom: 19.3.0
   "@types/react": 19.3.0
@@ -130,6 +130,7 @@ catalog:
   "@cedar-policy/cedar-wasm": 4.13.0
   voyageai: 0.4.0
   e2b: 2.52.1
+  "@e2b/desktop": 2.4.0
   stripe: 23.0.0
   "@sendgrid/mail": 8.1.6
   "@octokit/rest": 22.0.1
@@ -141,7 +142,7 @@ catalog:
   typescript-eslint: 8.71.1
   eslint-plugin-react-hooks: 7.1.1
   eslint-plugin-jsx-a11y: 6.10.2
-  eslint-config-next: 16.4.3
+  eslint-config-next: 16.4.5
   globals: 17.13.0
   prettier: 3.9.9
   vitest: 5.0.3

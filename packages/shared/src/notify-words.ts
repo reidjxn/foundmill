@@ -98,6 +98,8 @@ export interface BriefExtras {
   timeZone: string | null;
   agentNames?: Record<string, string>;
   recipientUserId?: string | null;
+  /** The window's effort sentence (WP-14 T5, effort.ts); null when nothing was counted or Development is walled. */
+  effort?: string | null;
 }
 
 export type RetentionEmailPlan =
@@ -138,6 +140,7 @@ export function briefInputOf(plan: BriefPlan, now: Date, opts: { hideAmounts?: b
     next: x?.next ?? null,
     ...(x?.agentNames ? { agentNames: x.agentNames } : {}),
     recipientUserId: x?.recipientUserId ?? null,
+    effort: x?.effort ?? null,
     hideAmounts: opts.hideAmounts === true,
   };
 }
@@ -190,8 +193,6 @@ export interface RetentionEmailContext {
    * kind of thing happened and the founder reads the rest in the app, where the walls apply.
    */
   hideSubjects?: boolean;
-  /** The founder's daily streak (briefs only). */
-  streak?: { current: number; visitedToday: boolean } | null;
   /** A one-click answer for the first waiting decision, when it qualifies. */
   oneClick: { itemId: string; label: string; consequence: string; url: string } | null;
   /** Foundmill's registered postal address (`APP_POSTAL_ADDRESS`), in every email it sends (US CAN-SPAM). */
@@ -318,12 +319,6 @@ function briefBlocks(ctx: RetentionEmailContext, plan: BriefPlan, brief: Morning
   return blocks;
 }
 
-function streakBlocks(ctx: RetentionEmailContext, name: string): Block[] {
-  const s = ctx.streak;
-  if (!s || s.current < 2) return [];
-  return [{ kind: "p", text: s.visitedToday ? `You have opened ${name} ${s.current} days in a row.` : `You are on a ${s.current}-day streak. Open Today to make it ${s.current + 1}.` }];
-}
-
 const spend = (minor: number, currency: string) => `${formatMoney({ amountMinor: minor, currency })} (Estimate)`;
 
 function compose(plan: RetentionEmailPlan, ctx: RetentionEmailContext): { subject: string; blocks: Block[] } {
@@ -385,7 +380,6 @@ function compose(plan: RetentionEmailPlan, ctx: RetentionEmailContext): { subjec
           { kind: "p", text: `${greeting} ${weekly ? `Here is ${name}'s week, ${brief.sinceWords}.` : `Here is ${name} ${brief.sinceWords}, on one page.`}` },
           ...(first === "day_1" && thing ? [{ kind: "h" as const, text: "Today's one thing" }, { kind: "p" as const, text: thing.long }, ...(thing.paste ? [{ kind: "p" as const, text: thing.paste }] : [])] : []),
           ...briefBlocks(ctx, plan, brief),
-          ...streakBlocks(ctx, name),
           { kind: "button", text: "Open Today", href: todayLink(ctx) },
         ],
       };

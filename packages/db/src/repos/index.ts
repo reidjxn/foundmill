@@ -27,6 +27,8 @@ import { pageQuizzesRepo } from "./page-quizzes";
 import { positioningRepo } from "./positioning";
 import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
+import { projectDomainsRepo } from "./project-domains";
+import { domainRegistrantsRepo } from "./domain-registrants";
 import { postalAddressRepo } from "./postal-address";
 import { repliesRepo } from "./replies";
 import { updatesRepo } from "./updates";
@@ -74,15 +76,27 @@ import { teamPostsRepo } from "./team-posts";
 import { postMediaRepo } from "./post-media";
 import { postAttributionsRepo, postLinksRepo } from "./post-attributions";
 import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
+import { accountUsageRepo } from "./account-usage";
+import { accountPlansRepo } from "./account-plans";
 import { admissionsRepo, invitationsRepo } from "./people";
 import { showcaseRepo } from "./showcase";
 import { adultsRepo } from "./adults";
 import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departures";
 import { metricsRepo } from "./metrics";
 import { taskReportsRepo } from "./task-reports";
+import { reportsRepo } from "./reports";
 import { sitesRepo } from "./sites";
 export { AddPayLinkInput } from "./pay-links";
+export { OwnDomainTakenError, projectDomainsStore, type ProjectDomainView } from "./project-domains";
+export { domainOrdersStore } from "./domain-registrants";
 import { payLinksRepo } from "./pay-links";
+import { toolNeedsRepo } from "./tool-needs";
+import { bookingRepo } from "./booking";
+export { BookingServiceInput, BookingSetupInput, type BookingSetup, type PublicBookingPage } from "./booking";
+import { browserStepsRepo } from "./browser-steps";
+export { RecordBrowserStepInput, type BrowserStepListed } from "./browser-steps";
+export { RaiseToolNeedInput, RecommendToolInput, ToolPickInput, toolNeedTask, type RaiseToolNeedResult, type ToolNeedHeld } from "./tool-needs";
+import { ownerPlansRepo, partnerWaitlistRepo } from "./owner-plans";
 
 export const repos = {
   businesses: businessesRepo,
@@ -91,6 +105,8 @@ export const repos = {
   founders: foundersRepo,
   ideas: ideasRepo,
   ideaDrafts: ideaDraftsRepo,
+  accountUsage: accountUsageRepo,
+  accountPlans: accountPlansRepo,
   waitlist: waitlistRepo,
   product: productRepo,
   productSignoffs: productSignoffsRepo,
@@ -100,6 +116,8 @@ export const repos = {
   positioning: positioningRepo,
   personProfiles: personProfilesRepo,
   projectMail: mailRepo,
+  projectDomains: projectDomainsRepo,
+  domainRegistrants: domainRegistrantsRepo,
   postalAddress: postalAddressRepo,
   replies: repliesRepo,
   updates: updatesRepo,
@@ -166,8 +184,14 @@ export const repos = {
   founderCancelLinks: founderCancelLinksRepo,
   metrics: metricsRepo,
   taskReports: taskReportsRepo,
+  reports: reportsRepo,
   sites: sitesRepo,
   payLinks: payLinksRepo,
+  toolNeeds: toolNeedsRepo,
+  booking: bookingRepo,
+  browserSteps: browserStepsRepo,
+  ownerPlans: ownerPlansRepo,
+  partnerWaitlist: partnerWaitlistRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -247,4 +271,5 @@ export * from "./post-media";
 export * from "./people";
 export * from "./showcase";
 export { SaveTaskReportInput, TASK_REPORT_LIMITS } from "./task-reports";
+export { reportsRepo, type FileReportInput, type OpenReport } from "./reports";
 export { SaveSiteReleaseInput, SITE_REPORT_REASONS, siteContentHash, type SiteFile, type SiteHost, type SiteReportReason, type SiteReportResult } from "./sites";

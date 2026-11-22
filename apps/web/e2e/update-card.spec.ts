@@ -53,7 +53,7 @@ async function expectCard(page: Page, path: string, width: number): Promise<void
   const verified = card.locator("[data-verified]");
   await expect(verified).toHaveText("Verified by Foundmill");
   await expect(verified.locator("svg")).toHaveCount(1);
-  await expect(card.locator("[data-card-note]")).toHaveText("Foundmill recorded this when the project's payment provider reported the payment. It was not typed in.");
+  await expect(card.locator("[data-card-note]")).toHaveText("Foundmill recorded this payment when it arrived. It was not typed in.");
   await expect(card.locator("[data-update-channel]")).toHaveText(/\S/);
   await expect(card.locator("[data-update-agent]")).toHaveText(/\S.* \(AI agent\)$/);
   // The founder's own line, apart from what the platform recorded and named as theirs.

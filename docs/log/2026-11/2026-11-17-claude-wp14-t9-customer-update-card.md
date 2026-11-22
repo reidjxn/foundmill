@@ -6,7 +6,7 @@ areas: [db, api, events, shared, dugout, web, docs]
 supersedes: []
 ---
 ## What changed
-A founder can share one Customer Update as a public card, built the way milestone cards are. Migration 0136 adds
+A founder can share one Customer Update as a public card, built the way milestone cards are. Migration 0166 (0136 until it was rebased on Nov 22, 2026) adds
 `customer_update_cards` (members read, only the api's service connection writes) and the view
 `public_customer_update_cards`. `journey.updateCard`, `journey.shareUpdate` and `journey.unshareUpdate` are in apps/api
 (`services/update-cards.ts`), with `publicPage.updateCardById` for the signed-out read. The card is at
@@ -57,7 +57,7 @@ hosted database. It is set in `playwright.config.ts` and on the seed line of `ci
 
 ### Not stacked on #244
 #244 touches the project page, its story page, `routers/page.ts` and migration 0125. This change adds one procedure at
-the end of `publicPageRouter` and one import line there, and takes 0136 (0135 is #285's). `git merge-tree` of the two
+the end of `publicPageRouter` and one import line there, and took 0136 then (0166 now). `git merge-tree` of the two
 branches reports no conflict in `routers/page.ts`; the migration journal and `migrations.test.ts` lists need
 the usual one-line merge with #244 (#285 merged first and this branch is rebased on it).
 
@@ -67,8 +67,8 @@ the usual one-line merge with #244 (#285 merged first and this branch is rebased
 - "Stop sharing" reads nothing first: the right, then the delete. Nothing about the Customer Update can keep a card
   public. It answers `{ stopped }`, and the screen reads the state again.
 - The founder's line loses invisible and direction-changing characters before it is stored.
-- The card's sentence says less: "Foundmill recorded this when the project's payment provider reported the payment. It
-  was not typed in." See the next heading.
+- The card's sentence said less ("...when the project's payment provider reported the payment"); the verified sentence is
+  restored below and a pasted-key payment gets its own line.
 
 ### Open for the founder: a payment provider's test mode is not told apart
 The review's one high finding is older than this change and outside its files. Ingest marks any signed payment webhook
@@ -79,6 +79,22 @@ test-mode payments `simulated`, and sharing checks the payment through the gatew
 then the founder may prefer to hold this pull request, or to merge it with the softer sentence.
 A member can also rewrite an event's actor through the client-writable `events` table (0099); payment conversions are
 written only by ingest, so this is not reachable today, and a guard on `events` is the same follow-up.
+
+### Nov 22, 2026: only a "Sign in with Stripe" payment is verified (founder, option (b))
+The open finding above is decided. #328 now marks a test-mode payment `simulated`, so it never counts. For the own-key
+gap the founder chose option (b), relayed by the coordinating session on Nov 19 and again on Nov 22: a card says
+"Verified by Foundmill" only for a payment delivered with Foundmill's own platform webhook secret, which is a Stripe account
+the founder signed in to (Connect) and which no founder knows. A payment through a pasted key is signed with a secret the
+founder holds, so it can still be shared but reads "Recorded from the founder's Stripe account." and has no chip. A check
+against Stripe's API (option a) is deferred.
+How it is built: the Stripe webhook re-verifies the signature with the platform secret when it normalizes an event and
+writes `platformSigned` on `payment.received` (default false); `customer_update_cards.verified` (and the view's eighth
+column) copies it at the press; the card, its title, its description and both share images say "Verified by" or the
+recorded line from that flag. A card never claims to be verified unless told (`verified` defaults to false). Tests: the
+connector (a platform-signed delivery, a founder-signed one, no platform secret), the api (both paths, public and
+console), the card component (both), and the view's column list.
+This decides the card only. A pasted-key payment still counts as a real outcome for the north star, since `isRealOutcome`
+is unchanged; whether it should count is the founder's to say.
 
 ### Left as they are, by judgment
 - The checks and the write are two transactions. A page taken down in between leaves a row the view hides; it shows

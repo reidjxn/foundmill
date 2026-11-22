@@ -1,6 +1,6 @@
 /** The morning brief's four sections (item 10, Nov 13, 2026): real outcomes only under What worked. */
 import { describe, expect, it } from "vitest";
-import { briefDayWords, briefWhenWords, isRealOutcome, isSimulatedEvent, morningBrief, realOutcomes, type BriefEventLike, type MorningBriefInput } from "./morning-brief";
+import { REAL_OUTCOME_POST_RULE, briefDayWords, briefWhenWords, isRealOutcome, isSimulatedEvent, morningBrief, realOutcomes, type BriefEventLike, type MorningBriefInput } from "./morning-brief";
 import { retentionEmail, type BriefStats, type RetentionEmailContext } from "./notify-words";
 
 // Fri, Nov 13, 2026, 8:05 AM in New York.
@@ -64,6 +64,18 @@ describe("real outcomes", () => {
     expect(realOutcomes(fake, ago(24), NOW)).toEqual([]);
   });
 
+  it("a post counts only once the founder said they posted it and a first visit came back through its own link (D1)", () => {
+    expect(REAL_OUTCOME_POST_RULE).toBe("visited");
+    const post = (visited: boolean, actor = { kind: "system", id: "public-page" }, extra: Record<string, unknown> = {}) => ({ type: "post.published", actor, payload: { visited, ...extra } });
+    expect(isRealOutcome(post(true))).toBe(true);
+    expect(isRealOutcome(post(true, { kind: "user", id: "u1" }))).toBe(true);
+    expect(isRealOutcome(post(false))).toBe(false);
+    expect(isRealOutcome(post(true, { kind: "agent", id: "a1" }))).toBe(false);
+    expect(isRealOutcome(post(true, { kind: "system", id: "public-page" }, { simulated: true }))).toBe(false);
+    const e = { ...ev("post.published", 1, { visited: true }, { kind: "system", id: "public-page" }) };
+    expect(realOutcomes([e], ago(24), NOW)).toEqual([{ kind: "post_visited", at: e.occurredAt }]);
+  });
+
   it("isRealOutcome is the per-event rule realOutcomes applies", () => {
     const inWindow = FIXTURE.filter((e) => e.occurredAt.getTime() >= ago(24).getTime());
     expect(inWindow.filter(isRealOutcome)).toHaveLength(realOutcomes(FIXTURE, ago(24), NOW).length);
@@ -122,6 +134,13 @@ describe("the brief's sections", () => {
   it("hides amounts from a person walled from Money or Customers", () => {
     const b = morningBrief(base({ outcomes, hideAmounts: true }));
     expect(b.worked.lines[0]!.text).toBe("A new customer paid");
+  });
+
+  it("says the effort beside the work, from counted records, and alone when no round was recorded (WP-14 T5)", () => {
+    const effort = "Your team ran 14 quality checks and read 3 sources.";
+    expect(morningBrief(base({ weekly: true, work: { rounds: 2, tasksDone: 5, costMinor: 0, costCurrency: "USD" }, effort })).behindTheScenes).toBe(`Behind the scenes: 2 rounds of work, 5 tasks done. ${effort}`);
+    expect(morningBrief(base({ effort })).behindTheScenes).toBe(effort);
+    expect(morningBrief(base({ effort: null })).behindTheScenes).toBeNull();
   });
 
   it("a quiet day reads as quiet, not as failure, and says nothing about anyone missing", () => {

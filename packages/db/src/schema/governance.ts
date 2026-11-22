@@ -35,6 +35,10 @@ export const integrations = pgTable(
     uniqueIndex("integrations_business_id_connector_key_key").on(t.businessId, t.connectorKey),
     index("integrations_business_id_idx").on(t.businessId),
     index("integrations_status_idx").on(t.businessId, t.status),
+    // 0137: a Stripe account signed in with ("Sign in with Stripe") is connected to one project at a time.
+    uniqueIndex("integrations_stripe_connect_account_key")
+      .on(sql`lower(${t.settings}->>'externalAccountId')`)
+      .where(sql`${t.connectorKey} = 'stripe' and ${t.status} in ('connected', 'degraded') and ${t.archivedAt} is null and ${t.settings}->'config'->>'kind' = 'connect'`),
   ],
 );
 export type Integration = typeof integrations.$inferSelect;
@@ -318,6 +322,7 @@ export const accountOutbox = pgTable(
   },
   (t) => [
     foreignKey({ name: "account_outbox_event_fkey", columns: [t.eventId, t.userId], foreignColumns: [accountEvents.id, accountEvents.userId] }).onDelete("cascade"),
+    index("account_outbox_event_user_idx").on(t.eventId, t.userId),
     index("account_outbox_user_id_idx").on(t.userId),
     index("account_outbox_unpublished_idx").on(t.createdAt).where(sql`${t.publishedAt} is null`),
   ],

@@ -3,6 +3,7 @@
  * in the Ideation Studio" lands, the card highlighted, in view and focused. A path, not a query, so a phone's "Email me
  * a link" (`isContinuePath`) carries it to a computer. An id that is not a uuid opens the Studio as it is.
  */
+import { fitBasisOf } from "@foundmill/config";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { IdeationStudio } from "@/components/new/ideate/IdeationStudio";
@@ -26,5 +27,5 @@ export default async function IdeateOnCardPage({ params }: Props) {
   const { viewer } = result;
   // The three questions go on to this card in the Studio.
   if (!viewer.complete) redirect(`/onboarding?next=${encodeURIComponent(here)}`);
-  return <IdeationStudio viewer={{ email: viewer.email }} profileLine={profileLineOf(viewer.profile)} constraints={viewer.profile?.constraints ?? []} focusIdeaId={ideaId} />;
+  return <IdeationStudio viewer={{ email: viewer.email }} profileLine={profileLineOf(viewer.profile)} constraints={viewer.profile?.constraints ?? []} focusIdeaId={ideaId} fitBasis={fitBasisOf(viewer.profile)} accountId={viewer.userId} />;
 }

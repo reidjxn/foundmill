@@ -20,6 +20,7 @@ export * from "./shell/NeedsLargerWindow";
 export * from "./shell/PhoneBar";
 export * from "./shell/ProfileHeader";
 export * from "./shell/DecisionBar";
+export * from "./shell/DecisionLead";
 export * from "./shell/HolidayDialog";
 export * from "./shell/ApplyScopeDialog";
 export * from "./shell/ModeChip";

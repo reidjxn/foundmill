@@ -1,11 +1,11 @@
 /**
- * 0136 — a Customer Update shared as a card (WP-14 T9; docs/DESIGN.md §9f). One row per shared Customer Update, a copy
+ * 0166 — a Customer Update shared as a card (WP-14 T9; docs/DESIGN.md §9f). One row per shared Customer Update, a copy
  * of exactly what the public card shows, written by the api's service connection at the founder's press and deleted
  * when they stop sharing. Members read it; no client role writes it. The view is the signed-out read, the service
  * connection's only.
  */
 import { UPDATE_CARD_HEADLINES } from "@foundmill/shared/update-cards";
-import { date, index, pgTable, pgView, text, uuid } from "drizzle-orm/pg-core";
+import { boolean, date, index, pgTable, pgView, text, uuid } from "drizzle-orm/pg-core";
 import { id, timestamps } from "./_common";
 import { businessId } from "./_refs";
 import { journeys } from "./journey";
@@ -23,6 +23,8 @@ export const customerUpdateCards = pgTable(
     standoutAgent: text("standout_agent"),
     /** The founder's own line; the only free text on a card. */
     note: text("note"),
+    /** True only for a payment delivered with Foundmill's own platform webhook secret ("Sign in with Stripe"); the card then says "Verified by". */
+    verified: boolean("verified").notNull().default(false),
     createdBy: uuid("created_by").notNull(),
     ...timestamps(),
   },
@@ -38,8 +40,9 @@ export const publicCustomerUpdateCards = pgView("public_customer_update_cards", 
   leadChannelKey: text("lead_channel_key"),
   standoutAgent: text("standout_agent"),
   note: text("note"),
+  verified: boolean("verified").notNull(),
 }).existing();
 export type PublicCustomerUpdateCard = typeof publicCustomerUpdateCards.$inferSelect;
 
 /** The columns `public_customer_update_cards` exposes, in order (the view's test compares the catalog with this list). */
-export const PUBLIC_CUSTOMER_UPDATE_CARD_COLUMNS = ["id", "slug", "headline", "occurred_on", "lead_channel_key", "standout_agent", "note"] as const;
+export const PUBLIC_CUSTOMER_UPDATE_CARD_COLUMNS = ["id", "slug", "headline", "occurred_on", "lead_channel_key", "standout_agent", "note", "verified"] as const;

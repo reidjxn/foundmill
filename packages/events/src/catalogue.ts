@@ -703,6 +703,19 @@ const paymentReceived = declareEvent(
     customer: ConvertingCustomer.nullable().default(null),
     /** Where the order came from when the provider reports it (Shopify landing site, referrer, discount code). */
     source: TouchSource.nullable().default(null),
+    /**
+     * True when the provider says no money moved: a Stripe event with `livemode: false` (test mode) or a Shopify order
+     * with `test: true`. A simulated payment never counts as a real outcome (CLAUDE.md; packages/shared `isRealOutcome`
+     * and the metrics queries read this flag), whoever delivered it.
+     */
+    simulated: z.boolean().default(false),
+    /**
+     * True when the delivery was signed with Foundmill's own platform webhook secret: a Stripe account the founder signed
+     * in to with "Sign in with Stripe" (Connect), whose events Stripe sends to the platform endpoint. No founder knows that
+     * secret, so only these payments can be called verified (a card says "Verified by Foundmill" only for them). A payment
+     * through a pasted key is signed with the founder's own secret, which the founder could use to sign a made-up one.
+     */
+    platformSigned: z.boolean().default(false),
   }),
   {
     doc: "Money came in from a customer (Stripe invoice.paid, checkout.session.completed, Shopify orders/create, signed contract). Only a first payment (`firstPayment`) is a conversion that wins a customer and triggers journeyBuild (Match Day level cup); renewals and repeat orders count as revenue only.",
@@ -1027,7 +1040,7 @@ const holidayEnded = declareEvent(
     reportInboxItemId: Id.nullable().default(null),
   }),
   {
-    doc: "The vacation ended (date, condition, founder return, wake event, budget, kill switch, cycle safety limit). The Inbox opens on the While-you-were-away report.",
+    doc: "The vacation ended (date, condition, founder return, wake event, budget, kill switch, round of work safety limit). The Inbox opens on the While-you-were-away report.",
     consumers: ["composer", "metrics", "playbooks"],
   },
 );
@@ -1209,7 +1222,7 @@ const cycleCompleted = declareEvent(
     failure: z.object({ kind: z.enum(["billing", "credential", "request", "error"]), message: z.string().min(1).max(500) }).nullable().default(null),
   }),
   {
-    doc: "The businessCycle ended (all branches done, time box reached, waiting on decisions, stopped or failed). The composer narrates the cycle summary.",
+    doc: "The businessCycle ended (all branches done, time box reached, waiting on decisions, stopped or failed). The composer narrates the round of work summary.",
     consumers: ["composer", "metrics", "stream", "playbooks"],
   },
 );
@@ -1271,7 +1284,7 @@ const autopilotChanged = declareEvent(
     ownSpendCeiling: Money.nullable().default(null),
   }),
   {
-    doc: "Autopilot was turned on or off, its settings changed, or a guard rail (Stop all agents, used-up credits, failed or empty cycles) paused it. Only an owner or admin turns it back on.",
+    doc: "Autopilot was turned on or off, its settings changed, or a guard rail (Stop all agents, used-up credits, failed or empty rounds of work) paused it. Only an owner or admin turns it back on.",
     consumers: ["stream", "metrics"],
     narratable: false,
   },
@@ -1848,6 +1861,47 @@ const pageUnpublished = declareEvent("page.unpublished", PageFacts, {
   narratable: false,
 });
 
+/** What every booking event says: which booking, of which service, for whom (the CRM record, never the address) and when it starts. */
+const BookingFacts = z.object({
+  bookingId: Id,
+  serviceId: Id,
+  /** The customer's CRM record; null when the contact was removed. Never the name or the address. */
+  entityId: Id.nullable(),
+  /** When the appointment starts (UTC). */
+  startsAt: IsoDateTime,
+  /**
+   * True for a booking that is not a real customer's: made by a member of the project on its own page, or where
+   * results are simulated. Absent on a real one, so `isSimulatedEvent` drops exactly the test ones.
+   */
+  simulated: z.literal(true).optional(),
+});
+
+const bookingConfirmed = declareEvent("booking.confirmed", BookingFacts, {
+  // North star (FOUNDMILL.md, founder 2026-11-11; booking, founder 2026-11-22): a customer who booked a time on the
+  // project's own page is a real outside result. A test booking, or one a member made on their own page, is not.
+  doc: "A visitor booked a time on the project's public booking page: their hold became a confirmed booking under the table's no-overlap constraint, and they are a contact in the CRM. Written by the api's public booking route (actor system `public-booking`) in the transaction that confirms it. A real one is a real outside result and the north star counts it; a test booking carries `simulated: true` and never counts.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const bookingCanceled = declareEvent("booking.canceled", BookingFacts.extend({ by: z.enum(["customer", "founder"]) }), {
+  doc: "A confirmed booking was canceled, by the customer from the link in their email or by a founder in the console: its time is free again and the other side was told by email. Not an outcome.",
+  consumers: ["stream"],
+  narratable: false,
+});
+
+const bookingRescheduled = declareEvent("booking.rescheduled", BookingFacts.extend({ by: z.enum(["customer", "founder"]), previousStartsAt: IsoDateTime }), {
+  doc: "A confirmed booking moved to another time (`startsAt` is the new one), by the customer from the link in their email or by a founder in the console. Not an outcome: the booking was counted once, when it was made.",
+  consumers: ["stream"],
+  narratable: false,
+});
+
+const bookingNoShow = declareEvent("booking.no_show", BookingFacts, {
+  doc: "A founder marked that the customer of a past booking did not come. Not an outcome.",
+  consumers: ["stream"],
+  narratable: false,
+});
+
 const pageFollowed = declareEvent(
   "page.followed",
   z.object({
@@ -1983,7 +2037,7 @@ const notifyEmailSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
-// A Customer Update a founder shares as a card (0136; WP-14 T9; docs/DESIGN.md §9f)
+// A Customer Update a founder shares as a card (0166; WP-14 T9; docs/DESIGN.md §9f)
 // ---------------------------------------------------------------------------------------------------
 
 /** What both events carry: the card, the Customer Update it was made from, and the addresses. Never the customer. */
@@ -2080,6 +2134,28 @@ const postDrafted = declareEvent(
     // North star (CLAUDE.md, founder 2026-11-11): words waiting in the console are not an outside action or result. A
     // draft is an offer; whether it is ever shared is the founder's press (`share.opened`), and that is not counted either.
     doc: "The social channel's agent drafted a post for the founder to share by tap, after a real thing happened to the project (its page went live, a founder showed a milestone on the page, its first follower confirmed): the draft waits on the Creative tab with its Share control, and Today shows one quiet line. Nothing was launched, scheduled, published or measured, so this is not an outside action or result. Ids and the kind of trigger only, never the words of the post. Never narrated: no note, no email and no push (an offer, never a chore); apps/stream pushes it so the Creative tab and Today follow.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const postPublished = declareEvent(
+  "post.published",
+  z.object({
+    /** The team post (an `assets` row) the founder said they posted. */
+    assetId: Id,
+    /** The network they posted it on; null for a copied or sent link. */
+    network: z.enum(SHARE_DESTINATIONS).nullable(),
+    /** The address of the post, when the founder pasted it. Checked against the network's own host. */
+    url: z.url().max(500).nullable(),
+    source: z.enum(["founder", "buffer"]),
+    /** True once a first visit came back through that post's own link. */
+    visited: z.boolean(),
+  }),
+  {
+    // North star (FOUNDMILL.md, founder 2026-11-11) and D1 (Nov 16, 2026): a post counts only after "I posted it" plus a
+    // visit through its own link (D1, answered Nov 16, 2026; `REAL_OUTCOME_POST_RULE`).
+    doc: "The founder said they posted a draft the team wrote (or Buffer reported it sent). `visited` is true once a first visit came back through that post's own link. A tap on Share is never this event. Ids, the network and the address the founder pasted only, never the words of the post. Counts as an outside result only when `visited` is true (the founder said it, and a visitor came through the post's own link); never narrated.",
     consumers: ["stream", "metrics"],
     narratable: false,
   },
@@ -2414,6 +2490,10 @@ export const EVENTS = {
   "team_call.ended": teamCallEnded,
   "page.unpublished": pageUnpublished,
   "page.followed": pageFollowed,
+  "booking.confirmed": bookingConfirmed,
+  "booking.canceled": bookingCanceled,
+  "booking.rescheduled": bookingRescheduled,
+  "booking.no_show": bookingNoShow,
   "site.release_created": siteReleaseCreated,
   "site.published": sitePublished,
   "site.unpublished": siteUnpublished,
@@ -2441,6 +2521,7 @@ export const EVENTS = {
   "idea.kept": ideaKept,
   "idea.drafted": ideaDrafted,
   "post.drafted": postDrafted,
+  "post.published": postPublished,
   "positioning.approved": positioningApproved,
   "quiz.approved": quizApproved,
   "quiz.published": quizPublished,

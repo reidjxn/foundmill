@@ -842,9 +842,9 @@ async function replyContext(tx: DbTx, ctx: BusinessContext, p: Prepared, forMode
   // The prompt carries only what this person may read: the masked note and thread, and no CRM names without CRM read.
   const seen = await seenAtDesk(tx, ctx, p.r, toMessageViews(p.history));
   if (!forModel) return { seen, model: null };
-  // Skills the founder added from the library or files: a delimited section after the house rules and instructions.
+  // Skills from the library or files: an index after the house rules and instructions, the bodies the message calls for after the brief.
   const [ins, manifest, persona, skills] = await Promise.all([instructionsOf(tx, ctx, p.r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, seen.r, seedOf(p)), repos.skills.listAddedForAgent(tx, ctx.businessId, p.r.agent.id, p.r.agent.agentType)]);
-  return { seen, model: { ins, manifest, persona, skills: promptSkills(skills) } };
+  return { seen, model: { ins, manifest, persona, skills: promptSkills(skills, p.founderText ?? "") } };
 }
 
 /** A scripted reply carries no mention it could check against the manifest: any markup is reduced to its name. */

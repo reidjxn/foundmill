@@ -1,6 +1,6 @@
 /** skill_definitions, skill_tests, agent_skills — attribute ratings (BUILD §11.10; routers agent.profile.*). */
 import { blendDisplayed } from "@foundmill/agents";
-import { ADDED_SKILL_SOURCES, SKILL_GROUPS, ValidationError, type AddedSkillSource, type SkillGroup } from "@foundmill/shared";
+import { ADDED_SKILL_SOURCES, SKILL_ADDED_BY, SKILL_GROUPS, ValidationError, type AddedSkillSource, type SkillAddedBy, type SkillGroup } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentSkills, skillDefinitions, skillTests, type AgentSkill, type SkillDefinition, type SkillTest } from "../schema";
@@ -35,6 +35,8 @@ export const UpsertAgentSkillInput = z.object({
   nLive: z.number().int().min(0).default(0),
   displayed: z.number().int().min(1).max(20).default(1),
   potential: z.number().int().min(1).max(20).default(1),
+  /** Who added a library or uploaded skill (0141); written when the row is created, never changed by a later upsert. */
+  addedBy: z.enum(SKILL_ADDED_BY).nullable().optional(),
 });
 export type UpsertAgentSkillInput = z.input<typeof UpsertAgentSkillInput>;
 
@@ -69,6 +71,8 @@ export interface AddedAgentSkill {
   tested: string | null;
   displayed: number;
   potential: number;
+  /** 0141: "template" when it came with the role; null for skills added before 0141. */
+  addedBy: SkillAddedBy | null;
   addedAt: Date;
 }
 
@@ -265,6 +269,38 @@ export const skillsRepo = {
     );
   },
 
+  /** `upsertAddedDefinition` for many definitions in one statement (a team's default skills at commit). */
+  async upsertAddedDefinitions(db: Executor, businessId: string, inputs: readonly CreateAddedSkillInput[]): Promise<SkillDefinition[]> {
+    const list = parseInput(z.array(CreateAddedSkillInput), [...inputs], "added skills");
+    if (list.length === 0) return [];
+    if (list.some((v) => v.source === "upload" && (!v.fileName || !v.contentHash))) throw new ValidationError("An uploaded skill keeps its file name and content hash");
+    const unique = [...new Map(list.map((v) => [`${v.agentType}/${v.skillKey}`, v] as const)).values()];
+    return db
+      .insert(skillDefinitions)
+      .values(unique.map((v) => ({ businessId, agentType: v.agentType, skillKey: v.skillKey, name: v.name, description: v.description, group: v.group, custom: false, source: v.source, instructionsMd: v.instructionsMd, fileName: v.fileName, contentHash: v.contentHash, archivedAt: null })))
+      .onConflictDoUpdate({
+        target: [skillDefinitions.businessId, skillDefinitions.agentType, skillDefinitions.skillKey],
+        targetWhere: sql`${skillDefinitions.businessId} is not null`,
+        set: { name: sql`excluded.name`, description: sql`excluded.description`, group: sql`excluded."group"`, custom: false, source: sql`excluded.source`, instructionsMd: sql`excluded.instructions_md`, fileName: sql`excluded.file_name`, contentHash: sql`excluded.content_hash`, archivedAt: null },
+      })
+      .returning();
+  },
+
+  /**
+   * Adds skills that came with the role (0141 `added_by = 'template'`), untested, in one statement. A skill the agent
+   * already carries keeps its row as it is (whoever added it). Returns the rows written. The caller checks the agents
+   * are the business's own (`attachDefaultSkills`).
+   */
+  async addTemplateDefaults(db: Executor, businessId: string, rows: readonly { agentId: string; skillKey: string; group: SkillGroup; displayed: number }[]): Promise<{ agentId: string; skillKey: string }[]> {
+    if (rows.length === 0) return [];
+    const written = await db
+      .insert(agentSkills)
+      .values(rows.map((r) => ({ businessId, agentId: r.agentId, skillKey: r.skillKey, group: r.group, tested: null, proven: null, nLive: 0, displayed: r.displayed, potential: r.displayed, addedBy: "template" as const })))
+      .onConflictDoNothing({ target: [agentSkills.agentId, agentSkills.skillKey] })
+      .returning({ agentId: agentSkills.agentId, skillKey: agentSkills.skillKey });
+    return written;
+  },
+
   /** The library and uploaded skills an agent carries, oldest first, with the instructions its prompt reads. */
   async listAddedForAgent(db: Executor, businessId: string, agentId: string, agentType: string): Promise<AddedAgentSkill[]> {
     const rows = await db
@@ -289,6 +325,7 @@ export const skillsRepo = {
       tested: skill.tested,
       displayed: skill.displayed,
       potential: skill.potential,
+      addedBy: skill.addedBy,
       addedAt: skill.createdAt,
     }));
   },
@@ -366,6 +403,7 @@ export const skillsRepo = {
       nLive: v.nLive,
       displayed: v.displayed,
       potential: v.potential,
+      addedBy: v.addedBy ?? null,
     })),
     );
     if (rows.length === 0) return lists.map(() => []);

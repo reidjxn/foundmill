@@ -23,15 +23,15 @@ import { PublicAppPrompt } from "@/components/shell/PublicAppPrompt";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
-import { ProjectPage } from "@foundmill/dugout";
-import { builtOnWords, pageDescription, pageTitle } from "@foundmill/shared/project-page";
-import { storyPath } from "@foundmill/shared/project-story";
-import { withVia } from "@foundmill/shared/via";
+import { BookingBlock, ProjectPage } from "@foundmill/dugout";
+import { projectPageJsonLd } from "@foundmill/shared/page-structured-data";
+import { builtOnWords, pageDescription, pagePath, pageTitle } from "@foundmill/shared/project-page";
 import { FollowProjectForm } from "@/components/public/FollowProjectForm";
+import { JsonLd } from "@/components/public/JsonLd";
 import { PostVisitBeacon } from "@/components/public/PostVisitBeacon";
 import { PageQuizForm } from "@/components/public/PageQuizForm";
-import { getServerAuth } from "@/lib/auth/server";
-import { publicPageQuiz, publicProjectPage } from "@/lib/public-page.server";
+import { pageMarkFor } from "@/lib/public-mark.server";
+import { publicBookingBlock, publicPageQuiz, publicProjectPage } from "@/lib/public-page.server";
 
 // Read on every request: a page taken down is gone at once, and changes show as soon as they are published.
 export const dynamic = "force-dynamic";
@@ -47,28 +47,24 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: { absolute: title },
     description,
-    alternates: { canonical: page.url },
-    openGraph: { title, description, url: page.url, siteName: APP_NAME, type: "website" },
+    alternates: { canonical: page.url, types: { "text/markdown": `${pagePath(page.slug)}/index.md` } },
+    openGraph: { title, description, url: page.url, siteName: APP_NAME, type: "website", locale: "en_US" },
     twitter: { card: "summary_large_image", title, description },
-    robots: { index: true, follow: true },
+    // Public to anyone with the link; listed for search engines only once it says enough (`pageIsListed`, WP-08 T7).
+    robots: { index: page.listed, follow: true, googleBot: { index: page.listed, follow: true, "max-image-preview": "large", "max-snippet": -1 } },
   };
 }
 
 export default async function PublicProjectPageRoute({ params }: Props) {
   const { slug } = await params;
-  const [page, quiz] = await Promise.all([publicProjectPage(slug), publicPageQuiz(slug)]);
+  const [page, quiz, booking] = await Promise.all([publicProjectPage(slug), publicPageQuiz(slug), publicBookingBlock(slug)]);
   if (!page) notFound();
-  // Who is looking decides how the mark is drawn. A session that cannot be read counts as a visitor.
-  const member = page.mark ? (await getServerAuth().catch(() => null)) !== null : false;
-  const mark = !page.mark ? "none" : member ? "member" : "visitor";
+  // Who is looking decides how the mark is drawn (lib/public-mark.server.ts).
+  const { mark, markHref } = await pageMarkFor(page, page.mark);
   const words = builtOnWords(APP_NAME);
-  // The story is what turns a noticed mark into "I could do this" (docs/NETWORK.md F2); without one, the landing page.
-  const markHref = withVia(page.story ? storyPath(page.slug) : "/", {
-    kind: "project_page",
-    ref: page.slug,
-  });
   return (
     <>
+      <JsonLd data={projectPageJsonLd(page, { origin: new URL(page.url).origin, appName: APP_NAME })} />
       <PostVisitBeacon />
       <ProjectPage
         name={page.name}
@@ -83,6 +79,7 @@ export default async function PublicProjectPageRoute({ params }: Props) {
         founderNames={page.founderNames}
         mark={mark}
         markHref={markHref}
+        booking={booking ? <BookingBlock services={booking.services} href={`${pagePath(page.slug)}/book`} /> : null}
         quiz={quiz ? <PageQuizForm quiz={quiz} followForm={page.followForm && quiz.followForm} /> : null}
         follow={
           page.followForm ? (

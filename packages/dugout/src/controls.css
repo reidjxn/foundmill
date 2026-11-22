@@ -419,16 +419,37 @@
   background-color: var(--tone, currentColor);
   box-shadow: 0 0 8px color-mix(in oklab, var(--tone, currentColor) 70%, transparent);
 }
-/* "Not measured": 18 px, a dashed 1 px edge at 22 %, the word in full in the data style. */
+/*
+ * "Not measured" (DESIGN §8 and §10, founder Nov 17, 2026): one style for every estimate. The figure keeps its own
+ * size, weight and color and takes a dashed underline; dashed always means "not measured" (a defined word is dotted).
+ * The word Estimate or Forecast is its tooltip and its accessible name (ProvenanceChip).
+ */
+@utility est-fig {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  color: inherit;
+  cursor: help;
+  user-select: text;
+  font-style: italic;
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in oklab, currentColor 60%, transparent);
+}
+/* The word where no one figure carries it (a chart, a panel, a sentence): the data style, in the estimate style. */
 @utility est-chip {
   display: inline-flex;
   align-items: center;
   flex: none;
   gap: 4px;
   height: var(--badge-size);
-  padding-inline: 6px;
-  border: 1px dashed color-mix(in oklab, var(--white) 22%, transparent);
-  border-radius: var(--r-xs);
   font-family: var(--font-display);
   font-weight: var(--fw-display);
   font-size: var(--fs-data);
@@ -438,6 +459,23 @@
   white-space: nowrap;
   vertical-align: 0.12em;
   color: var(--text-2);
+  cursor: help;
+  font-style: italic;
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.3em;
+  text-decoration-color: color-mix(in oklab, currentColor 60%, transparent);
+}
+/*
+ * The shell's footer for the one legend line (EstimateLegend): it shows only while the page holds an estimate,
+ * wherever it is drawn (a dialog is outside the shell's own element, so the test is on the body).
+ */
+@utility est-legend-auto {
+  display: none;
+  body:has(:is([data-provenance="estimate"], [data-provenance="forecast"])) & {
+    display: block;
+  }
 }
 /* An ISO code or short id on a plate (the currency select's code chip). */
 @utility code-chip {

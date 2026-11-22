@@ -3,6 +3,9 @@ import { z } from "zod";
 import { MAIL_LOCAL_PART_PATTERN, mailLocalPartReserved } from "./platform-mail";
 import { sitesDomainProblem } from "./sites";
 
+/** The ceilings before commit, per account, in US cents (WP-09 T2, D3: $2.00 a day and $5.00 in 30 days; Estimates). */
+export const PRECOMMIT_CEILING_DEFAULT_CENTS = { daily: 200, monthly: 500 } as const;
+
 const Env = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
   INTEGRATIONS_MODE: z.enum(["mock", "live"]).default("mock"),
@@ -56,10 +59,13 @@ const Env = z.object({
    */
   FREE_PLAN_MONTHLY_CAP_CENTS: z.coerce.number().int().min(0).max(10_000_000).default(60_000),
   /**
-   * The model a free business's agent sessions run on unless the agent is set to one of the two (WP-13; founder,
-   * Nov 16, 2026): GLM-5.3 Flash once a measured session costs about $0.019 or less (T8), Haiku 5.5 until then.
+   * The model a free business's agent sessions run on unless the agent is set to Haiku 5.5 or GLM-5.3 Flash (WP-13):
+   * `routed`, the agent's own model as a paid plan runs it (the default since T8 found Haiku 5.5 leaking injections,
+   * Nov 17, 2026), or `haiku` / `glm` for every free session.
    */
-  FREE_SESSION_MODEL: z.enum(["haiku", "glm"]).default("haiku"),
+  FREE_SESSION_MODEL: z.enum(["routed", "haiku", "glm"]).default("routed"),
+  /** evals only: "1" runs every live eval route as the free plan does, on Haiku 5.5 (WP-13 T8); the grader keeps its model. */
+  EVAL_FREE_PLAN: z.enum(["1"]).optional(),
   VOYAGE_API_KEY: z.string().optional(),
   /** apps/gateway: the platform key behind the `openai_images` connector (AI-generated faces of anthropomorphic agents). */
   OPENAI_API_KEY: z.string().optional(),
@@ -76,14 +82,21 @@ const Env = z.object({
   IDEA_COOKIE_DOMAIN: z.string().regex(/^[a-z0-9.-]{3,253}$/).optional(),
   /** apps/api: the idea box's daily ceiling on model spend across every visitor, in US cents (founder, 2026-11-13: $20). */
   IDEA_BOX_DAILY_CEILING_CENTS: z.coerce.number().int().min(0).max(100_000).default(2_000),
+  /**
+   * apps/api: what one signed-in person's live model calls before they have a project may cost, in US cents, over the
+   * last 24 hours and the last 30 days (WP-09 T2; founder, 2026-11-16: $2.00 and $5.00, Estimates).
+   */
+  PRECOMMIT_DAILY_CEILING_CENTS: z.coerce.number().int().min(0).max(100_000).default(PRECOMMIT_CEILING_DEFAULT_CENTS.daily),
+  PRECOMMIT_MONTHLY_CEILING_CENTS: z.coerce.number().int().min(0).max(100_000).default(PRECOMMIT_CEILING_DEFAULT_CENTS.monthly),
   REDIS_URL: z.string().default("redis://localhost:6379"),
   TEMPORAL_ADDRESS: z.string().default("localhost:7233"),
   TEMPORAL_NAMESPACE: z.string().default("default"),
   TEMPORAL_TASK_QUEUE: z.string().default("foundmill"),
   E2B_API_KEY: z.string().optional(),
+  /** The E2B desktop template the gateway's hosted browser starts from (Chrome, Node); empty = E2B's "desktop" (founder, Nov 22, 2026). */
+  E2B_BROWSER_TEMPLATE: z.string().optional(),
   /** The E2B template the orchestrator's acceptance sandboxes start from; empty means E2B's `base` (docs/DEPLOY.md §5). */
   E2B_TEMPLATE: z.string().optional(),
-  BROWSERBASE_API_KEY: z.string().optional(),
   KMS_KEY_ID: z.string().optional(),
   DEV_MASTER_KEY: z.string().optional(),
   SESSION_TOKEN_SECRET: z.string().optional(),
@@ -104,7 +117,22 @@ const Env = z.object({
    * a delivery signed for one can never pass as the other; unset refuses every billing delivery.
    */
   STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
+  /** gateway: the Stripe price id of the $5.00-a-month entry plan (WP-09 T16; one recurring price on Foundmill's own account). */
+  STRIPE_ENTRY_PRICE_ID: z.string().optional(),
+  /**
+   * api, ingest, orchestrator: paid entry (WP-09 T16; founder, Nov 17, 2026). Off: invite-only sign-up on the free plan,
+   * as today. On: the first AI run of a project needs its owner's $5 entry plan, and credits come as packs. Turned on
+   * the day sign-up opens, and only after Foundmill's own Stripe is live.
+   */
+  PAID_ENTRY: z
+    .enum(["0", "1", "true", "false", ""])
+    .optional()
+    .transform((v) => v === "1" || v === "true"),
   SENDGRID_API_KEY: z.string().optional(),
+  /** OpenSRS reseller (domains registered through Foundmill, WP-08 Path A): gateway only. `test` is horizon.opensrs.net. */
+  OPENSRS_USERNAME: z.string().optional(),
+  OPENSRS_API_KEY: z.string().optional(),
+  OPENSRS_ENV: z.enum(["test", "live"]).optional(),
   SENDGRID_WEBHOOK_PUBLIC_KEY: z.string().optional(),
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_APP_PRIVATE_KEY: z.string().optional(),
@@ -119,8 +147,13 @@ const Env = z.object({
    * them on the gateway (every agent tool call), on ingest when the connector's webhook goes live, and on the api for
    * what it calls directly (registry lookups, OAuth consent links and code exchanges).
    */
-  /** Stripe Connect platform client id (`ca_…`), for Connect onboarding links. */
+  /** Stripe Connect platform client id (`ca_…`): "Sign in with Stripe" for a founder's own account (gateway only). */
   STRIPE_CONNECT_CLIENT_ID: z.string().optional(),
+  /**
+   * The secret key of the same Stripe mode as STRIPE_CONNECT_CLIENT_ID (gateway only), when it is not STRIPE_SECRET_KEY:
+   * test-mode Connect can then run beside live billing. Unset: STRIPE_SECRET_KEY.
+   */
+  STRIPE_CONNECT_SECRET_KEY: z.string().optional(),
   /** apps/ingest: the token SendGrid Inbound Parse carries as `?token=` (Inbound Parse has no signature). */
   SENDGRID_INBOUND_TOKEN: z.string().optional(),
   /*
@@ -244,6 +277,12 @@ const Env = z.object({
   /** Notion public integration (OAuth) client. */
   NOTION_CLIENT_ID: z.string().optional(),
   NOTION_CLIENT_SECRET: z.string().optional(),
+  // Remote MCP servers (founder, 2026-11-19): PKCE verifiers derive from MCP_OAUTH_SECRET (32+ characters); one OAuth client per vendor.
+  MCP_OAUTH_SECRET: z.string().optional(),
+  NOTION_MCP_CLIENT_ID: z.string().optional(),
+  HUBSPOT_MCP_CLIENT_ID: z.string().optional(),
+  HUBSPOT_MCP_CLIENT_SECRET: z.string().optional(),
+  SHOPIFY_MCP_CLIENT_ID: z.string().optional(),
   /** Dropbox Sign API key; a business's own key takes precedence. */
   DROPBOX_SIGN_API_KEY: z.string().optional(),
   /**
@@ -307,6 +346,11 @@ const Env = z.object({
   SEED_ON_BOOT: z.string().optional(),
   /** Opens the LIVE surfaces (network, communities, Go live) on this deployment; closed unless 1/true/yes/on (`liveModeOpen`). */
   LIVE_MODE: z.string().optional(),
+  /**
+   * apps/api: the accounts that review reports (`operator.*`, /operator/reports), as comma-separated account ids. Unset
+   * means nobody: the queue answers not found to everyone (docs/DEPLOY.md "Reports: who checks and how often").
+   */
+  OPERATOR_USER_IDS: z.string().optional(),
   /** Seed data volume multiplier (1 = the full two years of history). */
   SEED_VOLUME_SCALE: z.coerce.number().positive().optional(),
   /**
@@ -336,6 +380,10 @@ export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
   const parsed = Env.safeParse(raw);
   if (!parsed.success) throw new Error(`Invalid environment: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   const env = parsed.data;
+  // Paid entry in production takes real payments only (WP-09 T16): never a simulated plan or pack.
+  if (env.APP_ENV === "production" && env.PAID_ENTRY === true && platformBillingMode(env) !== "live") {
+    throw new Error(`Invalid environment: PAID_ENTRY is on in production but the platform's billing is not live (set LIVE_CONNECTORS to include ${PLATFORM_BILLING_LIVE_KEY})`);
+  }
   if (env.APP_ENV !== "development" && env.APP_ENV !== "test") {
     env.DEV_AUTH_USER_ID = undefined; // never honoured outside development/test (docs/DECISIONS.md)
     // Simulated model latency is a development knob: a deployed service's mock client (a live service without its key
@@ -396,4 +444,16 @@ export const waitlistEmails = (env: Partial<Pick<Env, "WAITLIST_EMAILS" | "INTEG
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";
 /** ALLOW_MOCK_PAYMENTS, or by default only in development and test: may a top-up be paid by simulation here? */
 export const allowMockPayments = (env: Pick<Env, "APP_ENV" | "ALLOW_MOCK_PAYMENTS">): boolean => env.ALLOW_MOCK_PAYMENTS ?? (env.APP_ENV === "development" || env.APP_ENV === "test");
+/**
+ * Whether credits can be bought on this server (WP-09 T13): the platform's billing is live, or simulated payments are
+ * allowed (development and test). Copy names a top-up only where this is true.
+ */
+export const topUpsOnSale = (env: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "ALLOW_MOCK_PAYMENTS">): boolean => platformBillingMode(env) === "live" || allowMockPayments(env);
+/**
+ * Whether only a plan or a pack paid on Stripe counts toward paid entry here (WP-09 T16): wherever anything could run
+ * live (the platform's billing, model calls or integrations) or simulated payments are not allowed. A simulated plan
+ * opens only a fully simulated stack.
+ */
+export const paidEntryLive = (env: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "MODEL_MODE" | "ALLOW_MOCK_PAYMENTS">): boolean =>
+  platformBillingMode(env) === "live" || env.MODEL_MODE === "live" || env.INTEGRATIONS_MODE === "live" || !allowMockPayments(env);
 export const servicePort = (env: Env, named: "API_PORT" | "GATEWAY_PORT" | "COMPOSER_PORT" | "STREAM_PORT" | "COLLAB_PORT" | "INGEST_PORT"): number => env.PORT ?? env[named];

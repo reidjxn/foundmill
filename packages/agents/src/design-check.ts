@@ -16,7 +16,7 @@
  */
 import { DESIGN_CHECK_MAX_FIXES, DESIGN_PRINCIPLES, lintPageDescription, viewportLabel, type DesignCheckFix, type DesignFinding, type DesignViewport, type PageDescription } from "@foundmill/shared";
 import type { CompleteRequest, DesignReviewOutput } from "@foundmill/models";
-import type { AgentSkillPrompt } from "./club-rules";
+import type { AttachedSkill } from "./skill-select";
 import { inertJson, untrustedBlock } from "./foundations";
 
 /** The craft skill key the code agents carry (packages/agents/src/skills/definitions.ts). */
@@ -76,13 +76,13 @@ export const DESIGN_PRINCIPLES_MD = md([
 ]);
 
 /** The skill as the prompt carries it: it comes with the role, not from the founder. */
-export const DESIGN_PRINCIPLES_SKILL: AgentSkillPrompt = Object.freeze({ name: "Design principles", source: "role", instructionsMd: DESIGN_PRINCIPLES_MD });
+export const DESIGN_PRINCIPLES_SKILL: AttachedSkill = Object.freeze({ key: DESIGN_PRINCIPLES_SKILL_KEY, name: "Design principles", source: "role", whenToUse: "Use when you build or change a screen or page a person sees.", instructionsMd: DESIGN_PRINCIPLES_MD });
 
 /** Skills whose instructions come with a template's craft skills (key → the prompt block). */
-const ROLE_SKILLS: Readonly<Record<string, AgentSkillPrompt>> = Object.freeze({ [DESIGN_PRINCIPLES_SKILL_KEY]: DESIGN_PRINCIPLES_SKILL });
+const ROLE_SKILLS: Readonly<Record<string, AttachedSkill>> = Object.freeze({ [DESIGN_PRINCIPLES_SKILL_KEY]: DESIGN_PRINCIPLES_SKILL });
 
 /** The role skills an agent carries for its skill keys (a template's or its version's), in a stable order. */
-export function roleSkillsFor(skillKeys: readonly string[]): AgentSkillPrompt[] {
+export function roleSkillsFor(skillKeys: readonly string[]): AttachedSkill[] {
   return Object.keys(ROLE_SKILLS)
     .filter((key) => skillKeys.includes(key))
     .map((key) => ROLE_SKILLS[key]!);

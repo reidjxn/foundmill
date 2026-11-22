@@ -4,7 +4,7 @@
  */
 import { AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_STOP_REASONS, AGENT_VERSION_STATES, MODEL_KEYS, personaByKey, pickPersonaKeys, uuid, ValidationError, type AgentPauseReason, type AgentStatus } from "@foundmill/shared";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentMetrics, agentSessions, agentVersions, agents, businesses, CREATED_BY_KINDS, departments, tasks, type Agent, type AgentMetric, type AgentSession, type AgentVersion } from "../schema";
 import { assertAgentsOwned, assertDepartmentsOwned } from "./_refs";
@@ -93,6 +93,12 @@ export const EndSessionInput = z.object({
   costMinor: MinorAmount.optional(),
   outcome: z.string().max(80).nullable().optional(),
   recordingRef: z.string().max(2048).nullable().optional(),
+  /** 0138 (WP-09 T1): what the session ran on and did, for the cost report. */
+  route: z.string().max(80).nullable().optional(),
+  effort: z.string().max(20).nullable().optional(),
+  numTurns: z.number().int().min(0).nullable().optional(),
+  cacheReadTokens: z.number().int().min(0).optional(),
+  cacheWriteTokens: z.number().int().min(0).optional(),
 });
 export type EndSessionInput = z.input<typeof EndSessionInput>;
 
@@ -257,6 +263,45 @@ export const agentsRepo = {
 
   async get(db: Executor, businessId: string, agentId: string): Promise<Agent> {
     return one(await db.select().from(agents).where(scoped(businessId, agentId)).limit(1), "agent", agentId);
+  },
+
+  /**
+   * The agent's row, locked until the caller's transaction ends (`SELECT … FOR UPDATE`): a check over the agent's
+   * other rows (its skills' limits) then sees every write made before it, and a second writer waits. 404 outside the business.
+   */
+  async lockForUpdate(tx: Executor, businessId: string, agentId: string): Promise<Agent> {
+    return one(await tx.select().from(agents).where(scoped(businessId, agentId)).limit(1).for("update"), "agent", agentId);
+  },
+
+  /** Records the release of role defaults these agents were given (0141); never lowers it. */
+  async setDefaultSkillsVersion(db: Executor, businessId: string, agentIds: readonly string[], version: number): Promise<void> {
+    if (agentIds.length === 0) return;
+    await db
+      .update(agents)
+      .set({ defaultSkillsVersion: version })
+      .where(and(eq(agents.businessId, businessId), inArray(agents.id, [...agentIds]), sql`${agents.defaultSkillsVersion} < ${version}`));
+  },
+
+  /** Businesses with a live agent on an older release of role defaults than `version` (the boot backfill, 0141). */
+  async businessesBehindOnDefaults(db: Executor, version: number): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ businessId: agents.businessId })
+      .from(agents)
+      .where(and(isNull(agents.archivedAt), sql`${agents.defaultSkillsVersion} < ${version}`))
+      .orderBy(asc(agents.businessId));
+    return rows.map((r) => r.businessId);
+  },
+
+  /** Locks and returns the business's live agents on an older release of role defaults than `version` (0141). */
+  async lockBehindOnDefaults(tx: Executor, businessId: string, version: number): Promise<Pick<Agent, "id" | "agentType" | "defaultSkillsVersion">[]> {
+    // A boot job: never wait long on a lock another transaction holds (that business is tried again next boot).
+    await tx.execute(sql`set local lock_timeout = '5s'`);
+    return tx
+      .select({ id: agents.id, agentType: agents.agentType, defaultSkillsVersion: agents.defaultSkillsVersion })
+      .from(agents)
+      .where(and(eq(agents.businessId, businessId), isNull(agents.archivedAt), sql`${agents.defaultSkillsVersion} < ${version}`))
+      .orderBy(asc(agents.createdAt))
+      .for("update");
   },
 
   /** Agents by ids (only those in the business). */
@@ -676,6 +721,22 @@ export const agentsRepo = {
   },
 
   // sessions ----------------------------------------------------------------------------------------------------------
+  /**
+   * The average cost (US cents, an Estimate) of the latest `limit` finished sessions of agents of `agentType` in this
+   * business that cost anything, and how many there were; null with none (WP-14 T1: the reserve before a session starts).
+   */
+  async recentSessionCost(db: Executor, businessId: string, agentType: string, limit: number): Promise<{ averageMinor: number | null; sessions: number }> {
+    const rows = await db
+      .select({ costMinor: agentSessions.costMinor })
+      .from(agentSessions)
+      .innerJoin(agents, eq(agents.id, agentSessions.agentId))
+      .where(and(eq(agentSessions.businessId, businessId), eq(agents.agentType, agentType), isNotNull(agentSessions.endedAt), gt(agentSessions.costMinor, 0)))
+      .orderBy(desc(agentSessions.endedAt))
+      .limit(Math.max(1, Math.min(200, Math.floor(limit))));
+    if (rows.length === 0) return { averageMinor: null, sessions: 0 };
+    return { averageMinor: rows.reduce((sum, r) => sum + Number(r.costMinor), 0) / rows.length, sessions: rows.length };
+  },
+
   async listSessions(db: Executor, businessId: string, filter: { agentId?: string; taskId?: string; openOnly?: boolean } & PageInput = {}): Promise<Page<AgentSession>> {
     const p = parseInput(PageInput, filter, "page");
     const ks = timeKeyset<AgentSession>(agentSessions.startedAt, agentSessions.id, (r) => ({ at: r.startedAt, id: r.id }));

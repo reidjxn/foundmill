@@ -51,14 +51,11 @@ import { APP_NAME, APP_POSTAL_ADDRESS } from "@foundmill/config";
 import { loadBriefFacts, loadNotifyFacts, notifyEmailDayKey, repos } from "@foundmill/db";
 import { inboxWalls, isWalled, noteAsSeenBy } from "@foundmill/db/inbox-redaction";
 import {
-  addDaysToKey,
   agentLabel,
   BOOKED_SECTION,
   briefIsEmpty,
   briefStats,
   CREDITS_SUBJECTS,
-  dailyStreak,
-  dayKeyIn,
   decisionWaitingEmail,
   EMAIL_NOTIFICATION_KINDS,
   ENTITY_MARKUP_RE,
@@ -92,7 +89,6 @@ import {
   realOutcomes,
   retentionEmail,
   runTasksDone,
-  vacationDayKeys,
   type BriefExtras,
   type BusinessNotifyFacts,
   type EmailNotificationKind,
@@ -102,6 +98,8 @@ import {
   type NotifyEmailText,
   type NotifyItemLike,
   type RetentionEmailPlan,
+  effortCounts,
+  effortSentence,
 } from "@foundmill/shared";
 import { newActionToken, signPauseToken } from "@foundmill/shared/email-links";
 import { DEV_PLATFORM_MAIL_SECRET, isConfigError, mockIntegrationRecord, notifyOffToken, notifyOffUrl, PLATFORM_NOTIFY_KEY, suppressionHashOfEmail, type ToolContext } from "@foundmill/connectors";
@@ -379,7 +377,6 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
     });
   } else {
     const hideSubjects = !hasSectionAccess(membership, "crm", "read") || !hasSectionAccess(membership, "finance", "read");
-    const streak = subject.plan.kind === "daily_brief" || subject.plan.kind === "weekly_review" ? await streakOf(deps, businessId, business.timeZone, userId, now) : null;
     words = retentionEmail(subject.plan, {
       appUrl,
       appName: APP_NAME,
@@ -391,7 +388,6 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
       offLink: offUrl,
       pauseLink,
       hideSubjects,
-      streak,
       now,
       pageUrl: facts?.lifecycle?.page?.live ? `${appUrl}/p/${facts.lifecycle.page.slug}` : null,
       oneClick: answer && answerLink ? { itemId: answer.item.id, label: answer.option.label, consequence: answer.option.consequence, url: answerLink } : null,
@@ -547,6 +543,9 @@ async function briefExtrasFor(
       timeZone: q.timeZone,
       agentNames,
       recipientUserId: q.userId,
+      // Effort beside the results (WP-14 T5): counted records in the same window. Finished tasks are left to the
+      // brief's own "tasks done", so the two never say one number twice.
+      effort: can("development") ? effortSentence({ ...effortCounts(facts.effortEvents, since, q.now), tasksDone: 0 }) : null,
     },
   };
 }
@@ -562,10 +561,3 @@ async function oneClickFor(deps: GatewayDeps, businessId: string, membership: Pa
   return null;
 }
 
-/** The person's daily streak in the business, for the brief's line (packages/shared streak.ts). */
-async function streakOf(deps: GatewayDeps, businessId: string, timeZone: string | null, userId: string, now: Date): Promise<{ current: number; visitedToday: boolean }> {
-  const today = dayKeyIn(now, timeZone);
-  const [visitDays, holidays] = await Promise.all([repos.presence.visitDays(deps.db, businessId, userId, { from: addDaysToKey(today, -400), to: today }), repos.holidays.list(deps.db, businessId, 50)]);
-  const s = dailyStreak({ today, visitDays, vacationDays: vacationDayKeys(holidays, now, (d) => dayKeyIn(d, timeZone)) });
-  return { current: s.current, visitedToday: s.visitedToday };
-}

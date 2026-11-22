@@ -33,7 +33,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!found) return { title: "Page not found", robots: { index: false, follow: false } };
   const day = updateCardDay(found.card.occurredOn);
   const title = updateCardTitle(found.card.headline, found.name);
-  const description = updateCardDescription(found.name, day ? formatDate(day) : found.card.occurredOn, APP_NAME);
+  const description = updateCardDescription(found.name, day ? formatDate(day) : found.card.occurredOn, APP_NAME, found.card.verified);
   return {
     title: { absolute: title },
     description,
@@ -60,6 +60,7 @@ export default async function CustomerUpdateCardRoute({ params }: Props) {
         leadChannelKey={found.card.leadChannelKey}
         standoutAgent={found.card.standoutAgent}
         note={found.card.note}
+        verified={found.card.verified}
         brandPrimary={found.brandPrimary}
         brandSecondary={found.brandSecondary}
         logo={found.logo}

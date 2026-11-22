@@ -31,8 +31,9 @@ import { communityScreenLocalFlags } from "@foundmill/agents";
 import { tierShowsBuiltOnMark } from "@foundmill/config";
 import { siteSlugProblem, sitesDomain } from "@foundmill/shared/sites";
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { awardPageLiveMilestone, repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
+import { awardPageLiveMilestone, markBilling, repos, showsBuiltOnMark, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
+  pageIsListed,
   AppError,
   FOLLOW_ERRORS,
   FOLLOW_TURNSTILE_ACTION,
@@ -98,13 +99,16 @@ export interface PageView {
   /** A sample business never has a public page. */
   isSample: boolean;
   /** What the preview draws: the business's name, brand colors and the names "Built by" would show. */
-  preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[] };
+  /** `logo`: the business's checked logo as a `data:` URL, the same one the published page shows; null for none. */
+  preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[]; logo: string | null };
   /** How many people follow the page now (package 1.6): a count only, never who. */
   followers: number;
   /** Whether the page carries the small "Built on" mark for its visitors (the free plan; docs/NETWORK.md F2). */
   mark: boolean;
   /** Whether Follow can confirm an address here (platform mail live, or a development or test stack). */
   followAvailable: boolean;
+  /** The owner's opt-in to the public gallery (`/explore`, 0149); it shows only while the page is live. */
+  explore: boolean;
 }
 
 /** `page.publish`'s answer: published, or held with the reason and its sentence (the page stays as it was). */
@@ -135,11 +139,12 @@ export async function suggestedSlug(ctx: BusinessContext): Promise<string> {
  * Inside the caller's transaction: everything that needs the service connection (`suggestedSlug`) is asked before it.
  */
 async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, suggested: string | null = null): Promise<PageView> {
-  const [draft, founderNames, followers] = await Promise.all([
+  const [draft, founderNames, followers, logo] = await Promise.all([
     // A draft saved before the follow form existed reads with it on, like every new page; the published copy reads as it went out.
     row ? Promise.resolve(readPageContent(row.draft, true) ?? starterPageDraft({ businessName: ctx.business.name })) : repos.pages.starterInputs(tx, ctx.businessId).then((inputs) => starterPageDraft({ businessName: ctx.business.name, ...inputs })),
     repos.pages.ownerNames(tx, ctx.businessId),
     row ? repos.followers.count(tx, ctx.businessId) : Promise.resolve(0),
+    repos.logos.get(tx, ctx.businessId).then((l) => l?.dataUrl ?? null),
   ]);
   const slug = row?.slug ?? suggested ?? suggestPageSlug(ctx.business.slug || ctx.business.name);
   const published = row ? readPageContent(row.published) : null;
@@ -156,10 +161,11 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     canEdit: canEditPage(ctx),
     canPublish: canPublishPage(ctx),
     isSample: ctx.business.isDemo,
-    preview: { name: ctx.business.name, brandPrimary: ctx.business.kitPrimary, brandSecondary: ctx.business.kitSecondary, founderNames },
+    preview: { name: ctx.business.name, brandPrimary: ctx.business.kitPrimary, brandSecondary: ctx.business.kitSecondary, founderNames, logo },
     followers,
-    mark: tierShowsBuiltOnMark(ctx.business.planTier),
+    mark: await showsBuiltOnMark(ctx.db, ctx.business, markBilling(ctx.env)),
     followAvailable: followAvailable(ctx.env),
+    explore: row?.exploreListed ?? false,
   };
 }
 
@@ -260,6 +266,21 @@ export async function publishPage(ctx: BusinessContext, input: { content: PageCo
   return { outcome: "published", page };
 }
 
+/**
+ * `page.setExplore`: puts the page in the public gallery or takes it out (0149), by an owner's or an admin's own press.
+ * Needs a saved page; it shows in the gallery only while the page is live.
+ */
+export async function setPageExplore(ctx: BusinessContext, input: { listed: boolean }): Promise<PageView> {
+  if (ctx.business.isDemo) throw sampleRefusal();
+  if (!canPublishPage(ctx)) throw new ForbiddenError(PAGE_PUBLISH_ROLE_MESSAGE);
+  return ctx.rls(async (tx) => {
+    const row = await repos.pages.setExplore(tx, ctx.businessId, input.listed);
+    if (!row) throw new ValidationError("Save your page first, then you can put it in the gallery.", { field: "explore" });
+    await audit(tx, ctx, { action: "page.explore_set", target: { kind: "project_page", id: row.id }, details: { listed: input.listed } });
+    return viewOf(tx, ctx, row);
+  });
+}
+
 /** `page.unpublish`: takes the page down (the draft stays). Taking down a page that is not live changes nothing. */
 export async function unpublishPage(ctx: BusinessContext): Promise<PageView> {
   if (!canPublishPage(ctx)) throw new ForbiddenError(PAGE_PUBLISH_ROLE_MESSAGE);
@@ -300,6 +321,10 @@ export interface PublicPageView {
   forWhom: string;
   stage: PageContent["stage"];
   publishedAt: Date;
+  /** When the published copy last changed (0119): the page's `dateModified` and "Updated" line. */
+  updatedAt: Date;
+  /** Whether search engines may list the page (`pageIsListed`); a page that is not listed is still public. */
+  listed: boolean;
   brandPrimary: string;
   brandSecondary: string;
   /** The logo as a `data:` URL, or null for the initials mark. */
@@ -371,6 +396,12 @@ export function followAvailable(env: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" |
   return platformMailLive(env) || mockResultsAllowed(env.APP_ENV, false);
 }
 
+/** Whether a public page carries the "Built on" mark, from `repos.pages.public.planBySlug` (the booking page shows the same one). */
+export async function pageShowsMark(ctx: Pick<Context, "db" | "env">, planTier: Awaited<ReturnType<typeof repos.pages.public.planBySlug>>): Promise<boolean> {
+  // Taken down between the two reads: no plan to go by, so the mark stays (the free plan's rule).
+  return planTier ? showsBuiltOnMark(ctx.db, planTier, markBilling(ctx.env)) : tierShowsBuiltOnMark("free");
+}
+
 /** `publicPage.bySlug`: the published page at `slug`, or null for an unknown address or a page that is not public. */
 export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, slug: string): Promise<PublicPageView | null> {
   const clean = slug.trim().toLowerCase();
@@ -386,7 +417,7 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.unknown, rule: PUBLIC_PAGE_LIMITS.unknown }]);
     return null;
   }
-  const [logo, planTier, story] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, clean), repos.pages.public.planTierBySlug(ctx.db, clean), repos.pages.public.hasStory(ctx.db, clean)]);
+  const [logo, planTier, story] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, clean), repos.pages.public.planBySlug(ctx.db, clean), repos.pages.public.hasStory(ctx.db, clean)]);
   const { pitch, about, forWhom, stage, showFounders, followForm } = page.content;
   return {
     slug: page.slug,
@@ -397,15 +428,35 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     forWhom,
     stage,
     publishedAt: page.publishedAt,
+    updatedAt: page.updatedAt,
+    listed: pageIsListed({ name: page.name, content: page.content }).listed,
     brandPrimary: page.brandPrimary,
     brandSecondary: page.brandSecondary,
     logo,
     founderNames: showFounders ? page.founderNames : [],
     followForm: followForm && followAvailable(ctx.env),
-    // Taken down between the two reads: no plan to go by, so the mark stays (the free plan's rule).
-    mark: tierShowsBuiltOnMark(planTier ?? "free"),
+    mark: await pageShowsMark(ctx, planTier),
     story,
   };
+}
+
+/** The gallery's size: the newest projects that opted in. */
+export const EXPLORE_LIMIT = 48;
+
+/** `publicPage.explore`: the gallery, under the same per-caller limit as a page view. Only pages whose owners opted in and that are live. */
+export async function publicExplore(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }) {
+  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PUBLIC_PAGE_LIMITS.perCaller }]);
+  return { projects: await repos.pages.public.explore(ctx.db, EXPLORE_LIMIT) };
+}
+
+/**
+ * Listed pages for the sitemap (`publicPage.listed`; WP-08 T7): address, last change and whether there is a story,
+ * paged by address. Rate-limited per caller like a page view, and only what the founders published and the listing
+ * rule lets through, so it lists nothing that is not already meant to be found.
+ */
+export async function publicListedPages(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, input: { cursor?: string | null; limit: number }) {
+  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PUBLIC_PAGE_LIMITS.perCaller }]);
+  return repos.pages.public.listed(ctx.db, { cursor: input.cursor ?? null, limit: input.limit });
 }
 
 /**
@@ -519,8 +570,9 @@ function followTurnstileHostname(env: Pick<Env, "APP_ENV" | "APP_URL">): string 
  * idea box's verifier. Fails closed: no token, a refused one, or a check that cannot run is a refusal, and nothing is
  * recorded or sent. The visitor's address is not sent: through the web's Server Action the api sees the web's address,
  * not the visitor's. A development or test stack on mock integrations without the gateway passes the mock token only.
+ * The public booking form uses the same check with its own widget action (services/booking.ts).
  */
-async function checkFollowTurnstile(ctx: Pick<Context, "gateway" | "env" | "log">, token: string | null | undefined, hostname: string | null = followTurnstileHostname(ctx.env)): Promise<void> {
+export async function checkFollowTurnstile(ctx: Pick<Context, "gateway" | "env" | "log">, token: string | null | undefined, hostname: string | null = followTurnstileHostname(ctx.env), action: string = FOLLOW_TURNSTILE_ACTION): Promise<void> {
   const t = typeof token === "string" ? token.trim() : "";
   if (!t || t.length > 2048) throw followRefusal("follow_unverified");
   const mockPasses = devStack(ctx.env.APP_ENV) && ctx.env.INTEGRATIONS_MODE === "mock" && t === FOLLOW_MOCK_TURNSTILE_TOKEN;
@@ -528,7 +580,7 @@ async function checkFollowTurnstile(ctx: Pick<Context, "gateway" | "env" | "log"
     if (mockPasses) return;
     throw followRefusal("follow_unavailable");
   }
-  const check = await ctx.gateway.verifyTurnstile({ token: t, remoteIp: null, hostname, action: FOLLOW_TURNSTILE_ACTION }).catch((err: unknown) => {
+  const check = await ctx.gateway.verifyTurnstile({ token: t, remoteIp: null, hostname, action }).catch((err: unknown) => {
     if (mockPasses) return { ok: true, reason: "ok" as const, simulated: true };
     ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, "follow: turnstile check failed");
     return { ok: false, reason: "unavailable" as const, simulated: false };

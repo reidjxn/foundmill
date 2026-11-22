@@ -39,11 +39,11 @@ describe("TrainingResults", () => {
     expect(within(testing).getByRole("img", { name: "to" })).toBeTruthy();
     const unchanged = document.querySelector('[data-skill="accessibility"]') as HTMLElement;
     expect(within(unchanged).getByText("no change")).toBeTruthy();
-    // A library skill with no tests reads "No tests yet" in place of a change, and is never a drop.
+    // A library skill with no tests reads "Not tested yet" in place of a change, and is never a drop.
     const untested = document.querySelector('[data-skill="library_release_notes"]') as HTMLElement;
     expect(untested.dataset.noTests).toBe("true");
     expect(untested.dataset.bigDrop).toBeUndefined();
-    expect(within(untested).getByText("No tests yet")).toBeTruthy();
+    expect(within(untested).getByText("Not tested yet")).toBeTruthy();
     expect(within(untested).queryByText("no change")).toBeNull();
     expect(screen.getByText("1 no tests yet")).toBeTruthy();
     expect(screen.getByText(/Speed dropped because/)).toBeTruthy();

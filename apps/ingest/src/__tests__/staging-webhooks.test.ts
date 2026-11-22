@@ -7,16 +7,18 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "@foundmill/db";
+import { isRealOutcome } from "@foundmill/shared";
 import { buildAad, encryptJson, generateMasterKey, LocalVault } from "@foundmill/shared/crypto";
-import { createDefaultRegistry, MOCK_NOW, sendgridInboundParseRequest, signedGithubDeliveryRequest, signedShopifyRequest, signedStripeRequest } from "@foundmill/connectors";
+import { createDefaultRegistry, MOCK_NOW, sendgridInboundParseRequest, signedGithubDeliveryRequest, signedShopifyRequest, signedStripeRequest, stripeSignatureHeader } from "@foundmill/connectors";
 import { MOCK_INSTALLATION_ID } from "@foundmill/connectors/connectors/github/fixtures/repos";
 import { mergedPullRequestPayload } from "@foundmill/connectors/connectors/github/mock";
 import { SH_ORDERS } from "@foundmill/connectors/connectors/shopify/fixtures/shop";
 import { ST_INVOICES } from "@foundmill/connectors/connectors/stripe/fixtures/stripe";
 import { stripeEvent } from "@foundmill/connectors/connectors/stripe/mock";
-import type { BuiltIngest } from "../index";
+import { accountBusinessResolver, type BuiltIngest } from "../index";
 import { createBusinessSecretResolver } from "../secrets";
-import { accountMismatch } from "../webhooks";
+import { accountMismatch, STRIPE_ACCESS_REMOVED } from "../webhooks";
+import { silentLogger } from "../types";
 import { createIngestHarness, json, simulateToken, type IngestHarness } from "./harness";
 
 const GITHUB_SECRET = "gh-real-webhook-secret-from-env";
@@ -144,6 +146,66 @@ describe("a founder's own Stripe account in staging (WP-11 T20)", () => {
     const elsewhere = await send(live, signedStripeRequest(hz.B.businessId, event("evt_own_2"), { secret: HOOK }));
     expect(elsewhere.status).toBeGreaterThanOrEqual(400);
     expect(await hz.events(hz.B.businessId, "payment.received")).toHaveLength(0);
+  });
+});
+
+describe("a payment from a provider's test mode is never a real outcome (WP-14 T9 security review, Nov 17, 2026)", () => {
+  it("is written simulated, so it counts toward nothing; a live payment through the same route still does", async () => {
+    // Mock-signed deliveries are mounted in test, as the golden path uses them; what is under test is the normaliser's flag.
+    const mocked = hz.build({ env: { APP_ENV: "test", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "", MODEL_MODE: "mock" } as BuiltIngest["env"] });
+    const asOutcome = (r: { type: string; actor: unknown; payload: unknown }) => isRealOutcome({ type: r.type, actor: r.actor as { kind: string; id: string }, payload: r.payload as Record<string, unknown> });
+    const deliver = async (invoice: { id: string }, eventId: string, livemode: boolean) => {
+      const res = await send(mocked, signedStripeRequest(hz.A.businessId, { ...stripeEvent("invoice.paid", { ...ST_INVOICES[0]!, ...invoice }, eventId), account: undefined, livemode }));
+      expect(res.status, eventId).toBe(200);
+      return (await hz.events(hz.A.businessId, "payment.received")).find((r) => (r.payload as { externalId?: string }).externalId === invoice.id)!;
+    };
+    const test = await deliver({ id: "in_testmode_payment_1" }, "evt_testmode_1", false);
+    expect(test.payload).toMatchObject({ simulated: true });
+    expect(asOutcome(test)).toBe(false);
+    const real = await deliver({ id: "in_livemode_payment_1" }, "evt_livemode_1", true);
+    expect(real.payload).toMatchObject({ simulated: false });
+    expect(asOutcome(real)).toBe(true);
+    expect(real.id).not.toBe(test.id);
+  });
+});
+
+describe("Sign in with Stripe: the platform endpoint in staging (WP-11, Nov 17, 2026)", () => {
+  const PLATFORM = "whsec_platform_connect_endpoint_secret_0123";
+  const ACCOUNT = "acct_1SignedIn0000001";
+  /** A delivery to the platform endpoint (no project in the address), as Stripe signs it for a connected account. */
+  const platformDelivery = (event: Record<string, unknown>, secret = PLATFORM) => {
+    const body = JSON.stringify({ created: Math.floor(MOCK_NOW.getTime() / 1000), livemode: false, ...event });
+    return new Request("https://ingest.example/webhooks/stripe", { method: "POST", headers: { "content-type": "application/json", "stripe-signature": stripeSignatureHeader(secret, body, Math.floor(MOCK_NOW.getTime() / 1000)) }, body });
+  };
+
+  it("routes a signed-in account's payment to its one project, writes nothing for an account no project signed in with, and marks the connection expired when the founder removes access in Stripe", async () => {
+    const registry = createDefaultRegistry({ now: () => MOCK_NOW, secrets: { stripeWebhookSecret: PLATFORM }, resolveBusinessId: accountBusinessResolver(hz.db, silentLogger) });
+    const live = hz.build({ env: { APP_ENV: "staging", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "stripe", MODEL_MODE: "mock" } as BuiltIngest["env"], registry });
+    const integration = await repos.integrations.upsert(hz.db, hz.A.businessId, { connectorKey: "stripe", status: "connected", authKind: "oauth", settings: { externalAccountId: ACCOUNT, config: { kind: "connect" } } });
+    const before = (await hz.events(hz.A.businessId, "payment.received")).length;
+
+    const paid = await send(live, platformDelivery({ ...stripeEvent("invoice.paid", { ...ST_INVOICES[2]! }, "evt_connect_1"), account: ACCOUNT }));
+    expect(paid.status).toBe(200);
+    expect((await hz.events(hz.A.businessId, "payment.received")).length).toBe(before + 1);
+
+    const stranger = await send(live, platformDelivery({ ...stripeEvent("invoice.paid", { ...ST_INVOICES[2]! }, "evt_connect_2"), account: "acct_1NobodySigned0002" }));
+    // Acknowledged so Stripe stops retrying, and written nowhere.
+    expect(stranger.status).toBe(200);
+    expect(await json(stranger)).toMatchObject({ accepted: 0, written: 0 });
+    expect((await hz.events(hz.A.businessId, "payment.received")).length).toBe(before + 1);
+    expect(await hz.events(hz.B.businessId, "payment.received")).toHaveLength(0);
+    const forged = await send(live, platformDelivery({ ...stripeEvent("invoice.paid", { ...ST_INVOICES[2]! }, "evt_connect_3"), account: ACCOUNT }, "whsec_not_the_platform_secret_00000"));
+    expect(forged.status).toBe(401);
+
+    // Another account's withdrawal changes nothing here; this account's marks the connection expired.
+    const other = await send(live, platformDelivery({ ...stripeEvent("account.application.deauthorized", { id: "ca_test", object: "application" }, "evt_connect_4"), account: "acct_1NobodySigned0002" }));
+    expect(other.status).toBe(200);
+    expect((await repos.integrations.get(hz.db, hz.A.businessId, integration.id)).status).toBe("connected");
+    const removed = await send(live, platformDelivery({ ...stripeEvent("account.application.deauthorized", { id: "ca_test", object: "application" }, "evt_connect_5"), account: ACCOUNT }));
+    expect(removed.status).toBe(200);
+    const after = await repos.integrations.get(hz.db, hz.A.businessId, integration.id);
+    expect(after.status).toBe("expired");
+    expect(after.lastError).toBe(STRIPE_ACCESS_REMOVED);
   });
 });
 

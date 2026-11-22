@@ -7,7 +7,7 @@
 import { isRealOutcome } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { boundMetricSql, METRIC_QUERIES, metricsRepo, metricWindowEnd, REAL_OUTCOME_PREDICATE, type MetricFacts } from "../repos/metrics";
+import { boundMetricSql, firstPlanNote, METRIC_QUERIES, metricsRepo, metricWindowEnd, PENDING_SOURCES, REAL_OUTCOME_PREDICATE, type MetricFacts } from "../repos/metrics";
 import { repos } from "../repos";
 import { createTestDb, type TestHarness } from "../testing/pglite";
 import { AS_OF, buildMetricsFixture } from "./metrics-fixture";
@@ -80,15 +80,72 @@ describe("repos.metrics.snapshot", () => {
     });
   });
 
+  it("safety: open reports and those past the review target (0136)", () => {
+    expect(m.safety).toEqual({ reports_open: 0, reports_overdue: 0 });
+  });
+
   it("honesty: T4's five counts, and the simulated outcomes the north star left out", () => {
     expect(m.honesty).toEqual({ fabricated_left: { mock_leads: 0, estimate_rows: 0, mock_integrations: 0, live_campaigns: 0, stale_launch_approvals: 1 }, simulated_outcomes_excluded: 2 });
   });
 
+  it("the first session (WP-14 T12): minutes from commit to the first plan and the first approval, and first presses of Continue", () => {
+    // Alpha and Bravo were committed in the 14 days (the house long before; the demo counts for nothing). Plans after
+    // 6 and 24 minutes; Alpha's founder approved after 30; Alice's first press worked and Bob's was refused.
+    expect(m.first_session).toEqual({
+      projects: 2,
+      to_first_plan: { projects: 2, median_min: 15, p90_min: 22.2 },
+      to_first_approval: { projects: 1, median_min: 30, p90_min: 30 },
+      first_continue: { founders: 2, succeeded: 1, share: 0.5 },
+      note: expect.stringContaining("15 minutes"),
+    });
+    expect(firstPlanNote(10)).toBeNull();
+    expect(firstPlanNote(null)).toBeNull();
+    expect(firstPlanNote(10.1)).toContain("Within minutes");
+  });
+
+  it("Resting and Customer Update shares read zero until their sources exist, then light up (WP-14 T1 and T9)", async () => {
+    // Alpha is the one outside project committed more than 7 days before the window's end.
+    expect(m.resting).toEqual({ projects: 1, rested: 0, share: 0, next: { top_up: 0, change_plan: 0, wait: 0, leave: 0 } });
+    expect(m.customer_updates).toEqual({ updates: 0, shares: 0, updates_shared: 0, shares_per_update: null });
+    const { rows } = (await h.db.execute(sql`select id, slug, created_by from businesses where slug in ('alpha', 'bravo') order by slug`)) as unknown as { rows: { id: string; created_by: string }[] };
+    const [alpha, bravo] = rows as [{ id: string; created_by: string }, { id: string; created_by: string }];
+    const ev = (businessId: string, type: string, at: string, actor: { kind: string; id: string }, payload: Record<string, unknown> = {}) =>
+      h.db.execute(sql`insert into events (business_id, type, occurred_at, actor, payload) values (${businessId}, ${type}, ${at}::timestamptz, ${JSON.stringify(actor)}::jsonb, ${JSON.stringify(payload)}::jsonb)`);
+    const system = { kind: "system", id: "orchestrator" };
+    // Alpha rests on Nov 6 and the founder adds credits the next day.
+    await ev(alpha.id, PENDING_SOURCES.resting, "2026-11-06T12:00:00Z", system);
+    await ev(alpha.id, PENDING_SOURCES.toppedUp, "2026-11-07T09:00:00Z", { kind: "user", id: alpha.created_by });
+    // One real Customer Update shared twice; a simulated one and its share count for nothing.
+    await ev(alpha.id, "customer.converted", "2026-11-10T09:00:00Z", { kind: "webhook", id: "stripe" }, { conversionId: "c-1" });
+    await ev(alpha.id, PENDING_SOURCES.customerUpdateShared, "2026-11-10T10:00:00Z", { kind: "user", id: alpha.created_by }, { conversionId: "c-1" });
+    await ev(alpha.id, PENDING_SOURCES.customerUpdateShared, "2026-11-11T10:00:00Z", { kind: "user", id: alpha.created_by }, { conversionId: "c-1" });
+    await ev(bravo.id, "customer.converted", "2026-11-12T12:00:00Z", { kind: "system", id: "simulate" }, { conversionId: "c-2" });
+    const lit = await repos.metrics.snapshot(h.db, AS_OF);
+    expect(lit.resting).toEqual({ projects: 1, rested: 1, share: 1, next: { top_up: 1, change_plan: 0, wait: 0, leave: 0 } });
+    expect(lit.customer_updates).toEqual({ updates: 1, shares: 2, updates_shared: 1, shares_per_update: 2 });
+    // Without the credits and with no visit in the week after, the founder left; with a visit, they are waiting for the reset.
+    await h.db.execute(sql`delete from events where type = ${PENDING_SOURCES.toppedUp}`);
+    expect((await repos.metrics.snapshot(h.db, AS_OF)).resting.next).toEqual({ top_up: 0, change_plan: 0, wait: 0, leave: 1 });
+    await h.db.execute(sql`insert into founder_visit_days (user_id, business_id, day, first_at, last_at) values (${alpha.created_by}, ${alpha.id}, '2026-11-08', '2026-11-08T08:00:00Z', '2026-11-08T09:00:00Z')`);
+    expect((await repos.metrics.snapshot(h.db, AS_OF)).resting.next).toEqual({ top_up: 0, change_plan: 0, wait: 1, leave: 0 });
+  });
+
   it("isRealOutcome and the SQL agree on every fixture event", async () => {
+    // Booking (founder, Nov 22, 2026), after the snapshots above so their counts stand: a visitor's booking is real;
+    // a test booking and one not written by the public route are not.
+    const { rows: owners } = (await h.db.execute(sql`select business_id from events limit 1`)) as unknown as { rows: { business_id: string }[] };
+    const facts = { bookingId: "00000000-0000-4000-8000-0000000000b1", serviceId: "00000000-0000-4000-8000-0000000000b2", entityId: null, startsAt: "2026-11-20T15:00:00.000Z" };
+    for (const [actor, payload] of [
+      [{ kind: "system", id: "public-booking" }, facts],
+      [{ kind: "system", id: "public-booking" }, { ...facts, simulated: true }],
+      [{ kind: "user", id: "00000000-0000-4000-8000-0000000000b3" }, facts],
+    ] as const) {
+      await h.db.execute(sql`insert into events (business_id, type, occurred_at, actor, payload) values (${owners[0]!.business_id}, 'booking.confirmed', '2026-11-13T10:00:00Z', ${JSON.stringify(actor)}::jsonb, ${JSON.stringify(payload)}::jsonb)`);
+    }
     const rows = (await h.db.execute(sql.raw(`select e.type, e.actor, e.payload, ${REAL_OUTCOME_PREDICATE} as real from events e`))).rows as { type: string; actor: { kind: string; id: string }; payload: Record<string, unknown>; real: boolean }[];
     expect(rows.length).toBeGreaterThan(20);
     for (const r of rows) expect(r.real, `${r.type} ${JSON.stringify(r.actor)} ${JSON.stringify(r.payload)}`).toBe(isRealOutcome(r));
-    expect(rows.filter((r) => r.real).map((r) => r.type).sort()).toEqual(["page.followed", "page.published", "page.published", "page.published", "page.published", "payment.received"]);
+    expect(rows.filter((r) => r.real).map((r) => r.type).sort()).toEqual(["booking.confirmed", "page.followed", "page.published", "page.published", "page.published", "page.published", "payment.received"]);
   });
 
   it("every query is printable SQL with the window end written in, and names are unique", () => {
@@ -106,5 +163,18 @@ describe("repos.metrics.snapshot", () => {
     const hist = await metricsRepo.history(h.db, 14);
     expect(hist.map((x) => x.day)).toEqual(["2026-11-14", "2026-11-13"]);
     expect(hist[0]!.facts).toEqual(JSON.parse(JSON.stringify(m)));
+  });
+
+  it("a post counts once the founder said they posted it and a first visit came back (D1): the SQL and isRealOutcome agree, and the north star's clause has it", async () => {
+    const [b] = (await h.db.execute(sql`select id from businesses where is_demo = false limit 1`)).rows as { id: string }[];
+    const put = (actor: object, payload: object) => h.db.execute(sql`insert into events (business_id, type, occurred_at, actor, payload) values (${b!.id}, 'post.published', '2026-11-10T10:00:00Z'::timestamptz, ${JSON.stringify(actor)}::jsonb, ${JSON.stringify(payload)}::jsonb)`);
+    await put({ kind: "system", id: "public-page" }, { visited: true });
+    await put({ kind: "user", id: "u1" }, { visited: false });
+    await put({ kind: "agent", id: "a1" }, { visited: true });
+    const rows = (await h.db.execute(sql.raw(`select e.type, e.actor, e.payload, ${REAL_OUTCOME_PREDICATE} as real from events e where e.type = 'post.published'`))).rows as { type: string; actor: { kind: string; id: string }; payload: Record<string, unknown>; real: boolean }[];
+    expect(rows.map((r) => r.real)).toEqual([true, false, false]);
+    for (const r of rows) expect(r.real).toBe(isRealOutcome(r));
+    expect(METRIC_QUERIES.find((q) => q.name === "north_star")!.text).toContain("e.type = 'post.published'");
+    await h.db.execute(sql`delete from events where type = 'post.published'`);
   });
 });

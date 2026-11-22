@@ -24,14 +24,15 @@
  * fails the commit (Settings › Preferences changes it any time).
  */
 import { randomUUID } from "node:crypto";
-import { DEPARTMENT_DEFAULTS, departmentTabs, firstCycleTasksFor, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
-import { CREDITS_CURRENCY, firstCycleInput, initialModelBilling } from "@foundmill/config";
+import { DEPARTMENT_DEFAULTS, departmentTabs, firstCycleTasksFor, getArchetypeSeed, getTemplate, prompts, REGULATED_LICENSE_TASK, REGULATED_NEEDS, REGULATED_SPECIALIST_KEY } from "@foundmill/agents";
+import { connectorKeysFor } from "@foundmill/connectors";
+import { CREDITS_CURRENCY, EARLY_ACCESS_STAGE, firstCycleInput, initialModelBilling } from "@foundmill/config";
 
 /** Wage caps are model credits, counted in the credits' own currency whatever the business counts in. */
 const WAGE_CURRENCY = CREDITS_CURRENCY;
-import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
+import { raiseStageToolNeeds, assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, platformCredits, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, FIRST_DAY_PROMISE, OVERNIGHT_SHIFT, ValidationError, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, FIRST_DAY_PROMISE, OVERNIGHT_SHIFT, TOOL_NEED_STAGES, ValidationError, regulatedAreasOf, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
 import { channelRowsFor } from "./channel-availability";
 import { QUEUE_ACTION } from "./cycle";
@@ -44,6 +45,7 @@ import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 import { importJobIdOf, resolveImportLink, seedFoundations, type ImportLink, type ScoutingReportLike } from "./foundations";
 import { queueImportReads } from "./import";
 import { seedConceptSources } from "./concept-sources";
+import { accountPlanOpen } from "./payments";
 
 export interface CommitIdeaInput {
   ideaId: string;
@@ -180,7 +182,7 @@ function uniqueSlug(name: string): string {
  * `importKey` returns the key import job ids are signed with (`importJobKey(env)`); it is only called for an idea that
  * Import drafted, so a Door A commit never needs it.
  */
-export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string, deps: { log?: Pick<ApiLogger, "warn">; env?: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> } = {}): Promise<CommitIdeaResult> {
+export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string, deps: { log?: Pick<ApiLogger, "warn">; env?: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "MODEL_MODE" | "ALLOW_MOCK_PAYMENTS"> & Partial<Pick<Env, "PAID_ENTRY">> } = {}): Promise<CommitIdeaResult> {
   const idea = await repos.ideas.get(db, userId, input.ideaId);
   if (idea.committedAt) return committedIdeaResult(db, userId, input.ideaId);
   // Door B: the Import job this idea was drafted from (recorded by idea.generate), verified again (signed for this
@@ -188,7 +190,14 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   const importJobId = importJobIdOf(idea.current?.research);
   const importLink = importJobId ? await resolveImportLink(db, importKey(), importJobId, userId) : null;
   const seed = getArchetypeSeed(input.archetype);
+  // A money product a regulator licenses, read from the founder's own words for the idea (`regulatedAreasOf`).
+  const regulated = regulatedAreasOf(`${idea.current?.title ?? ""}. ${idea.current?.pitch ?? ""}`);
   const hasBudget = input.hasBudget ?? true;
+  // Paid entry (WP-09 T16): without the entry plan the project, its page, plan and foundations are created as always, but
+  // no cycle starts and Autopilot stays off until the founder subscribes (Continue then starts cycle 1).
+  // Without the environment the gate cannot be read: closed, never open (the router always passes it).
+  const planOpen = deps.env ? await accountPlanOpen(db, deps.env, userId) : false;
+  const autopilotOn = Boolean(input.autopilot) && planOpen;
   const businessMode = input.businessMode ?? DEFAULT_BUSINESS_MODE;
   // The business keeps its money in the currency the founder chose (their profile's unless they changed it): stored on
   // the business itself (0025), which every business amount and every screen reads, and on the rows created here. Every
@@ -204,10 +213,14 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Claim the idea before anything is created. Of two concurrent commits only one gets past this line; the other has
     // waited for the winner's row lock, finds the idea committed and creates nothing (answered below).
     if (!(await repos.ideas.claimForCommit(tx, userId, input.ideaId))) return null;
-    // Tier limits (BUILD §10.5): no business limit on any plan for now (founder, 2026-10-16); the check stays so one can
-    // return (TierLimitError past it, which the Commit screen turns into an upgrade prompt). A new business starts on the
-    // free tier; its included credits come from the founder's monthly pool (SEC2 S6, billing.ts `includedCreditsFor`).
+    // Plan limits (WP-14 T14, A14): Try 1 project, Founder up to 5, Studio any number, from the day sign-up opens; none
+    // while it is invite-only (TierLimitError past the limit, which the Commit screen turns into a change-plan prompt).
+    // A new business starts on the entry plan; its included credits come from the founder's monthly pool (SEC2 S6,
+    // billing.ts `includedCreditsFor`).
     await assertBusinessAllowance(tx, userId);
+    // A12: a person who takes charge while sign-up is invite-only is marked, with the day they joined, as never billed
+    // the Founder fee. Kept once set; the opening step marks everyone else from before (docs/DEPLOY.md §4).
+    if (EARLY_ACCESS_STAGE === "invite_only") await repos.ownerPlans.markInvited(tx, userId);
     const planTier = "free" as const;
     const modelBilling = initialModelBilling(planTier);
     const business = await repos.businesses.create(tx, {
@@ -229,17 +242,18 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     const businessId = business.id;
     await repos.memberships.add(tx, businessId, { userId, role: "owner", source: "founder" });
     // "Run on autopilot": on from the first minute, audited like turning it on in Settings.
-    if (input.autopilot) {
+    if (autopilotOn) {
       const overnight = input.overnight ? { cadence: OVERNIGHT_SHIFT.cadence, dailyHour: overnightUtcHour(isValidTimeZone(input.overnight.timeZone) ? input.overnight.timeZone : null), ownMaxCyclesPerDay: OVERNIGHT_SHIFT.ownMaxCyclesPerDay, ownSpendCeilingMinor: OVERNIGHT_SHIFT.ownSpendCeilingMinor } : {};
       const on = await repos.autopilot.set(tx, businessId, { enabled: true, ...overnight });
       await repos.audit.append(tx, businessId, { actorKind: "user", actorId: userId, action: "autopilot.turn_on", target: { kind: "business", id: businessId }, details: { enabled: true, cadence: on.business.autopilotCadence, maxCyclesPerDay: on.business.autopilotMaxCyclesPerDay, via: input.overnight ? "commit_overnight" : "commit" } });
       await writeEventRow(tx, { businessId, type: "autopilot.changed", actor: { kind: "user", id: userId }, payload: autopilotChangedPayload(on.business, "turned_on", null) });
     }
-        // This month's included credits (USD), so the first cycle already runs against a balance that pauses the team. They
-    // come from the founder's monthly pool (`includedCreditsFor`): once its places are taken this month (archived
-    // businesses included), a new business starts with nothing included, never a second grant.
+        // The project's own credits row for the month (what it carries from bought credit), so the first cycle already runs
+    // against a balance that rests the team. The included budget is the owner's, shared by all their projects: a new
+    // project sees what is left of it, never a second one (`owner_credits`, 0164).
     const period = periodOf(new Date());
-    const credits = modelBilling === "credits" ? (await repos.usage.ensurePeriodCredits(tx, businessId, period, await includedCreditsFor(tx, business, period, { lock: true }))).balance : null;
+    if (modelBilling === "credits") await repos.usage.ensurePeriodCredits(tx, businessId, period, await includedCreditsFor(tx, business, period));
+    const credits = modelBilling === "credits" ? await platformCredits(tx, business, period) : null;
     const logo = input.logo && checkedLogo ? (await repos.logos.set(tx, businessId, { source: input.logo.source, logo: checkedLogo, createdBy: userId })).meta : null;
     await repos.businesses.commit(tx, businessId, { archetype: input.archetype });
     await repos.ideas.commit(tx, userId, input.ideaId, businessId);
@@ -280,6 +294,8 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       const leadId = plan(d.leadTemplateKey, departmentId, chiefId);
       leadByDepartment.set(departmentId, leadId);
       for (const key of d.memberTemplateKeys) plan(key, departmentId, leadId);
+      // A regulated money product gets its specialist in Legal (founder, Nov 22, 2026): it prepares and explains, never files.
+      if (regulated.length > 0 && d.moduleKeys.includes("legal")) plan(REGULATED_SPECIALIST_KEY, departmentId, leadId);
     }
     // The Chief of Staff sits in the department whose module is "team" (if any), never looked up by name.
     const teamDept = seed.departments.find((d) => d.moduleKeys.includes("team"));
@@ -341,9 +357,10 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Door A: the card's citations become the business's first sources (Product › Sources, the Source Watcher).
     if (!importLink) await seedConceptSources(tx, businessId, { ideaId: idea.id, research: idea.current?.research });
 
-    // First-cycle tasks: without a budget, no finance or legal task (WP-04 T3).
+    // First-cycle tasks: without a budget, no finance or legal task (WP-04 T3). A regulated money product always gets
+    // the Legal Lead's license question: it decides what can be built at all.
     const taskIds: string[] = [];
-    for (const t of firstCycleTasksFor(seed, { hasBudget })) {
+    for (const t of [...firstCycleTasksFor(seed, { hasBudget }), ...(regulated.length > 0 ? [REGULATED_LICENSE_TASK] : [])]) {
       const task = await repos.tasks.create(tx, businessId, {
         kind: t.kind,
         title: t.title,
@@ -356,6 +373,14 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       });
       taskIds.push(task.id);
     }
+
+    // The tool scout (founder, Nov 22, 2026): what this kind of business needs now is raised now; what it needs later
+    // (a money product's identity checks, before its first real users) is recorded and raised at its stage.
+    if (regulated.length > 0) {
+      const later = TOOL_NEED_STAGES.filter((stage) => stage !== "take_charge");
+      await repos.toolNeeds.plan(tx, businessId, later.flatMap((stage) => (REGULATED_NEEDS[stage] ?? []).map((n) => ({ category: n.category, stage, reason: n.why }))));
+    }
+    for (const r of await raiseStageToolNeeds(tx, businessId, "take_charge", connectorKeysFor, { regulated })) if (r.raised) taskIds.push(r.task.id);
 
     // Founder's Home dashboard: a department card for every department the archetype seeds (all visible).
     await repos.dashboards.create(tx, businessId, { userId, name: "Home", preset: "founder", layout: presetLayout("founder", { departments: seed.departments.length }), isActive: true });
@@ -378,9 +403,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       entity_ids: [],
     });
 
-    // The founder's included credits for this month already went to another business they took charge of (SEC2 S6):
-    // this one starts with nothing included, so it is stopped like any team whose credits ran out, and told why.
-    if (credits && Number(credits.balanceMinor) <= 0) await creditsUsedUp(tx, business, period, credits);
+    // The owner's shared budget for this month is already used by their other projects: this one is stopped like any
+    // team whose budget ran out, and told why.
+    if (credits && credits.balanceMinor <= 0) await creditsUsedUp(tx, business, period, credits);
 
     const departmentIds = [...departmentIdBySlug.values()];
     await writeEventRow(tx, {
@@ -416,7 +441,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
         hasBudget,
         planTier,
         modelBilling,
-        includedCreditsMinor: credits ? Number(credits.grantedMinor) : null,
+        includedCreditsMinor: credits ? credits.grantedMinor : null,
         logo: logo ? { source: logo.source, mime: logo.mime, sha256: logo.sha256, bytes: logo.bytes } : null,
         door: importLink ? "import" : "ideation",
         importSources: importSources.length,
@@ -452,7 +477,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   // plan's approval, Continue or the first overnight shift, and is still cycle 1 (cycles are numbered from history).
   // A free project on credits runs it one session at a time under the first-round cap (WP-09 T11).
   const firstRound = firstCycleInput({ modelBilling: result.business.modelBilling, tier: result.business.planTier });
-  const cycle = hasBudget ? await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue", ...firstRound }] }) : null;
+  const cycle = hasBudget && planOpen ? await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue", ...firstRound }] }) : null;
   // The first cycle exists from here on, even while the orchestrator has not picked it up: Continue shows it and Pause reaches it.
   if (cycle && cycle.queued && !cycle.alreadyStarted) await repos.audit.append(db, result.business.id, { actorKind: "user", actorId: userId, action: QUEUE_ACTION, target: { kind: "cycle", id: cycle.workflowId }, details: { cycleNumber: 1, workflowId: cycle.workflowId, trigger: "continue" } });
   // Door B: the sign-up job read nothing; this is the import that reads the sources (or marks them not read).
@@ -460,7 +485,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   // The starters are on the board, but their engines wait for the founder's Start distribution (services/signoff.ts).
   // Autopilot starts after the first cycle, which it waits for (and for the sign-off notes, which block Continue); with no
   // cycle at commit, its first scheduled look starts cycle 1.
-  const autopilot = input.autopilot ? await startAutopilotWorkflow({ businessId: result.business.id, temporal }) : null;
+  const autopilot = autopilotOn ? await startAutopilotWorkflow({ businessId: result.business.id, temporal }) : null;
   return { ...result, cycle, import: imported, engines: [], autopilot, alreadyCommitted: false };
 }
 

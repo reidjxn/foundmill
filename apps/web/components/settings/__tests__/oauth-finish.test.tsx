@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 /**
  * Connecting an OAuth connector (Google, Notion, Shopify): the vendor's callback (app/integrations/oauth/callback) only
- * forwards the one-time code, the api-signed state and the store to the business's Integrations tab, where the founder's
- * click finishes the connection.
+ * forwards the one-time code, the api-signed state and the store to the business's Integrations tab, which finishes the
+ * connection by itself, once (founder, Nov 18, 2026).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@foundmill/dugout";
 import { oauthCallbackRedirect } from "@/app/integrations/oauth/callback/route";
@@ -73,15 +73,29 @@ describe("OAuth callback URL", () => {
 });
 
 describe("Settings › Integrations: finishing an OAuth connection", () => {
-  it("connects only when the founder confirms it, then drops the code from the address", async () => {
-    catalogue = [{ key: "notion", displayName: "Notion", phase: 1, auth: { kind: "oauth" }, tools: [], simulations: [], live: true, integration: null }];
-    search = new URLSearchParams({ oauth_connector: "notion", oauth_code: "notion-code", oauth_state: state("notion") });
-    renderTab();
-    const button = await screen.findByRole("button", { name: "Connect Notion" });
-    expect(connect).not.toHaveBeenCalled();
-    fireEvent.click(button);
-    await waitFor(() => expect(connect).toHaveBeenCalledWith({ businessId: BUSINESS, connectorKey: "notion", input: { code: "notion-code", state: state("notion") } }));
+  it("connects by itself, once, with no second press, then drops the code from the address", async () => {
+    catalogue = [{ key: "stripe", displayName: "Stripe", phase: 1, auth: { kind: "oauth" }, tools: [], simulations: [], live: true, integration: null }];
+    search = new URLSearchParams({ oauth_connector: "stripe", oauth_code: "ac_stripe-code", oauth_state: state("stripe") });
+    const view = renderTab();
+    expect((await screen.findByRole("button", { name: "Connecting Stripe" })).hasAttribute("disabled")).toBe(true);
+    await waitFor(() => expect(connect).toHaveBeenCalledWith({ businessId: BUSINESS, connectorKey: "stripe", input: { code: "ac_stripe-code", state: state("stripe") } }));
     await waitFor(() => expect(replace).toHaveBeenCalledWith(`/b/${BUSINESS}/settings/integrations`));
+    view.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <TooltipProvider>
+          <IntegrationsTab />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(connect).toHaveBeenCalledTimes(1);
+  });
+
+  it("connects nothing without the signed state", async () => {
+    search = new URLSearchParams({ oauth_connector: "stripe", oauth_code: "ac_stripe-code" });
+    renderTab();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(connect).not.toHaveBeenCalled();
   });
 
   it("explains a refusal and offers nothing to connect", () => {

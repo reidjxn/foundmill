@@ -1,7 +1,7 @@
 /**
- * Where every OAuth vendor (Google, Notion, Shopify) sends the founder back after the consent page: the one-time `code`,
+ * Where every OAuth vendor (Google, Notion, Shopify, Stripe) sends the founder back after the consent page: the one-time `code`,
  * the `state` Connect signed for this founder, business and connector, and for Shopify the store. Nothing is connected
- * here: the founder finishes on Settings › Integrations, and the api accepts the state only from the founder it was
+ * here: Settings › Integrations finishes it by itself (OAuthFinish), and the api accepts the state only from the founder it was
  * signed for, for the same business and connector, before it exchanges the code. A crafted link cannot connect anything
  * to someone's business. Register `<APP_URL>/integrations/oauth/callback` as the redirect URI with each vendor.
  */

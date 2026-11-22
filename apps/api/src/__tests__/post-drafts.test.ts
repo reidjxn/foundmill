@@ -2,7 +2,7 @@
  * Posts the social agent drafts for the founder to share by tap (services/post-drafts.ts; docs/NETWORK.md F3, F7), on
  * the test stack (the mock model, no Temporal, so a draft is written in this process):
  * - when: the page goes live, a milestone is shown, the social channel is put on the board with the page already live;
- *   once per trigger; never off the board, never while the team is stopped, never for a sample business;
+ *   once per trigger; whether or not social is on the board, never while the team is stopped, never for a sample business;
  * - where it lives and how the founder meets it: an asset on the Creative tab with its share draft (the link with
  *   `via`, attached by code), one quiet line on Today, gone once it is shared or set aside;
  * - what is recorded: `post.drafted` with ids only, the spend in the usage ledger, and a share as a share that was
@@ -96,11 +96,12 @@ describe("when a draft is written", () => {
     expect((await b.owner.distribution.campaigns.list({ businessId: b.id, limit: 50 })).items).toEqual([]);
   });
 
-  it("the channel is put on the board after the page went live: the same draft, written then; nothing before", async () => {
+  it("the page goes live with social off the board: the draft is written then, and putting the channel on the board adds none (WP-08 T4)", async () => {
     const b = await project("Later");
     await publish(b);
-    expect(await posts(b)).toEqual([]);
-    expect(await drafted(b.id)).toEqual([]);
+    await settlePostDraftRuns();
+    expect(await posts(b)).toHaveLength(1);
+    expect(await drafted(b.id)).toHaveLength(1);
     await onBoard(b);
     expect(await posts(b)).toHaveLength(1);
     expect((await posts(b))[0]!.body).toContain("has a page now");
@@ -112,16 +113,16 @@ describe("when a draft is written", () => {
     expect(await drafted(b.id)).toHaveLength(1);
   });
 
-  it("off the board, with no page, or with another channel on the board: nothing is drafted and no model is asked", async () => {
+  it("with another channel on the board a live page still gets its draft; with no page nothing is drafted and no model is asked", async () => {
     const off = await project("Off");
     await publish(off);
     await off.owner.distribution.channels.enable({ businessId: off.id, channelKey: "email_automation" });
     await settlePostDraftRuns();
-    expect(await posts(off)).toEqual([]);
+    expect(await posts(off)).toHaveLength(1);
     const noPage = await project("No page");
     await onBoard(noPage);
     expect(await posts(noPage)).toEqual([]);
-    for (const b of [off, noPage]) expect((await repos.usage.list(hz.db, b.id, {})).items.filter((u) => (u.details as { kind?: string }).kind === "post_draft")).toEqual([]);
+    for (const b of [noPage]) expect((await repos.usage.list(hz.db, b.id, {})).items.filter((u) => (u.details as { kind?: string }).kind === "post_draft")).toEqual([]);
   });
 
   it("while the team is stopped or the social agent is paused, nothing is drafted", async () => {
@@ -268,7 +269,6 @@ describe("where it runs", () => {
     // request. The draft is never waited on, so it outlives the request: here the founder (or the e2e spec) reloads the
     // Board while the post is being written. The channel is saved; the post must still be.
     const b = await project("Reload");
-    await publish(b);
     const closed = new AbortController();
     const models = Object.create(hz.deps.models, {
       complete: {
@@ -280,6 +280,8 @@ describe("where it runs", () => {
     }) as typeof hz.deps.models;
     const gate = createTransactionGate({ total: 4, perRequest: 2 });
     const request = createCaller({ ...hz.deps, models, db: gate.forRequest(hz.db, closed.signal), txGate: gate }, { userId: b.ownerId });
+    // The page goes live in the request that closes (the draft is asked for then, WP-08 T4); the Board's toggle follows.
+    await request.page.publish({ businessId: b.id, content: page() });
     await request.distribution.channels.enable({ businessId: b.id, channelKey: "social" });
     await settlePostDraftRuns();
     expect(closed.signal.aborted).toBe(true);

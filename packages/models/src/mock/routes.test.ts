@@ -39,7 +39,7 @@ describe("ideation (AC-11.1.2)", () => {
   });
 });
 
-describe("chief of staff cycle plan (BUILD §12.4)", () => {
+describe("chief of staff round of work plan (BUILD §12.4)", () => {
   it("respects concurrency, prefers customer-unblocking work and defers blocked tasks", async () => {
     const r = await client.complete({
       route: "chiefOfStaff",

@@ -8,7 +8,7 @@ dockerfilePath = "Dockerfile"
 # Redeploy only when its app or a package it imports changes, or the image does (scripts/railway-watch.mjs; #222).
 # The lists that count are in the service settings (Settings, Build, Watch Paths): Railway stops reading this file on
 # Dec 1, 2026, and this copy is kept equal to the script by scripts/railway-config.test.mjs.
-watchPatterns = ["/apps/gateway/**", "/packages/agents/**", "/packages/config/**", "/packages/connectors/**", "/packages/db/**", "/packages/events/**", "/packages/journey/**", "/packages/models/**", "/packages/policy/**", "/packages/shared/**", "/patches/**", "/Dockerfile", "/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/.npmrc"]
+watchPatterns = ["/apps/gateway/**", "/packages/agents/**", "/packages/config/**", "/packages/connectors/**", "/packages/db/**", "/packages/events/**", "/packages/journey/**", "/packages/models/**", "/packages/policy/**", "/packages/sandbox/**", "/packages/shared/**", "/patches/**", "/Dockerfile", "/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/.npmrc"]
 
 [deploy]
 healthcheckPath = "/health"

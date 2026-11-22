@@ -8,7 +8,7 @@ import { LiveModelClient, ROUTE_RESERVE_TOKENS } from "./client";
 import { ModelAbortedError, ModelRateLimitError } from "./errors";
 import { FAST_MODE_PRICING, MODEL_PRICING } from "./pricing";
 import { RateLimiter } from "./rate-limit";
-import { FAST_MODE_BETA, MODELS, THINKING_MAX_TOKENS } from "./routing";
+import { FALLBACK_SERVED_MODELS, FAST_MODE_BETA, MODELS, SERVER_FALLBACK_BETA, THINKING_MAX_TOKENS } from "./routing";
 import type { UsageEvent } from "./types";
 
 interface Captured {
@@ -33,8 +33,8 @@ function fakeFetch(handlers: ((req: Captured) => Response)[]) {
 
 const noSleep = async () => {};
 
-function message(text: string, opts: { usage?: Record<string, unknown>; headers?: Record<string, string> } = {}): Response {
-  const body = { id: "msg_1", type: "message", role: "assistant", model: MODELS.opus, content: [{ type: "text", text }], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 100, output_tokens: 40, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, ...opts.usage } };
+function message(text: string, opts: { usage?: Record<string, unknown>; headers?: Record<string, string>; model?: string; stop_reason?: string } = {}): Response {
+  const body = { id: "msg_1", type: "message", role: "assistant", model: opts.model ?? MODELS.opus, content: [{ type: "text", text }], stop_reason: opts.stop_reason ?? "end_turn", stop_sequence: null, usage: { input_tokens: 100, output_tokens: 40, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, ...opts.usage } };
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json", "request-id": "req_1", ...opts.headers } });
 }
 
@@ -87,7 +87,7 @@ const Cards = z.object({ concepts: z.array(Card).min(2).max(6) });
 const cards = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `Card ${i}`, score: (i % 5) + 1 }));
 
 describe("per-route effort and fast mode", () => {
-  it("applies the route's effort, lets the request override it, and leaves effortless routes alone", async () => {
+  it("applies the route's effort (written down for every Opus and Sonnet route, WP-09 T6), and lets the request override it", async () => {
     const { fetch, calls } = fakeFetch([() => message("ok")]);
     const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep });
     const ask = (route: "ideation" | "departmentLead" | "foundations" | "logoDesigner" | "chiefOfStaff" | "inboxComposer", effort?: "high") => client.complete({ route, messages: [{ role: "user", content: "go" }], ...(effort ? { effort } : {}) });
@@ -98,13 +98,15 @@ describe("per-route effort and fast mode", () => {
     await ask("logoDesigner");
     await ask("chiefOfStaff");
     await ask("inboxComposer");
-    expect(calls.map((c) => (c.body.output_config as { effort?: string } | undefined)?.effort)).toEqual(["low", undefined, "high", "low", "low", undefined, "low"]);
+    expect(calls.map((c) => (c.body.output_config as { effort?: string } | undefined)?.effort)).toEqual(["low", "medium", "high", "low", "low", "medium", "low"]);
     expect(r.effort).toBe("low");
-    // Fast mode is off unless the client opts in: standard endpoint, no speed, no beta header.
+    // Fast mode is off unless the client opts in: no speed and no fast-mode beta. Opus and Sonnet go to the beta endpoint
+    // for the server-side refusal fallback (WP-09 T5), with nothing else on it.
     for (const c of calls) {
-      expect(c.url).not.toContain("beta=true");
+      expect(c.url).toContain("beta=true");
       expect(c.body.speed).toBeUndefined();
-      expect(c.headers["anthropic-beta"]).toBeUndefined();
+      expect(c.body.fallbacks).toBe("default");
+      expect(c.headers["anthropic-beta"]).toBe(SERVER_FALLBACK_BETA);
     }
   });
 
@@ -117,9 +119,12 @@ describe("per-route effort and fast mode", () => {
     expect(calls[0]!.url).toContain("/v1/messages?beta=true");
     expect(calls[0]!.body.speed).toBe("fast");
     expect(calls[0]!.headers["anthropic-beta"]).toContain(FAST_MODE_BETA);
+    // Beside the fast-mode beta, the refusal fallback's.
+    expect(calls[0]!.headers["anthropic-beta"]).toContain(SERVER_FALLBACK_BETA);
+    expect(calls[0]!.body.fallbacks).toBe("default");
     expect(calls[0]!.body.betas).toBeUndefined();
     expect((calls[0]!.body.output_config as { effort: string }).effort).toBe("low");
-    expect(calls[1]!.url).not.toContain("beta=true");
+    expect(calls[1]!.headers["anthropic-beta"]).toBe(SERVER_FALLBACK_BETA);
     expect(calls[1]!.body.speed).toBeUndefined();
     expect(fast.speed).toBe("fast");
     expect(standard.speed).toBeUndefined();
@@ -139,10 +144,49 @@ describe("per-route effort and fast mode", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]!.body.speed).toBe("fast");
     expect(calls[1]!.body.speed).toBeUndefined();
-    expect(calls[1]!.url).not.toContain("beta=true");
+    expect(calls[1]!.headers["anthropic-beta"]).toBe(SERVER_FALLBACK_BETA);
     expect(sleeps).toEqual([]);
     expect(r.speed).toBeUndefined();
     expect(client.rateLimiter.penaltyFor("default")).toBe(0);
+  });
+});
+
+describe("refusals and the server-side fallback (WP-09 T5)", () => {
+  it("a Haiku request carries no fallback (Haiku 5.5 has none) and goes to the standard endpoint", async () => {
+    const { fetch, calls } = fakeFetch([() => message("ok")]);
+    const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep });
+    await client.complete({ route: "linker", messages: [{ role: "user", content: "go" }] });
+    expect(calls[0]!.url).not.toContain("beta=true");
+    expect(calls[0]!.body.fallbacks).toBeUndefined();
+    expect(calls[0]!.headers["anthropic-beta"]).toBeUndefined();
+  });
+
+  it("a fallback model's answer is metered at that model's price and booked with the served model", async () => {
+    const { fetch } = fakeFetch([() => message("ok", { model: FALLBACK_SERVED_MODELS.opus48, usage: { input_tokens: 1_000_000, output_tokens: 0 } })]);
+    const events: UsageEvent[] = [];
+    const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep, onUsage: (e) => void events.push(e) });
+    const r = await client.complete({ route: "foundations", messages: [{ role: "user", content: "go" }] });
+    expect(r.servedModel).toBe(FALLBACK_SERVED_MODELS.opus48);
+    expect(r.cost.costMinor).toBe(500);
+    expect(events[0]).toMatchObject({ servedModel: FALLBACK_SERVED_MODELS.opus48 });
+    expect(events[0]!.unpriced).toBeUndefined();
+  });
+
+  it("an unknown served model is metered at the requested model's price and flagged unpriced", async () => {
+    const { fetch } = fakeFetch([() => message("ok", { model: "claude-unknown-9", usage: { input_tokens: 1_000_000, output_tokens: 0 } })]);
+    const events: UsageEvent[] = [];
+    const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep, onUsage: (e) => void events.push(e) });
+    const r = await client.complete({ route: "foundations", messages: [{ role: "user", content: "go" }] });
+    expect(r.cost.costMinor).toBe(MODEL_PRICING[MODELS.opus].inputPerMTok * 100);
+    expect(events[0]).toMatchObject({ servedModel: "claude-unknown-9", unpriced: true });
+  });
+
+  it("a refusal is never returned as an answer, unless the caller asks for it", async () => {
+    const { fetch } = fakeFetch([() => message("", { stop_reason: "refusal" })]);
+    const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep });
+    await expect(client.complete({ route: "foundations", messages: [{ role: "user", content: "go" }] })).rejects.toMatchObject({ code: "refusal" });
+    const allowed = await client.complete({ route: "foundations", allowRefusal: true, messages: [{ role: "user", content: "go" }] });
+    expect(allowed.stopReason).toBe("refusal");
   });
 });
 

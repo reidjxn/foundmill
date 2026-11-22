@@ -12,11 +12,23 @@ import { landingSwitches } from "@/components/landing/flags";
 import { canonicalOrigin } from "@/lib/auth/canonical-origin";
 
 export function indexable(env: Record<string, string | undefined> = process.env): boolean {
-  return canonicalOrigin(env.NEXT_PUBLIC_APP_URL) === APP_ORIGIN && landingSwitches(env).signupOpen;
+  return onProductionOrigin(env) && landingSwitches(env).signupOpen;
 }
 
-/** Pages with their own address that are not a project's or a person's: the home page and the two legal pages. */
-export const STATIC_SITEMAP_PATHS = ["/", "/terms", "/privacy"] as const;
+const onProductionOrigin = (env: Record<string, string | undefined>): boolean => canonicalOrigin(env.NEXT_PUBLIC_APP_URL) === APP_ORIGIN;
+
+/**
+ * The public waitlist page (app/waitlist; WP-14 T15). The one exception to "indexing follows open sign-up" (founder,
+ * 2026-11-17, answer A7): it is indexable on the production origin now, because it is the page that says when the next
+ * batch opens. Nothing else is: robots.txt allows this address alone until `indexable()`.
+ */
+export const WAITLIST_PATH = "/waitlist";
+export function waitlistIndexable(env: Record<string, string | undefined> = process.env): boolean {
+  return onProductionOrigin(env);
+}
+
+/** Pages with their own address that are not a project's or a person's: the home page, the two legal pages and the waitlist page. */
+export const STATIC_SITEMAP_PATHS = ["/", "/terms", "/privacy", WAITLIST_PATH] as const;
 
 export interface ListedPath {
   path: string;
@@ -32,8 +44,13 @@ export async function listedPublicPaths(): Promise<ListedPath[]> {
   return [];
 }
 
-/** The sitemap's entries: the static paths, then the listed pages, absolute and without repeats. No priority or changefreq. */
-export function sitemapEntries(listed: readonly ListedPath[]): { url: string; lastModified?: Date }[] {
+/**
+ * The sitemap's entries: the static paths, then the listed pages, absolute and without repeats. No priority or changefreq.
+ * `open: false` (sign-up not open: robots.txt allows the waitlist page alone) names that one page only, so the sitemap
+ * never lists an address robots.txt closes.
+ */
+export function sitemapEntries(listed: readonly ListedPath[], opts: { open?: boolean } = {}): { url: string; lastModified?: Date }[] {
+  if (opts.open === false) return [{ url: `${APP_ORIGIN}${WAITLIST_PATH}` }];
   const seen = new Set<string>();
   const out: { url: string; lastModified?: Date }[] = [];
   const add = (path: string, lastModified?: Date) => {
@@ -67,12 +84,13 @@ export function llmsTxt(opts: { signupOpen: boolean }): string {
     "Facts:",
     "- For: people starting a first project, on their own or with cofounders. 18 or older.",
     "- Cost: free to start with a monthly allowance of agent work and no card. Paid plans are not open yet.",
-    ...(opts.signupOpen ? [] : ["- New people are let in a few at a time."]),
+    ...(opts.signupOpen ? [] : ["- New people are let in a few at a time, in batches."]),
     `- Every project gets a free public page at ${APP_ORIGIN.replace("https://", "")}/p/<name>.`,
     "- Agents never move money, sign, accept terms or file anything in the founder's name.",
     "",
     "## Pages",
     `- [Home](${APP_ORIGIN}/): what ${APP_NAME} is, what it costs and example first weeks`,
+    ...(opts.signupOpen ? [] : [`- [Waitlist](${APP_ORIGIN}${WAITLIST_PATH}): when the next batch opens and how many places it has`]),
     `- [Terms of Service](${APP_ORIGIN}/terms)`,
     `- [Privacy Policy](${APP_ORIGIN}/privacy)`,
     "",
