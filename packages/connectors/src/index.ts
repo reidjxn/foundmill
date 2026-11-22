@@ -4,6 +4,8 @@ export * from "./define";
 export * from "./registry";
 export * from "./catalogue";
 export * from "./tool-catalog";
+export * from "./browser-sites";
+export * from "./connectors/browser";
 export * from "./tool-recommendation";
 export { MOCK_ONLY_CONNECTORS, REMOTE_MCP_SERVERS, createNotionMcpConnector, createHubspotMcpConnector, createShopifyMcpConnector, createMcpCustomConnector, assertPublicServer, remoteToolList, MCP_CUSTOM_KEY, remoteHardGateCall, toolName as remoteToolName } from "./remote-mcp";
 export * from "./mock-utils";

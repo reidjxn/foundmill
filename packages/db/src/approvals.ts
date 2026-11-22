@@ -218,6 +218,24 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
   const what = details.what ?? approvalWhatExactly(approval);
   const base = { type: "decision" as const, from_agent_id: details.agentId, status_strip: [], exhibit: { kind: "none" as const, spec_ref: null }, source_event_ids: [...(details.sourceEventIds ?? [])], entity_ids: [] };
   const decide = (options: ApprovalOption[]) => ({ options, free_text: false as const, expires_at: null });
+  // A hard stop on a website the team works in (the hosted browser): the step is the founder's own press, in the live
+  // view. Neither answer presses anything; the gateway refuses the step whatever the answer.
+  const site = approval.connectorKey?.startsWith("browser_") ? (approval.args as { siteKey?: unknown; label?: unknown; address?: unknown; amount?: unknown } | null) : null;
+  if (site && typeof site.siteKey === "string") {
+    const label = typeof site.label === "string" ? site.label : "this control";
+    const where = details.connectorName?.replace(/ \(website\)$/, "") || "the website";
+    const shownAmount = typeof site.amount === "string" ? site.amount : null;
+    return {
+      ...base,
+      subject: clip(`Press "${label}" in ${where} yourself`, 80),
+      body_md: `${whoMd} stopped before **"${label}"** in ${where}${task ? ` for “${task}”` : ""}: pressing it may pay, agree, sign, delete, change a security setting or enter a secret, so only you press it.${shownAmount ? ` Amount shown on the page: **${shownAmount}**.` : ""} Nothing was pressed. Open ${where} from Working now, check the page and press it yourself if you want it done, then press Hand back.`,
+      decision: decide([
+        { id: APPROVAL_OPTIONS.approve, label: "I pressed it myself", recommended: true, consequence: `${who} reads the page again and carries on from there.`, cost_minor: 0, reversible: true },
+        { id: APPROVAL_OPTIONS.reject, label: "Leave it", recommended: false, consequence: `Nothing is pressed. ${who} is told and finds another way, or stops there.`, cost_minor: 0, reversible: true },
+      ]),
+      blocks_continue: false,
+    };
+  }
   // No GitHub connected (first-time founder report, Nov 8, 2026): there is nowhere for the call to run, so the question is
   // not "OK?" but "connect GitHub first"; Approve stays possible and says the call waits for the connection.
   if (approval.connectorKey && NEEDS_CONNECTION.has(approval.connectorKey) && details.githubConnected === false) {

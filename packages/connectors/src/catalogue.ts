@@ -50,6 +50,7 @@ import { createVercelConnector } from "./connectors/vercel";
 import { createPosthogConnector } from "./connectors/posthog";
 import { createResendConnector } from "./connectors/resend";
 import { createBufferConnector } from "./connectors/buffer";
+import { BROWSER_CONNECTOR_FACTORIES } from "./connectors/browser";
 import { createHubspotMcpConnector, createMcpCustomConnector, createNotionMcpConnector, createShopifyMcpConnector } from "./remote-mcp";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
@@ -111,6 +112,8 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   hubspot_mcp: createHubspotMcpConnector,
   shopify_mcp: createShopifyMcpConnector,
   mcp_custom: createMcpCustomConnector,
+  // A website the team works in through the hosted browser, one connector per site on the site list (founder, Nov 22, 2026).
+  ...BROWSER_CONNECTOR_FACTORIES,
 });
 
 export const CONNECTOR_KEYS = Object.freeze(Object.keys(CONNECTOR_FACTORIES));

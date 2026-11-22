@@ -439,6 +439,19 @@ export async function releaseReview(tx: DbTx | Db, businessId: string, approval:
 }
 
 /**
+ * The step a hosted-browser hard stop is about: the one the gateway named in the approval's arguments, else the newest
+ * hard-gate step the approval's own session recorded on its site; null when none was kept.
+ */
+async function browserStepOf(tx: DbTx, businessId: string, approval: Approval): Promise<{ stepId: string; siteKey: string } | null> {
+  const siteKey = (approval.connectorKey ?? "").slice("browser_".length);
+  const named = (approval.args as { stepId?: unknown } | null)?.stepId;
+  if (typeof named === "string" && /^[0-9a-f-]{36}$/.test(named)) return { stepId: named, siteKey };
+  const steps = await repos.browserSteps.listForSession(tx, businessId, approval.sessionId!);
+  const step = steps.filter((s) => s.siteKey === siteKey && s.class === "hard_gate" && s.hasScreenshot).at(-1);
+  return step ? { stepId: step.id, siteKey } : null;
+}
+
+/**
  * What exactly the call would run, with what the arguments only name loaded (a campaign and its drafts), for the reading
  * pane's "What exactly" block (first-time founder report, Nov 8, 2026). Walled from the section the call changes, the
  * founder's walls hide it as they hide the arguments; walled from Finance, every figure is masked.
@@ -485,6 +498,8 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
   // A GitHub call: whether there is anywhere for it to run (null for every other call).
   // A collaborator reads no integration (0094): for them the pane says nothing about where the call would run.
   const githubConnected = approval.connectorKey === "github" && ctx.role !== "collaborator" ? integrationConnected(await repos.integrations.getByKey(tx, ctx.businessId, "github")) : null;
+  // A hard stop in a website the team works in (hosted browser): the step it stopped at, whose screenshot is the page as it was.
+  const browserStep = approval.connectorKey?.startsWith("browser_") && approval.sessionId && !argsWalled ? await browserStepOf(tx, ctx.businessId, approval) : null;
   // A batched note: every request it covers, each with what it would run, so the pane can show one expander per channel.
   const agents = linked.length > 1 ? new Map((await repos.agents.list(tx, ctx.businessId, { limit: 500 })).items.map((a) => [a.id, a])) : null;
   const batch =
@@ -533,6 +548,8 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
     what,
     /** A GitHub call with no repository connected has nowhere to run: the pane says so and points to Settings › Integrations. */
     githubConnected,
+    /** The step a hosted-browser hard stop is about (`browserStep.get` reads its page); null for every other request. */
+    browserStep,
     /** Every request a batched note covers (empty for an ordinary note): one answer decides them all. */
     batch,
   };

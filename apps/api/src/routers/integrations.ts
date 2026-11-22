@@ -5,7 +5,7 @@
  * and seals any secret the vendor hands back; the api never sees it. A mock one answers here.
  */
 import { INPUT_LIMITS } from "@foundmill/config";
-import { isServiceOnlyConnector, MOCK_ONLY_CONNECTORS, type HealthResult } from "@foundmill/connectors";
+import { browserSiteOfConnector, isServiceOnlyConnector, MOCK_ONLY_CONNECTORS, type HealthResult } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
 import { AppError, boundedRecord, connectorMode, ForbiddenError, mockResultsAllowed, platformMailAddress, platformMailDomain, platformMailLive, RegistrantContact } from "@foundmill/shared";
 import { z } from "zod";
@@ -45,6 +45,10 @@ function isUniqueViolation(e: unknown, constraint: string): boolean {
 
 const read = sectionRead("settings");
 
+/** The hosted browser's sign-in page, for this request's answer only. */
+type SignIn = { liveViewUrl: string } | null;
+const NO_SIGN_IN = null as SignIn;
+
 /**
  * Choices the founder made on an integration that a reconnect keeps (the repository code is pushed to), as long as the
  * reconnect is to the same account: a different GitHub installation starts with no repository chosen.
@@ -78,7 +82,8 @@ export const integrationsRouter = router({
           const live = connectorMode(ctx.env, c.key) === "live";
           // Whether it can be connected here: live, or a mock where simulated results are allowed (WP-02 T3).
           // A connector with no live build (MOCK_ONLY_CONNECTORS) is not available live, so Settings hides it unless connected.
-          return { ...c, live, available: live ? !MOCK_ONLY_CONNECTORS.has(c.key) : mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo), integration: rows.find((r) => r.connectorKey === c.key) ?? null };
+          const site = browserSiteOfConnector(c.key);
+          return { ...c, browser: site ? { siteKey: site.key, name: site.name, state: site.state } : null, live, available: live ? !MOCK_ONLY_CONNECTORS.has(c.key) : mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo), integration: rows.find((r) => r.connectorKey === c.key) ?? null };
         }),
       };
     }),
@@ -161,6 +166,29 @@ export const integrationsRouter = router({
     // A mock connect on a person's project writes a row that looks connected and does nothing (audit a5 GTM-16).
     if (mode === "mock" && !mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo)) throw new AppError("connector_not_live", `${connector.displayName} is not available yet. Nothing was connected.`, 409, { connector: input.connectorKey });
 
+    // The hosted browser's sign-in is the founder's own, in two calls (founder, Nov 22, 2026): the first opens a live view
+    // and `{ cancel: true }` throws an unsaved sign-in away. Neither saves anything. The live view is the page itself, so
+    // it goes back to this caller for this request only: no integrations row, no audit detail and no log line holds it.
+    if (browserSiteOfConnector(input.connectorKey) && input.input.done !== true) {
+      const step = input.input.cancel === true ? "canceled" : "started";
+      let record: GatewayConnectResult["record"];
+      let signIn: SignIn = null;
+      if (mode === "live") {
+        const first = (await ctx.gateway.connect(ctx.businessId, input.connectorKey, input.input)).record;
+        const { liveViewUrl, ...config } = first.config;
+        record = { ...first, config };
+        if (typeof liveViewUrl === "string") signIn = { liveViewUrl };
+      } else {
+        // The mock opens no page: its sign-in is simulated, and only Done connects it.
+        record = { status: "disconnected", scopes: [], accountLabel: null, externalAccountId: null, config: { step: step === "canceled" ? "canceled" : "sign_in" }, expiresAt: null };
+      }
+      const integration = await ctx.rls(async (tx) => {
+        await audit(tx, ctx, { action: "integrations.browser_sign_in", target: { kind: "integration", key: input.connectorKey }, details: { connectorKey: input.connectorKey, step, simulated: mode !== "live" } });
+        return repos.integrations.getByKey(tx, ctx.businessId, input.connectorKey);
+      });
+      return { integration, record: { ...record, connectorKey: input.connectorKey }, consentUrl: null, founderConsentRequired: false, signIn };
+    }
+
     // The connection as it was before this connect: the gateway rewrites the row itself when it seals a key, so what is
     // replaced (the previous sign-in to withdraw, a key to revoke) is read first.
     const prior = await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey);
@@ -173,7 +201,7 @@ export const integrationsRouter = router({
         const first = (await ctx.gateway.connect(ctx.businessId, input.connectorKey, { state })).record;
         const consentUrl = typeof first.config.consentUrl === "string" ? first.config.consentUrl : null;
         // Nothing is written yet: an installation already connected stays as it is until the new one is confirmed.
-        return { integration: await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey), record: { ...first, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
+        return { integration: await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey), record: { ...first, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null, signIn: NO_SIGN_IN };
       }
       const finish = AppInstallation.parse(input.input);
       verifyInstallState(ctx.env.SESSION_TOKEN_SECRET, finish.state, { userId: ctx.userId!, businessId: ctx.businessId });
@@ -189,7 +217,7 @@ export const integrationsRouter = router({
         const state = signConnectState(ctx.env.SESSION_TOKEN_SECRET, { userId: ctx.userId!, businessId: ctx.businessId, connectorKey: input.connectorKey, account });
         const first = (await ctx.gateway.connect(ctx.businessId, input.connectorKey, { ...(account ? { shop: account } : {}), ...(input.connectorKey === "gmail" && input.input.readMail === true ? { readMail: true } : {}), state, redirectUri })).record;
         const consentUrl = typeof first.config.authorizeUrl === "string" ? first.config.authorizeUrl : null;
-        return { integration: await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey), record: { ...first, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
+        return { integration: await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey), record: { ...first, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null, signIn: NO_SIGN_IN };
       }
       const finish = OAuthFinish.parse(input.input);
       const { account } = verifyConnectState(ctx.env.SESSION_TOKEN_SECRET, finish.state, { userId: ctx.userId!, businessId: ctx.businessId, connectorKey: input.connectorKey });
@@ -243,7 +271,7 @@ export const integrationsRouter = router({
     // The new connection is saved: the previous sign-in's access at Stripe can go (best effort; the gateway audits it).
     if (releaseAfter && mode === "live" && ctx.gateway.release) await ctx.gateway.release(ctx.businessId, input.connectorKey, releaseAfter).catch(() => null);
     const consentUrl = typeof record.config.linkUrl === "string" ? record.config.linkUrl : typeof record.config.consentUrl === "string" ? record.config.consentUrl : typeof record.config.authorizeUrl === "string" ? record.config.authorizeUrl : null;
-    return { integration, record: { ...record, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
+    return { integration, record: { ...record, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null, signIn: NO_SIGN_IN };
   }),
 
   /**

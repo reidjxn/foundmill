@@ -43,6 +43,7 @@ import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/d
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
+import { BrowserSessions } from "./BrowserSessions";
 import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
 import { TileNudgeAck, nudgeMenuPresets, nudgeShoutInput, useNudgePersona, type SentNudge } from "./nudges";
 import { useDevScreenOptions } from "./options";
@@ -283,6 +284,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
           </span>
         }
       >
+        <BrowserSessions />
         {view === "formation" ? (
           <div className="p-panel-pad">
             <TaskGraph
