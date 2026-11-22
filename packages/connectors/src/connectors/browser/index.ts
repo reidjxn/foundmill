@@ -349,3 +349,17 @@ export const BROWSER_CONNECTOR_FACTORIES: Readonly<Record<string, (o?: LiveConne
 
 /** The site a browser connector key stands for, or null. */
 export const browserSiteOfConnector = (connectorKey: string): BrowserSite | null => BROWSER_SITES.find((s) => browserConnectorKey(s.key) === connectorKey) ?? null;
+
+/**
+ * A session's grants with the hosted browser's tools for the sites the project connected (Part D, D3): an agent that
+ * holds the `browser_work` skill works in a site only when the founder signed in to it, and only through that site's
+ * own connector. Applied before a second read narrows the grants, so a revision never gains them.
+ */
+export function withBrowserSites<G extends { toolRefs: string[]; servers: string[]; mcpTools: string[] }>(grants: G, connectedConnectorKeys: readonly string[]): G {
+  const keys = connectedConnectorKeys.filter((k) => browserSiteOfConnector(k) !== null);
+  if (keys.length === 0) return grants;
+  return { ...grants, toolRefs: [...new Set([...grants.toolRefs, ...keys.map((k) => `${k}:*`)])], servers: [...new Set([...grants.servers, ...keys])], mcpTools: [...new Set([...grants.mcpTools, ...keys.map((k) => `mcp__${k}`)])] };
+}
+
+/** The skill that brings the browser's tools. */
+export const BROWSER_WORK_SKILL = "browser_work";

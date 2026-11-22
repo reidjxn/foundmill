@@ -17,8 +17,9 @@ const rowsFor = (templateKey: string) =>
   });
 
 describe("default skills per role", () => {
-  it("is the third release of defaults: the tool scout (release 2, Nov 22, 2026) and the CLI-Anything skills (release 3)", () => {
-    expect(DEFAULT_SKILLS_VERSION).toBe(3);
+  it("is the fourth release of defaults: the tool scout (release 2, Nov 22, 2026), the CLI-Anything skills (release 3) and working in a website (release 4)", () => {
+    expect(DEFAULT_SKILLS_VERSION).toBe(4);
+    expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 4).map((s) => s.key)).toEqual(["browser_work"]);
     expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 2).map((s) => s.key)).toEqual(["tool_scout"]);
     expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 3).map((s) => s.key).sort()).toEqual(["make_brand_assets", "make_documents_and_decks", "make_media_files"]);
   });

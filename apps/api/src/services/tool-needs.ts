@@ -5,10 +5,46 @@
  * for a vendor, accepts terms, pays or connects anything: those are the founder's steps, outside this note.
  */
 import { repos, type InboxItem } from "@foundmill/db";
-import { ConflictError, ForbiddenError, isAdminRole, TOOL_CATEGORY_LABELS, TOOL_NEED_ASK_AGAIN_DAYS, TOOL_PICK_NOTE, ValidationError, toolPickCategory } from "@foundmill/shared";
+import { ConflictError, ForbiddenError, isAdminRole, TOOL_CATEGORY_LABELS, type ToolCategory, TOOL_NEED_ASK_AGAIN_DAYS, TOOL_PICK_NOTE, ValidationError, toolPickCategory } from "@foundmill/shared";
+import { catalogTool } from "@foundmill/connectors";
 import type { BusinessContext } from "../trpc";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
+
+/**
+ * The lead whose department owns a kind of tool: a setup the team does in a website (the hosted browser) is that
+ * department's task. Absent, or not hired: the agent who recommended it.
+ */
+const CATEGORY_OWNER: Partial<Record<ToolCategory, string>> = {
+  payments: "finance_lead",
+  subscriptions: "finance_lead",
+  invoicing_accounting: "finance_lead",
+  kyc_identity: "legal_lead",
+  aml_screening: "legal_lead",
+  e_signature: "legal_lead",
+  patents_ip: "legal_lead",
+  email: "distribution_strategist",
+  sms: "distribution_strategist",
+  forms: "distribution_strategist",
+  analytics: "product_lead",
+  help_desk: "operations_lead",
+  shipping: "operations_lead",
+  inventory: "operations_lead",
+};
+
+/** What a setup in a website asks of the team (Part D, D3): done stated first, one change at a time, checked by reading back. */
+function browserSetupGoal(name: string, category: ToolCategory, why: string, connectorKey: string | undefined): string {
+  return [
+    `The founder chose ${name} for ${TOOL_CATEGORY_LABELS[category]}. ${why}`,
+    `The founder signs up with ${name} and signs in once in Settings › Integrations. Until it shows as connected, prepare what does not need it.`,
+    `Once it is connected, set it up in its website through the hosted browser (${connectorKey ? `the ${connectorKey} tools` : "the browser tools"}), with the browser_work skill:`,
+    "1. Before the first change, write down in this task what done looks like on the site: each setting and record you will set, with its value.",
+    "2. Read the page before every change, make one change at a time, and read the page again to check it.",
+    "3. Ask the founder (request_founder) for a sign-in, a code, a bot check, or any choice that costs money. Never guess at one.",
+    "4. Save a report that lists each thing that was set and, for each, whether reading the page back showed it. Anything you could not check is reported as not verified.",
+    "Never sign up, accept terms, pay or enter a password, a card or a code for the founder.",
+  ].join("\n\n");
+}
 
 export async function decideToolPickNote(ctx: BusinessContext, item: InboxItem, input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
   const category = toolPickCategory(item.decision);
@@ -22,7 +58,20 @@ export async function decideToolPickNote(ctx: BusinessContext, item: InboxItem, 
     const summary = yes ? `Chosen for ${TOOL_CATEGORY_LABELS[category]}: ${name}.` : `Not now for ${TOOL_CATEGORY_LABELS[category]}. The team asks again in about ${TOOL_NEED_ASK_AGAIN_DAYS} days.`;
     const note = await answerNote(tx, ctx, item.id, option, input.freeText, item.fromAgentId, summary, { params: { tool_category: category, tool_option: option }, result: { toolCategory: category, toolOption: option } });
     if (!note) return null;
-    if (yes && need?.pick) {
+    if (yes && need?.pick?.route === "browser") {
+      const ownerKey = CATEGORY_OWNER[category];
+      const owner = ownerKey ? (await repos.agents.list(tx, ctx.businessId, { agentType: ownerKey, limit: 1 })).items[0] : undefined;
+      const connectorKey = need.pick.catalogKey ? catalogTool(need.pick.catalogKey)?.connectorKey : undefined;
+      await repos.tasks.create(tx, ctx.businessId, {
+        kind: "ops",
+        title: `Set up ${name} in its website`.slice(0, 200),
+        goalMd: browserSetupGoal(name, category, need.pick.why, connectorKey),
+        acceptance: ["What done looks like was written down before the first change", "Each setting was checked by reading the page back", "The report lists what was set and what was verified, and says plainly what was not verified", "Nothing was paid, agreed to or sent without the founder's own press"],
+        assigneeAgentId: owner?.id ?? item.fromAgentId,
+        status: "ready",
+        currency: ctx.business.currency,
+      });
+    } else if (yes && need?.pick) {
       const own = need.pick.route === "foundmill";
       await repos.tasks.create(tx, ctx.businessId, {
         kind: "ops",
