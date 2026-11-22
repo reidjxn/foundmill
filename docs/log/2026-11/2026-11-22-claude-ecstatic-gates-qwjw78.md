@@ -7,7 +7,7 @@ areas: [gateway, evals]
 
 ## What changed
 
-- `apps/gateway/src/pipeline.ts` (`decideAndRun`): a Cedar deny that is not a hard gate now runs the same connection checks the ask and allow paths already ran, before the deny is returned.
+- `apps/gateway/src/pipeline.ts` (`decideAndRun`): a Cedar deny whose only policy is `mail-needs-basis` now runs the same connection checks the ask and allow paths already ran, before the deny is returned.
 - A connector that is not connected answers `integration_not_connected` (409); `platform_mail` with the project's address off, unconfigured or simulated on a real project answers its `platform-mail-off` family deny. Otherwise the Cedar deny is returned as before. The ask path uses the same helper, in the same order.
 - Why: with no mail connected, `sendgrid.send_mail` and `platform_mail.send_mail` to someone with no basis were both answered by `mail-needs-basis`, so the agent was never told mail is not connected.
 - The runner did not count the calls as not connected. On Nov 21, 2026 the live nightly case `channel_email_automation.not_connected_is_not_sent` ended `no_result` (see 2026-11-21-claude-dreamy-fermi-92d232.md, "Not done").
@@ -17,12 +17,12 @@ areas: [gateway, evals]
 
 ## Decisions
 
-### After Cedar, not before it
-The checks run once Cedar has answered deny, not before Cedar. A hard-gate deny (`hard-gate`, `hard-gate-security-settings`) keeps its answer, because it queues the founder's task to do the action by hand; answering "not connected" there would drop that task. For every other deny the outcome is the same (nothing runs), only the reason the agent reads changes.
+### Only the basis rule is overridden
+After the security review, the override applies only when every deny policy id is `mail-needs-basis`. Any other deny (untrusted or suppressed recipient, spend cap, finance, a hard gate, the engine's fail-closed deny with no ids) keeps its own answer, so an injected or suppressed recipient is never turned into "connect SendGrid", and a hard gate still queues the founder's task to do it by hand.
 
-### Not connected wins over other deny reasons
-On an unconnected connector, a suppressed recipient, a spend cap or an untrusted recipient is now answered "not connected" too. Nothing can be sent either way, and connecting the tool first is the founder's real next step; once it is connected, Cedar's deny reason comes back unchanged.
+### Cedar's refusal stays on the record
+The `integration_not_connected` 409 on this path first writes a deny audit row with Cedar's reasons and policy ids and `errorCode: integration_not_connected`. The `platform-mail-off` row lists both its own policy id and Cedar's. The answer to the agent carries only the not-connected reason.
 
 ## Not done
 
-- The `integration_not_connected` 409 is not written to the audit log, as on the existing ask and allow paths. Unchanged here.
+- The `integration_not_connected` 409 on the ask and allow paths is still not audited, as before; nothing was refused there by policy.

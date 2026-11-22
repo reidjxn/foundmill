@@ -321,6 +321,18 @@ describe("no mail connected: a send to someone with no basis is told it is not c
     const r = asDeny(await g.client.call(token, message("nobody@example.com")));
     expect(r.policyIds).toEqual([PLATFORM_MAIL_POLICY.off]);
     expect(calls).toBe(0);
+    // Cedar's refusal is still on the record for both.
+    const rows = (await repos.audit.list(g.db, g.businessId, { action: "tool.call", limit: 10 })).items.map((a) => a.details as { outcome: string; policyIds: string[]; errorCode?: string });
+    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({ outcome: "deny", policyIds: ["mail-needs-basis"], errorCode: "integration_not_connected" }), expect.objectContaining({ outcome: "deny", policyIds: [PLATFORM_MAIL_POLICY.off, "mail-needs-basis"] })]));
+  });
+
+  it("any other refusal keeps its own answer: a suppressed recipient is refused, not told to connect", async () => {
+    const token = await g.token({ allowedTools: ["sendgrid:*"], sessionId: await g.newSession() });
+    await g.mailable("gone@example.com");
+    await repos.channels.addSuppression(g.db, g.businessId, { emailHash: suppressionHash("email", "gone@example.com"), reason: "unsubscribed" });
+    const r = asDeny(await g.client.call(token, { connector: "sendgrid", tool: "send_mail", args: { kind: "transactional", from: "hello@project.example", to: ["gone@example.com"], subject: "Welcome", text: "Hi." } }));
+    expect(r.policyIds).toContain("suppressed-recipient");
+    expect(calls).toBe(0);
   });
 });
 
