@@ -160,6 +160,11 @@ export async function waitlistAdmissions(input: { at?: string } = {}): Promise<S
   return quick.waitlistSweep({ at: input.at });
 }
 
+/** Every 15 minutes: the reminder a customer gets the day before their booking (activities/booking.ts). */
+export async function bookingReminders(input: { at?: string } = {}): Promise<ScheduleResult> {
+  return quick.bookingRemindersSweep({ at: input.at });
+}
+
 export async function crmDeletionSweep(input: { at?: string } = {}): Promise<ScheduleResult> {
   return acts.purgeDueEntities({ at: input.at });
 }

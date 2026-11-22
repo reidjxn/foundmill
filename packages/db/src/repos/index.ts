@@ -90,6 +90,8 @@ export { OwnDomainTakenError, projectDomainsStore, type ProjectDomainView } from
 export { domainOrdersStore } from "./domain-registrants";
 import { payLinksRepo } from "./pay-links";
 import { toolNeedsRepo } from "./tool-needs";
+import { bookingRepo } from "./booking";
+export { BookingServiceInput, BookingSetupInput, type BookingSetup, type PublicBookingPage } from "./booking";
 export { RaiseToolNeedInput, RecommendToolInput, ToolPickInput, toolNeedTask, type RaiseToolNeedResult, type ToolNeedHeld } from "./tool-needs";
 import { ownerPlansRepo, partnerWaitlistRepo } from "./owner-plans";
 
@@ -182,6 +184,7 @@ export const repos = {
   sites: sitesRepo,
   payLinks: payLinksRepo,
   toolNeeds: toolNeedsRepo,
+  booking: bookingRepo,
   ownerPlans: ownerPlansRepo,
   partnerWaitlist: partnerWaitlistRepo,
 } as const;

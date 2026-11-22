@@ -153,6 +153,14 @@ export const INPUT_LIMITS = {
 } as const;
 
 /**
+ * Booking's own email (founder, Nov 22, 2026): confirmations, reminders and change notices to a customer who booked.
+ * They answer the customer's own action, so they are counted here and never against the project's daily outreach cap.
+ * 200 a project a day covers a busy week in one day (a full calendar of half-hour slots is 16 a day, each with a
+ * confirmation, a reminder and perhaps a change); 5,000 across the deployment keeps a flood on many pages bounded.
+ */
+export const BOOKING_MAIL = { dailyCap: 200, dailyCeiling: 5_000 } as const;
+
+/**
  * The approval threshold a spend is checked against (Cedar `principal.approvalThresholdMinor`): the agent's own (the
  * policy default when it has none), lowered to the business's "Spend cap per action" when the founder set one (Commit,
  * Settings › What the team can do; `businesses.spend_cap_minor`). Undefined when neither is set: the policy default applies. The gateway

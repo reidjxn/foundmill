@@ -354,7 +354,7 @@ describe("public views (LIVE only)", () => {
     await h.db.update(s.businesses).set({ gameMode: "live", committedAt: new Date() }).where(eq(s.businesses.id, A.businessId));
     await h.db.insert(s.founderProfiles).values({ userId: A.memberId, displayName: "Private member", visibility: "private" });
     await h.db.insert(s.founderProfiles).values({ userId: A.adminId, displayName: "Public admin", visibility: "public" });
-    // A founder card needs the person's 18+ confirmation (0160): unconfirmed, the public admin is not listed yet.
+    // A founder card needs the person's 18+ confirmation (0163): unconfirmed, the public admin is not listed yet.
     expect((await h.anon().run((tx) => tx.select().from(s.publicProfiles))).filter((r) => r.kind === "founder")).toEqual([]);
     await h.db.insert(s.adultConfirmations).values({ userId: A.adminId }).onConflictDoNothing();
     const rows = await h.anon().run((tx) => tx.select().from(s.publicProfiles));

@@ -396,6 +396,12 @@ export function followAvailable(env: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" |
   return platformMailLive(env) || mockResultsAllowed(env.APP_ENV, false);
 }
 
+/** Whether a public page carries the "Built on" mark, from `repos.pages.public.planBySlug` (the booking page shows the same one). */
+export async function pageShowsMark(ctx: Pick<Context, "db" | "env">, planTier: Awaited<ReturnType<typeof repos.pages.public.planBySlug>>): Promise<boolean> {
+  // Taken down between the two reads: no plan to go by, so the mark stays (the free plan's rule).
+  return planTier ? showsBuiltOnMark(ctx.db, planTier, markBilling(ctx.env)) : tierShowsBuiltOnMark("free");
+}
+
 /** `publicPage.bySlug`: the published page at `slug`, or null for an unknown address or a page that is not public. */
 export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, slug: string): Promise<PublicPageView | null> {
   const clean = slug.trim().toLowerCase();
@@ -429,8 +435,7 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     logo,
     founderNames: showFounders ? page.founderNames : [],
     followForm: followForm && followAvailable(ctx.env),
-    // Taken down between the two reads: no plan to go by, so the mark stays (the free plan's rule).
-    mark: planTier ? await showsBuiltOnMark(ctx.db, planTier, markBilling(ctx.env)) : tierShowsBuiltOnMark("free"),
+    mark: await pageShowsMark(ctx, planTier),
     story,
   };
 }
@@ -565,8 +570,9 @@ function followTurnstileHostname(env: Pick<Env, "APP_ENV" | "APP_URL">): string 
  * idea box's verifier. Fails closed: no token, a refused one, or a check that cannot run is a refusal, and nothing is
  * recorded or sent. The visitor's address is not sent: through the web's Server Action the api sees the web's address,
  * not the visitor's. A development or test stack on mock integrations without the gateway passes the mock token only.
+ * The public booking form uses the same check with its own widget action (services/booking.ts).
  */
-async function checkFollowTurnstile(ctx: Pick<Context, "gateway" | "env" | "log">, token: string | null | undefined, hostname: string | null = followTurnstileHostname(ctx.env)): Promise<void> {
+export async function checkFollowTurnstile(ctx: Pick<Context, "gateway" | "env" | "log">, token: string | null | undefined, hostname: string | null = followTurnstileHostname(ctx.env), action: string = FOLLOW_TURNSTILE_ACTION): Promise<void> {
   const t = typeof token === "string" ? token.trim() : "";
   if (!t || t.length > 2048) throw followRefusal("follow_unverified");
   const mockPasses = devStack(ctx.env.APP_ENV) && ctx.env.INTEGRATIONS_MODE === "mock" && t === FOLLOW_MOCK_TURNSTILE_TOKEN;
@@ -574,7 +580,7 @@ async function checkFollowTurnstile(ctx: Pick<Context, "gateway" | "env" | "log"
     if (mockPasses) return;
     throw followRefusal("follow_unavailable");
   }
-  const check = await ctx.gateway.verifyTurnstile({ token: t, remoteIp: null, hostname, action: FOLLOW_TURNSTILE_ACTION }).catch((err: unknown) => {
+  const check = await ctx.gateway.verifyTurnstile({ token: t, remoteIp: null, hostname, action }).catch((err: unknown) => {
     if (mockPasses) return { ok: true, reason: "ok" as const, simulated: true };
     ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, "follow: turnstile check failed");
     return { ok: false, reason: "unavailable" as const, simulated: false };

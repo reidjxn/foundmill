@@ -9,7 +9,7 @@ supersedes: []
 The medium and low findings of the security review in #217's description (Launch Session 18, part 2; part 1 is `claude/network-safety`). All still stood on main at be52161.
 - **M1:** community reads (list, a community, its feed, its review queue, invitations) spend 120 a minute per person (`takeCommunityRead`); invitations list at most 100.
 - **M2:** a person receives at most 50 requests to connect a day from everyone together (`takeRequestReceived`, spent only when a request is created). The note on a request is screened like a post (screen kind `connection_note`); a held note refuses the request with a sentence to act on.
-- **M3, M4:** migration `0160_network_safety` adds trigram indexes on `founder_profiles` (name, headline, about, place), the columns Find people and the name search match.
+- **M3, M4:** migration `0163_network_safety` adds trigram indexes on `founder_profiles` (name, headline, about, place), the columns Find people and the name search match.
 - **M5:** the name search and the business profile page leave out a business whose owner, cofounder or admin is blocked either way with the viewer (`repos.social.runByBlocked`), and `lookupPeople` names nobody blocked either way.
 - **L1:** `repos.social.stillSpeaksFor`: a member's business, and a community's owning business, show only while the person still has a writing membership in it.
 - **L2:** community posts link only http(s) addresses (`webLinksOnly`); the community's name moved inside the untrusted block of the screen prompt.
@@ -28,7 +28,7 @@ A note goes to a stranger, so it gets the same screen as a post (deterministic c
 ### Old posts keep their business
 L1 masks the business on a member row and on a community's owner. A post keeps the business it was written for, as a record of what was said then; a new post or edit already checks the person still speaks for it.
 ### The migration number is a placeholder
-0160 is the next free number after every open branch's migrations today; the session takes the next free number on main when it rebases before merging.
+0163 is the next number free on main and not held by an open branch (0162 is held by two); it moved from 0160 when 0161_booking merged first.
 
 ### Accounts from before the confirmation
 On production, 11 of 12 founder profiles have no confirmation on record (coordinating session, Nov 22). Nothing is backfilled: those founders leave the old founder cards and are asked once, kindly and in one step, the next time they open a screen that reads people. `/home` links to Network, which shows the same step at the top.

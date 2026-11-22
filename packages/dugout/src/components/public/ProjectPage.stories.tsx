@@ -1,6 +1,8 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { APP_NAME } from "@foundmill/config";
 import { builtOnWords } from "@foundmill/shared/project-page";
+import { BookingBlock } from "../booking/BookingBlock";
+import { BOOKING_SERVICES } from "../booking/fixtures";
 import { ProjectFollowForm } from "./ProjectFollowForm";
 import { ProjectPage } from "./ProjectPage";
 
@@ -70,6 +72,12 @@ export const WithFollow390: Story = {
   name: "390 px · with the follow form",
   decorators: [Phone],
   args: { variant: "page", follow: <ProjectFollowForm name="Northwind Skincare" slug="northwind-skincare" action="#" /> },
+};
+/** Foundmill's own booking: the block sits above the follow form. */
+export const WithBooking390: Story = {
+  name: "390 px · with booking and the follow form",
+  decorators: [Phone],
+  args: { variant: "page", booking: <BookingBlock services={BOOKING_SERVICES} href="#book" />, follow: <ProjectFollowForm name="Northwind Skincare" slug="northwind-skincare" action="#" /> },
 };
 export const WithFollowDone390: Story = {
   name: "390 px · followed",

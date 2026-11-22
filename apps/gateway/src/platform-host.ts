@@ -9,9 +9,10 @@
  * Errors the agent can act on come back as `PlatformToolError`s; any other failure is logged without its parameters
  * and answered with a plain "try again".
  */
-import { CREDITS_CURRENCY } from "@foundmill/config";
-import { AppError, ConflictError, NotFoundError, TOOL_CATEGORY_LABELS, filingWindow, positioningFromInput, renderPositioning, updateProblems, uuid, type TaskStatus } from "@foundmill/shared";
-import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type Db, type Executor, type ResolvedSkill, type Task, type ToolNeed, type ToolNeedHeld } from "@foundmill/db";
+import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
+import { BOOKING_READY_NOTE, DEFAULT_WEEKLY_HOURS, durationLabel, isBookingReadyDecision, minutesLabel, type WeeklyHours } from "@foundmill/shared/booking";
+import { AppError, businessTimeZone, ConflictError, formatMoney, NotFoundError, TOOL_CATEGORY_LABELS, filingWindow, positioningFromInput, renderPositioning, updateProblems, uuid, type TaskStatus } from "@foundmill/shared";
+import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type BookingService, type BookingSettings, type Db, type Executor, type ResolvedSkill, type Task, type ToolNeed, type ToolNeedHeld } from "@foundmill/db";
 import { acceptanceLines, acceptanceRefusal, catalogLines, connectorKeysFor, PlatformToolError, recommendationProblems, toolRecommendationNote, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { hashRecipient } from "./recipients";
@@ -77,6 +78,18 @@ export function toolNeedHeldNote(why: ToolNeedHeld, need: ToolNeed | null): stri
   if (why === "recommended") return `Already recommended to the founder: ${pick}. It waits for their answer. Nothing new was raised.`;
   if (why === "accepted") return `Already chosen: ${pick}. The founder said yes; if it is not connected yet, it waits for them. Nothing new was raised.`;
   return `The founder said not now${need?.askAgainAt ? `, and to ask again after ${need.askAgainAt.toISOString().slice(0, 10)}` : ""}. Nothing was raised: work without it until then.`;
+}
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** The booking note's words: each service with its length and price, the hours, and that nothing is public yet. */
+export function bookingReadyBody(settings: Pick<BookingSettings, "timeZone" | "weeklyHours">, services: readonly Pick<BookingService, "name" | "durationMin" | "priceMinor" | "currency" | "mode">[]): string {
+  const serviceLines = services.map((s) => `- ${s.name}: ${durationLabel(s.durationMin)}, ${s.priceMinor === null ? "free" : formatMoney({ amountMinor: s.priceMinor, currency: s.currency })}, ${s.mode === "online" ? "online" : "in person"}`);
+  const hourLines = DAY_NAMES.flatMap((day, i) => {
+    const windows = settings.weeklyHours[String(i) as keyof WeeklyHours] ?? [];
+    return windows.length ? [`- ${day}: ${windows.map((w) => `${minutesLabel(w.start)} to ${minutesLabel(w.end)}`).join(", ")}`] : [];
+  });
+  return [`I drafted booking for your project, so customers can pick a time on your page. It is free and it is part of ${APP_NAME}: there is nothing to sign up for.`, `What customers can book:\n${serviceLines.join("\n")}`, `Your hours (${settings.timeZone}):\n${hourLines.join("\n") || "- None yet"}`, "Nothing is public until you turn it on."].join("\n\n");
 }
 
 export interface DbPlatformHostOptions {
@@ -608,6 +621,56 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
         return created;
       });
       return { inboxItemId: item.id, subject: item.subject, checkedByFoundmill: !!note.pick.catalogKey };
+    },
+    // ---- Foundmill's own booking (founder, Nov 22, 2026) --------------------------------------------------------
+    async bookingSetup(caller, args) {
+      const [business, current] = await Promise.all([repos.businesses.get(db, caller.businessId), repos.booking.setup(db, caller.businessId)]);
+      // Live booking is the founder's: the team never changes what visitors can book.
+      if (current.settings?.status === "live") return { status: "live", services: current.services.length, noteId: null, note: "Booking is live: the founder changes it in the booking setup." };
+      const out = await db.transaction(async (tx) => {
+        // A new draft replaces the earlier one whole: services drafted before are matched by name, so none is doubled.
+        const byName = new Map(current.services.map((s) => [s.name.toLowerCase(), s.id]));
+        const saved = await repos.booking.saveSetup(tx, caller.businessId, {
+          timeZone: args.timeZone ?? businessTimeZone(business.timeZone),
+          weeklyHours: (args.weeklyHours as WeeklyHours | undefined) ?? DEFAULT_WEEKLY_HOURS,
+          services: args.services.map((s) => ({ ...s, id: byName.get(s.name.toLowerCase()) })),
+          currency: business.currency,
+          draftedByAgentId: caller.agentId,
+        });
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "booking.setup_drafted", target: { kind: "business", id: caller.businessId }, details: { services: saved.services.length, sessionId: caller.sessionId } });
+        // One note while one is open: a second draft updates the setup the open note already points to.
+        const open = (await repos.inbox.list(tx, caller.businessId, { tab: "respond", limit: 100 })).items.find((i) => isBookingReadyDecision(i.decision));
+        if (open) return { saved, noteId: open.id };
+        const created = await repos.inbox.createItem(tx, caller.businessId, {
+          type: "decision",
+          from_agent_id: caller.agentId,
+          subject: BOOKING_READY_NOTE.subject,
+          body_md: bookingReadyBody(saved.settings!, saved.services),
+          status_strip: [],
+          exhibit: { kind: "none", spec_ref: null },
+          decision: {
+            options: [
+              { id: BOOKING_READY_NOTE.options.check, label: BOOKING_READY_NOTE.checkLabel, recommended: true, consequence: "The booking setup opens. You check it and turn it on there.", cost_minor: 0, reversible: true },
+              { id: BOOKING_READY_NOTE.options.later, label: BOOKING_READY_NOTE.laterLabel, recommended: false, consequence: "Nothing changes. The draft waits in the booking setup.", cost_minor: 0, reversible: true },
+            ],
+            free_text: false,
+            expires_at: null,
+            key: BOOKING_READY_NOTE.key,
+          },
+          blocks_continue: false,
+          source_event_ids: [],
+          entity_ids: [],
+        });
+        await writeGatewayEvent(tx, { businessId: caller.businessId, type: "inbox.item_created", actor: { kind: "agent", id: caller.agentId }, payload: { inboxItemId: created.id, type: created.type, fromAgentId: caller.agentId, subject: created.subject, blocksContinue: created.blocksContinue, sourceEventIds: [], cost: null } });
+        return { saved, noteId: created.id };
+      });
+      return { status: "draft", services: out.saved.services.length, noteId: out.noteId, note: "Saved as a draft. The founder has a note to check it; nothing is public until they turn it on." };
+    },
+    async listBookings(caller) {
+      const at = now();
+      const [upcoming, recent] = await Promise.all([repos.booking.list(db, caller.businessId, { from: at, limit: 50 }), repos.booking.list(db, caller.businessId, { before: at, limit: 20 })]);
+      // Never the email and never the answers: a customer's own words stay with the founders.
+      return { items: [...upcoming, ...recent].map((b) => ({ id: b.id, serviceName: b.serviceName, startsAt: b.startsAt.toISOString(), status: b.status, customerName: b.customerName ?? "", test: b.test })) };
     },
   };
 

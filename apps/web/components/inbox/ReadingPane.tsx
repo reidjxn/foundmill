@@ -52,6 +52,7 @@ import {
   type MetricTileProps,
 } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
+import { BOOKING_READY_NOTE, isBookingReadyDecision } from "@foundmill/shared/booking";
 import { PAGE_READY_NOTE, isPageReadyDecision } from "@foundmill/shared/project-page";
 import { isShowcaseConsentDecision } from "@foundmill/shared/showcase";
 import { POSTAL_ADDRESS_NOTE, isPostalAddressDecision } from "@foundmill/shared/platform-mail";
@@ -389,6 +390,9 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       else if (isPageReadyDecision(item.decision) && res.decision.chosenOption === PAGE_READY_NOTE.options.check) {
         // "Check it and publish" (package 1.3): straight to Product › Public page, where the founder publishes.
         router.push(moduleTabHref(businessId, departments, "product", "public-page"));
+      } else if (isBookingReadyDecision(item.decision) && res.decision.chosenOption === BOOKING_READY_NOTE.options.check) {
+        // "Check it and turn it on" (founder, Nov 22, 2026): straight to the Booking panel on Product › Public page.
+        router.push(`${moduleTabHref(businessId, departments, "product", "public-page")}?panel=booking`);
       } else if (isPostalAddressDecision(item.decision) && res.decision.chosenOption === POSTAL_ADDRESS_NOTE.options.add) {
         // "Add it in Settings" (US CAN-SPAM): straight to Settings › Integrations, where the founder enters the address.
         router.push(routes.settings(businessId, "integrations"));

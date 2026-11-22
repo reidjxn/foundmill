@@ -41,5 +41,6 @@ export * from "./reports";
 export * from "./sites";
 export * from "./pay-links";
 export * from "./tool-needs";
+export * from "./booking";
 export * from "./plans";
 export * from "./updates";

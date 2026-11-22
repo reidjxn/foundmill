@@ -42,6 +42,9 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   project_pages: t(s.projectPages, "product"),
   // 0105: the page quiz and its anonymous counts per result (numbers only, nothing about any visitor).
   page_quizzes: t(s.pageQuizzes, "product"),
+  // 0161 booking: the setup and the services sit with the page they are booked from.
+  booking_settings: t(s.bookingSettings, "product"),
+  booking_services: t(s.bookingServices, "product"),
   page_quiz_counts: t(s.pageQuizCounts, "product"),
   change_proposals: t(s.changeProposals, "product"),
   proposal_hunks: t(s.proposalHunks, "product"),
@@ -107,6 +110,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   mentions: t(s.mentions, "crm"),
   field_provenance: t(s.fieldProvenance, "crm"),
   contact_consents: t(s.contactConsents, "crm"),
+  // 0161: a booking is a customer record, like an entity; the hold token hash is a link credential.
+  bookings: t(s.bookings, "crm", { omit: ["holdTokenHash"] }),
   project_updates: t(s.projectUpdates, "distribution"),
   merge_log: t(s.mergeLog, "crm"),
   // finance

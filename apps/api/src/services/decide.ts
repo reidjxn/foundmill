@@ -29,6 +29,8 @@ import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteM
 import { startModelRetests } from "./agent-model";
 import { decideGoalItem } from "./goals";
 import { decidePageNote } from "./pages";
+import { decideBookingNote } from "./booking";
+import { isBookingReadyDecision } from "@foundmill/shared/booking";
 import { decideSiteNote } from "./sites";
 import { isSiteReadyDecision } from "@foundmill/shared/sites";
 import { decidePostalAddressNote } from "./postal-address";
@@ -137,6 +139,8 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   if (goal) return decideGoalItem(ctx, item, goal, { chosenOption, freeText });
   // The Product lead's "Your project's page is ready" (package 1.3): Check it and publish, or Later; decided in-process.
   if (isPageReadyDecision(item.decision) && item.fromAgentId) return decidePageNote(ctx, item, { chosenOption, freeText });
+  // The team's "Booking is ready for you to check" (founder, Nov 22, 2026): Check it and turn it on, or Later; decided in-process.
+  if (isBookingReadyDecision(item.decision)) return decideBookingNote(ctx, item, { chosenOption, freeText });
   // The Product lead's "Your site is ready to look at" (WP-07): Publish it, or Not yet; decided in-process.
   if (isSiteReadyDecision(item.decision) && item.fromAgentId) return decideSiteNote(ctx, item, { chosenOption, freeText });
   // A founder's own showcase ask (0103) is answered from the note (showcase.answer), never by the plan compiler.
