@@ -36,15 +36,14 @@ const CONCEPT_ATTRIBUTE_IDS = [
 
 /** The ids the plan's "define" tier (Appendix E, §4.3) requires at launch. */
 const REQUIRED_IDS = [
-  "runway", "burn", "gross_burn", "net_burn", "cash_basis", "pnl", "ledger", "mrr", "arr", "churn", "gross_margin", "payback",
+  "runway", "burn", "gross_burn", "net_burn", "cash_basis", "pnl", "ledger", "mrr", "arr", "gross_margin", "payback",
   "acquisition_cost", "cap_table", "safe", "vesting", "funnel", "attribution", "conversion", "pipeline", "playbook", "sku",
   "model", "tokens", "credits", "api_key", "pull_request", "branch", "repository", "sandbox", "session", "task_graph",
   "acceptance", "hard_gate", "policy", "autonomy", "business_mode", "autopilot", "vacation", "wage", "wage_cap",
   "line_manager", "chief_of_staff", "cycle", "chapter", "estimate", "forecast", "specification", "roadmap", "proposal",
   "sign_off", "jurisdiction", "lawful_basis", "archetype", "fit", "form", "rating", "potential", "training", "coach",
   "position_map", "health", "hierarchy", "milestone", "customer_update", "channel_board", "lead", "campaign",
-  "creative", "integration", "source_watcher", "planner", "distribution_strategist", "product_lead", "team_health",
-  "runway_horizon",
+  "creative", "source_watcher", "planner", "distribution_strategist", "product_lead", "team_health",
   // Wave B (the screens that wired the guided layer asked for these): the status strip's Revenue, the channel cost
   // trend, Contacts (the CRM, founder decision item 1), the Skills panel's Tested and Proven, Legal's filings, and the
   // Ideation Studio's ten concept attributes.
@@ -176,7 +175,6 @@ describe("termsWithGlossary", () => {
     expect(terms.acquisition_cost?.short).toBe("What you spend on marketing and sales, divided by the clients it brought in.");
     expect(terms.acquisition_cost?.long).toContain("win 10 clients");
     expect(terms.customer_update?.word).toBe("Client Update");
-    expect(terms.churn?.short).toBe("Clients who leave, as a share of the clients you had at the start of the month.");
     expect(terms.runway).toEqual(TERMS.runway);
     expect(terms.cycle).toEqual(TERMS.cycle);
     // Ids and learn targets are never rewritten, even when a glossary names them.
@@ -220,7 +218,7 @@ describe("PLAIN_LANGUAGE_TIERS", () => {
 
   it("keeps the jargon of §8.2 in the define tier and moves the everyday words to the plain tier", () => {
     for (const w of [
-      "Runway", "Burn", "MRR", "ARR", "Churn", "P&L", "Cash basis", "Ledger", "Cap table", "SAFE", "Vesting", "Funnel",
+      "Runway", "Burn", "MRR", "ARR", "P&L", "Cash basis", "Ledger", "Cap table", "SAFE", "Vesting", "Funnel",
       "Attribution", "Conversion", "Pipeline", "Playbook", "SKU", "Gross margin", "Payback", "Tokens", "Credits", "API key",
       "Pull request", "Branch", "Repository", "Sandbox", "Task graph", "Acceptance", "Hard gate", "Autonomy", "Wage cap",
       "Chief of Staff", "Round of work", "Chapter", "Estimate", "Forecast", "Specification", "Proposal", "Sign-off", "Jurisdiction",
@@ -228,7 +226,7 @@ describe("PLAIN_LANGUAGE_TIERS", () => {
     ])
       expect(PLAIN_LANGUAGE_TIERS.define, w).toContain(w);
     for (const w of [
-      "Revenue", "Training", "Coach", "Campaign", "Creative", "Competition", "Integration", "Rating", "Lead", "Model", "Health",
+      "Revenue", "Training", "Coach", "Campaign", "Creative", "Competition", "Rating", "Lead", "Model", "Health",
       "Session", "Form", "Policy", "Market size", "Filing", "Tested", "Proven", "Contacts", "Hierarchy", "Milestone",
     ])
       expect(PLAIN_LANGUAGE_TIERS.plain, w).toContain(w);

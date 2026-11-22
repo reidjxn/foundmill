@@ -7,7 +7,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Lock, Phone, Video } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Button, CallLobbyPicker, Chip, DataTable, EntityLink, Field, Input, Panel, formatRelative, type CallPickerAgent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, CallLobbyPicker, Chip, DataTable, EntityLink, Explainer, Field, Input, Panel, formatRelative, type CallPickerAgent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { EXPLAINERS } from "@foundmill/modules/explainers";
 import { isBackgroundAgent } from "@foundmill/shared/team-tiers";
 import { TEAM_CALL_LIMITS, TEAM_CALL_WORDS, type TeamCallSummaryView } from "@foundmill/shared/team-call";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -30,7 +31,8 @@ export function CallLobby() {
   const trpc = useTRPC();
   const router = useRouter();
   const { start, pending } = useStartCall();
-  useShellChrome({ title: TEAM_CALL_WORDS.title }, []);
+  // A breadcrumb row gives "Explain this page" a place to sit: the lobby has no tab row.
+  useShellChrome({ title: TEAM_CALL_WORDS.title, breadcrumbs: [{ label: TEAM_CALL_WORDS.title }] }, []);
 
   const agentsQ = useQuery(trpc.team.agents.list.queryOptions({ businessId }, { staleTime: 60_000 }));
   const callsQ = useQuery(trpc.teamCall.list.queryOptions({ businessId, limit: 50 }, { staleTime: 10_000 }));
@@ -98,6 +100,7 @@ export function CallLobby() {
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="call-lobby">
+      <Explainer {...EXPLAINERS.calls!} />
       <Panel title={TEAM_CALL_WORDS.startTeam} span={4} className="self-start" data-testid="call-start-panel">
         <div className="flex flex-col gap-4">
           <p className="max-w-[var(--reading-measure)] text-body text-secondary">{TEAM_CALL_WORDS.lobbyLine}</p>

@@ -232,18 +232,17 @@ export function signoffNeedsNotes(optionId: string, notes: string): boolean {
   return optionId === "request_changes" && notes.trim().length === 0;
 }
 
-/** "Expires in 5 days", "Expires today", "Expires tomorrow": the deadline beside "Your decision"; null without one or once expired. */
-export function decisionDeadline(decision: unknown, now = new Date()): string | null {
+/**
+ * What happens if the founder does nothing, beside "Your decision": "If you do nothing by Nov 20, Juno waits." The date
+ * comes from the caller's formatter (the person's own date format); null without a deadline or once it has passed.
+ */
+export function decisionDeadline(decision: unknown, agentName: string, formatDate: (d: Date) => string, now = new Date()): string | null {
   const v = (decision as { expires_at?: unknown } | null | undefined)?.expires_at;
   if (typeof v !== "string") return null;
   const t = Date.parse(v);
   if (!Number.isFinite(t) || t < now.getTime()) return null;
-  const day = (ms: number) => Math.floor(ms / 86_400_000);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const days = day(t - startOfToday);
-  if (days <= 0) return "Expires today";
-  if (days === 1) return "Expires tomorrow";
-  return `Expires in ${days} days`;
+  const sameDay = new Date(t).toDateString() === now.toDateString();
+  return `If you do nothing ${sameDay ? "today" : `by ${formatDate(new Date(t))}`}, ${agentName} waits.`;
 }
 
 /**

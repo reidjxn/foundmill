@@ -6,7 +6,7 @@ import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
 import { SAFETY_POLL_MS } from "@/lib/stream-status";
 import { EXAMPLE_CHIP_TOOLTIP, EXAMPLE_READ_ONLY_REASON, FULL_ACCESS, SAMPLE_BUSINESS_LINE, accessFor, readOnlyReason, sampleMarker } from "@/lib/access";
 import { makeBusinessContext } from "../business-context";
-import { CONTINUE_PRESSED_NOTICE, continuePressedNotice, EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, ORCHESTRATOR_DOWN_CAVEAT, RUN_UNTIL_DONE, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, describePause, describeRunEnded, exampleFrame, lastCycleCostLine, orchestratorDown, shellConnection, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
+import { CONTINUE_PRESSED_NOTICE, continuePressedNotice, EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, ORCHESTRATOR_DOWN_CAVEAT, RUN_UNTIL_DONE, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, describePause, describeRunEnded, exampleFrame, lastCycleCostLine, orchestratorDown, shellConnection, shellPollIntervals, topBarChips, wantsFirstContinueCallout } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
 
@@ -270,5 +270,21 @@ describe("the Autopilot chip stays fresh on the stream", () => {
     expect(qc.getQueryState(trpcQueryKey("business.autopilot.get", { businessId: BID }) as unknown[])?.isInvalidated).toBe(true);
     // The path is narrow: the business record itself is not refetched on every cycle.
     expect(qc.getQueryState(trpcQueryKey("business.get", { businessId: BID }) as unknown[])?.isInvalidated).toBe(false);
+  });
+});
+
+describe("top bar by stage (WP-10 T2)", () => {
+  const FRESH = { pageLive: false, distributionStarted: false, roundCompleted: false, bankConnected: false, firstPayment: false, entityExists: false, people: 1 };
+
+  it("a fresh project's bar has the date, search and Continue: no runway words, no mode chip", () => {
+    expect(topBarChips(FRESH, false, "augmented")).toEqual({ showRunway: false, showMode: false });
+  });
+
+  it("runway waits for a bank or a payment; the mode chip for a round of work or a changed mode; Builder view shows both", () => {
+    expect(topBarChips({ ...FRESH, bankConnected: true }, false, "augmented").showRunway).toBe(true);
+    expect(topBarChips({ ...FRESH, firstPayment: true }, false, "augmented").showRunway).toBe(true);
+    expect(topBarChips({ ...FRESH, roundCompleted: true }, false, "augmented").showMode).toBe(true);
+    expect(topBarChips(FRESH, false, "automated").showMode).toBe(true);
+    expect(topBarChips(FRESH, true, "augmented")).toEqual({ showRunway: true, showMode: true });
   });
 });

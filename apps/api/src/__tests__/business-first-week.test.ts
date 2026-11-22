@@ -72,3 +72,20 @@ describe("business.firstWeek.get", () => {
     expect(other.conversationReplySent).toBe(false);
   });
 });
+
+describe("business.get stageFacts (WP-10 T1)", () => {
+  it("answers the stage the tabs read, and refuses another business's member", async () => {
+    const { businessId } = hz.A;
+    const facts = (await hz.caller({ userId: hz.A.ownerId }).business.get({ businessId })).stageFacts;
+    expect(Object.keys(facts).sort()).toEqual(["bankConnected", "distributionStarted", "entityExists", "firstPayment", "pageLive", "people", "roundCompleted"]);
+    expect(facts.distributionStarted).toBe(true);
+    expect(facts.pageLive).toBe(false);
+    expect(facts.people).toBeGreaterThan(0);
+    await expect(hz.caller({ userId: hz.B.ownerId }).business.get({ businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("is true after a page is published and a round finishes (the earlier case did both on this business)", async () => {
+    const facts = (await hz.caller({ userId: hz.B.ownerId }).business.get({ businessId: hz.B.businessId })).stageFacts;
+    expect(facts).toMatchObject({ pageLive: true, roundCompleted: true });
+  });
+});
