@@ -5,7 +5,10 @@
  * Per-route settings, applied by the client to every call on the route (a request's own `effort` wins):
  * - `effort` → `output_config.effort`. Opus 5.5 always thinks (adaptive) and defaults to `medium`; `low` cuts the
  *   thinking prelude before the first token, which is what a founder waits on for a first draft. Routes without
- *   `effort` keep the API default. Dropped on a model without the parameter (Haiku 4.5).
+ *   `effort` keep the API default (today only the six Haiku utility routes: WP-09 T4 step 2 waits on its live evals). Every other
+ *   route writes its effort down, so a model's default moving never changes a route (WP-09 T6 step 1): `medium` and `high` below
+ *   are the API defaults of the route's model (Opus 5.5 `medium`, Sonnet 5.5 `high`) as they were before they were written.
+ *   Dropped on a model without the parameter.
  * - `speed: "fast"` → Opus fast mode (beta `fast-mode-2026-02-01`, top-level `speed: "fast"`, up to 2.5× output speed at
  *   2× the price). Honoured only when MODEL_FAST_MODE is on, so it costs nothing until someone opts in.
  * - `maxTokens` → `max_tokens` for a call that sends none (a request's own `maxTokens` wins). Opus 5.5 and Sonnet 5.5
@@ -199,17 +202,17 @@ export const ROUTES = {
   // `max_tokens` is only a cap, and a 15-task graph must never be cut short.
   inboxComposer: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: THINKING_MAX_TOKENS },
   planCompiler: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: THINKING_MAX_TOKENS },
-  chiefOfStaff: { model: "opus", lowCredits: "keep", warnOnDowngrade: true, maxTokens: THINKING_MAX_TOKENS },
-  departmentLead: { model: "opus", lowCredits: "sonnet", maxTokens: THINKING_MAX_TOKENS },
+  chiefOfStaff: { model: "opus", lowCredits: "keep", warnOnDowngrade: true, effort: "medium", maxTokens: THINKING_MAX_TOKENS },
+  departmentLead: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
   // Distribution's channel scores and Legal's jurisdiction cards: answers the founder waits on behind a Recommend button.
   leadRecommendation: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: THINKING_MAX_TOKENS },
   planner: { model: "opus", lowCredits: "sonnet", effort: "low", maxTokens: THINKING_MAX_TOKENS },
-  codeReview: { model: "opus", lowCredits: "keep", maxTokens: THINKING_MAX_TOKENS },
+  codeReview: { model: "opus", lowCredits: "keep", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
   // The second read of a long document an agent drafted (the specification, the roadmap, policies, a pitch): a different
   // agent checks it for inconsistencies, unsupported claims, unlabeled figures and claims that need a source. Nobody
   // waits on it, so Opus at the default effort; the cost is bounded by the caller (packages/agents second-read.ts: two
   // rounds at most, the document cut to a fixed size, a few claims fact-checked), never by this budget.
-  documentReview: { model: "opus", lowCredits: "keep", maxTokens: THINKING_MAX_TOKENS },
+  documentReview: { model: "opus", lowCredits: "keep", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
   // Concept cards, compare and the card Q&A (Ideation Studio): first drafts the founder waits on.
   ideation: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // A short slate of names and angles drafted before the cards are written in parallel (audit P2).
@@ -219,11 +222,11 @@ export const ROUTES = {
   foundations: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // The vision and a one-line thesis per section, drafted first so sections can be written in parallel (audit P3).
   foundationsSkeleton: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
-  skillGrader: { model: "opus", lowCredits: "sonnet", maxTokens: THINKING_MAX_TOKENS },
-  coach: { model: "opus", lowCredits: "sonnet", maxTokens: THINKING_MAX_TOKENS },
-  worker: { model: "sonnet", lowCredits: "haiku", maxTokens: THINKING_MAX_TOKENS },
-  journeyCommentary: { model: "sonnet", lowCredits: "haiku", maxTokens: THINKING_MAX_TOKENS },
-  nightlyBatch: { model: "sonnet", lowCredits: "haiku", batch: true, maxTokens: THINKING_MAX_TOKENS },
+  skillGrader: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
+  coach: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
+  worker: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: THINKING_MAX_TOKENS },
+  journeyCommentary: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: THINKING_MAX_TOKENS },
+  nightlyBatch: { model: "sonnet", lowCredits: "haiku", batch: true, effort: "high", maxTokens: THINKING_MAX_TOKENS },
   linker: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },
   classifier: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },
   categoriser: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },

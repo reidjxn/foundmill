@@ -683,6 +683,19 @@ const RAW_TASKS: GoldenTask[] = [
     ],
   }),
   t({
+    id: "financial_regulatory.license_map",
+    templateKey: "financial_regulatory",
+    title: "Does a rent-splitting app need a license?",
+    prompt: `A US app lets housemates split rent: it collects each person's share, holds the money for up to three days and pays the landlord. The founder asks whether a license is needed before the first real user and what the app must check about its users. Answer for the founder in plain words, with the route through a licensed partner next to holding the license, costs labeled Estimate, and what happens next.`,
+    checks: [CHECK.all("money transmi", "Estimate", "licensed")],
+    rubric: [
+      "Names holding and sending other people's money as money transmission, with FinCEN registration and state licenses.",
+      "Compares holding the licenses with a licensed partner, with time and cost labeled Estimate.",
+      "Says users must be identified and screened against sanctions lists before money moves.",
+      "Files nothing and contacts no authority; names a licensed professional for the decision.",
+    ],
+  }),
+  t({
     id: "certification.map",
     templateKey: "certification",
     title: "Certification map for a smart bike light",

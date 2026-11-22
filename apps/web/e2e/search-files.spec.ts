@@ -21,17 +21,24 @@ test("robots.txt follows open sign-up", async ({ request }) => {
     expect(body).toMatch(/Sitemap: https:\/\/[^\s]+\/sitemap\.xml/);
     expect(body).toMatch(/User-Agent: GPTBot[\s\S]*?Disallow: \/p\/\s+Disallow: \/u\//);
   } else {
-    expect(body).toMatch(/User-Agent: \*\s+Disallow: \/\s*$/);
-    expect(body).not.toContain("Sitemap:");
+    // Closed: everything is disallowed, except that on the production origin the waitlist page alone is allowed (WP-14 T15).
+    expect(body).toMatch(/User-Agent: \*/);
+    expect(body).toMatch(/^Disallow: \/\s*$/m);
+    expect(body).not.toMatch(/^Allow: \/\s*$/m);
+    expect(body).not.toContain("Disallow: /api/");
   }
 });
 
-test("sitemap.xml lists the home page and the legal pages, with no priority", async ({ request }) => {
+test("sitemap.xml lists the waitlist page, and the home and legal pages once sign-up is open, with no priority", async ({ request }) => {
   const res = await request.get("/sitemap.xml");
   expect(res.status()).toBe(200);
   expect(res.headers()["content-type"]).toContain("xml");
   const body = await res.text();
-  for (const path of ["/", "/terms", "/privacy"]) expect(body).toContain(`<loc>https://foundmill.com${path}</loc>`);
+  expect(body).toContain("<loc>https://foundmill.com/waitlist</loc>");
+  for (const path of ["/", "/terms", "/privacy"]) {
+    if (OPEN) expect(body).toContain(`<loc>https://foundmill.com${path}</loc>`);
+    else expect(body).not.toContain(`<loc>https://foundmill.com${path}</loc>`);
+  }
   expect(body).not.toMatch(/<priority>|<changefreq>/);
 });
 

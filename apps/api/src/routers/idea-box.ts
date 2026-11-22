@@ -6,6 +6,7 @@
  * - `waitlist.join({ token?, via? })`: a signed-in person who is not on the invite list yet. Their card is kept 90 days.
  *   `via` is the web's `fm_via` cookie: a waitlist link (`w.<code>`, WP-03 T10) records whose link brought them, once,
  *   when the entry is made; any other reference is ignored here.
+ * - `waitlist.batch`: signed-out readable; the next batch with places (number, day, places left) or null (WP-14 T15).
  * - `waitlist.status`: whether they are on it, and their own link to share (`shareUrl`). Never a place or a count
  *   (DECISIONS 2026-11-12, "No public counts").
  *
@@ -63,6 +64,15 @@ const waitlistShareUrl = (appUrl: string, code: string | null | undefined): stri
   code ? withVia(`${appUrl.trim().replace(/\/+$/, "")}/`, { kind: "waitlist", ref: code }) : null;
 
 export const waitlistRouter = router({
+  /**
+   * The next batch the waitlist opens in (0153; WP-14 T15), for the public page /waitlist: the lowest-numbered batch
+   * that still has places, with the places it has left, or null when the operator has set none. Signed-out readable:
+   * these three numbers are what the page publishes, and nothing about any person. Real counts only.
+   */
+  batch: publicProcedure.query(async ({ ctx }) => {
+    const [next] = await repos.waitlist.batchesWithPlaces(ctx.db, { day: new Date().toISOString().slice(0, 10), limit: 1 });
+    return next ? { number: next.number, opensOn: next.opensOn, placesLeft: next.placesLeft, open: next.open } : null;
+  }),
   join: confirmedProcedure
     // `then: "studio"`: the visitor chose "Shape it in the Ideation Studio"; kept with the card (0127) so admission opens it.
     .input(z.strictObject({ token: IdeaToken.nullish(), via: z.string().max(VIA_MAX_LENGTH).nullish(), then: z.enum(["studio"]).nullish() }))

@@ -36,6 +36,8 @@ export const TEST_READS = {
   "@foundmill/models": { paths: /^(apps|packages|scripts)\// },
   // content/legal/__tests__/legal-content.test.ts scans apps/ and packages/ for the legal entity's name and address.
   "@foundmill/web": { paths: /^(apps|packages)\// },
+  // go-to-market.test.ts reads .github/workflows/evals-go-to-market.yml and checks it runs the listed suites.
+  "@foundmill/evals": { paths: /^\.github\/workflows\/evals-go-to-market\.yml$/ },
   // money-config.test.ts reads the homes of WP-09's money numbers (it also scans apps/ and packages/ for a second
   // declaration; shortcut: a pull request that adds one elsewhere is caught by the nightly full suite, not here).
   "@foundmill/config": { paths: /^(packages\/shared\/src\/(env|autopilot)\.ts|apps\/orchestrator\/src\/cycle-contract\.ts)$/ },

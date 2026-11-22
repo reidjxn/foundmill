@@ -10,6 +10,7 @@ const STEPS: Record<string, string[]> = {
   specialist: ["Write down the requirements and quality criteria", "Shortlist suppliers and send structured RFQs", "Extract quotes through the quarantined reader and score them", "Request samples within the approved budget", "Prepare the purchase recommendation for the founder's approval"],
   legal: ["Identify which country's or state's laws apply, and the rules that follow", "Draft the document from the approved template", "Mark every item that needs a human signature or filing", "Prepare the kit for the founder", "Record the compliance deadline in the calendar"],
   finance: ["Pull the books or bank transactions through the connector", "Categorize and reconcile; flag anomalies", "Update the forecast with labeled estimates", "Draft the summary for the Finance overview", "Never initiate a payment; list anything that needs one as a human action"],
+  tool_need: ["Read what the project cannot do yet and why it matters now", "Check the catalog and what the project already has", "Compare two or three real options with cited sources", "Recommend one to the founder with the cost labeled Estimate", "Record the pick and the reasons"],
   ops: ["Clarify the outcome and who it is for", "Break the work into checkable steps", "Do the work within the limits you were given", "Record what changed and where", "Report back with links to the artifacts"],
 };
 

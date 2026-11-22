@@ -1,3 +1,4 @@
+"use client";
 import { Hand, Handshake, Globe, Lock, Zap } from "lucide-react";
 import type { BusinessMode, GameMode } from "@foundmill/shared";
 import { teamCanDoWords, TEAM_CAN_DO_SETTINGS_HINT, type TeamCanDoChipWords } from "@foundmill/shared/team-can-do";
@@ -6,6 +7,7 @@ import { cn } from "../../lib/cn";
 import type { ChipProps } from "../foundation/Chip";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
+import { useTerm } from "../guidance/GuidanceProvider";
 
 /**
  * The top bar's first compaction step, `chips-brief` (KitBarFit): the mode chip's whole phrase ("Asks before spending
@@ -92,6 +94,14 @@ export function ModeChip({ mode, description, onClick, holiday, spendLineMinor, 
   const inForce: BusinessMode = holiday ? "automated" : mode;
   const info = BUSINESS_MODE_INFO[inForce];
   const words = modeChipWords({ mode, holiday, spendLineMinor, currency });
+  // The chip is a button, so its tooltip carries the definition of the spend line rather than a Term (as RunwayChip does).
+  const spendLine = useTerm("spend_line");
+  const tip = description ?? (spendLine ? (
+    <span className="flex flex-col gap-0.5">
+      <span>{words.tooltip}</span>
+      <span>{`${spendLine.word}: ${spendLine.short.charAt(0).toLowerCase()}${spendLine.short.slice(1)}`}</span>
+    </span>
+  ) : words.tooltip);
   const common = {
     "aria-label": words.ariaLabel,
     "data-mode": inForce,
@@ -112,7 +122,7 @@ export function ModeChip({ mode, description, onClick, holiday, spendLineMinor, 
     </>
   );
   return (
-    <Tooltip content={description ?? words.tooltip}>
+    <Tooltip content={tip}>
       {onClick ? (
         <button type="button" onClick={onClick} {...common}>
           {content}

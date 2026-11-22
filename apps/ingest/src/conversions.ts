@@ -19,12 +19,13 @@
  * contract. Each is awarded once; one a concurrent delivery hid is awarded by the orchestrator's nightly catch-up, which
  * also awards the revenue milestones from Finance's monthly figure (`awardRevenueMilestones`).
  */
-import { achieveGoalIfReached, awardMilestonesForConversion, repos, type Conversion, type Journey } from "@foundmill/db";
+import { achieveGoalIfReached, awardMilestonesForConversion, raiseStageToolNeeds, repos, type Conversion, type Journey } from "@foundmill/db";
 import type { Executor } from "@foundmill/db/repos/_shared";
 import type { PlatformEvent } from "@foundmill/events";
 import { buildEvent, type WriteEventInput } from "@foundmill/events";
 import { buildJourney, parseTouchSource, Touch, TouchKind, type ConsentState } from "@foundmill/journey";
 import { CHANNEL_KEYS, MATCHDAY_LEVEL_FOR_KIND, NotFoundError, type Actor, type ChannelKey, type ConversionKind } from "@foundmill/shared";
+import { connectorKeysFor } from "@foundmill/connectors";
 import type { ConvertingCustomer } from "./customers";
 
 /** The first hundred of a kind always get a full Match Day; afterwards only payments above the 75th percentile (BUILD §11.4). */
@@ -221,6 +222,10 @@ export async function recordConversionForEvent(
   // "Goal reached: …" note, and the next proposal on the founder's next visit (apps/api goal.ensure).
   await recordGoalReached(tx, businessId, actor, writeEvent);
   if (!firstPayment) return { conversion, entityId, firstPayment, win: null };
+
+  // The first real payment (never a test-mode one): the tools this kind of business needs once money comes in are
+  // raised once for the Chief of Staff (founder, Nov 22, 2026).
+  if (facts.kind === "payment" && !(event.payload as { simulated?: boolean }).simulated) await raiseStageToolNeeds(tx, businessId, "first_payment", connectorKeysFor);
 
   if (entityId) await recordConversionTouch(tx, businessId, entityId, facts, event.occurredAt);
 

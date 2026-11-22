@@ -17,9 +17,10 @@
  * Nothing here calls a model except the Planner (through `planTaskGraph`); no plan compiler runs for a sign-off.
  */
 import { CHANNEL_SCORING_TASK, getArchetypeSeed, planRoadmapHref, SITE_FIRST_BUILD } from "@foundmill/agents";
+import { connectorKeysFor } from "@foundmill/connectors";
 import { sitesEnabled } from "@foundmill/shared/sites";
 import { LIMITS } from "@foundmill/config";
-import { bothSignedOff, buildDestinationOf, loadProductStage, planDecisionBlock, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
+import { raiseStageToolNeeds, bothSignedOff, buildDestinationOf, loadProductStage, planDecisionBlock, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
 import { AppError, CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, ConflictError, ForbiddenError, isAdminRole, isPlanReadyDecision, PLAN_READY_NOTE, ValidationError, type BuildDestination, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
@@ -606,6 +607,11 @@ export async function startDistribution(ctx: BusinessContext, input: { via: "boa
     return { enabled, answered, scoringTaskId, boardItemId, strategist, chief, noneSentence: availability.noneSentence, allAvailable };
   });
   if (!written) return { started: false, boardItemId: null, scoringTaskId: null, engines: [], followUp: null, answered: null };
+
+  // The first outside people are about to arrive: the tools this kind of business needs before they do (founder,
+  // Nov 22, 2026), each raised once for the Chief of Staff. On the service connection: the scout's memory is the
+  // services' to write (0154). A raise that fails never undoes the start; the next agent that misses the tool raises it.
+  await raiseStageToolNeeds(ctx.db, ctx.businessId, "first_customers", connectorKeysFor).catch((err: unknown) => ctx.log.warn({ businessId: ctx.businessId, err: err instanceof Error ? err.message : String(err) }, "tool needs not raised at distribution start"));
 
   // After commit: the engines (each records its id on the channel; the reconciler starts any Temporal could not take now).
   const engines = await ensureChannelEngines({ db: ctx.db, temporal: ctx.temporal, businessId: ctx.businessId }, written.enabled);

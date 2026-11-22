@@ -5,6 +5,9 @@
 import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, uuidFromSeed } from "../../mock-utils";
 import type { ToolContext } from "../../contract";
+import { TOOL_CATEGORY_LABELS } from "@foundmill/shared";
+import { catalogLines } from "../../tool-catalog";
+import { recommendationProblems, toolRecommendationNote } from "../../tool-recommendation";
 import { acceptanceLines, acceptanceRefusal } from "./acceptance";
 import { PLATFORM_KEY, PLATFORM_RATE_LIMITS, READ_SKILL_NOTICE, platformTools, PlatformToolError, type AgentMessageT, type PlatformCaller, type PlatformHost, type PlatformResult, type TaskDetailT } from "./tools";
 
@@ -53,6 +56,9 @@ export function platformHandlers(host: PlatformHost) {
     read_positioning: async (_args: unknown, ctx: ToolContext) => host.readPositioning(caller(ctx)),
     propose_positioning_change: async (args: Parameters<PlatformHost["proposePositioningChange"]>[1], ctx: ToolContext) => host.proposePositioningChange(caller(ctx), args),
     draft_follower_update: async (args: Parameters<PlatformHost["draftFollowerUpdate"]>[1], ctx: ToolContext) => host.draftFollowerUpdate(caller(ctx), args),
+    raise_tool_need: async (args: Parameters<PlatformHost["raiseToolNeed"]>[1], ctx: ToolContext) => host.raiseToolNeed(caller(ctx), args),
+    read_tool_need: async (args: Parameters<PlatformHost["readToolNeed"]>[1], ctx: ToolContext) => host.readToolNeed(caller(ctx), args),
+    recommend_tool: async (args: Parameters<PlatformHost["recommendTool"]>[1], ctx: ToolContext) => host.recommendTool(caller(ctx), args),
   };
 }
 
@@ -63,7 +69,7 @@ export function createMemoryPlatformHost(): PlatformHost {
   const world = perBusiness((businessId) => {
     const task = (n: number, title: string, kind: TaskDetailT["kind"], status: TaskDetailT["status"]): TaskDetailT => ({ id: uuidFromSeed("mock-platform", businessId, "task", n), title, kind, status, priority: 10 * n, progress: 0, assigneeAgentId: null, updatedAt: MOCK_NOW.toISOString(), goalMd: `${title}.`, acceptance: [], fileScope: [], dependsOn: [], lastReport: null, lastBlock: null });
     const tasks = new Map<string, TaskDetailT>([task(1, "Draft the pricing page", "code", "ready"), task(2, "Research three competitors", "research", "ready"), task(3, "Reconcile last month's bank feed", "finance", "planned")].map((t) => [t.id, t]));
-    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, positioningDrafts: 0, updateDrafts: 0, entities: new Map<string, string>(), interactions: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>() };
+    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, positioningDrafts: 0, updateDrafts: 0, entities: new Map<string, string>(), interactions: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>(), toolNeeds: new Map<string, string>() };
   });
   const summary = ({ goalMd: _g, acceptance: _a, fileScope: _f, dependsOn: _d, lastReport: _r, lastBlock: _b, ...s }: TaskDetailT) => s;
   const report = (caller: PlatformCaller, t: TaskDetailT, input: { title: string; bodyMd: string; sources: { url: string; title: string }[] }) => {
@@ -261,6 +267,25 @@ export function createMemoryPlatformHost(): PlatformHost {
       const w = world(caller.businessId);
       w.updateDrafts += 1;
       return { updateId: `00000000-0000-4000-8000-${String(w.updateDrafts).padStart(12, "0")}`, followers: 0 };
+    },
+    // The tool scout in memory: one need per category per business, as the table's unique key holds it.
+    async raiseToolNeed(caller, { category }) {
+      const w = world(caller.businessId);
+      const status = w.toolNeeds.get(category);
+      if (status) return { raised: false, status, note: `Already ${status}: nothing new was raised.` };
+      w.toolNeeds.set(category, "open");
+      return { raised: true, status: "open", note: "Raised. The Chief of Staff finds the right tool and asks the founder." };
+    },
+    async readToolNeed(caller, { category }) {
+      return { category, label: TOOL_CATEGORY_LABELS[category], options: catalogLines(category), connected: [], status: world(caller.businessId).toolNeeds.get(category) ?? "none", reason: null, pick: null, alternatives: [], askAgainOn: null };
+    },
+    async recommendTool(caller, args) {
+      const problems = recommendationProblems(args);
+      if (problems.length) throw new PlatformToolError("invalid_state", `Not sent: ${problems.join("; ")}.`);
+      const w = world(caller.businessId);
+      const note = toolRecommendationNote(args);
+      w.toolNeeds.set(args.category, "recommended");
+      return { inboxItemId: `00000000-0000-4000-8000-${String(w.toolNeeds.size).padStart(12, "0")}`, subject: note.subject, checkedByFoundmill: !!note.pick.catalogKey };
     },
   };
 }

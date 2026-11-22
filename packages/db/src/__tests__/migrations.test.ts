@@ -151,9 +151,11 @@ describe("journal", () => {
       "0148_registered_domains",
       "0149_explore_listing",
       "0150_domain_checkouts",
-      "0151_function_search_path",
-      "0152_rls_initplan",
-      "0153_fk_indexes",
+      "0153_waitlist_batches",
+      "0154_tool_needs",
+      "0157_function_search_path",
+      "0158_rls_initplan",
+      "0159_fk_indexes",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);

@@ -6,7 +6,10 @@
  * listed address the sign-in did not show as confirmed (`unconfirmed`) is asked to confirm it first, and nothing is
  * joined. Works from 390 px wherever it is shown (`WorksOnSmallScreens`; WP-03 T1). The saved line promises the email
  * the waitlist sends when the place opens (WP-03 T2) only when the API says it is really sent here (`emails`, the API's
- * `waitlistEmails`: WAITLIST_EMAILS on and platform mail live); otherwise it says it cannot email yet.
+ * `waitlistEmails`: WAITLIST_EMAILS on and platform mail live); otherwise it says it cannot email yet. Under the same
+ * switch the page's own sentence is the batch one (WP-14 T15 step 3; founder, 2026-11-17): "<email> isn't on this
+ * batch's list yet. Join the waitlist, and we'll send your invitation when the next batch opens." It promises an email,
+ * so it is said only where one is sent; otherwise today's sentence stays.
  */
 import { startTransition, useActionState, useEffect, useRef, useState } from "react";
 import { Copy, ListPlus, MailX } from "lucide-react";
@@ -17,14 +20,22 @@ import { joinWaitlist, type WaitlistJoinState } from "./waitlist-actions";
 import { BrandFrame } from "./BrandFrame";
 import { SignOutButton } from "./SignOutButton";
 
+/** The batch sentence (WP-14 T15 step 3), shown only while the waitlist really emails (`emails`). */
+export const NOT_ON_BATCH_WORDS = {
+  title: (email: string | null | undefined) => `${email ?? "This address"} isn't on this batch's list yet`,
+  body: "Join the waitlist, and we'll send your invitation when the next batch opens.",
+  batches: "See when the next batch opens",
+} as const;
+
 export function NotInvitedPage({ message, email, unconfirmed = false, emails = false, keepThen = null }: { message: string; email?: string | null; unconfirmed?: boolean; emails?: boolean; keepThen?: "studio" | null }) {
-  const title = unconfirmed ? (email ? `Confirm ${email} first` : "Confirm your address first") : email ? `${email} has a place in line` : "This address has a place in line";
+  const batch = emails && !unconfirmed;
+  const title = unconfirmed ? (email ? `Confirm ${email} first` : "Confirm your address first") : batch ? NOT_ON_BATCH_WORDS.title(email) : email ? `${email} has a place in line` : "This address has a place in line";
   return (
-    <BrandFrame smallScreen title="A few people at a time" footer={<span>{APP_NAME} lets new people in a few at a time.</span>}>
+    <BrandFrame smallScreen title="A few people at a time" footer={batch ? <a href="/waitlist">{NOT_ON_BATCH_WORDS.batches}</a> : <span>{APP_NAME} lets new people in a few at a time.</span>}>
       <WorksOnSmallScreens />
       <div data-testid="not-invited" data-reason={unconfirmed ? "email_unconfirmed" : "not_listed"}>
         <EmptyState icon={MailX} title={title}>
-          {message}
+          {batch ? NOT_ON_BATCH_WORDS.body : message}
         </EmptyState>
         {!unconfirmed ? <WaitlistJoin email={email ?? null} emails={emails} keepThen={keepThen} /> : null}
         <div className="mt-3 flex justify-end">

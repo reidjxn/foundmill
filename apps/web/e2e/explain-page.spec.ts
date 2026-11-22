@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, dismissCoachmarks, openBusiness } from "./helpers";
 
 /**
  * "Explain this page" (Phase 3): one quiet button per page replaces the "What this screen is for" banner that sat on
@@ -37,4 +37,35 @@ test.describe("explain this page", () => {
     await expect(panel).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^Explain this page/ })).toBeFocused();
   });
+
+  // WP-10 T3: each area's landing tab, Needs you, Contacts, Milestones, Team call, Details and Settings carry the button.
+  for (const [name, path] of [
+    ["Plan: Roadmap", "d/product/roadmap"],
+    ["Customers: Leads", "d/distribution/leads"],
+    ["Customers: Campaigns", "d/distribution/campaigns"],
+    ["Money: Overview", "d/finance/overview"],
+    ["Money: Runway", "d/finance/runway"],
+    ["Product: Specification", "d/product/specification"],
+    ["Team: Agents", "d/team/squad"],
+    ["Needs you", "inbox?tab=respond"],
+    ["Contacts", "crm"],
+    ["Milestones", "milestones"],
+    ["Team call", "calls"],
+    ["Details", "home"],
+    ["Settings: Basics", "settings/basics"],
+    ["Settings: Billing", "settings/billing"],
+  ] as const) {
+    test(`${name} has Explain this page with the three lines`, async ({ page }) => {
+      await openBusiness(page, path);
+      await dismissCoachmarks(page);
+      const button = page.getByRole("button", { name: /^Explain this page/ });
+      await expect(button).toHaveCount(1, { timeout: LONG });
+      await button.click();
+      const panel = page.getByTestId("explain-page-panel");
+      await expect(panel).toBeVisible();
+      await expect(panel).toContainText("What this screen is for");
+      await expect(panel).toContainText("What to do here");
+      await expect(panel).toContainText("Watch for");
+    });
+  }
 });

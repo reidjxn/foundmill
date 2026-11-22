@@ -61,7 +61,7 @@ describe("sidebar items", () => {
     // Each area links to its first inline tab, wherever its department is.
     expect(Object.fromEntries(items.filter((i) => i.group === "area" && i.area).map((i) => [i.area, i.href]))).toEqual({
       plan: `/b/${BID}/d/product/roadmap`,
-      customers: `/b/${BID}/d/distribution/leads`,
+      customers: `/b/${BID}/d/distribution/first-ten`,
       money: `/b/${BID}/d/finance/overview`,
       product: `/b/${BID}/d/product/specification`,
       team: `/b/${BID}/d/team/squad`,
@@ -173,5 +173,22 @@ describe("sidebar items", () => {
     const settings = (builder: boolean) => buildSidebarItems({ businessId: BID, departments: LEDGERLY, live: false, builder }).find((i) => i.id === "settings")!.href;
     expect(settings(false)).toBe(`/b/${BID}/settings/basics`);
     expect(settings(true)).toBe(`/b/${BID}/settings/business`);
+  });
+});
+
+describe("sidebar by stage (WP-10 T1)", () => {
+  const FRESH = { pageLive: false, distributionStarted: false, roundCompleted: false, bankConnected: false, firstPayment: false, entityExists: false, people: 1 };
+
+  it("a fresh project lists Today, Needs you, Plan, Customers, Product, Team, Network, Settings, Sign out", () => {
+    const items = buildSidebarItems({ businessId: BID, departments: LEDGERLY, live: false, stage: FRESH });
+    expect(items.map((i) => i.label)).toEqual(["Today", "Needs you", "Plan", "Customers", "Product", "Team", "Network", "Settings", "Sign out"]);
+  });
+
+  it("a finished round adds Money (on Payroll) and Team call; Builder view lists everything", () => {
+    const items = buildSidebarItems({ businessId: BID, departments: LEDGERLY, live: false, stage: { ...FRESH, roundCompleted: true } });
+    expect(items.find((i) => i.id === "area-money")?.href).toBe(`/b/${BID}/d/finance/wage-bill`);
+    expect(items.some((i) => i.id === "calls")).toBe(true);
+    const builder = buildSidebarItems({ businessId: BID, departments: LEDGERLY, live: false, stage: FRESH, builder: true });
+    expect(builder.some((i) => i.id === "area-money") && builder.some((i) => i.id === "calls")).toBe(true);
   });
 });
