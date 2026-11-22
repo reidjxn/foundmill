@@ -58,6 +58,7 @@ export function toEntities(input: EvaluateInput): Entities {
       finance: tool.finance,
       contract: tool.contract,
       securitySettings: tool.securitySettings,
+      unclassified: tool.unclassified,
       paymentRecord: tool.paymentRecord,
     },
     parents: [],

@@ -18,6 +18,7 @@ import { ideaRouter } from "./routers/idea";
 import { ideaBoxRouter, waitlistRouter } from "./routers/idea-box";
 import { importRouter } from "./routers/import";
 import { inboxRouter, planRouter } from "./routers/inbox";
+import { browserRouter, browserStepRouter } from "./routers/browser";
 import { integrationsRouter, keysRouter } from "./routers/integrations";
 import { journeyRouter } from "./routers/journey";
 import { legalRouter } from "./routers/legal";
@@ -89,6 +90,9 @@ export const appRouter = router({
   legal: legalRouter,
   crm: crmRouter,
   integrations: integrationsRouter,
+  // The hosted browser: Working now's sessions and their controls, and a hard-gate note's page-before screenshot.
+  browser: browserRouter,
+  browserStep: browserStepRouter,
   keys: keysRouter,
   billing: billingRouter,
   live: liveRouter,

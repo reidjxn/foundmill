@@ -39,6 +39,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
+import { BrowserSitesSection } from "./BrowserSitesSection";
 import { GitHubRepositoryPanel } from "./GitHubRepositoryPanel";
 import { GoogleContextPanel } from "./GoogleContextPanel";
 import { OAuthFinish } from "./OAuthFinish";
@@ -530,7 +531,8 @@ export function IntegrationsTab() {
   };
   // Stripe has its own box above the other connectors (founder, Nov 18, 2026), so it is listed once.
   const stripeRow = rows.find((r) => r.key === STRIPE_CONNECTOR_KEY) ?? null;
-  const listed = visibleConnectors(rows.filter((r) => r.key !== STRIPE_CONNECTOR_KEY), builder);
+  // The hosted-browser sites (`browser_*`) are listed once, in their own section below, never as ordinary connectors.
+  const listed = visibleConnectors(rows.filter((r) => r.key !== STRIPE_CONNECTOR_KEY && !r.browser), builder);
   const keyFor = rows.find((r) => r.key === keyForKey) ?? null;
   const setKeyFor = (c: { key: string } | null) => setKeyForKey(c?.key ?? null);
 
@@ -570,6 +572,7 @@ export function IntegrationsTab() {
           {listed.map(renderRow)}
         </ul>
       </SettingsSection>
+      {rows.some((r) => r.browser) ? <BrowserSitesSection businessId={businessId} catalogue={rows} canEdit loading={list.isLoading} /> : null}
       {rows.some((r) => r.key === "github" && r.integration && r.integration.status !== "disconnected") ? <GitHubRepositoryPanel /> : null}
       {rows.some((r) => (r.key === "gmail" || r.key === "google_calendar") && r.integration && r.integration.status !== "disconnected") ? <GoogleContextPanel businessId={businessId} rows={rows} canEdit={isOwner} /> : null}
       <ConnectFieldsDialog

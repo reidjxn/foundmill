@@ -130,6 +130,7 @@ catalog:
   "@cedar-policy/cedar-wasm": 4.13.0
   voyageai: 0.4.0
   e2b: 2.52.1
+  "@e2b/desktop": 2.4.0
   stripe: 23.0.0
   "@sendgrid/mail": 8.1.6
   "@octokit/rest": 22.0.1

@@ -166,3 +166,25 @@ export function effectiveApprovalThresholdMinor(agentThresholdMinor: number | nu
   if (businessCapMinor === null || businessCapMinor === undefined) return agentThresholdMinor ?? undefined;
   return Math.min(agentThresholdMinor ?? LIMITS.approvalThresholdMinorDefault, businessCapMinor);
 }
+
+/**
+ * The hosted browser (founder, Nov 22, 2026): the team works a website in the founder's signed-in account, in an E2B
+ * desktop sandbox (E2B Hobby caps one at an hour, so a session stays well inside it). A session
+ * that reaches a limit ends as a checkpoint, not a failure. The cost is an Estimate from the provider's price per
+ * browser hour, booked to the usage ledger as the session runs.
+ */
+export const BROWSER_LIMITS = {
+  /** Longest one session runs. */
+  sessionMinutes: 20,
+  /** Most steps (opens, reads and writes) in one session. */
+  sessionSteps: 80,
+  /** Longest a founder's sign-in session stays open before it is closed unsaved. */
+  signInMinutes: 15,
+  /**
+   * Most sessions running at once across every project. With `sessionMinutes` this bounds what a month can cost; the
+   * backstop is the spending limit the founder set on the E2B team (about $100 a month).
+   */
+  maxConcurrentSessions: 10,
+  /** Minor units per browser hour (Estimate): an E2B sandbox at the `e2b` connector's rate per minute. */
+  costMinorPerHour: 60,
+} as const;
