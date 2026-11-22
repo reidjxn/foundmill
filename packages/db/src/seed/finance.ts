@@ -132,6 +132,23 @@ export async function seedFinance(ctx: SeedCtx, opts: FinanceSeedOptions): Promi
     }
   });
   rows.sort((a, b) => (a.bookedAt as Date).getTime() - (b.bookedAt as Date).getTime());
+  // The history re-rolls with the seed's day, so the balance can end overdrawn (−£7.7K for Northwind on Nov 21, 2026,
+  // which turned the nightly red). The first financing row grows until the balance after it never drops below three
+  // average months of spending: a demo business is never below zero, on any day it is seeded.
+  const loan = rows.find((r) => r.category === "financing");
+  if (loan) {
+    const spent = rows.reduce((s, r) => s + Math.max(0, -(r.amountMinor as number)), 0);
+    const cushion = round((3 * spent) / Math.max(1, months.length));
+    let run = 0;
+    let low = Infinity;
+    let afterLoan = false;
+    for (const r of rows) {
+      run += r.amountMinor as number;
+      afterLoan ||= r === loan;
+      if (afterLoan) low = Math.min(low, run);
+    }
+    if (low < cushion) loan.amountMinor = (loan.amountMinor as number) + (cushion - low);
+  }
   await bulkInsert(db, transactions, rows);
 
   const balanceMinor = rows.reduce((s, r) => s + (r.amountMinor as number), 0);

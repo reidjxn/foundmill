@@ -72,7 +72,7 @@ function planStatusOf(stripeStatus: string | undefined): AccountPlanStatus | nul
 
 const dateOf = (seconds: number | null | undefined): Date | undefined => (typeof seconds === "number" && Number.isFinite(seconds) ? new Date(seconds * 1000) : undefined);
 
-export type BillingOutcome = "granted" | "subscribed" | "plan_updated" | "duplicate" | "mismatch" | "unknown" | "expired" | "failed" | "awaiting_payment" | "ignored";
+export type BillingOutcome = "granted" | "subscribed" | "domain_paid" | "plan_updated" | "duplicate" | "mismatch" | "unknown" | "expired" | "failed" | "awaiting_payment" | "ignored";
 
 /** What the Billing tab says of a delayed payment that did not go through (`checkout.session.async_payment_failed`). */
 export const ASYNC_PAYMENT_FAILED_MESSAGE = "The payment did not go through, so no credits were added. Try again with another payment method.";
@@ -84,13 +84,13 @@ export type BillingWebhookResult =
 const refuse = (status: 400 | 401 | 409 | 503, error: string, message: string): BillingWebhookResult => ({ status, body: { ok: false, error, message } });
 
 /** The checkout and business a session names in its metadata (apps/gateway `CHECKOUT_METADATA`), when both are ids. */
-function checkoutOf(session: BillingSession): { checkoutId: string; businessId: string; kind: "credits" | "subscription" } | null {
+function checkoutOf(session: BillingSession): { checkoutId: string; businessId: string; kind: "credits" | "subscription" | "domain" } | null {
   const checkoutId = session.metadata?.foundmill_checkout_id;
   const businessId = session.metadata?.foundmill_business_id;
   const kind = session.metadata?.foundmill_kind;
-  if ((kind !== "credits" && kind !== "subscription") || !checkoutId || !businessId || !isUuid(checkoutId) || !isUuid(businessId)) return null;
-  // Each kind arrives only in its own session mode: a credits checkout is a payment, the entry plan a subscription.
-  if (session.mode !== (kind === "credits" ? "payment" : "subscription")) return null;
+  if ((kind !== "credits" && kind !== "subscription" && kind !== "domain") || !checkoutId || !businessId || !isUuid(checkoutId) || !isUuid(businessId)) return null;
+  // Each kind arrives only in its own session mode: credits and a domain (0149) are payments, the entry plan a subscription.
+  if (session.mode !== (kind === "subscription" ? "subscription" : "payment")) return null;
   return { checkoutId, businessId, kind };
 }
 

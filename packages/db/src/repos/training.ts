@@ -16,7 +16,7 @@ export const CreateTrainingRunInput = z.object({
   /** The run's cost is model spend in US cents: left out, the column's USD default applies (0024). */
   currency: Currency.optional(),
   requestedBy: Id.nullable().optional(),
-  /** A skill check scores the live version with and without one skill (0150); the others score a draft. */
+  /** A skill check scores the live version with and without one skill (0151); the others score a draft. */
   kind: z.enum(TRAINING_KINDS).default("training"),
   skillKeys: z.array(z.string().min(1)).min(1).max(3).nullable().optional(),
   measuredSkillKey: z.string().min(1).nullable().optional(),
