@@ -184,8 +184,8 @@ export interface StartedCheckout {
 }
 
 /** The Billing tab of `businessId`, where Stripe sends the founder back (`{ checkout }` names the row). */
-export function billingReturnUrls(appUrl: string, businessId: string, checkoutId: string): { successUrl: string; cancelUrl: string } {
-  const base = new URL(`/b/${businessId}/settings/billing`, appUrl);
+export function billingReturnUrls(appUrl: string, businessId: string, checkoutId: string, tab: "billing" | "integrations" = "billing"): { successUrl: string; cancelUrl: string } {
+  const base = new URL(`/b/${businessId}/settings/${tab}`, appUrl);
   base.searchParams.set("checkout", checkoutId);
   const cancel = new URL(base);
   cancel.searchParams.set("canceled", "1");
@@ -202,13 +202,14 @@ const gatewayFailureMessage = (err: unknown): string => {
 /** Opens a top-up of `amountMinor` USD cents for `businessId` (see the module comment). The caller checked the owner. */
 export async function startCreditCheckout(
   deps: StartCheckoutDeps,
-  input: { businessId: string; userId: string; email: string | null; amountMinor: number; kind?: "credits" | "subscription"; creditsMinor?: number | null; resume?: "continue" | null },
+  input: { businessId: string; userId: string; email: string | null; amountMinor: number; kind?: "credits" | "subscription" | "domain"; creditsMinor?: number | null; resume?: "continue" | null; domainName?: string },
 ): Promise<StartedCheckout> {
   const availability = topUpAvailability(deps.env);
   if (!availability.available) throw new AppError("payments_unavailable", availability.reason ?? MOCK_PAYMENTS_OFF_MESSAGE, 412);
   const kind = input.kind ?? "credits";
-  const row = await repos.checkouts.create(deps.db, input.businessId, { kind, mode: availability.mode, amountMinor: input.amountMinor, createdBy: input.userId, ...(input.creditsMinor ? { creditsMinor: input.creditsMinor } : {}), ...(input.resume ? { resume: input.resume } : {}) });
-  const { successUrl, cancelUrl } = billingReturnUrls(deps.env.APP_URL, input.businessId, row.id);
+  const row = await repos.checkouts.create(deps.db, input.businessId, { kind, mode: availability.mode, amountMinor: input.amountMinor, createdBy: input.userId, ...(input.creditsMinor ? { creditsMinor: input.creditsMinor } : {}), ...(input.resume ? { resume: input.resume } : {}), ...(input.domainName ? { domainName: input.domainName } : {}) });
+  // A domain's payment returns to Settings › Integrations, where its registration finishes.
+  const { successUrl, cancelUrl } = billingReturnUrls(deps.env.APP_URL, input.businessId, row.id, kind === "domain" ? "integrations" : "billing");
   if (availability.mode === "mock") {
     // Simulated: no vendor is called, so the gateway is not needed. The checkout page is the Billing tab itself.
     const checkout = await repos.checkouts.attachSession(deps.db, input.businessId, row.id, { mode: "mock", externalId: `cs_mock_${row.id.replace(/-/g, "")}`, checkoutUrl: successUrl, expiresAt: new Date(Date.now() + MOCK_CHECKOUT_TTL_MS) });
@@ -216,7 +217,7 @@ export async function startCreditCheckout(
   }
   let created;
   try {
-    created = await deps.gateway.createCheckout({ businessId: input.businessId, checkoutId: row.id, kind, amountMinor: input.amountMinor, currency: "USD", description: kind === "subscription" ? ENTRY_PLAN_DESCRIPTION : CHECKOUT_DESCRIPTION, successUrl, cancelUrl, ...(input.email ? { customerEmail: input.email } : {}) });
+    created = await deps.gateway.createCheckout({ businessId: input.businessId, checkoutId: row.id, kind, amountMinor: input.amountMinor, currency: "USD", description: kind === "subscription" ? ENTRY_PLAN_DESCRIPTION : kind === "domain" ? `${input.domainName} for one year` : CHECKOUT_DESCRIPTION, successUrl, cancelUrl, ...(input.email ? { customerEmail: input.email } : {}) });
   } catch (err) {
     const message = gatewayFailureMessage(err);
     await repos.checkouts.markFailed(deps.db, input.businessId, row.id, message);

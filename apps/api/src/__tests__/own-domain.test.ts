@@ -75,7 +75,7 @@ describe("integrations.ownDomain", () => {
     const other = callerWith(ON, { userId: hz.B.ownerId });
     await expect(other.integrations.ownDomain({ businessId: hz.A.businessId })).rejects.toThrow();
     await expect(other.integrations.removeOwnDomain({ businessId: hz.A.businessId })).rejects.toThrow();
-    expect(await callerWith(ON, { userId: hz.B.ownerId }).integrations.ownDomain({ businessId: hz.B.businessId })).toEqual({ domain: null, canEdit: true, canRegister: true, simulated: false });
+    expect(await callerWith(ON, { userId: hz.B.ownerId }).integrations.ownDomain({ businessId: hz.B.businessId })).toEqual({ domain: null, canEdit: true, canRegister: true, simulated: false, pendingCheckout: null });
     expect((await repos.projectDomains.get(hz.db, hz.A.businessId))?.domain).toBe("acme.com");
   });
 

@@ -191,7 +191,7 @@ begin
   end loop;
 end $$;
 ```
-Then, in the same file, `create or replace function fm_idea_table(tbl text)` with the body of 0151's split helper (not 0002's `for all`) unchanged except that each `auth.uid()` reads `(select auth.uid())` and the header carries `set search_path = pg_catalog, public, pg_temp`, so the helper cannot bring the old form back.
+Then, in the same file, `create or replace function fm_idea_table(tbl text)` with the body of 0152's split helper (not 0002's `for all`) unchanged except that each `auth.uid()` reads `(select auth.uid())` and the header carries `set search_path = pg_catalog, public, pg_temp`, so the helper cannot bring the old form back.
 Steps:
 1. Add to `advisors.test.ts`: policies where `regexp_replace(coalesce(qual, ''), 'select\s+auth\.uid\(\)', '', 'gi') ~ 'auth\.uid\(\)'`, or the same on `with_check`: `[]`. And one plan check: `explain (costs off) select 1 from founder_profiles` run with `h.asUser(userId)` contains `InitPlan`. verify: the first fails listing 45 policies on 28 tables (the 25 tables `audits/e0-production-evidence.md` names plus `founder_departures`, `inbox_items`, `showcase_consents`).
 2. Add the migration. verify: `test:rls` green on both engines with no other test edited: this task changes no rule, only when the function is evaluated.

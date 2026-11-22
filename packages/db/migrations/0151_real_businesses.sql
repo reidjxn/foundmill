@@ -1,4 +1,4 @@
--- 0150 — real_businesses: every project that is not a sample (docs/holistic-plan/WP-11 T9, A8-06). A query that reads
+-- 0151 — real_businesses: every project that is not a sample (docs/holistic-plan/WP-11 T9, A8-06). A query that reads
 -- more than one project joins this view instead of remembering `not is_demo` by hand. `is_house` marks Foundmill's own
 -- project (HOUSE_BUSINESS_ID, packages/config/src/showcase.ts) for the figures that count it and the ones that leave it
 -- out. The view carries `id` and nothing else of `businesses`, so a column added later never makes it stale. Service

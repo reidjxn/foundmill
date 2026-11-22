@@ -1,4 +1,4 @@
--- 0151 — the `for all` write policies, split (docs/holistic-plan/WP-11 T6, A8-04). `fm_tenant_table` and `fm_idea_table`
+-- 0152 — the `for all` write policies, split (docs/holistic-plan/WP-11 T6, A8-04). `fm_tenant_table` and `fm_idea_table`
 -- made `<t>_select` and `<t>_write for all`, so every select evaluated both (Supabase advisor lint 0006, multiple
 -- permissive policies, 320 findings). Each `<t>_write` becomes `<t>_insert`, `<t>_update` and `<t>_delete` with the same
 -- expressions: insert takes the old `with check` (or `using` when it had none), update takes `using` and `with check`,

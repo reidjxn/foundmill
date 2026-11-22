@@ -4,7 +4,7 @@
  */
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { RegistrantContact } from "@foundmill/shared";
+import { WHOIS_PRIVACY_FREE_TLDS, whoisPrivacyFor, type RegistrantContact } from "@foundmill/shared";
 import { routedFetch } from "../../http";
 import { makeToolContext } from "../../testing/contract-suite";
 import { createOpensrsConnector, MOCK_COM_COST_MINOR, opensrsMock, opsRecords, opsRequest, opsSignature, parseOps } from "./index";
@@ -94,7 +94,7 @@ describe("opensrs (live)", () => {
     }
     expect(Object.keys(sent.attributes.contact_set).sort()).toEqual(["admin", "billing", "owner"]);
     expect(body.toLowerCase()).not.toMatch(/foundmill/);
-    expect(sent.attributes).toMatchObject({ reg_type: "new", period: "1", custom_tech_contact: "0" });
+    expect(sent.attributes).toMatchObject({ reg_type: "new", period: "1", custom_tech_contact: "0", f_whois_privacy: "0" });
   });
 
   it("an OpenSRS refusal is an error, never a registration", async () => {
@@ -123,6 +123,15 @@ describe("opensrs (live)", () => {
   it("refuses without the reseller's key", async () => {
     const connector = createOpensrsConnector({ secrets: {}, fetch: routedFetch({}) });
     await expect(connector.callTool("lookup_domain", { domain: "acme.com" }, makeToolContext(connector, { mode: "live" }))).rejects.toThrow(/OPENSRS/);
+  });
+});
+
+describe("WHOIS privacy per ending", () => {
+  it("is on only for an ending on the free list; every other ending is off", () => {
+    expect(WHOIS_PRIVACY_FREE_TLDS).toEqual([]);
+    expect(whoisPrivacyFor("acme.com")).toBe(false);
+    expect(whoisPrivacyFor("acme.io", ["io"])).toBe(true);
+    expect(whoisPrivacyFor("acme.COM", ["io"])).toBe(false);
   });
 });
 

@@ -28,6 +28,7 @@ import { positioningRepo } from "./positioning";
 import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
 import { projectDomainsRepo } from "./project-domains";
+import { domainRegistrantsRepo } from "./domain-registrants";
 import { postalAddressRepo } from "./postal-address";
 import { repliesRepo } from "./replies";
 import { updatesRepo } from "./updates";
@@ -86,6 +87,7 @@ import { reportsRepo } from "./reports";
 import { sitesRepo } from "./sites";
 export { AddPayLinkInput } from "./pay-links";
 export { OwnDomainTakenError, projectDomainsStore, type ProjectDomainView } from "./project-domains";
+export { domainOrdersStore } from "./domain-registrants";
 import { payLinksRepo } from "./pay-links";
 import { ownerPlansRepo, partnerWaitlistRepo } from "./owner-plans";
 
@@ -108,6 +110,7 @@ export const repos = {
   personProfiles: personProfilesRepo,
   projectMail: mailRepo,
   projectDomains: projectDomainsRepo,
+  domainRegistrants: domainRegistrantsRepo,
   postalAddress: postalAddressRepo,
   replies: repliesRepo,
   updates: updatesRepo,
