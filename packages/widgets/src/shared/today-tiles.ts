@@ -6,7 +6,7 @@
  */
 import { formatNumber, type MetricTileProps } from "@foundmill/dugout";
 import { NOT_KNOWN_YET } from "./cash";
-import { RUNWAY_WORDS, runwayWords } from "./runway";
+import { RUNWAY_WORDS, runwayFigure, runwayWords } from "./runway";
 import { unavailableWords } from "./errors";
 import { customersThisWeek } from "./customers";
 import type { FinanceOverview, RibbonResponse } from "./types";
@@ -36,7 +36,7 @@ export const PLAIN_LINES = {
  * and no Estimate chip: nothing has been estimated yet. The formula ("Cash ÷ net burn") is the provenance tooltip.
  */
 export function runwayTile(finance: FinanceOverview | undefined, loading: boolean, onClick: () => void): StatusTile {
-  const months = finance?.runway.months ?? null;
+  const months = runwayFigure(finance);
   const provenance = finance ? { source: "Cash ÷ net burn (net burn: monthly spending minus income, trailing 3 months)", note: finance.burn.definition } : undefined;
   if (months === null) {
     const words = runwayWords(finance);

@@ -270,6 +270,8 @@ export const NON_TENANT_TABLES = [
   "project_mail",
   // 0147: business-scoped, one row per business, written by services only; covered by rls/project-domains.test.ts.
   "project_domains",
+  // 0150: business-scoped, service role only (no app-role grant or policy); covered by rls/domain-registrants.test.ts.
+  "domain_registrants",
   // 0078: a platform table (no business_id: the project it belonged to is gone), service role only; covered by rls/project-mail.test.ts.
   "retired_mail_local_parts",
   // 0101: business-scoped, one row per business, founders only; covered by rls/project-postal-address.test.ts.
