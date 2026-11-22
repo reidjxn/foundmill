@@ -35,4 +35,6 @@ The session has no Docker; the suites ran on a local Postgres 16 with pgvector a
 - T6 (split the `for all` write policies) builds on this branch's 0158 and ships after it merges.
 
 ### Merged behind T6 (Nov 22)
-Main took 0156 (`0156_split_write_policies`, WP-11 T6) before this pull request, so this one stays at 0157 to 0159 and now runs after it. Its `fm_idea_table` in 0158 was the pre-split body (`for all` `<t>_write`) and would have undone T6's helper for any table made later; it now carries T6's four-policy body with `(select auth.uid())`. The textual pass over `pg_policies` in 0158 wraps the policies T6 created, and the advisor test passes on the merged state.
+Main took 0156 (`0156_split_write_policies`, WP-11 T6) before this pull request, so this one stays at 0157 to 0159 and now runs after it.
+Its `fm_idea_table` in 0158 was the pre-split body (`for all` `<t>_write`) and would have undone T6's helper for any table made later; it now carries T6's four-policy body with `(select auth.uid())`.
+The textual pass over `pg_policies` in 0158 wraps the policies T6 created, and the advisor test passes on the merged state.
