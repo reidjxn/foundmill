@@ -23,6 +23,7 @@
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
  *   POST /v1/turnstile/verify              service JWT (api) → the idea box's bot check (turnstile.ts)
  *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
+ *   POST /v1/platform-mail/booking         service JWT (api, orchestrator) → a booking's email to its customer (booking-mail.ts)
  *   POST /v1/platform-mail/answer-reply    service JWT (api) → a founder's answer to a reply the project received (reply-answer.ts)
  *   POST /v1/platform-mail/send-update     service JWT (api) → the founders' update to their followers, one press (follower-update.ts)
  *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts; an invitation: notify-address-email.ts; a founder notice: notify-founder-notice.ts; the waitlist's place is open: notify-account-email.ts)
@@ -52,6 +53,7 @@ import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
 import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, streamSpeech, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
+import { BOOKING_MAIL_ROUTE, BOOKING_MAIL_SERVICES, BookingMailRequest, sendBookingMail } from "./booking-mail";
 import { ANSWER_REPLY_ROUTE, AnswerReplyRequest, answerReply } from "./reply-answer";
 import { SEND_UPDATE_ROUTE, SendUpdateRequest, sendFollowerUpdate } from "./follower-update";
 import { TURNSTILE_ROUTE, TurnstileVerifyRequest, verifyTurnstile } from "./turnstile";
@@ -133,6 +135,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   // A recording of up to 8 MiB travels as base64 in JSON.
   app.use(SPEECH_TRANSCRIBE_ROUTE, limit(MAX_TRANSCRIBE_BODY_BYTES));
   app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(BOOKING_MAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(ANSWER_REPLY_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(SEND_UPDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(NOTIFY_EMAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
@@ -291,6 +294,19 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const parsed = ConfirmFollowRequest.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) throw new GatewayError("validation", "Send a business id, a consent id, an address and the nonce", 400);
     return c.json(await sendFollowConfirmation(deps, parsed.data, c.var.service.svc));
+  });
+
+  // A booking's emails to its customer (founder, Nov 22, 2026): the api (made, canceled, moved) and the orchestrator's
+  // reminder pass ask (booking-mail.ts).
+  app.use(BOOKING_MAIL_ROUTE, requireService);
+  app.use(BOOKING_MAIL_ROUTE, async (c, next) => {
+    if (!BOOKING_MAIL_SERVICES.includes(c.var.service.svc)) throw new GatewayError("forbidden_service", "Only the api and the orchestrator ask for a booking email", 403);
+    await next();
+  });
+  app.post(BOOKING_MAIL_ROUTE, async (c) => {
+    const parsed = BookingMailRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, a booking id and the kind of email", 400);
+    return c.json(await sendBookingMail(deps, parsed.data, c.var.service.svc));
   });
 
   // A founder's answer to a reply the project received (WP-08 T2): only the api asks, from Customers (reply-answer.ts).

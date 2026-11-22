@@ -42,7 +42,7 @@ export interface BriefItemLike {
 }
 
 /** Events that can be a real outcome of the project (the north star's list, as the catalog declares them). */
-export const REAL_OUTCOME_EVENT_TYPES = ["page.published", "mail.sent", "page.followed", "payment.received", "lead.replied", "post.published"] as const;
+export const REAL_OUTCOME_EVENT_TYPES = ["page.published", "mail.sent", "page.followed", "payment.received", "lead.replied", "post.published", "booking.confirmed"] as const;
 /**
  * Whether a post the founder said they posted counts as a real outcome. Founder answer D1 (Nov 16, 2026, docs/log
  * 2026-11-16-claude-wp08-founder-decisions.md): "visited", a `post.published` whose `visited` is true, that is, the
@@ -87,6 +87,10 @@ export function isRealOutcome(e: Pick<BriefEventLike, "type" | "actor" | "payloa
       return e.actor.kind === "webhook";
     case "lead.replied":
       return e.actor.kind === "webhook" && typeof p.sentiment === "string" && REPLIES_THAT_WORKED.has(p.sentiment);
+    case "booking.confirmed":
+      // A customer booked a time on the project's public booking page (founder, Nov 22, 2026). A test booking, or one a
+      // member made on their own page, carries `simulated: true` and was dropped above.
+      return e.actor.kind === "system" && e.actor.id === "public-booking";
     default:
       return false;
   }
@@ -109,11 +113,13 @@ export type RealOutcome =
   | { kind: "payment"; at: Date; amountMinor: number; currency: string; firstPayment: boolean; channelKey: string | null; viaPost?: ViaPost }
   | { kind: "reply"; at: Date; channelKey: string | null; requestsMeeting: boolean; viaPost?: ViaPost }
   /** A post the founder said they posted, with a first visit through its own link (D1). */
-  | { kind: "post_visited"; at: Date };
+  | { kind: "post_visited"; at: Date }
+  /** A customer booked a time on the project's booking page. */
+  | { kind: "booking"; at: Date; startsAt: Date | null };
 export type RealOutcomeKind = RealOutcome["kind"];
 
 /** The section a reader must be able to read to see an outcome of this kind (the gateway applies it). */
-export const OUTCOME_SECTION: Readonly<Record<RealOutcomeKind, Section>> = { page_live: "product", email_sent: "distribution", follower: "crm", payment: "finance", reply: "crm", post_visited: "distribution" };
+export const OUTCOME_SECTION: Readonly<Record<RealOutcomeKind, Section>> = { page_live: "product", email_sent: "distribution", follower: "crm", payment: "finance", reply: "crm", post_visited: "distribution", booking: "crm" };
 
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
 
@@ -156,6 +162,9 @@ export function realOutcomes(events: readonly BriefEventLike[], since: Date, now
       }
       case "post.published":
         out.push({ kind: "post_visited", at: e.occurredAt });
+        break;
+      case "booking.confirmed":
+        out.push({ kind: "booking", at: e.occurredAt, startsAt: typeof p.startsAt === "string" && !Number.isNaN(Date.parse(p.startsAt)) ? new Date(p.startsAt) : null });
         break;
       case "lead.replied":
         out.push({ kind: "reply", at: e.occurredAt, channelKey: str(p.channelKey), requestsMeeting: p.requestsMeeting === true, ...via(e) });
@@ -398,6 +407,8 @@ function leadOf(input: MorningBriefInput, booked: number): string {
   if (payments > 0) return payments === 1 ? "a payment came in" : `${payments.toLocaleString("en-US")} payments came in`;
   const replies = count("reply");
   if (replies > 0) return replies === 1 ? "a person replied" : `${replies.toLocaleString("en-US")} people replied`;
+  const bookings = count("booking");
+  if (bookings > 0) return bookings === 1 ? "a customer booked a time" : `${bookings.toLocaleString("en-US")} customers booked a time`;
   const followers = count("follower");
   if (followers > 0) return followers === 1 ? "a new follower" : `${followers.toLocaleString("en-US")} new followers`;
   if (count("page_live") > 0) return "your page went live";

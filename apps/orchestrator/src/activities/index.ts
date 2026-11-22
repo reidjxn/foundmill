@@ -29,6 +29,7 @@ import { createSessionActivities } from "./session";
 import { createSourceWatcherActivities } from "./source-watcher";
 import { createTrainingActivities } from "./training";
 import { createWaitlistActivities } from "./waitlist";
+import { createBookingActivities } from "./booking";
 
 export function createActivities(deps: OrchestratorDeps) {
   return {
@@ -56,6 +57,7 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createMockResultsCleanupActivities(deps),
     ...createPlatformMetricsActivities(deps),
     ...createWaitlistActivities(deps),
+    ...createBookingActivities(deps),
     ...createAutopilotActivities(deps),
     ...createSourceWatcherActivities(deps),
     ...createNotifyActivities(deps),

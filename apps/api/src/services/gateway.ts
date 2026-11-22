@@ -231,6 +231,13 @@ export interface GatewayConfirmFollowRequest {
 
 /** Sent (on the mock: simulated, nothing left), or not, and why; never an error for "not sent". */
 export type GatewayConfirmFollowResult = { sent: true; simulated: boolean } | { sent: false; reason: string };
+/** A booking's email to its customer (`POST /v1/platform-mail/booking`): ids and the kind, never words or an address. */
+export interface GatewayBookingMailRequest {
+  businessId: string;
+  bookingId: string;
+  kind: "confirmation" | "reminder" | "canceled" | "rescheduled";
+}
+export type GatewayBookingMailResult = { sent: true; simulated: boolean } | { sent: false; reason: string };
 
 /** A founder's answer to a reply the project received (WP-08 T2): ids and the words, never an address. */
 export interface GatewayAnswerReplyRequest {
@@ -375,6 +382,8 @@ export interface ApiGatewayClient {
   sendPush(input: GatewayPushRequest): Promise<GatewayPushResult>;
   /** The follow confirmation email (package 1.6): fixed words, from the project's Foundmill address, on a service path. */
   confirmFollow(input: GatewayConfirmFollowRequest): Promise<GatewayConfirmFollowResult>;
+  /** A booking's email to its customer (founder, Nov 22, 2026): fixed words from the project's address. Absent (test doubles): not sent. */
+  bookingMail?(input: GatewayBookingMailRequest): Promise<GatewayBookingMailResult>;
   /**
    * Email from Foundmill to a person about their own project (packages 1.5 and 5.1): the gateway resolves the address,
    * re-checks the person, the note and the day's counts, builds the words and sends; the api's notify pass asks.
@@ -488,6 +497,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
     confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    bookingMail: (input) => post<GatewayBookingMailResult>("/v1/platform-mail/booking", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     // Up to 50 messages in sequence: the press waits for them (the client's timeout, at least a minute).
     sendUpdate: (input) => post<GatewaySendUpdateResult>("/v1/platform-mail/send-update", input, Math.max(timeoutMs, 60_000)),
     answerReply: (input) => post<GatewayAnswerReplyResult>("/v1/platform-mail/answer-reply", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
