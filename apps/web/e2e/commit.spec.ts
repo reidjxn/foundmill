@@ -310,9 +310,9 @@ test.describe("commit", () => {
     // The spend cap per action Commit starts on (0, founder 2026-11-22) is kept on the business, editable in Settings › What the team can do.
     const mode = await openSettings(page, "mode", bid);
     await expect(mode.getByTestId("spend-cap-form").getByRole("radio", { name: "Always ask" })).toBeChecked({ timeout: LONG });
-    // A new business starts on the free plan with this month's included credits, in US dollars.
+    // A new project shares the owner's one team budget for the month (their plan's: Studio for the dev owner), in US dollars.
     const billing = await openSettings(page, "billing", bid);
-    await expect(billing.getByTestId("credits-balance")).toContainText("$5.00", { timeout: LONG });
+    await expect(billing.getByTestId("credits-balance")).toContainText(/\$[\d.,]+ left of \$[\d.,]+/, { timeout: LONG });
   });
 
   test("double-clicking Start my project sends one commit and creates one business", async ({ page, playwright }) => {
