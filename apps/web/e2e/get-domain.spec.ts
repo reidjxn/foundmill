@@ -4,7 +4,7 @@ import { LEDGERLY_BUSINESS_ID, LONG, openBusiness, openSettings } from "./helper
 /**
  * Settings › Integrations › "Send from your own domain" › Get a domain (WP-08 domain plan, Path A), on the mocks: look a
  * name up and see its price for a year labeled Estimate; Register opens a dialog that says the founder is the owner, asks
- * for their details and the agreement, and only then registers (simulated here); the records Foundmill set show,
+ * for their details and the agreement, and pays (a simulated payment here), and only a paid payment registers the domain; the records Foundmill set show,
  * MX to Foundmill's inbound and DMARC among them; forwarding to the founder's inbox goes on with their click; there is
  * no Remove. Runs on Ledgerly, since a registered domain stays with its project. Stack and commands: e2e/README.md.
  */
@@ -46,6 +46,7 @@ test.describe("Get a domain", () => {
       await expect(dialog.getByTestId("get-domain-confirm")).toBeDisabled();
       await dialog.getByLabel(/accept Tucows' registration agreement/).check();
       await expect(dialog.getByTestId("get-domain-price")).toContainText("Simulated here");
+      await expect(dialog.getByTestId("get-domain-confirm")).toHaveText("Pay $14.25 and register");
       await dialog.getByTestId("get-domain-confirm").click();
       await expect(page.getByText("Domain registered", { exact: true })).toBeVisible({ timeout: LONG });
       await expect(panel.getByTestId("own-domain-address")).toHaveText("hello@ledgerly-books.com", { timeout: LONG });

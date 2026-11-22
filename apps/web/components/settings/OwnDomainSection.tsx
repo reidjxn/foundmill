@@ -15,7 +15,8 @@ import { Button, Chip, Field, IconButton, Input, useDateFormat, useToast } from 
 import { OWN_DOMAIN_DEFAULT_SENDER, type OwnDomainRecord } from "@foundmill/shared";
 import { formatDate } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc-react";
-import { GetDomainForm } from "./GetDomainForm";
+import { DomainCheckoutReturn, GetDomainForm, PendingDomainPayment } from "./GetDomainForm";
+import { useSearchParams } from "next/navigation";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -172,6 +173,7 @@ export function OwnDomainSection({ businessId }: { businessId: string }) {
     }),
   );
   const datePrefs = useDateFormat();
+  const returned = useSearchParams().get("checkout");
   const data = own.data;
   if (!data) return null;
   const row = data.domain;
@@ -188,6 +190,8 @@ export function OwnDomainSection({ businessId }: { businessId: string }) {
         ) : null
       }
     >
+      {returned && !row && data.canEdit ? <DomainCheckoutReturn businessId={businessId} checkoutId={returned} /> : null}
+      {!returned && !row && data.pendingCheckout ? <PendingDomainPayment businessId={businessId} pending={data.pendingCheckout} /> : null}
       {row ? (
         <>
           <div className="flex flex-wrap items-center gap-3">
