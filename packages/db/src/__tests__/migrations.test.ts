@@ -155,6 +155,9 @@ describe("journal", () => {
       "0154_tool_needs",
       "0155_real_businesses",
       "0156_split_write_policies",
+      "0157_function_search_path",
+      "0158_rls_initplan",
+      "0159_fk_indexes",
       "0160_network_safety",
     ]);
     // strictly increasing `when` so drizzle applies them in order

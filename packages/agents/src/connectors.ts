@@ -22,6 +22,11 @@ export const PLATFORM_CONNECTOR_KEYS = [
   "quarantine",
   /** The project's Foundmill sending address (package 1.5): mail.send, one message to one person from the project. */
   "platform_mail",
+  /** Open-source programs run in the project's sandbox through CLI-Anything (founder, 2026-11-19): files stay in a working copy until a founder approves. */
+  "cli_inkscape",
+  "cli_libreoffice",
+  "cli_ffmpeg",
+  "cli_gimp",
 ] as const;
 
 export const THIRD_PARTY_CONNECTOR_KEYS = [

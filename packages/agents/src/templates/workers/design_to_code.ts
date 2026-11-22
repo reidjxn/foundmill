@@ -42,7 +42,7 @@ export const designToCode = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read"])],
+  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read"]), grant("cli_inkscape", ["vector.make", "files.release"]), grant("cli_gimp", ["images.make", "files.release"])],
   skills: withCoreSkills(["design_fidelity", "component_craft", "accessibility", "layout_precision", "design_principles"]),
   autonomy: AUTONOMY_INHERIT,
   neverDoes: ["Introduce colors or spacing outside tokens", "Use non-Lucide icons", "Push to main"],

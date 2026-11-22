@@ -30,3 +30,16 @@ RUN npm install -g pnpm@12.9.1 \
 RUN chmod -R a+rX /opt/pw-browsers
 
 WORKDIR /home/user
+
+# CLI-Anything (LAUNCH_EVALUATION.md §2, FOUNDMILL.md "Agents run software through CLI-Anything"): open-source programs the
+# team drives through typed gateway tools (packages/connectors cli_*). Pinned to one commit, never a moving branch; a
+# later upgrade is a pull request that moves CLI_ANYTHING_COMMIT and the record in infra/e2b/README.md. Programs first
+# (Inkscape, LibreOffice, FFmpeg, then GIMP), then each CLI-Hub package from that same commit. CLI-Hub has no FFmpeg
+# package at this commit, so FFmpeg is the program alone and the gateway's own wrapper drives it.
+ARG CLI_ANYTHING_COMMIT=34f519533bc175d2fe287ab8316b0dd99bb9cc43
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pip python3-venv inkscape libreoffice-writer libreoffice-calc libreoffice-impress ffmpeg gimp fonts-dejavu-core \
+ && rm -rf /var/lib/apt/lists/* \
+ && python3 -m venv /opt/cli-anything \
+ && for p in inkscape libreoffice gimp; do /opt/cli-anything/bin/pip install --no-cache-dir "git+https://github.com/HKUDS/CLI-Anything.git@${CLI_ANYTHING_COMMIT}#subdirectory=${p}/agent-harness"; done \
+ && for p in inkscape libreoffice gimp; do ln -s /opt/cli-anything/bin/cli-anything-$p /usr/local/bin/cli-anything-$p; done \
+ && mkdir -p /home/user/work && chmod 777 /home/user/work
