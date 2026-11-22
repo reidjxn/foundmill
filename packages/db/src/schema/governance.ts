@@ -322,6 +322,7 @@ export const accountOutbox = pgTable(
   },
   (t) => [
     foreignKey({ name: "account_outbox_event_fkey", columns: [t.eventId, t.userId], foreignColumns: [accountEvents.id, accountEvents.userId] }).onDelete("cascade"),
+    index("account_outbox_event_user_idx").on(t.eventId, t.userId),
     index("account_outbox_user_id_idx").on(t.userId),
     index("account_outbox_unpublished_idx").on(t.createdAt).where(sql`${t.publishedAt} is null`),
   ],

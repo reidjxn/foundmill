@@ -67,6 +67,7 @@ export const agentMessages = pgTable(
   (t) => [
     uniqueIndex("agent_messages_client_message_idx").on(t.threadId, t.clientMessageId).where(sql`client_message_id is not null`),
     foreignKey({ name: "agent_messages_thread_fkey", columns: [t.threadId, t.businessId], foreignColumns: [agentThreads.id, agentThreads.businessId] }).onDelete("cascade"),
+    index("agent_messages_thread_business_idx").on(t.threadId, t.businessId),
     index("agent_messages_thread_idx").on(t.threadId, t.createdAt),
     index("agent_messages_business_id_idx").on(t.businessId, t.createdAt),
     // 0066: the first-week checklist's "has the founder written to an agent?" (conversations.anyFounderMessage).
