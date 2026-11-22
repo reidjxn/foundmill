@@ -14,7 +14,7 @@ import { ArrowLeft, ArrowRight, House, LayoutGrid, Pencil } from "lucide-react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Button, EmptyState, Kbd, Panel, isViewportTooSmall, useGuided, useToast, useViewportWidth, type TabItem } from "@foundmill/dugout";
+import { Button, EmptyState, Explainer, Kbd, Panel, isViewportTooSmall, useGuided, useToast, useViewportWidth, type TabItem } from "@foundmill/dugout";
 import { LinkButton } from "@/components/new/LinkButton";
 import { worksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { useModulePacks } from "@foundmill/modules/lazy";
@@ -23,6 +23,7 @@ import type { ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS, isBuilderOnlyTab, visibleTabs } from "@foundmill/shared/constants";
 import { AREA_LABELS } from "@foundmill/shared/areas";
 import { AreaOpening } from "@foundmill/modules/areas";
+import { EXPLAINERS, HOST_MOUNTED } from "@foundmill/modules/explainers";
 import { areaBreadcrumbs, areaOfRoute, areaOpeningOf, areaTabId, areaTabItems } from "@/lib/areas";
 import { useAreaNav } from "@/components/shell/useAreaNav";
 import { moduleHref } from "@foundmill/widgets/shared/departments";
@@ -222,6 +223,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
 
   if (moduleScreen) {
     const Component = moduleScreen.Component;
+    const explainerKey = (HOST_MOUNTED as readonly string[]).find((k) => k === `${moduleScreen.moduleKey}/${moduleScreen.tabSlug}`);
     return (
       // Each module screen pads itself (its own Screen wrapper, p-gutter), so the content gutter is 16 px as on Home.
       <div className="min-h-full" data-testid="module-screen" data-module={`${moduleScreen.moduleKey}/${moduleScreen.tabSlug}`}>
@@ -234,6 +236,8 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
         ) : null}
         {opening}
         {stale}
+        {/* "Explain this page" for the tabs whose screens carry none of their own (WP-10 T3); the shell draws it. */}
+        {explainerKey ? <Explainer {...EXPLAINERS[explainerKey]!} /> : null}
         <Component businessId={businessId} departmentId={department.id} subView={subView} />
         {/* The first-visit tour (once per account, guidance on), on whichever department tab is opened first; its
             callouts point at the tab bar, which a phone does not draw. */}

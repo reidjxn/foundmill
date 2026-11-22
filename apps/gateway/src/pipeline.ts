@@ -38,6 +38,7 @@ import {
   PLATFORM_MAIL_KEY,
   readForQuarantine,
   readableContent,
+  remoteHardGateCall,
   toAgentEnvelope,
   type Connector,
   type ConnectorMode,
@@ -360,6 +361,16 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
     const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [MISSING_POLICY_HINTS_POLICY_ID] });
     log.warn({ reasons }, "tool call without policy hints");
     return { status: 403, body: { outcome: "deny", reasons, policyIds: [MISSING_POLICY_HINTS_POLICY_ID], costMinor: 0, auditId: audit.id } };
+  }
+
+  // 2c. A remote MCP server's unlisted tool whose name would move money, sign, accept terms, delete permanently or change
+  // security settings is a hard gate: denied before anyone is asked (the tool is not on Foundmill's list for that server).
+  const gatedRemote = remoteHardGateCall(connector.key, tool.name, args);
+  if (gatedRemote) {
+    const reasons = [`${gatedRemote} on ${connector.displayName} would move money, sign, accept terms, delete permanently or change security settings: only the founder does that, at ${connector.displayName}`];
+    const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [HARD_GATE_POLICY_ID] });
+    log.info({ remoteTool: gatedRemote }, "tool call refused: hard-gated remote tool");
+    return { status: 403, body: { outcome: "deny", reasons, policyIds: [HARD_GATE_POLICY_ID], costMinor: 0, auditId: audit.id } };
   }
 
   // 3. Rate limit per connector per business.

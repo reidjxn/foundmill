@@ -258,7 +258,8 @@ describe("LiveModelClient.complete", () => {
     expect(result.text).toBe("Just prose.");
     expect(result.json).toBeUndefined();
     expect(result.stopReason).toBe("max_tokens");
-    expect(calls[0]!.body.output_config).toBeUndefined();
+    // The route's effort is written down (WP-09 T6 step 1): `worker` sends Sonnet 5.5's own default, `high`.
+    expect(calls[0]!.body.output_config).toEqual({ effort: "high" });
   });
 
   it("throws a typed refusal error for schema requests instead of retrying", async () => {

@@ -15,7 +15,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Copy, Link2, UserX } from "lucide-react";
 import { useState } from "react";
-import { Avatar, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, RadioGroup, RadioOption, SimpleSelect, useDateFormat, useToast } from "@foundmill/dugout";
+import { Avatar, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, RadioGroup, RadioOption, SimpleSelect, Term, useDateFormat, useToast } from "@foundmill/dugout";
 import { isAdminRole, isOwnerRole, type MembershipRole } from "@foundmill/shared/constants";
 import { INVITATION_ROLE_SENTENCE, INVITATION_ROLE_WORD, invitationNeedsEmail, rolesThatMayInvite, type InvitationRole } from "@foundmill/shared/people";
 import { formatDate, plural } from "@/lib/format";
@@ -196,7 +196,9 @@ export function MembersTab() {
 
       <SettingsSection title="Invite someone">
         <div data-testid="invite-someone" className="flex flex-col gap-3">
-          <Hint>Make a link for someone to join this project. It works once, for 14 days, and you can revoke it until it is used.</Hint>
+          <Hint>
+            Make a link for a <Term id="cofounder">cofounder</Term> or a <Term id="collaborator">collaborator</Term> to join this <Term id="project">project</Term>. It works once, for 14 days, and you can revoke it until it is used.
+          </Hint>
           <RadioGroup aria-label="Join as" value={inviteRole} onValueChange={(v) => setInviteRole(v as InvitationRole)} className="flex flex-col gap-2">
             {(["cofounder", "collaborator"] as const).map((r) => (
               <RadioOption

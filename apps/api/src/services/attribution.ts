@@ -28,7 +28,7 @@
  * what that time can and cannot tell its reader). The actor of both is the system by a word: the new person is never
  * the actor on the credited person's row. Nothing is written to a business's `events` or `outbox`.
  *
- * **The row never depends on its events.** The `attributions` row is the record credit is later paid from, and it can
+ * **The row never depends on its events.** The `attributions` row is the record of who brought whom (no reward is paid from it: WP-14 T15 step 4), and it can
  * be written once only (the save that creates the profile happens once), so the events go in a savepoint inside the
  * row's transaction: both are written with the row, or the row is written without them and a warning says so with the
  * new person's account id and a reason code (the rule refused, or `write_failed`), never the reference and never the

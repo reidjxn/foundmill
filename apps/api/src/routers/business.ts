@@ -8,6 +8,7 @@ import { demoBusinessIdForSlug, EXAMPLE_BUSINESS_ID } from "@foundmill/db/seed/c
 import { BUSINESS_SETTINGS_FIELDS, businessStreamKey } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
 import { AppError, AUTOPILOT_CADENCES, AUTOPILOT_LIMITS, BUSINESS_MODES, ConflictError, CurrencyCode, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
+import type { StageFacts } from "@foundmill/shared/areas";
 import { z } from "zod";
 import { areaWordsFor } from "../services/area-words";
 import { autopilotStatus, ensureAutopilot, setAutopilot } from "../services/autopilot";
@@ -136,6 +137,32 @@ export async function firstWeekFlags(tx: DbTx, business: { id: string; distribut
   };
 }
 
+/**
+ * Where the project stands, for the console's tabs and top bar (WP-10 T1). A demo business (the example and the sample
+ * projects) reports every stage reached, so it shows everything. Reads run in parallel under the caller's RLS.
+ */
+export async function stageFactsFor(tx: DbTx, business: { id: string; isDemo: boolean; distributionStartedAt: Date | null }): Promise<StageFacts> {
+  if (business.isDemo) return { pageLive: true, distributionStarted: true, roundCompleted: true, bankConnected: true, firstPayment: true, entityExists: true, people: 2 };
+  const id = business.id;
+  const [page, completed, cash, payers, entity, people] = await Promise.all([
+    repos.pages.get(tx, id),
+    repos.events.list(tx, id, { type: "cycle.completed", limit: 1 }),
+    repos.finance.cashPosition(tx, id),
+    repos.journeys.countPayingCustomers(tx, id),
+    repos.legal.primaryEntity(tx, id),
+    repos.memberships.list(tx, id, { activeOnly: true }),
+  ]);
+  return {
+    pageLive: page?.publishedAt != null,
+    distributionStarted: business.distributionStartedAt !== null,
+    roundCompleted: completed.items.length > 0,
+    bankConnected: cash.accounts.length > 0,
+    firstPayment: payers > 0,
+    entityExists: entity !== null,
+    people: people.length,
+  };
+}
+
 const journeyRefreshes = new WeakMap<Db, { running: Promise<void> | null; again: boolean }>();
 
 /**
@@ -242,8 +269,8 @@ export const businessRouter = router({
   }),
 
   get: businessProcedure.query(async ({ ctx }) => {
-    const [holiday, blocking, departments, agents, deletion, logo, foundations, signoffs] = await ctx.rls(async (tx) =>
-      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId }), repos.logos.getMeta(tx, ctx.businessId), repos.foundations.get(tx, ctx.businessId), signoffViews(tx, ctx.businessId)]),
+    const [holiday, blocking, departments, agents, deletion, logo, foundations, signoffs, stageFacts] = await ctx.rls(async (tx) =>
+      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId }), repos.logos.getMeta(tx, ctx.businessId), repos.foundations.get(tx, ctx.businessId), signoffViews(tx, ctx.businessId), stageFactsFor(tx, ctx.business)]),
     );
     // While LIVE is closed on this deployment a stored "live" reads as Personal everywhere (sidebar, widgets, Settings),
     // and `liveOpen` tells Settings not to offer Go live.
@@ -278,6 +305,8 @@ export const businessRouter = router({
       productStage: signoffs.stage,
       signoffs: { spec: signoffs.spec, roadmap: signoffs.roadmap },
       distributionStartedAt: ctx.business.distributionStartedAt,
+      /** What the project has done so far: the sidebar, the area tabs and the top bar show what its stage needs (WP-10 T1, T2). */
+      stageFacts,
       /** Where the team's code goes (WP-02 T5): "github" with a repository and pushing on, else "none". */
       buildDestination: signoffs.destination,
       /**

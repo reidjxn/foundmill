@@ -13,6 +13,7 @@ import { Button, buttonVariants } from "../foundation/Button";
 import { Icon } from "../foundation/Icon";
 import { StatusPill } from "../foundation/StatusPill";
 import { EntityText } from "../data/EntityText";
+import { Term } from "../guidance/Term";
 import { Panel } from "../shell/Panel";
 import { useShellLink } from "../shell/ShellLink";
 import type { GridSpan } from "../shell/types";
@@ -58,6 +59,9 @@ export const NEEDS_YOU_WORDS = {
   open: "Open",
 } as const;
 
+/** A kind label with its definition where there is one: the first-timer meets "Go-ahead" and "Your decision" here (WP-10 T4). */
+const kindTerm = (label: string): ReactNode => (label === "Go-ahead" ? <Term id="go_ahead">{label}</Term> : label === "Your decision" ? <Term id="decision">{label}</Term> : label);
+
 export const NEEDS_YOU_MAX = 3;
 
 /** "3 waiting" / "3 of 7 waiting" for the panel's meta. */
@@ -91,7 +95,8 @@ export function NeedsYouList({ items, total, seeAllHref, onQuickAnswer, pendingI
   const seeAll = renderLink({ href: seeAllHref, className: cn(buttonVariants({ variant: "ghost", size: "sm" }), "min-h-tap @page-wide:min-h-0 text-secondary hover:text-primary"), children: NEEDS_YOU_WORDS.seeAll });
   return (
     <Panel
-      title={NEEDS_YOU_WORDS.title}
+      title={<Term id="needs_you">{NEEDS_YOU_WORDS.title}</Term>}
+      helpLabel={NEEDS_YOU_WORDS.title}
       span={span}
       meta={needsYouMeta(rows.length, total)}
       actions={<span data-testid="needs-you-see-all">{seeAll}</span>}
@@ -112,7 +117,7 @@ export function NeedsYouList({ items, total, seeAllHref, onQuickAnswer, pendingI
                 {row.subject}
               </EntityText>
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 t-small text-tertiary">
-                {row.kindLabel ? <span>{row.kindLabel}</span> : null}
+                {row.kindLabel ? <span>{kindTerm(row.kindLabel)}</span> : null}
                 {row.from ? <span>From {row.from}</span> : null}
                 {row.holdsContinue ? <StatusPill tone="bad">The team is waiting on this</StatusPill> : null}
               </p>

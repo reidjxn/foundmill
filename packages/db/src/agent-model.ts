@@ -43,7 +43,9 @@ export async function changeAgentModels(tx: Executor, businessId: string, target
     await repos.agents.setModel(tx, businessId, agent.id, modelKey);
     change.updated.push(agent.id);
     // An agent already on this model has nothing new to retest; `retest: false` changes the model and queues none.
-    if (agent.modelKey === modelKey || opts.retest === false) continue;
+    // GLM-5.3 Flash (Z.ai's endpoint, work sessions only) has no retest path: a training run's calls go through the
+    // Anthropic client.
+    if (agent.modelKey === modelKey || modelKey === "glm" || opts.retest === false) continue;
     const { retest, superseded } = await repos.training.createModelRetest(tx, businessId, agent.id, { modelKey, requestedBy });
     change.superseded.push(...superseded.map((run) => run.id));
     if (retest) change.retests.push(retest.run.id);

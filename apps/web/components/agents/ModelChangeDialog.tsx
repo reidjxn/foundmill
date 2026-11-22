@@ -7,9 +7,10 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, TriangleAlert } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { CREDITS_CURRENCY } from "@foundmill/config";
-import { ApplyScopeDialog, Button, Checkbox, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, MODEL_LABELS, ModelPicker, ProvenanceChip, SkeletonText, Term, formatMoney, useToast, type ApplyScope } from "@foundmill/dugout";
+import { CREDITS_CURRENCY, planName } from "@foundmill/config";
+import { ApplyScopeDialog, BetterModelsPrompt, Button, Checkbox, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, MODEL_LABELS, ModelPicker, ProvenanceChip, SkeletonText, Term, formatMoney, useToast, type ApplyScope } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -41,6 +42,8 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
   const [step, setStep] = useState<Step>("pick");
   // Retests for every agent of the type, or all, run only when chosen (WP-09 T9, TS-03 c).
   const [retestWide, setRetestWide] = useState(false);
+  const router = useRouter();
+  const [betterOpen, setBetterOpen] = useState(false);
   useEffect(() => {
     if (!open) {
       setCandidate(null);
@@ -74,6 +77,8 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
 
   const choose = (m: ModelKey) => {
     if (m === current || locked) return;
+    // Opus and Sonnet on the free plan: an offer to upgrade or connect a key, not a selection (WP-13 T7).
+    if (options.find((o) => o.key === m)?.gated) return setBetterOpen(true);
     setCandidate(m);
     setStep(isChiefOfStaffDowngrade(agent, m) ? "warn" : "scope");
   };
@@ -97,7 +102,7 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
                 {profile.route === "inboxComposer" ? "The Inbox Composer is locked to Opus. Only the current model is allowed for this agent." : "This agent's route is locked; only the current model is allowed."}
               </p>
             ) : null}
-            {compareQ.isLoading ? <SkeletonText lines={3} /> : compareQ.error ? <p className="text-small text-status-bad">{errorMessage(compareQ.error)}</p> : <ModelPicker options={options} value={current} onChange={choose} disabled={setModel.isPending || locked} />}
+            {compareQ.isLoading ? <SkeletonText lines={3} /> : compareQ.error ? <p className="text-small text-status-bad">{errorMessage(compareQ.error)}</p> : <ModelPicker options={options} value={current} inUse={compareQ.data?.inUse} onChange={choose} disabled={setModel.isPending || locked} />}
           </DialogBody>
           <DialogFooter>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -106,6 +111,8 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BetterModelsPrompt planLabel={planName("free")} open={betterOpen} onOpenChange={setBetterOpen} onSeePlans={() => router.push(`/b/${businessId}/settings/billing`)} onConnectKey={() => router.push(`/b/${businessId}/settings/keys`)} />
 
       <Dialog open={open && step === "warn"} onOpenChange={(o) => !o && reset()}>
         <DialogContent size="sm" data-testid="cos-downgrade-warning">

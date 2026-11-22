@@ -12,6 +12,8 @@ describe("agent.model.set retests (AC-11.10.5)", () => {
   const temporal = fakeTemporalClient();
   beforeAll(async () => {
     hz = await createApiHarness({ prefix: "agentretest", temporalClient: temporal });
+    // Opus and Sonnet are a paid plan's to choose (WP-13 T7); these tests are about retests, not the plan.
+    await repos.businesses.update(hz.db, hz.A.businessId, { planTier: "pro" });
   }, 120_000);
   afterAll(() => hz.close());
 
@@ -213,6 +215,8 @@ describe("agent.training.cancel without Temporal", () => {
   let hz: ApiHarness;
   beforeAll(async () => {
     hz = await createApiHarness({ prefix: "agentcancel" });
+    // Opus and Sonnet are a paid plan's to choose (WP-13 T7); these tests are about retests, not the plan.
+    await repos.businesses.update(hz.db, hz.A.businessId, { planTier: "pro" });
   }, 120_000);
   afterAll(() => hz.close());
 
@@ -258,6 +262,8 @@ describe("training says a true price and checks it against the balance (WP-09 T9
   it("refuses a run and a retest the credits cannot finish, with both figures, and queues nothing", async () => {
     const { businessId, ownerId, agentId } = hz.A;
     const owner = hz.caller({ userId: ownerId });
+    // Claude models on Foundmill's key wait for a paid plan (WP-13 T7), so the credits check is what answers here.
+    await repos.businesses.update(hz.db, businessId, { planTier: "pro" });
     await repos.skills.upsertForAgent(hz.db, businessId, agentId, [{ skillKey: "planning", group: "judgement", tested: 10, proven: null, nLive: 0, displayed: 10, potential: 10 }]);
     const estimate = await owner.agent.training.estimate({ businessId, agentId, modelKey: "opus" });
     expect(estimate.costMinor).toBeGreaterThan(1);
@@ -284,6 +290,7 @@ describe("training says a true price and checks it against the balance (WP-09 T9
 
   it("does not check a project on its own key", async () => {
     const { businessId, ownerId, agentId } = hz.B;
+    await repos.businesses.update(hz.db, businessId, { planTier: "pro" });
     await repos.skills.upsertForAgent(hz.db, businessId, agentId, [{ skillKey: "planning", group: "judgement", tested: 10, proven: null, nLive: 0, displayed: 10, potential: 10 }]);
     await leave(businessId, 0);
     await expect(hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId, modelKey: "opus" })).rejects.toMatchObject({ code: "PAYMENT_REQUIRED" });

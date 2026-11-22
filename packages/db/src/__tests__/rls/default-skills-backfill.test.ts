@@ -4,7 +4,7 @@
  * agent hired before a release of defaults the ones it lacks, once; it never re-adds a default the founder removed; a
  * later release adds only its new default; and one business's run never writes another business's rows.
  */
-import { SKILL_LIBRARY, defaultSkillKeysFor, librarySkillKey, type LibrarySkill } from "@foundmill/agents";
+import { DEFAULT_SKILLS_VERSION, SKILL_LIBRARY, defaultSkillKeysFor, librarySkillKey, type LibrarySkill } from "@foundmill/agents";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hireFromTemplate } from "../../hire";
@@ -65,16 +65,18 @@ describe("default skills backfill (0141)", () => {
     const planner = await hireFromTemplate(h.db, A.businessId, "planner");
     const removed = expected("planner")[0]!;
     await repos.skills.removeFromAgent(h.db, A.businessId, planner.agent.id, removed);
+    // The release after the current one (release 2 added the tool scout, Nov 22, 2026).
+    const next = DEFAULT_SKILLS_VERSION + 1;
     const extra = SKILL_LIBRARY.find((s) => s.key === "web_app_testing")!;
     expect(extra.defaultFor).not.toContain("planner");
-    const library: LibrarySkill[] = SKILL_LIBRARY.map((s) => (s.key === extra.key ? { ...s, defaultFor: [...s.defaultFor, "planner"], defaultSince: 2 } : s));
-    const run = await backfillDefaultSkills(h.db, { library, version: 2 });
+    const library: LibrarySkill[] = SKILL_LIBRARY.map((s) => (s.key === extra.key ? { ...s, defaultFor: [...s.defaultFor, "planner"], defaultSince: next } : s));
+    const run = await backfillDefaultSkills(h.db, { library, version: next });
     expect(run.failed).toEqual([]);
     const now = await defaults(A.businessId, planner.agent.id, planner.agent.agentType);
     expect(now).toContain(librarySkillKey(extra.key));
     expect(now).not.toContain(removed);
-    expect((await repos.agents.get(h.db, A.businessId, planner.agent.id)).defaultSkillsVersion).toBe(2);
-    expect((await backfillDefaultSkills(h.db, { library, version: 2 })).attached).toBe(0);
+    expect((await repos.agents.get(h.db, A.businessId, planner.agent.id)).defaultSkillsVersion).toBe(next);
+    expect((await backfillDefaultSkills(h.db, { library, version: next })).attached).toBe(0);
   });
 
   it("never gives back a skill removed before 0141, and records what it gave in the audit log", async () => {
@@ -87,7 +89,7 @@ describe("default skills backfill (0141)", () => {
     expect(now).not.toContain(removed);
     expect(now).toEqual(expected("qa_engineer").filter((k) => k !== removed));
     const entry = (await repos.audit.list(h.db, B.businessId, { action: "agent.skills.add_defaults" })).items.find((e) => (e.target as { id?: string }).id === qa.id);
-    expect(entry).toMatchObject({ actorKind: "system", details: { version: 1 } });
+    expect(entry).toMatchObject({ actorKind: "system", details: { version: DEFAULT_SKILLS_VERSION } });
     expect([...(entry!.details as { skillKeys: string[] }).skillKeys].sort()).toEqual(now);
   });
 

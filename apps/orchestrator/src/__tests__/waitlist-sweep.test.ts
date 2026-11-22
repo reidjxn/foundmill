@@ -122,4 +122,66 @@ describe("waitlistSweep", () => {
     await sweep({ WAITLIST_ADMIT_PER_DAY: 1 }, gatewayAnswering({ sent: false, reason: "suppressed", message: "not sent" })).waitlistSweep({ at });
     expect((await entryOf(e.id)).notified_at).not.toBeNull();
   });
+
+  /* ---- Batches (0153; WP-14 T15) ---- */
+  const batch = async (number: number, opensOn: string, places: number) => (await t.h.db.insert(s.waitlistBatches).values({ number, opensOn, places }).returning())[0]!;
+  const batchOf = async (id: string) => (await t.h.pg.query<{ batch_id: string | null }>("select batch_id from waitlist_entries where id = $1", [id])).rows[0]!.batch_id;
+  const left = async (day: string) => (await repos.waitlist.batchesWithPlaces(t.db, { day })).map((b) => [b.number, b.placesLeft, b.open]);
+
+  it("a batch admits nobody before its day, and on its day admits its places in the waitlist's order with the number at 0", async () => {
+    const a = await waiting("2029-12-11T00:00:00.000Z");
+    const b = await waiting("2029-12-12T00:00:00.000Z");
+    const c = await waiting("2029-12-13T00:00:00.000Z");
+    const one = await batch(1, "2030-02-02", 2);
+    const gateway = gatewayAnswering({ sent: true, simulated: true, eventId: null });
+    await sweep({ WAITLIST_ADMIT_PER_DAY: 0 }, gateway).waitlistSweep({ at: "2030-02-01T23:59:00.000Z" });
+    expect((await entryOf(a.id)).admitted_at).toBeNull();
+    expect(await left("2030-02-01")).toEqual([[1, 2, false]]);
+    const result = await sweep({ WAITLIST_ADMIT_PER_DAY: 0 }, gateway).waitlistSweep({ at: "2030-02-02T00:05:00.000Z" });
+    expect(result.eventIds).toHaveLength(2);
+    expect([await batchOf(a.id), await batchOf(b.id), await batchOf(c.id)]).toEqual([one.id, one.id, null]);
+    expect((await entryOf(c.id)).admitted_at).toBeNull();
+    expect(gateway.asked.map((r) => r.data.waitlistEntryId).sort()).toEqual([a.id, b.id].sort());
+    // Full: it is no longer a batch with places, and the next sweep admits nobody.
+    expect(await left("2030-02-02")).toEqual([]);
+    await sweep({ WAITLIST_ADMIT_PER_DAY: 0 }, gateway).waitlistSweep({ at: "2030-02-02T00:20:00.000Z" });
+    expect((await entryOf(c.id)).admitted_at).toBeNull();
+    await t.h.pg.query("update waitlist_entries set admitted_at = $1, notified_at = $1 where id = $2", [new Date("2029-01-01T00:00:00Z"), c.id]);
+  });
+
+  it("a batch with places left stays open: someone who joins later is admitted by the next sweep, and one already in takes no place", async () => {
+    const two = await batch(2, "2030-02-10", 2);
+    const already = await waiting("2029-12-14T00:00:00.000Z");
+    await repos.admissions.record(t.db, { userId: already.userId!, how: "existing" });
+    const first = await waiting("2029-12-15T00:00:00.000Z");
+    await sweep({ WAITLIST_ADMIT_PER_DAY: 0 }).waitlistSweep({ at: "2030-02-10T09:00:00.000Z" });
+    await sweep({ WAITLIST_ADMIT_PER_DAY: 0 }).waitlistSweep({ at: "2030-02-10T09:15:00.000Z" });
+    expect(await batchOf(already.id)).toBeNull();
+    expect(await batchOf(first.id)).toBe(two.id);
+    expect(await left("2030-02-12")).toEqual([[2, 1, true]]);
+    const later = await waiting("2030-02-12T00:00:00.000Z");
+    await sweep({ WAITLIST_ADMIT_PER_DAY: 0 }).waitlistSweep({ at: "2030-02-12T09:00:00.000Z" });
+    expect(await batchOf(later.id)).toBe(two.id);
+    expect(await left("2030-02-12")).toEqual([]);
+    // A closed account gives no place back: its entry goes with it, the batch stays full and admits nobody else.
+    await t.h.pg.query("delete from waitlist_entries where id = $1", [later.id]);
+    const after = await waiting("2030-02-13T00:00:00.000Z");
+    await sweep({ WAITLIST_ADMIT_PER_DAY: 0 }).waitlistSweep({ at: "2030-02-13T09:00:00.000Z" });
+    expect((await entryOf(after.id)).admitted_at).toBeNull();
+    expect(await left("2030-02-13")).toEqual([]);
+    // And the database refuses a batch more admissions than it published, or fewer places than it has given.
+    await expect(t.h.pg.query("update waitlist_batches set taken = places + 1 where id = $1", [two.id])).rejects.toThrow(/waitlist_batches_taken_range/);
+    await expect(t.h.pg.query("update waitlist_batches set places = 1 where id = $1", [two.id])).rejects.toThrow(/waitlist_batches_taken_range/);
+    await t.h.pg.query("update waitlist_entries set admitted_at = $1, notified_at = $1 where id = $2", [new Date("2029-01-01T00:00:00Z"), after.id]);
+  });
+
+  it("under open sign-up the day's ceiling bounds a batch too, and the rest of its places open the next day", async () => {
+    const three = await batch(3, "2030-03-01", 2);
+    const a = await waiting("2029-12-16T00:00:00.000Z");
+    const b = await waiting("2029-12-17T00:00:00.000Z");
+    await sweep({ WAITLIST_ADMIT_PER_DAY: 0, SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: 1 }).waitlistSweep({ at: "2030-03-01T12:00:00.000Z" });
+    expect([await batchOf(a.id), await batchOf(b.id)]).toEqual([three.id, null]);
+    await sweep({ WAITLIST_ADMIT_PER_DAY: 0, SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: 1 }).waitlistSweep({ at: "2030-03-02T12:00:00.000Z" });
+    expect(await batchOf(b.id)).toBe(three.id);
+  });
 });

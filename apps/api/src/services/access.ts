@@ -21,7 +21,7 @@
  * An invitation admits a new account (`admitThroughInvitation`, inside `invitation.accept`'s transaction) only when its
  * inviter was let in by the list, by open sign-up (or the waitlist while open sign-up is on) or as a person from before
  * (never by an invitation, nor by the waitlist under invite-only: an account an
- * invitation let in cannot let others in), and at most `INVITATION_ADMISSIONS_PER_INVITER_PER_DAY` a UTC day per
+ * invitation let in cannot let others in), and at most `INVITATION_ADMISSIONS_PER_INVITER` in total per
  * inviter, counted under the same advisory lock. Under open sign-up an invitation's admission counts toward the day's
  * ceiling, and only an inviter the list or the time before let in may go past it, within
  * `INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY` for everyone together; an inviter open sign-up let in waits at the
@@ -286,8 +286,8 @@ export async function isAdmittedNow(ctx: Pick<AdmissionContext, "env" | "db">, u
 
 /* ---- An invitation as an admission ---- */
 
-/** How many new accounts one inviter's invitations may let in per UTC day (an accepter who is already in never counts). */
-export const INVITATION_ADMISSIONS_PER_INVITER_PER_DAY = 3;
+/** How many new accounts one inviter's invitations may let in, in total (WP-14 T15 step 4: three named invitations, no reward; an accepter who is already in never counts). */
+export const INVITATION_ADMISSIONS_PER_INVITER = 3;
 /**
  * Open sign-up only: how many new accounts invitations may let in past the day's SIGNUP_DAILY_CEILING, across every
  * inviter, per UTC day. Only an inviter the list or the time before let in may use them (`inviterStanding` "trusted").
@@ -297,7 +297,7 @@ export const INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY = 50;
 export const INVITATION_CANNOT_ADMIT_CODE = "invitation_cannot_admit";
 export const INVITATION_CANNOT_ADMIT_MESSAGE = `This invitation can't let a new account into ${APP_NAME} by itself. Once your account is in, the same link works.`;
 export const INVITATION_ADMISSIONS_LIMIT_CODE = "invitation_admissions_limit";
-export const INVITATION_ADMISSIONS_LIMIT_MESSAGE = "The person who invited you has let in as many new people as one day allows. Try the same link again tomorrow.";
+export const INVITATION_ADMISSIONS_LIMIT_MESSAGE = "The person who invited you has used all three of their invitations. Join the waitlist, and we'll send your invitation when the next batch opens.";
 
 /**
  * On what standing `inviterUserId` lets a new account in through an invitation:
@@ -360,7 +360,7 @@ export async function admitThroughInvitation(
   const standing = await inviterStanding(ctx, tx, invitation.invitedByUserId);
   const since = utcDayStart(now);
   await repos.admissions.lockOpenCount(tx);
-  const underInviterNumber = standing !== "none" && (await repos.admissions.admittedByInviterSince(tx, invitation.invitedByUserId, since)) < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY;
+  const underInviterNumber = standing !== "none" && (await repos.admissions.admittedByInviterSince(tx, invitation.invitedByUserId, new Date(0))) < INVITATION_ADMISSIONS_PER_INVITER;
   const byInvitation = async (): Promise<InvitationAdmission> => {
     await repos.admissions.record(tx, { userId: accepter.userId, how: "invitation", invitationId: invitation.id });
     return "admitted";

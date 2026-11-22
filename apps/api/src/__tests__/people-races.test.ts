@@ -19,7 +19,7 @@ import { sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CallerUser } from "../context";
 import { createCaller } from "../router";
-import { forgetAdmittedMemo, INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY, INVITATION_ADMISSIONS_PER_INVITER_PER_DAY } from "../services/access";
+import { forgetAdmittedMemo, INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY, INVITATION_ADMISSIONS_PER_INVITER } from "../services/access";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 const onPostgres = Boolean(process.env.RLS_TEST_DATABASE_URL?.trim());
@@ -154,20 +154,20 @@ describe.skipIf(!onPostgres)("on a real Postgres", () => {
       expect(await hz.caller(null).invitation.byToken({ token: admitted[0] ? tokenB : tokenA })).toMatchObject({ state: "pending" });
     });
 
-    it(`the last of an inviter's ${INVITATION_ADMISSIONS_PER_INVITER_PER_DAY} new accounts a day (invite-only)`, async () => {
+    it(`the last of an inviter's ${INVITATION_ADMISSIONS_PER_INVITER} new accounts a day (invite-only)`, async () => {
       const inviter = await person("cap-inviter");
       await repos.memberships.add(hz.db, hz.B.businessId, { userId: inviter.userId, role: "admin" });
       const INVITE_ONLY = { SIGNUP_ALLOWLIST: inviter.email };
-      for (let i = 1; i < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY; i++) {
+      for (let i = 1; i < INVITATION_ADMISSIONS_PER_INVITER; i++) {
         expect(await callerIn(INVITE_ONLY, await person("cap-earlier")).invitation.accept({ confirmAdult: true, token: await collaboratorLink(inviter.userId, hz.B.businessId) })).toMatchObject({ already: false });
       }
-      expect(await repos.admissions.admittedByInviterSince(hz.db, inviter.userId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER_PER_DAY - 1);
+      expect(await repos.admissions.admittedByInviterSince(hz.db, inviter.userId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER - 1);
       const [tokenA, tokenB] = [await collaboratorLink(inviter.userId, hz.B.businessId), await collaboratorLink(inviter.userId, hz.B.businessId)];
       const [a, b] = [await person("cap-a"), await person("cap-b")];
       const answers = await releasedTogether([() => refusal(callerIn(INVITE_ONLY, a).invitation.accept({ confirmAdult: true, token: tokenA })), () => refusal(callerIn(INVITE_ONLY, b).invitation.accept({ confirmAdult: true, token: tokenB }))]);
       expect(answers.filter((x) => x === null)).toHaveLength(1);
       expect(answers.filter((x) => x?.code === "TOO_MANY_REQUESTS" && x.appCode === "invitation_admissions_limit")).toHaveLength(1);
-      expect(await repos.admissions.admittedByInviterSince(hz.db, inviter.userId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER_PER_DAY);
+      expect(await repos.admissions.admittedByInviterSince(hz.db, inviter.userId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER);
       const members = [await repos.memberships.get(hz.db, hz.B.businessId, a.userId), await repos.memberships.get(hz.db, hz.B.businessId, b.userId)];
       expect(members.filter((m) => m !== null)).toHaveLength(1);
     });

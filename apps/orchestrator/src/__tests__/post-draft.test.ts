@@ -83,7 +83,7 @@ describe("draftSharePost", () => {
     expect(JSON.stringify([post, await drafted()])).not.toContain(consentId);
   });
 
-  it("not where a connector would publish for the team, not off the board, not while the team is stopped, not for a sample business", async () => {
+  it("not where a connector would publish for the team, not while the team is stopped, not for a sample business", async () => {
     await t.h.pg.query("delete from assets where business_id = $1 and content_ref like 'post-draft:%'", [t.businessId]);
     const acts = createPostDraftActivities(staging());
     const skip = async (reason: string, set: () => Promise<unknown>, unset: () => Promise<unknown>) => {
@@ -94,7 +94,6 @@ describe("draftSharePost", () => {
         await unset();
       }
     };
-    await skip("off_the_board", () => repos.channels.setEnabled(t.db, t.businessId, socialId, false), () => repos.channels.setEnabled(t.db, t.businessId, socialId, true));
     await skip("agents_stopped", () => stopBusinessAgents(t.db, t.businessId, { reason: "kill_switch" }), () => resumeBusinessAgents(t.db, t.businessId));
     const demo = (on: boolean) => t.h.pg.query("update businesses set is_demo = $1 where id = $2", [on, t.businessId]);
     await skip("sample_business", () => demo(true), () => demo(false));

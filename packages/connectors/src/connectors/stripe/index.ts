@@ -147,6 +147,16 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
           );
           return mapCheckoutSession(session as unknown as StCheckoutSession);
         },
+        // A founder's own Stripe account only (never the platform key): the key makes a retry return the same link.
+        create_payment_link: async ({ key, label, amountMinor, currency, afterPaymentMessage }, ctx) => {
+          const { stripe, opts } = forCtx(ctx);
+          const price = await stripe.prices.create({ currency: currency.toLowerCase(), unit_amount: amountMinor, product_data: { name: label } }, { ...opts, idempotencyKey: `paylink:${ctx.businessId}:${key}:price` });
+          const link = await stripe.paymentLinks.create(
+            { line_items: [{ price: price.id, quantity: 1 }], ...(afterPaymentMessage ? { custom_text: { submit: { message: afterPaymentMessage } } } : {}) },
+            { ...opts, idempotencyKey: `paylink:${ctx.businessId}:${key}` },
+          );
+          return { id: link.id, url: link.url };
+        },
         // Only on the platform account, for Foundmill's own subscribers: never on a business's connected account.
         create_billing_portal_session: async ({ customerId, returnUrl }, ctx) => {
           if (!isPlatformBillingIntegration(ctx.integration)) throw Object.assign(new Error("The billing portal is for the platform's own billing only"), { status: 403 });

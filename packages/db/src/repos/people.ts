@@ -83,7 +83,7 @@ export const admissionsRepo = {
     return Number(row?.n ?? 0);
   },
 
-  /** New accounts that invitations made by `inviterUserId` let in since `since` (services/access.ts, per inviter per day). */
+  /** New accounts that invitations made by `inviterUserId` let in since `since` (services/access.ts; the inviter's total counts since the epoch). */
   async admittedByInviterSince(db: Executor, inviterUserId: string, since: Date): Promise<number> {
     const [row] = await db
       .select({ n: count() })

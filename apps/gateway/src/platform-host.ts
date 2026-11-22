@@ -10,9 +10,9 @@
  * and answered with a plain "try again".
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { AppError, ConflictError, NotFoundError, filingWindow, positioningFromInput, renderPositioning, updateProblems, uuid, type TaskStatus } from "@foundmill/shared";
-import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type Db, type Executor, type ResolvedSkill, type Task } from "@foundmill/db";
-import { acceptanceLines, acceptanceRefusal, PlatformToolError, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
+import { AppError, ConflictError, NotFoundError, TOOL_CATEGORY_LABELS, filingWindow, positioningFromInput, renderPositioning, updateProblems, uuid, type TaskStatus } from "@foundmill/shared";
+import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type Db, type Executor, type ResolvedSkill, type Task, type ToolNeed, type ToolNeedHeld } from "@foundmill/db";
+import { acceptanceLines, acceptanceRefusal, catalogLines, connectorKeysFor, PlatformToolError, recommendationProblems, toolRecommendationNote, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { hashRecipient } from "./recipients";
 import { recipientBasis } from "./recipient-basis";
@@ -67,6 +67,16 @@ const paragraphDoc = (text: string) => ({ type: "doc", content: text.split(/\n{2
 export interface RepositoryFiles {
   listFolder(caller: PlatformCaller, folder: string): Promise<{ paths: string[] } | { error: string }>;
   readFile(caller: PlatformCaller, path: string): Promise<{ content: string } | { error: string }>;
+}
+
+/** What an agent reads when a need is not raised again: what is already decided, so nobody asks twice. */
+export function toolNeedHeldNote(why: ToolNeedHeld, need: ToolNeed | null): string {
+  if (why === "has_tool") return "The project already has a tool of this kind connected: use it, or say exactly what it cannot do.";
+  if (why === "already_open") return "Already raised: the Chief of Staff is finding the right tool. Nothing new was raised.";
+  const pick = need?.pick ? `${need.pick.name} (${need.pick.why})` : "a tool";
+  if (why === "recommended") return `Already recommended to the founder: ${pick}. It waits for their answer. Nothing new was raised.`;
+  if (why === "accepted") return `Already chosen: ${pick}. The founder said yes; if it is not connected yet, it waits for them. Nothing new was raised.`;
+  return `The founder said not now${need?.askAgainAt ? `, and to ask again after ${need.askAgainAt.toISOString().slice(0, 10)}` : ""}. Nothing was raised: work without it until then.`;
 }
 
 export interface DbPlatformHostOptions {
@@ -544,6 +554,60 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
         return draft;
       });
       return { updateId: row.id, followers: await repos.followers.count(db, caller.businessId) };
+    },
+    // ---- the tool scout (founder, Nov 22, 2026) ----------------------------------------------------------------
+    async raiseToolNeed(caller, { category, missing, taskId }) {
+      if (taskId) await taskOf(caller, taskId);
+      const result = await repos.toolNeeds.raise(db, caller.businessId, { category, reason: missing, raisedByAgentId: caller.agentId, coveredBy: connectorKeysFor(category), now: now() });
+      if (result.raised) {
+        await repos.audit.append(db, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "tool_need.raised", target: { kind: "tool_need", id: result.need.id }, details: { category, taskId: result.task.id, fromTaskId: taskId ?? null, sessionId: caller.sessionId } });
+        return { raised: true, status: "open", note: "Raised. The Chief of Staff finds the right tool and asks the founder. Carry on with what you can do without it." };
+      }
+      return { raised: false, status: result.need?.status ?? result.why, note: toolNeedHeldNote(result.why, result.need) };
+    },
+    async readToolNeed(caller, { category }) {
+      const keys = connectorKeysFor(category);
+      const [need, statuses] = await Promise.all([repos.toolNeeds.get(db, caller.businessId, category), repos.integrations.connectionStatuses(db, caller.businessId, keys)]);
+      return {
+        category,
+        label: TOOL_CATEGORY_LABELS[category],
+        options: catalogLines(category),
+        connected: statuses.filter((s) => s.status === "connected" || s.status === "degraded").map((s) => s.connectorKey),
+        status: need?.status ?? "none",
+        reason: need?.reason ?? null,
+        pick: need?.pick ? { name: need.pick.name, why: need.pick.why, whyNow: need.pick.whyNow, cost: need.pick.cost } : null,
+        alternatives: need?.alternatives ?? [],
+        askAgainOn: need?.askAgainAt ? need.askAgainAt.toISOString().slice(0, 10) : null,
+      };
+    },
+    async recommendTool(caller, args) {
+      const problems = recommendationProblems(args);
+      if (problems.length) throw new PlatformToolError("invalid_state", `Not sent: ${problems.join("; ")}.`);
+      const existing = await repos.toolNeeds.get(db, caller.businessId, args.category);
+      // One answer per need: a pick the founder holds or accepted, or a "not now" still in force, is not asked again.
+      if (existing?.status === "recommended" || existing?.status === "accepted" || (existing?.status === "not_now" && existing.askAgainAt && existing.askAgainAt > now())) {
+        throw new PlatformToolError("invalid_state", toolNeedHeldNote(existing.status === "not_now" ? "not_now" : existing.status, existing));
+      }
+      const note = toolRecommendationNote(args);
+      const item = await db.transaction(async (tx) => {
+        const created = await repos.inbox.createItem(tx, caller.businessId, {
+          type: "decision",
+          from_agent_id: caller.agentId,
+          subject: note.subject,
+          body_md: note.bodyMd,
+          status_strip: [],
+          exhibit: { kind: "none", spec_ref: null },
+          decision: { options: note.options, free_text: false, expires_at: null, key: note.key },
+          blocks_continue: false,
+          source_event_ids: [],
+          entity_ids: [],
+        });
+        const need = await repos.toolNeeds.recommend(tx, caller.businessId, args.category, { pick: note.pick, alternatives: args.alternatives, sources: args.sources, inboxItemId: created.id });
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "tool_need.recommended", target: { kind: "tool_need", id: need.id }, details: { category: args.category, pick: note.pick.name, catalogKey: note.pick.catalogKey ?? null, route: note.pick.route, inboxItemId: created.id, sessionId: caller.sessionId } });
+        await writeGatewayEvent(tx, { businessId: caller.businessId, type: "inbox.item_created", actor: { kind: "agent", id: caller.agentId }, payload: { inboxItemId: created.id, type: created.type, fromAgentId: caller.agentId, subject: created.subject, blocksContinue: created.blocksContinue, sourceEventIds: [], cost: null } });
+        return created;
+      });
+      return { inboxItemId: item.id, subject: item.subject, checkedByFoundmill: !!note.pick.catalogKey };
     },
   };
 
