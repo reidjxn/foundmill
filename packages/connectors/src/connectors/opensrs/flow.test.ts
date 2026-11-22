@@ -9,10 +9,36 @@ import { makeToolContext } from "../../testing/contract-suite";
 import type { OwnDomainRow } from "../sending_domain/flow";
 import { sendingDomainMock } from "../sending_domain/mock";
 import { MOCK_COM_COST_MINOR, opensrsMock } from "./index";
-import { quoteDomain, registerDomain, registeredZone, setupRegisteredDomain, type RegisterFlowDeps } from "./flow";
+import { quoteDomain, registerDomain, registeredZone, setupRegisteredDomain, type DomainOrders, type RegisterFlowDeps } from "./flow";
 
 const BIZ = "0f0a0d00-0000-4000-8000-0000000000b1";
 const FOUNDER: RegistrantContact = { firstName: "Maya", lastName: "Lee", address1: "12 Elm Street", city: "Springfield", state: "IL", postalCode: "62701", country: "US", phone: "+1.2175550123", email: "maya@example.com" };
+
+/** One paid order per checkout id ("paid-<domain>"), claimable once; a released one can be claimed again. */
+function orders() {
+  const claimed = new Set<string>();
+  const released: string[] = [];
+  const done: string[] = [];
+  const noted: string[] = [];
+  const o: DomainOrders = {
+    claim: async (_b, id) => {
+      if (!id.startsWith("paid-") || claimed.has(id)) return null;
+      claimed.add(id);
+      return { domain: id.slice(5), priceMinor: MOCK_COM_COST_MINOR + 300, owner: FOUNDER, simulated: true, createdBy: null };
+    },
+    release: async (_b, id, why) => {
+      claimed.delete(id);
+      released.push(`${id}: ${why}`);
+    },
+    done: async (_b, id) => {
+      done.push(id);
+    },
+    note: async (_b, id, why) => {
+      noted.push(`${id}: ${why}`);
+    },
+  };
+  return { o, released, done, noted };
+}
 
 function deps(overrides: Partial<RegisterFlowDeps<OwnDomainRow>> = {}) {
   const rows = new Map<string, OwnDomainRow & Record<string, unknown>>();
@@ -42,7 +68,8 @@ function deps(overrides: Partial<RegisterFlowDeps<OwnDomainRow>> = {}) {
     },
     ...overrides,
   };
-  return { d, rows, asked };
+  const ord = orders();
+  return { d: { ...d, orders: ord.o }, rows, asked, ord };
 }
 
 describe("registering a domain", () => {
@@ -52,15 +79,32 @@ describe("registering a domain", () => {
     await expect(quoteDomain(deps().d, "acme.xyz")).rejects.toThrow(/ending in/);
   });
 
-  it("refuses a price other than the one the founder saw, before anything is registered", async () => {
+  it("registers only for a paid order, once: a second press or an unpaid checkout registers nothing", async () => {
     const { d, asked } = deps();
-    await expect(registerDomain(d, { businessId: BIZ, userId: BIZ, domain: "acme-goods.com", owner: FOUNDER, priceMinor: 100, siteHost: null })).rejects.toMatchObject({ code: "price_changed" });
-    expect(asked.map((a) => a.tool)).toEqual(["lookup_domain"]);
+    await expect(registerDomain(d, { businessId: BIZ, userId: BIZ, checkoutId: "open-acme-goods.com", siteHost: null })).rejects.toMatchObject({ code: "not_paid" });
+    expect(asked).toEqual([]);
+    await registerDomain(d, { businessId: BIZ, userId: BIZ, checkoutId: "paid-acme-goods.com", siteHost: null });
+    await expect(registerDomain(d, { businessId: "other", userId: BIZ, checkoutId: "paid-acme-goods.com", siteHost: null })).rejects.toMatchObject({ code: "not_paid" });
+    expect(asked.filter((a) => a.tool === "register_domain")).toHaveLength(1);
+  });
+
+  it("a simulated payment never pays for a live registration", async () => {
+    const { d, ord, asked } = deps();
+    await expect(registerDomain({ ...d, simulated: false }, { businessId: BIZ, userId: BIZ, checkoutId: "paid-acme-goods.com", siteHost: null })).rejects.toMatchObject({ code: "not_paid" });
+    expect(asked).toEqual([]);
+    expect(ord.released).toHaveLength(1);
+  });
+
+  it("gives the claim back when the name was taken in the meantime, so it can be refunded or tried again", async () => {
+    const { d, ord, rows } = deps();
+    await expect(registerDomain(d, { businessId: BIZ, userId: BIZ, checkoutId: "paid-google.com", siteHost: null })).rejects.toMatchObject({ code: "domain_unavailable" });
+    expect(ord.released).toEqual(["paid-google.com: The name was taken before it could be registered."]);
+    expect(rows.has(BIZ)).toBe(false);
   });
 
   it("registers with the founder as owner and sets every record in the zone", async () => {
     const { d, rows, asked } = deps();
-    const row = await registerDomain(d, { businessId: BIZ, userId: BIZ, domain: "acme-goods.com", owner: FOUNDER, priceMinor: MOCK_COM_COST_MINOR + 300, siteHost: "acme.foundmill.app" });
+    const row = await registerDomain(d, { businessId: BIZ, userId: BIZ, checkoutId: "paid-acme-goods.com", siteHost: "acme.foundmill.app" });
     expect(asked.map((a) => a.tool)).toEqual(["lookup_domain", "register_domain", "authenticate_domain", "set_dns_zone"]);
     expect(asked.find((a) => a.tool === "register_domain")?.args.owner).toEqual(FOUNDER);
     expect(row.sendgridDomainId).toEqual(expect.any(String));
@@ -81,21 +125,33 @@ describe("registering a domain", () => {
 
   it("one domain per project", async () => {
     const { d } = deps();
-    await registerDomain(d, { businessId: BIZ, userId: BIZ, domain: "acme-goods.com", owner: FOUNDER, priceMinor: MOCK_COM_COST_MINOR + 300, siteHost: null });
-    await expect(registerDomain(d, { businessId: BIZ, userId: BIZ, domain: "acme-two.com", owner: FOUNDER, priceMinor: MOCK_COM_COST_MINOR + 300, siteHost: null })).rejects.toMatchObject({ code: "domain_exists" });
+    await registerDomain(d, { businessId: BIZ, userId: BIZ, checkoutId: "paid-acme-goods.com", siteHost: null });
+    await expect(registerDomain(d, { businessId: BIZ, userId: BIZ, checkoutId: "paid-acme-two.com", siteHost: null })).rejects.toMatchObject({ code: "domain_exists" });
   });
 
   it("keeps the row when the setup fails after the registration went through", async () => {
     const { d, rows } = deps();
     const failing = { ...d, sending: async () => Promise.reject(new Error("SendGrid down")) };
-    const row = await registerDomain(failing, { businessId: BIZ, userId: BIZ, domain: "acme-goods.com", owner: FOUNDER, priceMinor: MOCK_COM_COST_MINOR + 300, siteHost: null });
+    const row = await registerDomain(failing, { businessId: BIZ, userId: BIZ, checkoutId: "paid-acme-goods.com", siteHost: null });
     expect(row).toMatchObject({ domain: "acme-goods.com", source: "registered", sendgridDomainId: null });
     expect(rows.has(BIZ)).toBe(true);
   });
 
+  it("an unclear registry answer keeps the claim: the name may be registered", async () => {
+    const { d, ord } = deps();
+    const flaky = { ...d, registrar: async <T>(tool: string, args: Record<string, unknown>): Promise<T> => (tool === "register_domain" ? Promise.reject(Object.assign(new Error("timeout"), { status: 502 })) : d.registrar<T>(tool, args)) };
+    await expect(registerDomain(flaky, { businessId: BIZ, userId: BIZ, checkoutId: "paid-acme-goods.com", siteHost: null })).rejects.toThrow("timeout");
+    expect(ord.released).toEqual([]);
+    expect(ord.noted[0]).toMatch(/did not answer clearly/);
+    // A definite refusal gives it back, with a fixed sentence (never the vendor's text).
+    const refusing = { ...d, registrar: async <T>(tool: string, args: Record<string, unknown>): Promise<T> => (tool === "register_domain" ? Promise.reject(Object.assign(new Error("phone +1.555 invalid"), { status: 409 })) : d.registrar<T>(tool, args)) };
+    await expect(registerDomain(refusing, { businessId: BIZ, userId: BIZ, checkoutId: "paid-acme-two.com", siteHost: null })).rejects.toThrow();
+    expect(ord.released).toEqual(["paid-acme-two.com: The registry refused the registration."]);
+  });
+
   it("a domain registered on the mocks is never set up on the live vendors", async () => {
     const { d } = deps();
-    await registerDomain(d, { businessId: BIZ, userId: BIZ, domain: "acme-goods.com", owner: FOUNDER, priceMinor: MOCK_COM_COST_MINOR + 300, siteHost: null });
+    await registerDomain(d, { businessId: BIZ, userId: BIZ, checkoutId: "paid-acme-goods.com", siteHost: null });
     const store = { ...d.store, get: async () => ({ ...(await d.store.get(BIZ))!, simulated: true }) };
     await expect(setupRegisteredDomain({ ...d, store, simulated: false }, { businessId: BIZ, siteHost: null })).rejects.toMatchObject({ code: "domain_simulated" });
   });

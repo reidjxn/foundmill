@@ -5,14 +5,15 @@
  *
  *   quote     OpenSRS says whether the name is free and its cost for a year; the founder's price is that plus the
  *             markup (`domainRegistrationEstimate`), shown as an Estimate.
- *   register  the founder pressed Register with the price and Tucows' agreement in front of them (the api checks the
- *             acceptance and who pressed). The price is quoted again and must be the one they saw; OpenSRS registers
- *             the name with the founder as owner, admin and billing contact; the row is written at once (a registration
- *             that went through is never lost), then `setup` runs.
+ *   register  only for a paid domain checkout (0150): the founder saw the price and Tucows' agreement, entered their
+ *             details and paid; the checkout is claimed once, OpenSRS registers the name with the founder as owner,
+ *             admin and billing contact, the row is written at once (a registration that went through is never lost),
+ *             the founder's details are deleted, then `setup` runs.
  *   setup     SendGrid's domain authentication, then the whole zone on OpenSRS's DNS: the ownership TXT, SendGrid's
  *             CNAMEs, the site's `www`, MX to SendGrid Inbound Parse (mail comes into Foundmill) and DMARC `p=none`.
  *             Safe to run again ("Finish setup") when a step failed after the registration.
  */
+import { APP_NAME } from "@foundmill/config";
 import { AppError, domainRegistrationEstimate, OWN_DOMAIN_DEFAULT_SENDER, OWN_DOMAIN_SENDING_SUBDOMAIN, ownDomainSiteRecord, parseDomain, REGISTERED_DOMAIN_DMARC, REGISTERED_DOMAIN_MX, type OwnDomainRecord, type RegistrantContact } from "@foundmill/shared";
 import { ownershipRecord, type OwnDomainRow } from "../sending_domain/flow";
 import type { ZoneRecordT } from "./tools";
@@ -49,18 +50,66 @@ export async function quoteDomain(deps: Pick<RegisterFlowDeps<OwnDomainRow>, "re
   return { domain, available: r.available && r.costMinor !== null, priceMinor: r.available && r.costMinor !== null ? domainRegistrationEstimate(r.costMinor) : null };
 }
 
+/** A paid domain checkout, claimed for its one registration (0150). */
+export interface DomainOrder {
+  domain: string;
+  /** What the founder paid, USD cents. */
+  priceMinor: number;
+  owner: RegistrantContact;
+  /** Paid by a simulated payment: it never pays for a live registration. */
+  simulated: boolean;
+  /** The founder who paid (and is the registrant). */
+  createdBy: string | null;
+}
+
+/** The paid domain checkouts: claim one for its registration, give it back if the registry refused, close it after. */
+export interface DomainOrders {
+  claim(businessId: string, checkoutId: string): Promise<DomainOrder | null>;
+  release(businessId: string, checkoutId: string, failure: string): Promise<void>;
+  /** Records why, keeping the claim (the outcome is not known, or the registration went through). */
+  note(businessId: string, checkoutId: string, failure: string): Promise<void>;
+  done(businessId: string, checkoutId: string): Promise<void>;
+}
+
 /**
- * shortcut: check-then-register is not atomic (two presses at once could both register). Harmless while a live
- * `register` is refused; before it opens, register from the paid domain checkout's webhook with the checkout as the
- * idempotency key and a placeholder row written first.
+ * The registration a paid domain checkout allows, once. The founder paid the price they were shown, for this name, with
+ * these registrant details; the claim is atomic, so a second press, a retry or a replayed webhook registers nothing. If
+ * the name was taken in the meantime or the registry refused outright, the claim is given back with why (the founder
+ * can try again, or Foundmill refunds the payment: money only goes out by a person at Stripe). An unclear answer keeps
+ * the claim: the name may be registered.
  */
-export async function registerDomain<R extends OwnDomainRow>(deps: RegisterFlowDeps<R>, input: { businessId: string; userId: string; domain: string; owner: RegistrantContact; priceMinor: number; siteHost: string | null }): Promise<R> {
-  if (await deps.store.get(input.businessId)) throw new AppError("domain_exists", "This project has a domain already. Remove it first to register another.", 409);
-  const quote = await quoteDomain(deps, input.domain);
-  if (!quote.available || quote.priceMinor === null) throw new AppError("domain_unavailable", `${quote.domain} is not available. Try another name.`, 409);
-  if (quote.priceMinor !== input.priceMinor) throw new AppError("price_changed", "The price changed since you looked. Check the new price and press Register again.", 409, { priceMinor: quote.priceMinor });
-  const done = await deps.registrar<{ orderId: string; registeredAt: string; expiresAt: string }>("register_domain", { domain: quote.domain, owner: input.owner });
-  const row = await deps.store.putRegistered(input.businessId, { domain: quote.domain, senderLocalPart: OWN_DOMAIN_DEFAULT_SENDER, orderId: done.orderId, registeredAt: new Date(done.registeredAt), expiresAt: new Date(done.expiresAt), priceMinor: quote.priceMinor, addedBy: input.userId, simulated: deps.simulated });
+export async function registerDomain<R extends OwnDomainRow>(deps: RegisterFlowDeps<R> & { orders: DomainOrders }, input: { businessId: string; userId: string; checkoutId: string; siteHost: string | null }): Promise<R> {
+  if (await deps.store.get(input.businessId)) throw new AppError("domain_exists", "This project has a domain already.", 409);
+  const order = await deps.orders.claim(input.businessId, input.checkoutId);
+  if (!order) throw new AppError("not_paid", "This payment cannot register a domain: it is not paid yet, or its domain is already being registered.", 409);
+  if (order.simulated !== deps.simulated) {
+    await deps.orders.release(input.businessId, input.checkoutId, "a simulated payment never pays for a live registration");
+    throw new AppError("not_paid", "This payment was simulated: it cannot register a real domain.", 409);
+  }
+  let done: { orderId: string; registeredAt: string; expiresAt: string };
+  try {
+    const quote = await quoteDomain(deps, order.domain);
+    if (!quote.available) throw new AppError("domain_unavailable", `${order.domain} was registered by someone else in the meantime. Your payment will be refunded.`, 409);
+    done = await deps.registrar("register_domain", { domain: order.domain, owner: order.owner });
+  } catch (e) {
+    // Only a definite refusal gives the payment back for another try (or a refund): after a timeout or a 5xx the
+    // registry may have registered the name, so the claim stays and Foundmill checks before anything else happens.
+    // The failure is a fixed sentence, never the vendor's text (it could echo the founder's details).
+    const status = (e as { status?: unknown }).status;
+    const taken = e instanceof AppError && e.code === "domain_unavailable";
+    if (taken || (typeof status === "number" && status >= 400 && status < 500)) await deps.orders.release(input.businessId, input.checkoutId, taken ? "The name was taken before it could be registered." : "The registry refused the registration.");
+    else await deps.orders.note(input.businessId, input.checkoutId, `The registry did not answer clearly. ${APP_NAME} checks this registration before anything else happens.`);
+    throw e;
+  }
+  let row: R;
+  try {
+    row = await deps.store.putRegistered(input.businessId, { domain: order.domain, senderLocalPart: OWN_DOMAIN_DEFAULT_SENDER, orderId: done.orderId, registeredAt: new Date(done.registeredAt), expiresAt: new Date(done.expiresAt), priceMinor: order.priceMinor, addedBy: order.createdBy ?? input.userId, simulated: deps.simulated });
+  } catch (e) {
+    // Registered at the registry but not recorded here: the claim stays, with the order id to record it by hand.
+    await deps.orders.note(input.businessId, input.checkoutId, `Registered at the registry (order ${done.orderId}) but not recorded yet.`).catch(() => undefined);
+    throw e;
+  }
+  await deps.orders.done(input.businessId, input.checkoutId);
   // The registration went through: a failure from here on leaves the row for "Finish setup".
   return (await setupRegisteredDomain(deps, { businessId: input.businessId, siteHost: input.siteHost }).catch(() => null)) ?? row;
 }
