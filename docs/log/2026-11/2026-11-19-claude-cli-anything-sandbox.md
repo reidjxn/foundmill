@@ -53,3 +53,10 @@ runs for a sandbox change; the founder should know. The Real Postgres failure on
 (`pg_authid_rolname_index` duplicate while migrating `0124_sites`) is a role-creation race outside this
 change.
 
+## Tool budget (Nov 22)
+`apps/orchestrator/src/__tests__/tool-budget.test.ts` caps a template's tool definitions at 6,500 tokens
+(Estimate). Granting all four programs to the content and social engines passed it by far, so each channel
+engine now holds one program: content has Inkscape (993 tokens), social has GIMP (531), the distribution
+strategist has LibreOffice only, and the design roles keep Inkscape and GIMP. The three default skills say "if
+you hold the tools", so a role without a program still reads them safely. The ceiling was not raised.
+

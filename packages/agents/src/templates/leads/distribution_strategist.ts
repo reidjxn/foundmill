@@ -50,7 +50,6 @@ export const distributionStrategist = defineTemplate({
     grant("quarantine", QUARANTINE_TOOLS),
     // The founder's own PostHog project when connected.
     grant("posthog", ["insights.query"]),
-    grant("cli_inkscape", ["vector.make", "files.release"]),
     grant("cli_libreoffice", ["documents.make", "files.release"]),
   ],
   skills: withCoreSkills(["channel_fit_scoring", "budget_allocation", "positioning", "experiment_design"]),
