@@ -285,14 +285,21 @@ describe("/communities/[id]", () => {
   it("audit #28: owners and moderators review held and reported posts, and mute, ban or restore members", async () => {
     memberView();
     api.handlers["live.communities.moderation"] = () => ({
-      items: [{ post: { ...post("held", ids.ben, "Call me on 415 555 0100", 5, { status: "pending_review", screening: { decision: "hold", flags: ["personal_data"], rationale: "x", mode: "mock" } }), authorName: "Ben Okoye" }, openReports: 2, reasons: ["spam"] }],
+      items: [
+        { post: { ...post("held", ids.ben, "Call me on 415 555 0100", 5, { status: "pending_review", screening: { decision: "hold", flags: ["personal_data"], rationale: "x", mode: "mock" } }), authorName: "Ben Okoye" }, openReports: 2, reasons: ["spam"] },
+        { post: { ...post("own", ids.me, "My own held post", 4, { status: "pending_review" }), authorName: null }, openReports: 0, reasons: [] },
+      ],
       restricted: [{ userId: ids.cal, status: "banned", role: "member", name: null }],
     });
     api.handlers["live.posts.moderate"] = (v) => ({ ...post("held", ids.ben, "x", 5), status: (v as { action: string }).action === "restore" ? "visible" : "hidden" });
     api.handlers["live.communities.moderateMember"] = (v) => ({ userId: (v as { userId: string }).userId, status: "muted", role: "member" });
     mount(<CommunityScreen communityId={ids.community} />);
     const panel = await screen.findByTestId("moderation-panel");
-    const item = await within(panel).findByTestId("moderation-item");
+    const [item, own] = await within(panel).findAllByTestId("moderation-item");
+    if (!item || !own) throw new Error("two items expected");
+    // Nobody approves their own post (H2): the queue says how it can still show.
+    expect(within(own).queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(within(own).getByTestId("moderation-own-post")).toBeTruthy();
     expect(item.textContent).toContain("2 reports");
     expect(item.textContent).toMatch(/Held by moderation: personal data/);
     fireEvent.click(within(item).getByRole("button", { name: "Approve" }));

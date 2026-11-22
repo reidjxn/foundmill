@@ -1,5 +1,5 @@
 /**
- * Booking (0157; founder, Nov 22, 2026): the setup and its services, the public read, and the bookings themselves.
+ * Booking (0161; founder, Nov 22, 2026): the setup and its services, the public read, and the bookings themselves.
  * Double booking must be impossible: two visitors racing for one slot get exactly one hold, whatever the starts, because
  * `bookings_no_overlap` decides, never a read before the write. A hold that ran out frees its slot, a canceled booking
  * frees it at once, and one business's bookings never touch another's.

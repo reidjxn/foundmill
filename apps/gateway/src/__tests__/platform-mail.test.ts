@@ -6,7 +6,7 @@
  * is refused without one (US CAN-SPAM); a proven reply or receipt is transactional and goes without it.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createPlatformMailConnector, createPlatformMailMock, emailEntityId, platformMailCustomArgs, readPlatformUnsubscribeToken, routedFetch, suppressionHashOfEmail, verifyPlatformMailArgs } from "@foundmill/connectors";
+import { createPlatformMailConnector, createPlatformMailMock, createSendgridConnector, emailEntityId, platformMailCustomArgs, readPlatformUnsubscribeToken, routedFetch, suppressionHashOfEmail, verifyPlatformMailArgs } from "@foundmill/connectors";
 import { repos, suppressionHash } from "@foundmill/db";
 import { APP_NAME } from "@foundmill/config";
 import { PLATFORM_MAIL_REFUSALS, POSTAL_ADDRESS_NOTE } from "@foundmill/shared";
@@ -301,6 +301,40 @@ describe("platform_mail through the gateway (mock)", () => {
     expect(() => platformMailConfig({ ...env, APP_ENV: "staging", PLATFORM_MAIL_SIGNING_SECRET: "short" })).toThrow(/at least 32/);
     expect(platformMailConfig({ ...env, APP_ENV: "development" }).signingSecret).toBeNull();
     expect(platformMailConfig({ ...env, APP_ENV: "test" }).signingSecret).toBeNull();
+  });
+});
+
+describe("no mail connected: a send to someone with no basis is told it is not connected", () => {
+  let g: GatewayFixture;
+  let calls = 0;
+
+  beforeAll(async () => {
+    const sendgrid = createSendgridConnector({ fetch: routedFetch({ "POST https://api.sendgrid.com/v3/mail/send": async () => (calls++, new Response(null, { status: 202 })) }) });
+    g = await setupGateway({ businessMode: "automated", connectors: [sendgrid, createPlatformMailMock()], liveConnectors: ["sendgrid"] });
+    g.deps.appEnv = "staging";
+    g.deps.platformMail = config({ domain: null });
+  }, 120_000);
+  afterAll(async () => g.close());
+
+  // The basis policy (`mail-needs-basis`) would refuse both; the agent must learn that mail is not connected instead.
+  it("SendGrid with no row answers integration_not_connected, and the project address off answers platform-mail-off", async () => {
+    const token = await g.token({ allowedTools: ["sendgrid:*", "platform_mail:*"], sessionId: await g.newSession() });
+    await expect(g.client.call(token, { connector: "sendgrid", tool: "send_mail", args: { kind: "transactional", from: "hello@project.example", to: ["nobody@example.com"], subject: "Welcome", text: "Hi." } })).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+    const r = asDeny(await g.client.call(token, message("nobody@example.com")));
+    expect(r.policyIds).toEqual([PLATFORM_MAIL_POLICY.off]);
+    expect(calls).toBe(0);
+    // Cedar's refusal is still on the record for both.
+    const rows = (await repos.audit.list(g.db, g.businessId, { action: "tool.call", limit: 10 })).items.map((a) => a.details as { outcome: string; policyIds: string[]; errorCode?: string });
+    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({ outcome: "deny", policyIds: ["mail-needs-basis"], errorCode: "integration_not_connected" }), expect.objectContaining({ outcome: "deny", policyIds: [PLATFORM_MAIL_POLICY.off, "mail-needs-basis"] })]));
+  });
+
+  it("any other refusal keeps its own answer: a suppressed recipient is refused, not told to connect", async () => {
+    const token = await g.token({ allowedTools: ["sendgrid:*"], sessionId: await g.newSession() });
+    await g.mailable("gone@example.com");
+    await repos.channels.addSuppression(g.db, g.businessId, { emailHash: suppressionHash("email", "gone@example.com"), reason: "unsubscribed" });
+    const r = asDeny(await g.client.call(token, { connector: "sendgrid", tool: "send_mail", args: { kind: "transactional", from: "hello@project.example", to: ["gone@example.com"], subject: "Welcome", text: "Hi." } }));
+    expect(r.policyIds).toContain("suppressed-recipient");
+    expect(calls).toBe(0);
   });
 });
 

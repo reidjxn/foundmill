@@ -1,5 +1,5 @@
 /**
- * Foundmill's own booking through the api (founder, Nov 22, 2026; services/booking.ts, routers/booking.ts, 0157).
+ * Foundmill's own booking through the api (founder, Nov 22, 2026; services/booking.ts, routers/booking.ts, 0161).
  *
  * The one bug that must never ship is a double booking: two visitors racing for one slot through the public api get
  * exactly one hold, and the loser is told the time was just taken. The rest: the mock golden path from an agent's

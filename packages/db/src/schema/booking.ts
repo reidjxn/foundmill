@@ -1,5 +1,5 @@
 /**
- * 0157 — Foundmill's own booking (founder, Nov 22, 2026): the project's setup, its services, and its bookings (a held
+ * 0161 — Foundmill's own booking (founder, Nov 22, 2026): the project's setup, its services, and its bookings (a held
  * slot is a booking in status `held`). Members read; only the services write. `bookings_no_overlap` (an exclusion
  * constraint in the SQL) is what prevents a double booking.
  */

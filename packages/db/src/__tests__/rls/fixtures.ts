@@ -56,7 +56,7 @@ export interface BusinessFixture {
   postAssetIds: string[];
   /** 0106: post links, one per `post_attributions` sample (each carries its post and network). */
   postLinks: { id: string; assetId: string; network: string | null }[];
-  /** 0157: a bookable service, for the `bookings` samples; null on a database from before 0157. */
+  /** 0161: a bookable service, for the `bookings` samples; null on a database from before 0161. */
   bookingServiceId: string | null;
 }
 
@@ -268,7 +268,7 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
         .returning({ id: s.postLinks.id, assetId: s.postLinks.assetId, network: s.postLinks.network })
     : [];
 
-  // 0157: one bookable service (named columns, and none on a database from before 0157).
+  // 0161: one bookable service (named columns, and none on a database from before 0161).
   const hasBooking = ((await db.execute(sql`select to_regclass('public.booking_services') is not null as ok`)) as unknown as { rows: { ok: boolean }[] }).rows[0]?.ok === true;
   const bookingService = hasBooking
     ? first(((await db.execute(sql`insert into booking_services (business_id, name, duration_min, currency) values (${businessId}, 'Lesson', 60, 'USD') returning id`)) as unknown as { rows: { id: string }[] }).rows, "booking_services")

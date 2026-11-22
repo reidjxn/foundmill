@@ -1,4 +1,4 @@
--- 0157 — Foundmill's own booking, free on every plan (founder, Nov 22, 2026). For a project whose customers pick a
+-- 0161 — Foundmill's own booking, free on every plan (founder, Nov 22, 2026). For a project whose customers pick a
 -- time (tutoring, cleaning, coaching, repairs): one person, any number of services. No booking vendor.
 --
 --   booking_settings   one row per project: the founder's zone and weekly hours, whether the founder's calendar's busy

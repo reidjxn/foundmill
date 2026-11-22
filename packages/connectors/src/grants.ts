@@ -48,6 +48,7 @@ import { tinkTools } from "./connectors/tink/tools";
 import { voyageTools } from "./connectors/voyage/tools";
 import { openaiImagesTools } from "./connectors/openai_images/tools";
 import { elevenlabsTools } from "./connectors/elevenlabs/tools";
+import { cliTools } from "./connectors/cli_anything/tools";
 import { onesignalTools } from "./connectors/onesignal/tools";
 import { platformNotifyTools } from "./connectors/platform_notify/tools";
 import { sendingDomainTools } from "./connectors/sending_domain/tools";
@@ -105,6 +106,10 @@ const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: Pol
   web: webTools,
   quarantine: quarantineTools,
   platform_mail: platformMailTools,
+  cli_inkscape: cliTools("inkscape"),
+  cli_libreoffice: cliTools("libreoffice"),
+  cli_ffmpeg: cliTools("ffmpeg"),
+  cli_gimp: cliTools("gimp"),
   notion_mcp: remoteToolList(NOTION_MCP),
   hubspot_mcp: remoteToolList(HUBSPOT_MCP),
   shopify_mcp: remoteToolList(SHOPIFY_MCP),
@@ -292,6 +297,11 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
   quarantine: { read_untrusted: ["read_untrusted"] },
   // The project's Foundmill sending address (package 1.5): one message to one person, from the project.
   platform_mail: { "mail.send": ["send_mail"] },
+  // CLI-Anything programs: make files in the working copy; release_output asks the founder before a file is used.
+  cli_inkscape: { "vector.make": ["new_document", "add_rect", "add_circle", "add_star", "add_polygon", "add_text", "set_fill", "export"], "files.release": ["release_output"] },
+  cli_libreoffice: { "documents.make": ["new_document", "add_heading", "add_paragraph", "add_slide", "set_cell", "export"], "files.release": ["release_output"] },
+  cli_ffmpeg: { "media.make": ["convert", "trim", "extract_audio", "poster"], "files.release": ["release_output"] },
+  cli_gimp: { "images.make": ["new_image", "draw_text", "draw_rect", "scale", "export"], "files.release": ["release_output"] },
 };
 
 /**

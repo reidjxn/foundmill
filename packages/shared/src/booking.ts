@@ -8,7 +8,7 @@
  * time that does not exist that day (the hour skipped in spring) offers no slot, and one that happens twice (the hour
  * repeated in the fall) offers one, the first. A visitor's own zone only changes how an instant is shown.
  *
- * Double booking is prevented in the database, not here (0157: an exclusion constraint over the busy range of held and
+ * Double booking is prevented in the database, not here (0161: an exclusion constraint over the busy range of held and
  * confirmed bookings). `slotStarts` decides what is offered; the constraint decides who gets it.
  */
 import { isValidTimeZone } from "./time-zone";

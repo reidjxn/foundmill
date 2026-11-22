@@ -9,7 +9,7 @@ import { MemoryRedis, userStreamKey } from "@foundmill/events";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { MemoryRateLimitStore, RateLimitedError } from "../services/rate-limit";
-import { takeCommunity, takeCommunityInvite, takeMessage, takePostReport } from "../services/live-limits";
+import { takeCommunity, takeCommunityEdit, takeCommunityInvite, takeCommunityJoin, takeMessage, takePostReport } from "../services/live-limits";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -152,6 +152,15 @@ describe("limits that two replicas count together", () => {
     const [a, b] = replicas();
     for (let i = 0; i < LIMITS.liveReportsPerUserPerHour; i++) await takePostReport(i % 2 ? b : a, "u1");
     expect(await refused(takePostReport(b, "u1"))).toBe(true);
+  });
+
+  it("joins and community changes past the day's allowance are refused on the second replica (H1, H3)", async () => {
+    const [a, b] = replicas();
+    for (let i = 0; i < LIMITS.liveJoinsPerUserPerDay; i++) await takeCommunityJoin(i % 2 ? b : a, "u1");
+    expect(await refused(takeCommunityJoin(b, "u1"))).toBe(true);
+    for (let i = 0; i < LIMITS.liveCommunityEditsPerUserPerDay; i++) await takeCommunityEdit(i % 2 ? b : a, "u1");
+    expect(await refused(takeCommunityEdit(b, "u1"))).toBe(true);
+    expect(await refused(takeCommunityEdit(a, "u2"))).toBe(false);
   });
 
   it("the 201st message of an hour is refused, whichever thread it goes to", async () => {

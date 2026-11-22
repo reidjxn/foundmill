@@ -281,16 +281,15 @@ export const BUSINESS_MODE_CARDS: ModeCard<BusinessMode>[] = [
 export const DEFAULT_SPEND_CAP_MINOR = Object.fromEntries(BUSINESS_MODES.map((m) => [m, recommendedSpendLineMinor(m, LIMITS.approvalThresholdMinorDefault)])) as Record<BusinessMode, number>;
 
 /**
- * The careful spend cap for each action that Commit starts on: 5.00 in the project's currency (founder's answer A4,
- * 2026-11-17; WP-14 T11). It replaces, as the default, the mode's own line and the 0 a founder with no budget started
- * on (WP-04 D4). The founder changes it on Commit (More options) and later in Settings › What the team can do.
+ * The spend cap for each action that Commit starts on: 0, so every spending action asks the founder first, whatever the
+ * amount (founder, 2026-11-22; it was 5.00 from WP-14 T11). The founder raises it on Commit (More options) and later in
+ * Settings › What the team can do.
  */
-export const COMMIT_SPEND_CAP_MINOR = 500;
+export const COMMIT_SPEND_CAP_MINOR = 0;
 
 /**
- * The spend cap Commit selects for a mode: 5.00, or the mode's own line when that is lower ("Ask me first" keeps 0, so
- * every spend asks). The same for every founder, with a budget on the profile or not. 0 is "ask above nothing"; empty
- * is no limit.
+ * The spend cap Commit selects for a mode: 0 in every mode, for every founder. 0 is "ask above nothing"; empty is no
+ * limit.
  */
 export function defaultSpendCapMinor(mode: BusinessMode): number {
   return Math.min(DEFAULT_SPEND_CAP_MINOR[mode], COMMIT_SPEND_CAP_MINOR);

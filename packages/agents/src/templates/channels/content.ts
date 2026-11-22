@@ -9,6 +9,7 @@ export const channelContent = defineChannelTemplate({
     grant("google_drive", ["files.list", "files.read", "files.write"]),
     grant("notion", ["pages.search", "pages.read", "pages.write"]),
     grant("github", ["repos.read", "pulls.create", "pulls.read"]),
+    grant("cli_inkscape", ["vector.make", "files.release"]),
   ],
   guardrails: [
     "Brand voice from the brief and glossary; every factual claim cites a source record id; no invented statistics, quotes or customer stories.",

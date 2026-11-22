@@ -77,6 +77,10 @@ export const LIMITS = {
   liveCommunitiesPerUserPerDay: 3,
   liveInvitesPerUserPerDay: 50,
   liveReportsPerUserPerHour: 30,
+  /** Communities a person joins per day (H1: a burst of fresh accounts joining to report together is slowed). */
+  liveJoinsPerUserPerDay: 30,
+  /** Changes to a community a person owns per day (H3: each change to its name or description is a screening model call). */
+  liveCommunityEditsPerUserPerDay: 20,
   /** Messages a thread shows at first (and per "Load earlier"). */
   liveMessagePageSize: 50,
   /** Largest tRPC request body the api reads (bytes); a request carrying a logo file may be larger (`trpcMaxLogoBodyBytes`). */

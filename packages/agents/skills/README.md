@@ -99,7 +99,7 @@ The generator maps the authoring words onto the library's fields (`LibrarySkill`
 | Field | In the catalog |
 | --- | --- |
 | `when_to_use` | `whenToUse` |
-| `roles`, `default_for` | `roles`, `defaultFor` (every skill moved in by WP-06 T3 has `defaultSince: 1`) |
+| `roles`, `default_for` | `roles`, `defaultFor` (`defaultSince` is 1 unless the file sets the optional `default_since`, see above) |
 | `stage` | `stages`: `idea` → `drafting`, `awaiting_signoff`; `building` → `building`; `page_live` → `building`, `selling`; `first_followers`, `first_sale`, `growing` → `selling` |
 | `needs` | `requires`, all "better with": `web_research` → `web`, `email_send` → `platform_mail`, `social_publish` → `buffer`, `payments` → `stripe`, `repo` → `github`, `analytics` → `posthog`. `search_console` → `notYetOnFoundmill: ["Search Console"]`. `page_publish` and `none` → nothing (no agent tool publishes a page; the founder does) |
 | `adapted_from`, `license_note` | `provenance`: `original` → Foundmill's own; `original, after ...` → Foundmill's own with that as the note; `collection:skill` sources → adapted, under the first license `license_note` names (MIT or Apache-2.0), with `license_note` as the note |

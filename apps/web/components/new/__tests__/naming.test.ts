@@ -111,15 +111,15 @@ describe("commit screen: kit", () => {
 });
 
 describe("commit screen: form (AC-11.1.6, AC-11.1.7)", () => {
-  it("defaults to the careful option: Assisted, Personal, a 5.00 spend cap for each action and Autopilot off (WP-14 T11, A4)", () => {
+  it("defaults to the careful option: Assisted, Personal, a spend cap of 0 (every spend asks) and Autopilot off (WP-14 T11; founder, 2026-11-22)", () => {
     const form = initialCommitForm({ title: "Ledgerly (fork)", archetype: "b2b_saas" }, DEFAULT_KIT, "EUR");
     expect(form.businessMode).toBe("assisted");
     expect(form.gameMode).toBe("personal");
     expect(form.name).toBe("Ledgerly");
-    expect(form.spendCap).toBe("5");
-    expect(COMMIT_SPEND_CAP_MINOR).toBe(500);
-    // 5.00 in the project's currency, whatever it is: the amount carries no currency of its own.
-    expect(commitInput(IDEA, form)).toMatchObject({ spendCapMinor: 500, currency: "EUR", autopilot: false });
+    expect(form.spendCap).toBe("0");
+    expect(COMMIT_SPEND_CAP_MINOR).toBe(0);
+    // 0 is "ask above nothing", never null (no cap).
+    expect(commitInput(IDEA, form)).toMatchObject({ spendCapMinor: 0, currency: "EUR", autopilot: false });
     expect(commitInput(IDEA, form)).not.toHaveProperty("overnight");
     expect(form.autopilot).toBe(false);
     expect(form.logo).toBeNull();
@@ -135,10 +135,9 @@ describe("commit screen: form (AC-11.1.6, AC-11.1.7)", () => {
     expect(ARCHETYPE_CARDS).toHaveLength(7);
   });
 
-  it("selects 5.00 for every founder, and never more than the mode's own line (replaces WP-04 D4's 0 as the default)", () => {
-    expect(defaultSpendCapMinor("assisted")).toBe(500);
-    // "Decide on its own" starts careful too; "Ask me first" keeps 0, so every spend asks.
-    expect(defaultSpendCapMinor("automated")).toBe(500);
+  it("selects 0 in every mode for every founder, so no spend runs without asking (founder, 2026-11-22)", () => {
+    expect(defaultSpendCapMinor("assisted")).toBe(0);
+    expect(defaultSpendCapMinor("automated")).toBe(0);
     expect(defaultSpendCapMinor("augmented")).toBe(0);
     for (const mode of BUSINESS_MODE_CARDS.map((m) => m.value)) expect(defaultSpendCapMinor(mode), mode).toBeLessThanOrEqual(DEFAULT_SPEND_CAP_MINOR[mode]);
     // The founder who changes it gets what they chose: more, nothing, or no cap at all.

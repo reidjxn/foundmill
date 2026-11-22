@@ -1,5 +1,5 @@
 /**
- * Booking (0157; founder, Nov 22, 2026): the project's setup, its services and its bookings. Service connection only
+ * Booking (0161; founder, Nov 22, 2026): the project's setup, its services and its bookings. Service connection only
  * for writes: the api writes for a founder after checking the role, and for a visitor through the public route.
  *
  * Double booking is prevented by the table's exclusion constraint (`bookings_no_overlap`), never by a read before the

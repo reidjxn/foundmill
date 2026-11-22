@@ -22,6 +22,8 @@ export const LIVE_LIMITS = {
   communities: { limit: LIMITS.liveCommunitiesPerUserPerDay, windowMs: DAY },
   invites: { limit: LIMITS.liveInvitesPerUserPerDay, windowMs: DAY },
   reports: { limit: LIMITS.liveReportsPerUserPerHour, windowMs: HOUR },
+  joins: { limit: LIMITS.liveJoinsPerUserPerDay, windowMs: DAY },
+  communityEdits: { limit: LIMITS.liveCommunityEditsPerUserPerDay, windowMs: DAY },
 } as const;
 
 /** Spends one connection request from the person and from the pair, or throws TOO_MANY_REQUESTS. */
@@ -68,6 +70,16 @@ export async function takeCommunity(limits: RateLimitStore, userId: string): Pro
 /** Spends one community invitation from the person's day. */
 export async function takeCommunityInvite(limits: RateLimitStore, userId: string): Promise<void> {
   await takeOrThrow(limits, "Invitation", [{ key: `live:invite:${userId}`, rule: LIVE_LIMITS.invites }]);
+}
+
+/** Spends one community join (or accepted invitation) from the person's day. */
+export async function takeCommunityJoin(limits: RateLimitStore, userId: string): Promise<void> {
+  await takeOrThrow(limits, "Joining communities", [{ key: `live:join:${userId}`, rule: LIVE_LIMITS.joins }]);
+}
+
+/** Spends one change to a community from its owner's day (a new name or description is a screening model call). */
+export async function takeCommunityEdit(limits: RateLimitStore, userId: string): Promise<void> {
+  await takeOrThrow(limits, "Community changes", [{ key: `live:community-edit:${userId}`, rule: LIVE_LIMITS.communityEdits }]);
 }
 
 /** Spends one post report from the person's hour. */

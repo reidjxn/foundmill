@@ -4,7 +4,7 @@
  * `booking.*`.
  *
  * **Double booking is the one bug that must never ship.** Nothing here decides who gets a slot by reading first: a
- * hold and a move are attempted and the database's exclusion constraint (`bookings_no_overlap`, 0157) refuses the
+ * hold and a move are attempted and the database's exclusion constraint (`bookings_no_overlap`, 0161) refuses the
  * second of two overlapping ones (`repos.booking.hold` / `reschedule` answer null). The slot arithmetic
  * (`@foundmill/shared/booking`) only decides what is offered.
  *
@@ -534,7 +534,7 @@ export interface SaveBookingSetupInput {
 /** `booking.save`: the zone, the hours, the calendar switch and the whole list of services. Saving never turns booking on or off. */
 export async function saveBookingSetup(ctx: BusinessContext, input: SaveBookingSetupInput): Promise<BookingSetupView> {
   assertAdmin(ctx);
-  // The booking tables are the services' to write (0157): the role was checked above.
+  // The booking tables are the services' to write (0161): the role was checked above.
   await ctx.db.transaction(async (tx) => {
     const saved = await repos.booking.saveSetup(tx, ctx.businessId, { ...input, currency: ctx.business.currency });
     await audit(tx, ctx, { action: "booking.setup_saved", target: { kind: "business", id: ctx.businessId }, details: { services: saved.services.length, useCalendar: saved.settings?.useCalendar ?? false } });
