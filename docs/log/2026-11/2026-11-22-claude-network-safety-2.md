@@ -13,7 +13,8 @@ The medium and low findings of the security review in #217's description (Launch
 - **M5:** the name search and the business profile page leave out a business whose owner, cofounder or admin is blocked either way with the viewer (`repos.social.runByBlocked`), and `lookupPeople` names nobody blocked either way.
 - **L1:** `repos.social.stillSpeaksFor`: a member's business, and a community's owning business, show only while the person still has a writing membership in it.
 - **L2:** community posts link only http(s) addresses (`webLinksOnly`); the community's name moved inside the untrusted block of the screen prompt.
-- **L3:** `live.people.search`, `find` and `profile` (except one's own) need the 18+ confirmation, and `public_profiles` lists a founder only once they have confirmed. Every screen that reads people (Network's Find people and name search, a person's page, the CRM's "On Foundmill" group) waits for the confirmation through `useCanReadPeople` and shows `AdultNotice` instead: one tick and Confirm records it and lets the person straight in.
+- **L3:** `live.people.search`, `find` and `profile` (except one's own) need the 18+ confirmation, and `public_profiles` lists a founder only once they have confirmed.
+- **L3, on screen:** every screen that reads people (Network's Find people and name search, a person's page, the CRM's "On Foundmill" group) waits for the confirmation through `useCanReadPeople` and shows `AdultNotice` instead: one tick and Confirm records it and lets the person straight in.
 - Tests: api `live-social.test.ts` ("M1 to L3"), db `repos/social.test.ts`, evals `moderation.test.ts` (and three note cases in `MODERATION_CASES`), web `LiveScreens.test.tsx`.
 
 ## Decisions
