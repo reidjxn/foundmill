@@ -22,6 +22,8 @@ export const EXPLAINERS: Readonly<Record<string, ExplainerCopy>> = {
   "product/roadmap": entry("product/roadmap", "What your team plans to build, in order.", "Read the next three items. Say so if the order is wrong.", "A date here is a plan, labeled Estimate, until the work is done."),
   "product/specification": entry("product/specification", "What your product does, written so your team can build it.", "Read it once and approve it, or ask for changes in your own words.", "Your team builds what this says, so a wrong line here becomes wrong work."),
   "product/public-page": PUBLIC_PAGE_EXPLAINER,
+  "distribution/first-ten": entry("distribution/first-ten", "Ten people to talk to first, one at a time.", "Add someone you know, copy a message to send yourself, and write down what they say.", "Nothing here is sent for you. An empty slot is just an empty slot."),
+  "distribution/creative": entry("distribution/creative", "Every post, email and ad your team has drafted, before anyone outside sees it.", "Open a draft, then approve it, reject it or share it yourself.", "A draft is not published until you approve it or post it yourself."),
   "distribution/leads": entry("distribution/leads", "People who might buy, and where each one stands.", "Open a lead to see what your team knows about them.", "Nothing is sent to a lead until you approve it."),
   "distribution/campaigns": entry("distribution/campaigns", "Each push to find customers, such as an email series or a post.", "Check the message and the audience before you say go.", "A campaign that contacts people outside waits for your yes."),
   "finance/overview": FINANCE_EXPLAINER,
