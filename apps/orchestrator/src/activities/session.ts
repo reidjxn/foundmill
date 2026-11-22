@@ -913,6 +913,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         envNames: Object.keys(env),
         modelBilling: business.modelBilling,
         branch: `agent/${task.id}`,
+        ...(model.effort ? { effort: model.effort } : {}),
         maxTurns: DEFAULT_MAX_TURNS,
         planSteps: recording?.planSteps ?? 0,
         // A live session's ring starts at 0 tests: the acceptance run says how many ran. Started at the criteria count,
@@ -2104,6 +2105,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         allowedTools: policy.allowedTools,
         disallowedTools: policy.disallowedTools,
         maxTurns: launch.maxTurns,
+        // The route's effort (WP-09 T7), never the SDK's own default, so a session runs at what routing.ts says.
+        ...(launch.effort ? { effort: launch.effort } : {}),
         cwd,
         // The SDK itself stops past this (its result is `error_max_budget_usd`, see classifyTurnEnd): the task's budget
         // and, on the platform key, what the credits allowed at launch (SEC2 S2), whichever is less; `budget` also holds what is

@@ -459,6 +459,11 @@ export interface ModelOption {
   wageDelta: Money;
   /** Why this option is unavailable (e.g. "Inbox Composer is locked to Opus"). */
   lockedReason?: string;
+  /**
+   * Needs a paid plan or the founder's own Anthropic key (WP-13 T7): drawn slightly grayed but still focusable and
+   * selectable; choosing it opens `BetterModelsPrompt` instead of selecting it.
+   */
+  gated?: true;
   warning?: string;
 }
 

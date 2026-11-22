@@ -172,10 +172,14 @@ export interface ModelCompareOption {
   predictedWageMinor: number;
   predictedSkillDelta?: number | null;
   label?: "Estimate";
+  /** Needs a paid plan or the founder's own Anthropic key (WP-13 T7). */
+  gate?: "upgrade_or_own_key";
 }
 
 export interface ModelCompareResponse {
   current: ModelKey;
+  /** The model the agent's work sessions run on now (a free plan keeps a stored Opus for after an upgrade). */
+  inUse?: ModelKey;
   locked?: boolean;
   /** What the predictions scale: this month's spend, the last 30 days, or a typical month for an agent with none. */
   basis?: "this_month" | "last_30_days" | "typical_month";

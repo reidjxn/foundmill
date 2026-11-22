@@ -87,7 +87,7 @@ const Cards = z.object({ concepts: z.array(Card).min(2).max(6) });
 const cards = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `Card ${i}`, score: (i % 5) + 1 }));
 
 describe("per-route effort and fast mode", () => {
-  it("applies the route's effort, lets the request override it, and leaves effortless routes alone", async () => {
+  it("applies the route's effort (written down for every Opus and Sonnet route, WP-09 T6), and lets the request override it", async () => {
     const { fetch, calls } = fakeFetch([() => message("ok")]);
     const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep });
     const ask = (route: "ideation" | "departmentLead" | "foundations" | "logoDesigner" | "chiefOfStaff" | "inboxComposer", effort?: "high") => client.complete({ route, messages: [{ role: "user", content: "go" }], ...(effort ? { effort } : {}) });
@@ -98,7 +98,7 @@ describe("per-route effort and fast mode", () => {
     await ask("logoDesigner");
     await ask("chiefOfStaff");
     await ask("inboxComposer");
-    expect(calls.map((c) => (c.body.output_config as { effort?: string } | undefined)?.effort)).toEqual(["low", undefined, "high", "low", "low", undefined, "low"]);
+    expect(calls.map((c) => (c.body.output_config as { effort?: string } | undefined)?.effort)).toEqual(["low", "medium", "high", "low", "low", "medium", "low"]);
     expect(r.effort).toBe("low");
     // Fast mode is off unless the client opts in: no speed and no fast-mode beta. Opus and Sonnet go to the beta endpoint
     // for the server-side refusal fallback (WP-09 T5), with nothing else on it.
