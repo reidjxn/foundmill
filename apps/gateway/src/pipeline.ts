@@ -30,6 +30,7 @@ import {
   connectionRefused,
   canonicalJson,
   isConfigError,
+  isFounderExecutedTool,
   isServiceMediaTool,
   isServiceOnlyConnector,
   isUntrusted,
@@ -38,6 +39,7 @@ import {
   PLATFORM_MAIL_KEY,
   readForQuarantine,
   readableContent,
+  remoteFounderExecutedCall,
   remoteHardGateCall,
   toAgentEnvelope,
   type Connector,
@@ -327,6 +329,16 @@ export function refuseServiceOnly(connectorKey: string): void {
   if (isServiceOnlyConnector(connectorKey)) throw new GatewayError("service_only_connector", `${connectorKey} is called by the platform itself; agent sessions cannot use it`, 403, { connector: connectorKey });
 }
 
+/** Policy id of the refusal of a founder-executed tool for any session token (policy `founder-executed` says the same in Cedar). */
+export const FOUNDER_EXECUTED_POLICY_ID = "founder-executed";
+
+async function refuseFounderExecuted(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, log: GatewayLogger, ref: string): Promise<ToolCallResult> {
+  const reasons = [`${ref} runs only from the founder's own press on the exact request, never for an agent or any token`];
+  const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [FOUNDER_EXECUTED_POLICY_ID] });
+  log.warn({ reasons }, "tool call refused: founder-executed tool");
+  return { status: 403, body: { outcome: "deny", reasons, policyIds: [FOUNDER_EXECUTED_POLICY_ID], costMinor: 0, auditId: audit.id } };
+}
+
 function findTool(connector: Connector, name: string): McpToolDefinition | undefined {
   return connector.tools.find((t) => t.name === name);
 }
@@ -341,6 +353,10 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   // 0. Service-only connectors (openai_images): only the platform's own service routes call them, never an agent session,
   // whatever its token was minted with.
   refuseServiceOnly(req.connector);
+
+  // 0b. A founder-executed tool (founder, 2026-11-22) never runs for a session token, whatever it allows (even `*`), in
+  // every business mode: only the founder's own press runs it, on `POST /v1/founder-actions/execute` (founder-action.ts).
+  if (isFounderExecutedTool(req.connector, req.tool)) return refuseFounderExecuted(deps, session, req, log, ref);
 
   // 1. Session scope: a token only reaches the tools it was minted for (BUILD §9.3).
   if (!toolAllowed(session.allowedTools, req.connector, req.tool)) {
@@ -371,6 +387,9 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
 
   // 2c. A remote MCP server's unlisted tool whose name would move money, sign, accept terms, delete permanently or change
   // security settings is a hard gate: denied before anyone is asked (the tool is not on Foundmill's list for that server).
+  // The same for a founder-executed tool named through `call_unlisted_tool` (in any spelling): denied before anyone is asked.
+  const founderNamed = remoteFounderExecutedCall(connector.key, tool.name, args);
+  if (founderNamed) return refuseFounderExecuted(deps, session, req, log, `${connector.key}:${founderNamed}`);
   const gatedRemote = remoteHardGateCall(connector.key, tool.name, args);
   if (gatedRemote) {
     const reasons = [`${gatedRemote} on ${connector.displayName} would move money, sign, accept terms, delete permanently or change security settings: only the founder does that, at ${connector.displayName}`];
@@ -612,6 +631,8 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     finance: attrs.finance,
     contract: attrs.contract,
     paymentRecord: attrs.paymentRecord,
+    askAlways: hints.askAlways ?? false,
+    founderExecuted: hints.founderExecuted ?? false,
     // Decided here from the call's arguments (never reported by the agent): a DNS change that routes or authenticates email.
     securitySettings: securitySettingsChange(connector.key, tool.name, args) !== null,
   };

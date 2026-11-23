@@ -17,7 +17,7 @@
  */
 import { z } from "zod";
 import { repos } from "@foundmill/db";
-import { isRouteOnlyTool, ROUTE_ONLY_TOOLS } from "@foundmill/connectors";
+import { isFounderExecutedTool, isRouteOnlyTool, ROUTE_ONLY_TOOLS } from "@foundmill/connectors";
 import { DOWNLOAD_ARCHIVE_TOOL } from "@foundmill/connectors/connectors/github/tools";
 import { AUDIT_ACTION_TOOL_CALL, REPO_ARCHIVE_TOOLS, type GatewayDeps, type ToolCallResult } from "./pipeline";
 import { tracedToolCall } from "./tracing";
@@ -159,7 +159,8 @@ export async function serveArchive(deps: GatewayDeps, session: SessionToken, inp
  * every other tool (the caller runs the pipeline as usual).
  */
 export async function routeOnlyCall(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed): Promise<ToolCallResult | null> {
-  if (!isRouteOnlyTool(req.connector, req.tool)) return null;
+  // A founder-executed tool is refused by the pipeline itself, with its own policy id, for every token.
+  if (!isRouteOnlyTool(req.connector, req.tool) || isFounderExecutedTool(req.connector, req.tool)) return null;
   if (session.sessionId !== null) {
     const reasons = [`${req.connector}:${req.tool} is served only on its own route, never to an agent session`];
     const audit = await repos.audit.append(deps.db, session.businessId, {

@@ -82,7 +82,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = Object.freeze([
   vendor({ key: "shopify", name: "Shopify", categories: ["shipping", "inventory"], url: "https://www.shopify.com", regions: "global", route: "remote_mcp", connectorKey: "shopify_mcp", testMode: true, priceBand: "under_50", note: "A store with stock counts and shipping labels built in." }),
   vendor({ key: "shippo", name: "Shippo", categories: ["shipping"], url: "https://goshippo.com", regions: ["US", "CA", "UK", "EU", "AU"], route: "api_key", testMode: true, priceBand: "free_tier", note: "Compares carriers and prints labels; a small fee per label." }),
   // Approved by the founder, Nov 22, 2026: the catalog's patents and IP vendor, through its own remote MCP server.
-  vendor({ key: "lightbringer", name: "Lightbringer", categories: ["patents_ip"], url: "https://lightbringer.com", regions: ["US"], route: "remote_mcp", testMode: false, priceBand: "quote", note: "Prepares and files a patent application with its own patent practitioners. You file with one press; the fee is quoted before you do." }),
+  vendor({ key: "lightbringer", name: "Lightbringer", categories: ["patents_ip"], url: "https://lightbringer.com", regions: ["US"], route: "remote_mcp", connectorKey: "lightbringer_mcp", testMode: false, priceBand: "quote", note: "Its own patent practitioners prepare a patent application. You ask once with one press; Lightbringer then quotes its fee and takes payment and terms itself, with you." }),
 ]);
 
 const BY_KEY = new Map(TOOL_CATALOG.map((t) => [t.key, t] as const));

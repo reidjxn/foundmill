@@ -67,6 +67,7 @@ export interface PlatformSecrets {
   hubspotMcpClientId?: string;
   hubspotMcpClientSecret?: string;
   shopifyMcpClientId?: string;
+  lightbringerMcpClientId?: string;
 }
 
 /**
@@ -127,6 +128,7 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   set("hubspotMcpClientId", env.HUBSPOT_MCP_CLIENT_ID);
   set("hubspotMcpClientSecret", env.HUBSPOT_MCP_CLIENT_SECRET);
   set("shopifyMcpClientId", env.SHOPIFY_MCP_CLIENT_ID);
+  set("lightbringerMcpClientId", env.LIGHTBRINGER_MCP_CLIENT_ID);
   return s;
 }
 

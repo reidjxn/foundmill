@@ -154,6 +154,12 @@ export interface ApprovalRouting {
 export const FOUNDER_ACCOUNT_SEND_TOOLS: ReadonlySet<string> = new Set(["gmail:send_message", "google_calendar:create_event", "google_calendar:update_event", "google_calendar:delete_event"]);
 
 /**
+ * Connectors whose every approval is the founder's, whoever Team › Responsibilities names (founder, 2026-11-22): what
+ * Lightbringer's tools send goes to its practitioners from the founder's own account, so no delegate answers for them.
+ */
+export const FOUNDER_ACCOUNT_CONNECTORS: ReadonlySet<string> = new Set(["lightbringer_mcp"]);
+
+/**
  * Calls whose approval only an owner or admin gives, in every mode and whoever Team › Responsibilities names (security
  * review, Nov 22, 2026): never an agent, the Chief of Staff, the system, a plan or a member with a delegation. A file
  * made with a program reaches the project only when the founder approves it (founder, 2026-11-19); a listed remote MCP
@@ -170,7 +176,7 @@ export const FOUNDER_ONLY_TOOLS: ReadonlySet<string> = new Set([
 
 export function founderOnlyCall(connectorKey: string | null | undefined, tool: string | null | undefined): boolean {
   if (!connectorKey || !tool) return false;
-  return FOUNDER_ONLY_TOOLS.has(`${connectorKey}:${tool}`) || connectorKey.startsWith("browser_");
+  return FOUNDER_ONLY_TOOLS.has(`${connectorKey}:${tool}`) || connectorKey.startsWith("browser_") || FOUNDER_ACCOUNT_CONNECTORS.has(connectorKey);
 }
 
 /**

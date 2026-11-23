@@ -50,8 +50,8 @@ const DRAFTED_KEYS = [
   "make_brand_assets", "make_documents_and_decks", "make_media_files",
 ];
 const CLI_ANYTHING_KEYS = ["make_brand_assets", "make_documents_and_decks", "make_media_files"];
-/** Added after WP-06 T3: the tool scout and working in a website (founder, Nov 22, 2026). */
-const ADDED_KEYS = ["tool_scout", "browser_work"];
+/** Added after WP-06 T3: the tool scout, working in a website and patent preparation (founder, Nov 22, 2026). */
+const ADDED_KEYS = ["tool_scout", "browser_work", "patent_preparation"];
 const ALL_KEYS = [...new Set([...KEPT_KEYS, ...DRAFTED_KEYS, ...ADDED_KEYS])];
 
 /** Agents a founder hires: every template but the utilities, which take typed input and render no Skills section. */
@@ -127,8 +127,8 @@ describe("the library is generated from packages/agents/skills", () => {
     expect(generator.renderCatalog(SKILLS_DIR)).toBe(readFileSync(CATALOG, "utf8"));
   });
 
-  it("keeps the 20 keys and holds the 64 drafts, the tool scout, working in a website and the 3 CLI-Anything skills (88 skills), in category order and then by key", () => {
-    expect(ALL_KEYS).toHaveLength(88);
+  it("keeps the 20 keys and holds the 64 drafts, the tool scout, working in a website, patent preparation and the 3 CLI-Anything skills (89 skills), in category order and then by key", () => {
+    expect(ALL_KEYS).toHaveLength(89);
     expect([...SKILL_LIBRARY.map((s) => s.key)].sort()).toEqual([...ALL_KEYS].sort());
     const rank = (s: (typeof SKILL_LIBRARY)[number]) => SKILL_LIBRARY_CATEGORIES.indexOf(s.category);
     const ordered = [...SKILL_LIBRARY].sort((a, b) => rank(a) - rank(b) || a.key.localeCompare(b.key));
@@ -196,7 +196,7 @@ describe("every library skill (WP-06 T3)", () => {
       expect(s.roles.length, s.key).toBeGreaterThan(0);
       for (const r of s.roles) expect(HIREABLE, `${s.key} roles ${r}`).toContain(r);
       for (const r of s.defaultFor) expect(s.roles, `${s.key} default_for ${r}`).toContain(r);
-      expect(s.defaultSince, s.key).toBe(s.key === "tool_scout" ? 2 : CLI_ANYTHING_KEYS.includes(s.key) ? 3 : s.key === "browser_work" ? 4 : 1);
+      expect(s.defaultSince, s.key).toBe(s.key === "tool_scout" ? 2 : CLI_ANYTHING_KEYS.includes(s.key) ? 3 : s.key === "browser_work" ? 4 : s.key === "patent_preparation" ? 5 : 1);
     }
   });
 

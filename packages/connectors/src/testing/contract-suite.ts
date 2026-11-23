@@ -95,6 +95,9 @@ export const INTERNAL_WRITE_TOOLS: ReadonlyMap<string, string> = new Map([
   ["notion_mcp:notion_create_pages", "pages in the founder's own Notion workspace"],
   ["notion_mcp:notion_duplicate_page", "a copy of a page in the founder's own Notion workspace"],
   ["notion_mcp:notion_create_database", "a database in the founder's own Notion workspace"],
+  ["lightbringer_mcp:register_innovation", "a draft invention disclosure inside the founder's own Lightbringer organization; nobody is contacted and nothing is filed"],
+  ["lightbringer_mcp:update_innovation", "sections of a draft invention disclosure in the founder's own Lightbringer organization; its history undoes it"],
+  ["lightbringer_mcp:start_innovation_feedback", "starts Lightbringer's automated feedback on a draft disclosure; no person is contacted"],
   ["shopify_mcp:create_cart", "a cart in the founder's store; nobody is charged"],
   ["shopify_mcp:update_cart", "a cart's lines in the founder's store; nobody is charged"],
   ["onesignal:send_push", "service-only: the platform's own app notifying founders' own phones; agents never call it"],
@@ -154,7 +157,7 @@ export function describeConnectorContract(title: string, opts: ContractSuiteOpti
         expect(connector.policyHints, `policyHints missing for ${connector.key}.${t.name}`).toHaveProperty(t.name);
         const hint = connector.policyHints[t.name]!;
         for (const [k, v] of Object.entries(hint)) {
-          expect(["spendsMoney", "contactsThirdParty", "requiresKitMode", "irreversible", "hardGate"]).toContain(k);
+          expect(["spendsMoney", "contactsThirdParty", "requiresKitMode", "irreversible", "hardGate", "askAlways", "founderExecuted"]).toContain(k);
           expect(typeof v).toBe("boolean");
         }
       }

@@ -7,6 +7,7 @@ import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, uuidFromSeed 
 import type { ToolContext } from "../../contract";
 import { TOOL_CATEGORY_LABELS } from "@foundmill/shared";
 import { catalogLines } from "../../tool-catalog";
+import { FOUNDER_EXECUTED_TOOLS } from "../../remote-mcp";
 import { recommendationProblems, toolRecommendationNote } from "../../tool-recommendation";
 import { acceptanceLines, acceptanceRefusal } from "./acceptance";
 import { PLATFORM_KEY, PLATFORM_RATE_LIMITS, READ_SKILL_NOTICE, platformTools, PlatformToolError, type AgentMessageT, type PlatformCaller, type PlatformHost, type PlatformResult, type TaskDetailT } from "./tools";
@@ -61,6 +62,7 @@ export function platformHandlers(host: PlatformHost) {
     recommend_tool: async (args: Parameters<PlatformHost["recommendTool"]>[1], ctx: ToolContext) => host.recommendTool(caller(ctx), args),
     booking_setup: async (args: Parameters<PlatformHost["bookingSetup"]>[1], ctx: ToolContext) => host.bookingSetup(caller(ctx), args),
     list_bookings: async (_args: unknown, ctx: ToolContext) => host.listBookings(caller(ctx)),
+    prepare_founder_action: async (args: Parameters<PlatformHost["prepareFounderAction"]>[1], ctx: ToolContext) => host.prepareFounderAction(caller(ctx), args),
   };
 }
 
@@ -71,7 +73,7 @@ export function createMemoryPlatformHost(): PlatformHost {
   const world = perBusiness((businessId) => {
     const task = (n: number, title: string, kind: TaskDetailT["kind"], status: TaskDetailT["status"]): TaskDetailT => ({ id: uuidFromSeed("mock-platform", businessId, "task", n), title, kind, status, priority: 10 * n, progress: 0, assigneeAgentId: null, updatedAt: MOCK_NOW.toISOString(), goalMd: `${title}.`, acceptance: [], fileScope: [], dependsOn: [], lastReport: null, lastBlock: null });
     const tasks = new Map<string, TaskDetailT>([task(1, "Draft the pricing page", "code", "ready"), task(2, "Research three competitors", "research", "ready"), task(3, "Reconcile last month's bank feed", "finance", "planned")].map((t) => [t.id, t]));
-    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, positioningDrafts: 0, updateDrafts: 0, entities: new Map<string, string>(), interactions: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>(), toolNeeds: new Map<string, string>(), bookingServices: 0 };
+    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, positioningDrafts: 0, updateDrafts: 0, entities: new Map<string, string>(), interactions: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>(), toolNeeds: new Map<string, string>(), bookingServices: 0, founderActions: new Map<string, string>() };
   });
   const summary = ({ goalMd: _g, acceptance: _a, fileScope: _f, dependsOn: _d, lastReport: _r, lastBlock: _b, ...s }: TaskDetailT) => s;
   const report = (caller: PlatformCaller, t: TaskDetailT, input: { title: string; bodyMd: string; sources: { url: string; title: string }[] }) => {
@@ -280,6 +282,17 @@ export function createMemoryPlatformHost(): PlatformHost {
     },
     async readToolNeed(caller, { category }) {
       return { category, label: TOOL_CATEGORY_LABELS[category], options: catalogLines(category), connected: [], status: world(caller.businessId).toolNeeds.get(category) ?? "none", reason: null, pick: null, alternatives: [], askAgainOn: null };
+    },
+    // In memory: one request per invention, as the table's open-request key holds it; nothing is sent.
+    async prepareFounderAction(caller, { connector, tool, inventionId }) {
+      if (!FOUNDER_EXECUTED_TOOLS.has(`${connector}:${tool}`)) throw new PlatformToolError("invalid_state", `${connector}:${tool} is not a request an agent can prepare for the founder.`);
+      const w = world(caller.businessId);
+      const key = `${connector}:${tool}:${inventionId}`;
+      const known = w.founderActions.get(key);
+      if (known) return { actionId: known, inboxItemId: known, created: false, note: "The same request is already waiting for the founder. No second note was written." };
+      const id = `00000000-0000-4000-8000-${String(100 + w.founderActions.size).padStart(12, "0")}`;
+      w.founderActions.set(key, id);
+      return { actionId: id, inboxItemId: id, created: true, note: "The founder has one note to press. Nothing was sent to Lightbringer." };
     },
     async recommendTool(caller, args) {
       const problems = recommendationProblems(args);
