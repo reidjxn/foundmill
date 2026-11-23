@@ -20,7 +20,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useOptionalBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ReportPersonDialog, type ReportTarget } from "@/components/safety/ReportPersonDialog";
-import { BusinessLogo, PersonalNotice } from "./shared";
+import { AdultNotice, BusinessLogo, PersonalNotice, useCanReadPeople } from "./shared";
 
 type Profile = RouterOutputs["live"]["people"]["profile"];
 type Card = Profile["profile"];
@@ -41,7 +41,9 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
   const ctx = useOptionalBusiness();
   const businessId = ctx?.businessId;
   const [reporting, setReporting] = useState<ReportTarget | null>(null);
-  const q = useQuery(trpc.live.people.profile.queryOptions({ kind, id }, { staleTime: 30_000, retry: false }));
+  // Another person's page waits for the 18+ confirmation (the api asks first); AdultNotice records it in one step.
+  const canRead = useCanReadPeople();
+  const q = useQuery(trpc.live.people.profile.queryOptions({ kind, id }, { staleTime: 30_000, retry: false, enabled: canRead === true }));
   const profile = q.data?.profile;
   useShellChrome({ title: profile ? profile.name : "Profile", breadcrumbs: [{ label: "Network", href: "/network" }, { label: profile?.name ?? "Profile" }] }, [profile?.name]);
 
@@ -56,7 +58,13 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
     }),
   );
 
-  if (q.isLoading) return <div className="grid grid-cols-12 gap-gutter p-gutter"><Panel title="Profile" span={12} loading data-testid="profile-loading" /></div>;
+  if (canRead === false)
+    return (
+      <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="profile-needs-adult">
+        <AdultNotice className="col-span-12" />
+      </div>
+    );
+  if (canRead === null || q.isLoading) return <div className="grid grid-cols-12 gap-gutter p-gutter"><Panel title="Profile" span={12} loading data-testid="profile-loading" /></div>;
   if (q.error || !q.data || !profile) {
     const missing = q.error ? trpcErrorCode(q.error) === "NOT_FOUND" : true;
     return (

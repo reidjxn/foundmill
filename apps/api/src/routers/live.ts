@@ -10,15 +10,17 @@
  *
  * The network is for adults (BUILD §11.14 "18+ only"): a person confirms once that they are 18 or older before their
  * first step onto it (asking to connect, accepting, writing, starting, joining or posting in a community, inviting).
- * Stepping back never needs it: block, remove, leave, mute, report, delete and decline always work.
+ * Searching for people, Find people and another person's page need it too (names on posts and member lists follow
+ * each person's visibility instead). Stepping back never needs it: block, remove, leave, mute, report, delete and
+ * decline always work.
  */
 import { randomUUID } from "node:crypto";
-import { COMMUNITY_KINDS, MAX_MESSAGE_RECIPIENTS, MEMBER_MODERATION_ACTIONS, POST_MODERATION_ACTIONS, POST_REPORT_REASONS, PUBLIC_PROFILE_KINDS, repos, type Business, type CommunityMember, type Executor, type MessageThread, type Post, type PublicPerson, type PublicProfile } from "@foundmill/db";
+import { COMMUNITY_KINDS, MAX_MESSAGE_RECIPIENTS, type Community, MEMBER_MODERATION_ACTIONS, POST_MODERATION_ACTIONS, POST_REPORT_REASONS, PUBLIC_PROFILE_KINDS, repos, type Business, type CommunityMember, type Executor, type MessageThread, type Post, type PublicPerson, type PublicProfile } from "@foundmill/db";
 import { ForbiddenError, NotFoundError, PERSON_LOOKING_FOR, ValidationError, VISIBILITY, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import type { Context } from "../context";
 import { messageRecipients, screenText, signalPeople } from "../services/live";
-import { takeCommunity, takeCommunityEdit, takeCommunityInvite, takeCommunityJoin, takeConnectionRequest, takeMessage, takePeopleSearch, takePost, takePostReport } from "../services/live-limits";
+import { takeCommunity, takeCommunityEdit, takeCommunityInvite, takeCommunityJoin, takeCommunityRead, takeConnectionRequest, takeMessage, takeRequestReceived, takePeopleSearch, takePost, takePostReport } from "../services/live-limits";
 import { Id, effectivePermission, liveGate, pgErrorCode, protectedProcedure as anyProtectedProcedure, router, sectionWrite as anySectionWrite, type Section } from "../trpc";
 
 // Every LIVE procedure is closed while LIVE is (FLAGS.liveMode / LIVE_MODE, audit VLS2-X1).
@@ -90,6 +92,14 @@ async function shownBusinessIds(ctx: Ctx, ids: readonly (string | null)[]): Prom
     for (const b of businesses) shown.add(b.businessId);
   }
   return shown;
+}
+
+/** Each community's creator with its owning business, for `stillSpeaksFor` (L1). */
+const ownerPairs = (rows: readonly Pick<Community, "createdBy" | "ownerBusinessId">[]) => rows.flatMap((c) => (c.createdBy && c.ownerBusinessId ? [{ userId: c.createdBy, businessId: c.ownerBusinessId }] : []));
+
+/** A community's owning business as the viewer may see it: listed (or theirs), and its creator still belongs to it (L1). */
+function ownerShown(c: Pick<Community, "createdBy" | "ownerBusinessId">, shown: Set<string>, speaking: Set<string>): string | null {
+  return c.ownerBusinessId && c.createdBy && shown.has(c.ownerBusinessId) && speaking.has(`${c.createdBy}:${c.ownerBusinessId}`) ? c.ownerBusinessId : null;
 }
 
 /**
@@ -192,9 +202,18 @@ export const liveRouter = router({
         if (toUserId === ctx.userId) throw new ValidationError(input.toBusinessId ? "That is your own business" : "Cannot connect to yourself");
         await requireAdult(ctx);
         await takeConnectionRequest(ctx.limits, ctx.userId, toUserId);
+        // M2: the note reaches a stranger, so it is screened like a post; a held note is refused with a sentence to act on.
+        if (input.message) {
+          const verdict = await screenText(ctx, { text: input.message, kind: "connection_note", communityName: "", businessId: ctx.businessId, userId: ctx.userId });
+          if (verdict.mode === "unavailable") throw new ValidationError("The note could not be checked just now. Try again in a minute, or send the request without a note.");
+          if (verdict.decision === "hold") throw new ValidationError("Moderation held this note. Change it, or send the request without one.", { flags: verdict.flags });
+        }
         let created = false;
         const connection = await repos.social.requestConnection(ctx.db, ctx.userId, toUserId, input.message || null, {
+          // Only a request that reaches the person counts towards what they receive in a day (a refused or repeated one
+          // does not), so nobody can use up someone's day with requests that never arrive. Past it, the insert rolls back.
           onCreated: async () => {
+            await takeRequestReceived(ctx.limits, toUserId);
             created = true;
           },
         });
@@ -298,30 +317,37 @@ export const liveRouter = router({
   communities: router({
     /** What the caller may see (public ones, their own and the ones they are invited to), each with their role and invitation. */
     list: protectedProcedure.input(z.object({ visibility: z.enum(VISIBILITY).optional(), limit: z.number().int().min(1).max(200).default(50) }).optional()).query(async ({ ctx, input }) => {
+      await takeCommunityRead(ctx.limits, ctx.userId);
       const rows = await repos.social.listCommunities(ctx.db, { ...input, viewerId: ctx.userId });
-      const [roles, shown, invitations] = await Promise.all([
+      const [roles, shown, invitations, speaking] = await Promise.all([
         repos.social.memberRoles(ctx.db, ctx.userId, rows.map((c) => c.id)),
         shownBusinessIds(ctx, rows.map((c) => c.ownerBusinessId)),
         repos.social.listInvitations(ctx.db, ctx.userId),
+        repos.social.stillSpeaksFor(ctx.db, ownerPairs(rows)),
       ]);
       const invited = new Set(invitations.map((i) => i.community.id));
-      return rows.map((c) => ({ ...c, ownerBusinessId: c.ownerBusinessId && shown.has(c.ownerBusinessId) ? c.ownerBusinessId : null, role: roles.get(c.id) ?? null, invited: invited.has(c.id) }));
+      return rows.map((c) => ({ ...c, ownerBusinessId: ownerShown(c, shown, speaking), role: roles.get(c.id) ?? null, invited: invited.has(c.id) }));
     }),
     /**
      * The member list is for members only (community_members_select); anyone who may see the community gets the rest. A
      * member's moderation status is shown to the moderators only.
      */
     get: protectedProcedure.input(z.object({ communityId: Id })).query(async ({ ctx, input }) => {
+      await takeCommunityRead(ctx.limits, ctx.userId);
       const { community, membership, isMember, invited, canPost, canModerate } = await visibleCommunity(ctx, input.communityId);
       const listed = isMember ? await repos.social.listMembers(ctx.db, input.communityId) : [];
       // H4: a block holds here too: neither person sees the other in the member list.
       const blocked = await repos.social.blockedWith(ctx.db, ctx.userId, listed.map((m) => m.userId).filter((id) => id !== ctx.userId));
       const members = listed.filter((m) => !blocked.has(m.userId));
-      const shown = await shownBusinessIds(ctx, [community.ownerBusinessId, ...members.map((m) => m.businessId)]);
-      const mask = <T extends string | null>(id: T) => (id && shown.has(id) ? id : null);
+      const [shown, speaking] = await Promise.all([
+        shownBusinessIds(ctx, [community.ownerBusinessId, ...members.map((m) => m.businessId)]),
+        // L1: a business shows next to a person only while they still belong to it.
+        repos.social.stillSpeaksFor(ctx.db, [{ userId: community.createdBy ?? "", businessId: community.createdBy ? community.ownerBusinessId : null }, ...members]),
+      ]);
+      const mask = (userId: string | null, id: string | null) => (id && userId && shown.has(id) && speaking.has(`${userId}:${id}`) ? id : null);
       return {
-        community: { ...community, ownerBusinessId: mask(community.ownerBusinessId) },
-        members: members.map((m) => ({ id: m.id, userId: m.userId, role: m.role, joinedAt: m.joinedAt, businessId: mask(m.businessId), status: canModerate || m.userId === ctx.userId ? m.status : ("active" as const) })),
+        community: { ...community, ownerBusinessId: mask(community.createdBy, community.ownerBusinessId) },
+        members: members.map((m) => ({ id: m.id, userId: m.userId, role: m.role, joinedAt: m.joinedAt, businessId: mask(m.userId, m.businessId), status: canModerate || m.userId === ctx.userId ? m.status : ("active" as const) })),
         isMember,
         invited,
         canPost,
@@ -377,9 +403,10 @@ export const liveRouter = router({
     decline: protectedProcedure.input(z.object({ communityId: Id })).mutation(async ({ ctx, input }) => ({ declined: await repos.social.declineInvitation(ctx.db, ctx.userId, input.communityId) })),
     /** Invitations waiting for the caller's answer, with who sent each. */
     invitations: protectedProcedure.query(async ({ ctx }) => {
+      await takeCommunityRead(ctx.limits, ctx.userId);
       const rows = await repos.social.listInvitations(ctx.db, ctx.userId);
-      const shown = await shownBusinessIds(ctx, rows.map((r) => r.community.ownerBusinessId));
-      return rows.map((r) => ({ ...r, community: { ...r.community, ownerBusinessId: r.community.ownerBusinessId && shown.has(r.community.ownerBusinessId) ? r.community.ownerBusinessId : null } }));
+      const [shown, speaking] = await Promise.all([shownBusinessIds(ctx, rows.map((r) => r.community.ownerBusinessId)), repos.social.stillSpeaksFor(ctx.db, ownerPairs(rows.map((r) => r.community)))]);
+      return rows.map((r) => ({ ...r, community: { ...r.community, ownerBusinessId: ownerShown(r.community, shown, speaking) } }));
     }),
     /** An owner or moderator invites one of their connections; the person sees the invitation on Network. */
     invite: protectedProcedure.input(z.object({ communityId: Id, userId: Id })).mutation(async ({ ctx, input }) => {
@@ -400,6 +427,7 @@ export const liveRouter = router({
      * shows it). An author also sees their own posts that wait for review.
      */
     posts: protectedProcedure.input(z.object({ communityId: Id, parentPostId: Id.nullable().optional(), limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(async ({ ctx, input }) => {
+      await takeCommunityRead(ctx.limits, ctx.userId);
       const { isMember, canModerate } = await visibleCommunity(ctx, input.communityId);
       if (!isMember) throw new ForbiddenError("Join the community to read its feed");
       // H4: the replies under a post by someone blocked either way read as missing, like the post.
@@ -438,6 +466,7 @@ export const liveRouter = router({
     }),
     /** The moderators' queue: held, hidden and reported posts with their open reports, and the members who are muted or banned. */
     moderation: protectedProcedure.input(z.object({ communityId: Id })).query(async ({ ctx, input }) => {
+      await takeCommunityRead(ctx.limits, ctx.userId);
       await visibleCommunity(ctx, input.communityId);
       await repos.social.requireModerator(ctx.db, ctx.userId, input.communityId);
       const [queue, restricted] = await Promise.all([repos.social.moderationQueue(ctx.db, input.communityId), repos.social.listMembers(ctx.db, input.communityId, 200, ["muted", "banned"])]);
@@ -509,6 +538,7 @@ export const liveRouter = router({
      * made their name public). Only public-profile fields leave here; the viewer's own row and blocked people do not turn up.
      */
     search: protectedProcedure.input(z.object({ q: z.string().trim().min(2).max(120), limit: z.number().int().min(1).max(20).default(10) })).query(async ({ ctx, input }) => {
+      await requireAdult(ctx);
       await takePeopleSearch(ctx.limits, ctx.userId);
       // People who published /u/<handle> first, then the older cards; a person with both turns up once, as their page.
       const [people, rows] = await Promise.all([repos.personProfiles.public.find(ctx.db, ctx.userId, { q: input.q, limit: input.limit }), repos.social.searchPublicFor(ctx.db, ctx.userId, input.q, { limit: input.limit })]);
@@ -522,17 +552,21 @@ export const liveRouter = router({
      * like any other (the solo guard, §10). The viewer and anyone blocked either way never turn up.
      */
     find: protectedProcedure.input(FindPeopleInput.optional()).query(async ({ ctx, input }) => {
+      await requireAdult(ctx);
       await takePeopleSearch(ctx.limits, ctx.userId);
       const page = await repos.personProfiles.public.find(ctx.db, ctx.userId, input ?? {});
       return { items: page.items.map((p) => ({ userId: p.userId, name: p.displayName, ...personFields(p) })), nextCursor: page.nextCursor };
     }),
     /** One public profile page: the card, who is behind the business or which businesses a founder runs, and the viewer's connection to the founder. */
     profile: protectedProcedure.input(z.object({ kind: z.enum(PUBLIC_PROFILE_KINDS), id: Id })).query(async ({ ctx, input }) => {
+      // L3: reading other people is for adults, like stepping onto the network (one's own page is always open).
+      if (!(input.kind === "founder" && input.id === ctx.userId)) await requireAdult(ctx);
       const [listed, published] = await Promise.all([repos.social.publicProfileOf(ctx.db, input.kind, input.id), input.kind === "founder" ? repos.personProfiles.public.byUserId(ctx.db, input.id) : Promise.resolve(null)]);
       // One identity: a person who published /u/<handle> is found here too, with what their page says.
       if (!listed && !published) throw new NotFoundError("profile", input.id);
-      // A block either way reads as no profile at all (a block is never announced).
+      // A block either way reads as no profile at all (a block is never announced), for a business run by that person too (M5).
       if (input.kind === "founder" && input.id !== ctx.userId && (await repos.social.blockedWith(ctx.db, ctx.userId, [input.id])).has(input.id)) throw new NotFoundError("profile", input.id);
+      if (input.kind === "business" && (await repos.social.runByBlocked(ctx.db, ctx.userId, [input.id])).size) throw new NotFoundError("profile", input.id);
       const card = published ? personCard({ ...published, userId: input.id }) : publicCard(listed!.profile);
       let connection: { id: string; status: "requested" | "accepted" | "blocked"; direction: "incoming" | "outgoing" } | null = null;
       const founderId = card.kind === "founder" ? card.userId : null;

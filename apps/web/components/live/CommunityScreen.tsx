@@ -63,9 +63,10 @@ function BusinessBadge({ people, businessId }: { people: People; businessId: str
   return name ? <Chip tone="neutral" icon={Building2}>{name}</Chip> : null;
 }
 
+/** Other people's words: only web addresses link (a path, mailto: or tel: shows as its words), no images, no mentions. */
 function PostText({ children }: { children: string }) {
   return (
-    <Markdown variant="body" images={false} entities={false}>
+    <Markdown variant="body" images={false} entities={false} webLinksOnly>
       {children}
     </Markdown>
   );
@@ -351,7 +352,8 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
             {canModerate ? <ModerationPanel queue={queue} restricted={restricted} viewerId={viewer.userId} loading={queueQ.isLoading} error={queueQ.error ? errorMessage(queueQ.error) : undefined} onRetry={() => void queueQ.refetch()} people={people} onModerate={postHandlers.onModerate} onRestore={(userId) => memberAction(userId, "restore")} /> : null}
             <Panel title="About" data-testid="community-about">
               {community.descriptionMd.trim() ? (
-                <Markdown variant="body" images={false} entities={false}>
+                // Other people's words: only web addresses link (a path, mailto: or tel: shows as its words), no images, no mentions.
+    <Markdown variant="body" images={false} entities={false} webLinksOnly>
                   {community.descriptionMd}
                 </Markdown>
               ) : (

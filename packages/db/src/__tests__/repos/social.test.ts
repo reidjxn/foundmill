@@ -1,5 +1,5 @@
 /** LIVE social: public profiles, connections, threads/messages, communities/posts, negotiations. */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
 import { MAX_MESSAGE_RECIPIENTS } from "../../repos/social";
@@ -22,6 +22,22 @@ describe("public profiles", () => {
     expect(await repos.social.publicProfile(r.db, r.B.businessId)).toBeNull();
     const hits = await repos.social.searchPublic(r.db, "live");
     expect(hits.map((h) => h.businessId)).toEqual([r.A.businessId]);
+  });
+});
+
+describe("public profiles: adults only and indexed (#217's L3, M3)", () => {
+  it("lists a founder's card only once they have confirmed that they are 18 or older", async () => {
+    await repos.founders.upsert(r.db, r.A.ownerId, { displayName: "Avery Stone", timeCommitment: "full_time", residence: "United States", visibility: "public" });
+    const card = async () => (await r.db.select().from(s.publicProfiles).where(and(eq(s.publicProfiles.kind, "founder"), eq(s.publicProfiles.userId, r.A.ownerId)))).length;
+    if (await repos.social.adultConfirmedAt(r.db, r.A.ownerId)) throw new Error("the fixture owner must start unconfirmed");
+    expect(await card()).toBe(0);
+    await repos.social.confirmAdult(r.db, r.A.ownerId);
+    expect(await card()).toBe(1);
+  });
+
+  it("has trigram indexes on the words Find people and the name search match", async () => {
+    const rows = (await r.db.execute(sql`select indexname from pg_indexes where tablename = 'founder_profiles' and indexdef like '%gin_trgm_ops%'`)) as unknown as { rows: { indexname: string }[] };
+    expect(rows.rows.map((x) => x.indexname).sort()).toEqual(["founder_profiles_about_trgm_idx", "founder_profiles_display_name_trgm_idx", "founder_profiles_headline_trgm_idx", "founder_profiles_place_trgm_idx"]);
   });
 });
 
