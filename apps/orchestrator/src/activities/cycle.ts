@@ -38,7 +38,7 @@ export const TOOL_MISSING_STOPPED_AUDIT_ACTION = "cycle.tool_missing_stopped";
  * blocked line each) because the capability is not in the product; only the founder can do it, from Settings.
  */
 export function lacksTool(detail: string): boolean {
-  return /\b(no|without|lack(s|ing)?|missing)\b[^.]{0,60}\btools?\b|\btools? (I|we) (don'?t|do not) have\b|\bnot (among|in) my tools?\b|\bnone of my tools\b|\bno such tool\b|\bcan'?t [^.]{0,40}\bwith (the|my) tools\b|\b(no way|none( of (them|my tools))?) (to |can )?(create|register|list|import|write|add)\b/i.test(detail);
+  return /\b(no|without|lack(s|ing)?|missing)\b[^.]{0,60}\btools?\b|\btools? (I|we) (don'?t|do not) have\b|\bnot (among|in) my tools?\b|\bnone of my tools\b|\bno such tool\b|\bmy (only )?tools are\b|\bcan'?t [^.]{0,40}\bwith (the|my) tools\b|\b(no way|none( of (them|my tools))?) (to |can )?(create|register|list|import|write|add)\b/i.test(detail);
 }
 
 /** Why a task the planner left out starts anyway (lead, 2026-10-24: the planner orders, it never gates). */

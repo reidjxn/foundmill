@@ -336,6 +336,7 @@ Done when: the named tests pass in packages/sandbox and apps/orchestrator.
 Why: "dependency" written by an agent is the largest group of query 2 (ops 70, code 43, research 29 sessions, 58% of the 244 blocked or failed sessions together), but no single detail in it is above 2%, and every session in it started before T1 to T18 were all live.
 Steps: run queries 2 and 3 for sessions created after Nov 17, 2026, read-only; group the "dependency" details by cause (waiting on another agent, missing input, missing tool, not connected). verify: the tables are in e0-production-evidence.md.
 Done when: any single cause over 15% of the new blocks has its own task here, or the reading says none does.
+First reading (Nov 23, 2026, the coordinating session, the last 60 agent-written dependency blocks, newest Nov 17): read_product empty (about 12; fixed, the gateway delivers it first-party without source titles), no web tools (about 8; web live since Nov 17 08:36 UTC), missing tools (about 15; covered by T3, WP-07 T1 and T18, one matcher phrase added), cascades behind a blocked task or a peer agent (open), missing public data (open; web now live). Log: docs/log/2026-11/2026-11-23-claude-wp05-t20-dependency-fixes.md. Every block in that reading predates these fixes, so the re-measure needs sessions started after they land.
 
 ## Corrections to the audits
 1. AR-08: no `run_log` column is needed; the session's Redis stream already holds every run's tool calls and survives a deploy (`readSessionEvents`).
