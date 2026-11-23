@@ -137,10 +137,11 @@ export async function settleCreditCheckout(db: Executor, input: SettleCheckoutIn
     const period = periodOf(input.paidAt);
     // A credit pack can carry more credit than its price (0140); a top-up carries what was paid.
     const creditsMinor = Number(row.creditsMinor ?? row.amountMinor);
-    // A top-up comes on top of the month's included credits: the period's row starts with them when the top-up is the
-    // first thing in the month (a team paused at the end of last month makes no charge to create it).
+    // A top-up comes on top of the month's included credits. The included budget is the owner's, shared by all their
+    // projects (0164), so the project's row opens with nothing included; a business with no recorded owner opens with
+    // its own plan's (a team paused at the end of last month makes no charge to create the row).
     const business = await repos.businesses.get(tx, input.businessId, { includeArchived: true });
-    await repos.usage.ensurePeriodCredits(tx, input.businessId, period, includedCreditsMinor(business.planTier));
+    await repos.usage.ensurePeriodCredits(tx, input.businessId, period, business.createdBy ? 0 : includedCreditsMinor(business.planTier));
     const balance = await repos.usage.grantCredits(tx, input.businessId, period, creditsMinor, row.currency);
     // Bought credit lasts 12 months (founder, 2026-11-13; 0098): the lot carries it over from month to month.
     await repos.usage.addCreditLot(tx, input.businessId, { amountMinor: creditsMinor, purchasedAt: input.paidAt, checkoutId: row.id });

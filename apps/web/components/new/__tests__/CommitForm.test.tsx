@@ -390,8 +390,8 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(includedCreditsLine()).not.toMatch(/[$€£]|\d|card|free/i);
     expect(screen.getByTestId("commit-credits-line").textContent).toBe("Your team starts with this month's included credits.");
     cleanup();
-    // When this month's pool already went elsewhere, the paused notice speaks instead; the credits line never contradicts it.
-    renderForm(vi.fn(), { creditsNotice: "This month's included credits ($5.00) already went to another business you took charge of." });
+    // When this month's shared budget is already used, the resting notice speaks instead; the credits line never contradicts it.
+    renderForm(vi.fn(), { creditsNotice: "This month's team budget ($5.00) is already used by your other projects." });
     expect(screen.queryByTestId("commit-credits-line")).toBeNull();
   });
 
@@ -701,14 +701,14 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getByTestId("commit-upgrade").getAttribute("href")).toBe("/b/b1/settings/billing");
   });
 
-  it("says before Take charge when the team would start paused (this month's included credits went to another business)", () => {
+  it("says before Take charge when the team would start resting (this month's shared budget is already used)", () => {
     renderForm(vi.fn());
     expect(screen.queryByTestId("commit-credits-notice")).toBeNull();
     cleanup();
-    renderForm(vi.fn(), { creditsNotice: "This month's included credits ($5.00) already went to another business you took charge of, so this one starts with its team paused." });
+    renderForm(vi.fn(), { creditsNotice: "This month's team budget ($5.00) is already used by your other projects, so this one starts resting." });
     const notice = screen.getByTestId("commit-credits-notice");
-    expect(notice.textContent).toContain("Team starts paused");
-    expect(notice.textContent).toContain("already went to another business you took charge of");
+    expect(notice.textContent).toContain("Team starts resting");
+    expect(notice.textContent).toContain("is already used by your other projects");
   });
 
   it("shows the team the archetype seeds", () => {

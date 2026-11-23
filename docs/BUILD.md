@@ -56,7 +56,7 @@ For later phases: `Continue with Phase N (§16.N). Same rules.`
 | Vercel and Fly.io accounts | Hosting | Phase 2 deploy |
 | Upstash Redis | Event streams | Phase 2 deploy |
 | AWS KMS key | Envelope encryption | Phase 1 deploy |
-| Browserbase account | Supervised browser sessions (Atlas, Companies House) | Phase 3 |
+| E2B (desktop sandboxes) | Supervised browser sessions: the hosted browser in a founder's signed-in account (founder, Nov 22, 2026: E2B in place of Browserbase) | Phase 3 |
 | Ad platform developer accounts (Google, Meta, TikTok, LinkedIn) | Paid engines | Phase 3 (live) |
 
 ---
@@ -160,7 +160,7 @@ In Automated mode, gated items queue in the Inbox while other work continues.
 | Workflows | Temporal (Temporal Cloud in prod, `temporal server start-dev` locally); TypeScript SDK |
 | Agents | Claude Agent SDK (TypeScript) + Anthropic API; MCP servers behind `apps/gateway` |
 | Sandboxes | E2B microVMs in prod; Docker-based local runner in dev (same interface) |
-| Browser sessions | Browserbase (live view + founder takeover); mock in dev |
+| Browser sessions | E2B desktop sandbox with Chrome (screen stream for the live view and founder takeover); mock in dev |
 | Policy | Cedar (cedar-wasm) evaluated in `apps/gateway` |
 | Secrets | Envelope encryption with AWS KMS (local: libsodium with a dev master key) |
 | Embeddings | Voyage AI (mock: deterministic hash embeddings) |
@@ -365,7 +365,6 @@ REDIS_URL=redis://localhost:6379
 TEMPORAL_ADDRESS=localhost:7233
 TEMPORAL_NAMESPACE=default
 E2B_API_KEY=
-BROWSERBASE_API_KEY=
 KMS_KEY_ID=
 DEV_MASTER_KEY=                   # local only, 32 bytes base64
 
@@ -1265,7 +1264,7 @@ Tabs: Entity · Incorporate · Compliance · Contracts · IP · Policies · Regu
 | UK private limited company | Companies House website | Agent fills online incorporation forms in a supervised session; founder signs in, completes identity verification, reviews, submits, pays fee |
 | Everything else | Later | Kit mode: documents and forms prepared for the founder |
 
-**Supervised browser sessions:** Browserbase session with live view embedded in the app; founder can take over at any time; founder signs in and completes identity checks personally; agent never handles passwords or identity documents; never solves CAPTCHAs or evades login walls; final submit and payment are always founder clicks. Routes implement `IncorporationProvider` (`prepare()`, `fill(session)`, `awaitFounderSubmit()`, `confirm()`), so new jurisdictions are new adapters. **HUMAN CHECKPOINT:** these flows are never exercised against real Atlas/Companies House in automated tests; use recorded mock pages.
+**Supervised browser sessions:** an E2B desktop sandbox with live view embedded in the app; founder can take over at any time; founder signs in and completes identity checks personally; agent never handles passwords or identity documents; never solves CAPTCHAs or evades login walls; final submit and payment are always founder clicks. Routes implement `IncorporationProvider` (`prepare()`, `fill(session)`, `awaitFounderSubmit()`, `confirm()`), so new jurisdictions are new adapters. **HUMAN CHECKPOINT:** these flows are never exercised against real Atlas/Companies House in automated tests; use recorded mock pages.
 
 **Follow-through tasks:** tax ID, registered agent, bank account, VAT/sales tax registration, compliance calendar (founder-identity steps always handed to founder).
 
@@ -1431,7 +1430,7 @@ Where an official remote MCP server exists, the connector may proxy it, but tool
 | --- | --- |
 | 1 | Anthropic (models), Voyage (embeddings), Recraft or Ideogram (crests), GitHub App, Google Drive/Docs, Gmail, Google Calendar, Notion, Cloudflare DNS + a registrar API, OpenCorporates, Bolagsverket, Companies House API, E2B, Dropbox Sign/DocuSign, ECB rates |
 | 2 | Stripe (Connect + webhooks), SendGrid, ZeroBounce, Apollo, People Data Labs, Hunter.io, Search Console, Bing Webmaster, PageSpeed, DataForSEO, GA4, Tink, Plaid, Vercel/Netlify/Fly (preview deploys), Supabase Management API, PostHog, Sentry, Linear/Jira, Figma, Slack, Twilio, Shopify, Shippo/EasyPost, Codat or Merge, Ledgy/Carta import, Affinity/HubSpot/Salesforce/Pipedrive/Attio importers, Microsoft Graph, Stripe Identity/Persona (LIVE), LinkedIn OIDC |
-| 3 | Browserbase (Atlas, Companies House web), Google Ads, Meta Marketing + CAPI, TikTok Marketing + Events, LinkedIn Marketing + CAPI, Microsoft Ads, Reddit Ads, X Ads, Instagram/Facebook/TikTok/LinkedIn/X/YouTube/Threads/Pinterest publishing, Modash/HypeAuditor, Rewardful/PartnerStack/Impact/Awin, Lob/Stannp/PostGrid, Gelato, Vistar/AdQuick, Spotify Ad Studio, PR Newswire/EIN Presswire, Qwoted, Brand24, Trustpilot, Google Business Profile, Luma/Eventbrite, ElevenLabs, HeyGen/Synthesia, OpenAI/Gemini/Perplexity (GEO panels), Freightos/Flexport, ShipBob/ShipMonk, Octopart, USITC HTS/EU TARIC, Mercury/Revolut/Wise/Qonto/Brex, TrueLayer/Enable Banking, Paddle/Chargebee/Lemon Squeezy, App Store Connect/Google Play, Gusto/Deel/Remote, Stripe Tax/Avalara, USPTO/EUIPO, Brønnøysund/CVR/PRH/Estonia |
+| 3 | The hosted browser on E2B (Atlas, Companies House web), Google Ads, Meta Marketing + CAPI, TikTok Marketing + Events, LinkedIn Marketing + CAPI, Microsoft Ads, Reddit Ads, X Ads, Instagram/Facebook/TikTok/LinkedIn/X/YouTube/Threads/Pinterest publishing, Modash/HypeAuditor, Rewardful/PartnerStack/Impact/Awin, Lob/Stannp/PostGrid, Gelato, Vistar/AdQuick, Spotify Ad Studio, PR Newswire/EIN Presswire, Qwoted, Brand24, Trustpilot, Google Business Profile, Luma/Eventbrite, ElevenLabs, HeyGen/Synthesia, OpenAI/Gemini/Perplexity (GEO panels), Freightos/Flexport, ShipBob/ShipMonk, Octopart, USITC HTS/EU TARIC, Mercury/Revolut/Wise/Qonto/Brex, TrueLayer/Enable Banking, Paddle/Chargebee/Lemon Squeezy, App Store Connect/Google Play, Gusto/Deel/Remote, Stripe Tax/Avalara, USPTO/EUIPO, Brønnøysund/CVR/PRH/Estonia |
 
 **HUMAN CHECKPOINT** before each live connector: the human creates the developer app/account, accepts its terms, and provides credentials.
 
@@ -1515,7 +1514,7 @@ Each phase lists tasks in order. Parallelise independent tasks with sub-agents a
 
 1. Remaining 11 channel engines (kit mode where required).
 2. Physical-product specialists (illustrative set) + agent builder.
-3. Legal: recommender, `IncorporationProvider` with Stripe Atlas and Companies House web adapters (Browserbase, founder takeover), company import (all listed registries), contracts, policies, compliance calendar.
+3. Legal: recommender, `IncorporationProvider` with Stripe Atlas and Companies House web adapters (the hosted browser on E2B, founder takeover), company import (all listed registries), contracts, policies, compliance calendar.
 4. Ledger via Codat/Merge.
 5. Departments customisation (rename, merge, split, custom), playbooks, glossary, custom MCP servers.
 6. Automated mode: holiday workflow, HolidayDialog, While-you-were-away report.

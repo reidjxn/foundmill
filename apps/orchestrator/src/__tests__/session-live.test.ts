@@ -11,6 +11,7 @@
  * On the platform key a session is capped at the month's credits, books each turn as it runs and ends blocked when
  * they are used up (SEC2 S2).
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { chargedMinor, costCoveredMinor } from "@foundmill/config";
 import os from "node:os";
@@ -947,7 +948,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     // Earlier tests' sessions are this agent type's history; without it the reserve is the minimum.
     await t.db.execute(sql`update agent_sessions set cost_minor = 0 where business_id = ${t.businessId}`);
     // Exactly 50 cents left this month.
-    await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+    await spendAllCredits(t.db, t.businessId, period);
     await repos.usage.grantCredits(t.db, t.businessId, period, 50);
     const { sessionId, input, launch } = await start();
     const warn = vi.spyOn(t.deps.log, "warn");
@@ -1006,7 +1007,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     const period = periodOf(t.clock.now());
     await t.db.execute(sql`update agent_sessions set cost_minor = 0 where business_id = ${t.businessId}`);
     // 9 cents left: just under the 10-cent minimum reserve.
-    await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+    await spendAllCredits(t.db, t.businessId, period);
     await repos.usage.grantCredits(t.db, t.businessId, period, SESSION_RESERVE.minMinor - 1);
     const resting = async () => (await repos.inbox.list(t.db, t.businessId, { limit: 200 })).items.filter((n) => n.subject === RESTING_SUBJECT).length;
     const notesBefore = await resting();
@@ -1046,7 +1047,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
 
   it("a turn that finished the task stays done when it used the last credit: the team stops, the task is not run again (SEC2 S2)", async () => {
     const period = periodOf(t.clock.now());
-    await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+    await spendAllCredits(t.db, t.businessId, period);
     await repos.usage.grantCredits(t.db, t.businessId, period, 50);
     const { sessionId, input, launch } = await start();
     let inputEnded = false;
@@ -1087,7 +1088,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
       yield { type: "system", subtype: "init", session_id: "sdk-mid-turn" };
       yield { type: "assistant", message: { id: "m1", model: launch.modelId, content: [{ type: "text", text: "Reading supplier sites." }], usage: { input_tokens: 2_000, output_tokens: 500 } } };
       // Meanwhile the api spends the month's last credit on a conversation.
-      await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+      await spendAllCredits(t.db, t.businessId, period);
       await t.clock.advance(SESSION_CREDIT_CHECK_MS + 1_000);
       await until(async () => (await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).quantity === 2_500, "the first check's booking");
       // The balance is empty and the session goes on: no interrupt.

@@ -6,7 +6,7 @@
  */
 import { repos, entities as entitiesTable, agents as agentsTable } from "@foundmill/db";
 import { personaByKey, type AgentStyle } from "@foundmill/shared";
-import { eq, isNull } from "drizzle-orm";
+import { eq, isNull, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { backfillPersonasOnBoot } from "../services/persona-backfill";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -21,11 +21,17 @@ async function founder(email: string) {
   const userId = await hz.h.createUser(email);
   const caller = hz.caller({ userId, email });
   await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 12 }, targetMarkets: ["US"], riskAppetite: "medium" });
+  ownerOf.set(caller, userId);
   return { userId, caller };
 }
 
+/** Whose caller it is, so a test that commits several projects can move the owner to Studio (Try holds one project). */
+const ownerOf = new WeakMap<object, string>();
+
 async function commit(caller: Awaited<ReturnType<typeof founder>>["caller"], name: string, extra: { anthropomorphicAgents?: boolean; agentStyle?: AgentStyle } = {}) {
   const generated = await caller.idea.generate({ prompt: `${name} for small teams` });
+  // Try holds one project (A14): this owner takes charge of several, so their plan is Studio before the next commit.
+  await hz.db.execute(sql`update businesses set plan_tier = 'scale' where created_by = ${ownerOf.get(caller) ?? null}`);
   return caller.idea.commit({ ideaId: generated.ideas[0]!.id, name, archetype: "b2b_saas", gameMode: "personal", ...extra });
 }
 

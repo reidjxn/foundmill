@@ -3,6 +3,7 @@
  * cannot be undone never receives third-party text raw. A model with no tools reads it and the agent gets typed fields
  * only; if the reader fails the agent gets nothing; a session with no such tools still reads the content itself.
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { includedCreditsMinor } from "@foundmill/config";
 import { periodOf, repos, type Db } from "@foundmill/db";
@@ -158,9 +159,7 @@ describe("the pipeline's reader asks first and books the exact cost (buildGatewa
   /** This month's credits set to exactly zero (the row is created with the tier's included credits first). */
   async function spendAll(businessId: string) {
     const period = periodOf(new Date());
-    await repos.usage.ensurePeriodCredits(db, businessId, period, includedCreditsMinor("free"));
-    const balance = (await repos.usage.creditBalance(db, businessId, period))!;
-    await repos.usage.chargeCredits(db, businessId, period, Number(balance.balanceMinor));
+    await spendAllCredits(db, businessId, period);
   }
   const readerRows = async (d: Desk) => (await repos.usage.list(db, d.businessId, { sessionId: d.sessionId, kind: "tokens" })).items.filter((u) => (u.details as { route?: string }).route === "quarantinedReader");
 

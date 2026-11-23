@@ -4,8 +4,8 @@
  * founder.profile.get (no businessId). `list` runs as the user under RLS, so a row is only ever a business they belong
  * to. Read-only: no event, no audit.
  */
-import { CREDITS_CURRENCY, includedCreditsMinor, liveModeOpen } from "@foundmill/config";
-import { businessAllowance, includedCreditPool, periodOf, periodRange, repos, withRls, type Db, type DbTx } from "@foundmill/db";
+import { CREDITS_CURRENCY, liveModeOpen } from "@foundmill/config";
+import { businessAllowance, ownerBudget, periodOf, periodRange, repos, withRls, type Db, type DbTx } from "@foundmill/db";
 import { protectedProcedure, router } from "../trpc";
 
 /** Runs fn as the signed-in user, so Postgres RLS holds every row it touches to that user. */
@@ -26,18 +26,18 @@ export const founderBusinessesRouter = router({
     return { businesses: live ? rows : rows.map((r) => ({ ...r, gameMode: "personal" as const })) };
   }),
   /**
-   * The plan behind Commit: the business allowance (unlimited on every plan for now, founder 2026-10-16) and this
-   * month's included-credit pool (SEC2 S6). The service connection, as commit uses: the pool counts the archived
-   * businesses the founder created too. Only the caller's own rows are counted.
+   * The plan behind Commit: the project allowance (Try 1, Founder up to 5, Studio any number, founder Nov 17, 2026) and
+   * this month's included team budget, the owner's one, shared by all their projects (founder, Nov 19, 2026). The service
+   * connection, as commit uses. Only the caller's own rows are counted.
    */
   allowance: protectedProcedure.query(async ({ ctx }) => {
     const period = periodOf(new Date());
-    const [a, pool] = await Promise.all([businessAllowance(ctx.db, ctx.userId), includedCreditPool(ctx.db, ctx.userId, period)]);
+    const [a, budget] = await Promise.all([businessAllowance(ctx.db, ctx.userId), ownerBudget(ctx.db, ctx.userId, period)]);
     return {
       tier: a.tier,
       businesses: { allowed: a.allowed, owned: a.owned },
-      // A new business starts on the free tier: what it would be granted, and when the next month's grant opens.
-      includedCredits: { period, places: pool.places, taken: pool.taken, amountMinor: includedCreditsMinor("free"), currency: CREDITS_CURRENCY, nextGrantAt: periodRange(period).to },
+      // What the owner's plan includes a month and what is left of it, shared by every project, and when the next opens.
+      includedCredits: { period, monthlyMinor: budget.monthlyMinor, remainingMinor: budget.balanceMinor, currency: CREDITS_CURRENCY, nextGrantAt: periodRange(period).to },
     };
   }),
 });

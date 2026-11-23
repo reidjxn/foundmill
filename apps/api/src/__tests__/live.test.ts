@@ -359,7 +359,7 @@ describe("public profiles: search and profile pages, \"On Foundmill\" (audit GLS
     await goLive(hz.A.businessId);
     const bizName = (await repos.businesses.get(hz.db, hz.A.businessId)).name;
     await repos.founders.upsert(hz.db, hz.A.adminId, { displayName: "Ada Adminson", visibility: "public" });
-    // Founder cards list confirmed adults only (0163), and searching for people needs the seeker's confirmation too.
+    // Founder cards list confirmed adults only (0167), and searching for people needs the seeker's confirmation too.
     // The seeker is someone new: B's member was blocked by A's owner above, so A's business no longer turns up for them (M5).
     const seekerId = await hz.h.createUser("seeker@live.test");
     await Promise.all([hz.A.adminId, seekerId, hz.B.memberId].map((id) => repos.social.confirmAdult(hz.db, id)));

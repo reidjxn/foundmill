@@ -618,7 +618,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
               )}
               {creditsNotice ? (
                 <div data-testid="commit-credits-notice" className="mt-3 flex flex-col items-start gap-1.5">
-                  <StatusPill tone="warn">Team starts paused</StatusPill>
+                  <StatusPill tone="warn">Team starts resting</StatusPill>
                   <p className="text-small text-pretty text-secondary">{creditsNotice}</p>
                 </div>
               ) : null}

@@ -944,7 +944,21 @@
       "idx": 134,
       "version": "7",
       "when": 1796504900000,
-      "tag": "0163_network_safety",
+      "tag": "0162_browser_steps",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1796504960000,
+      "tag": "0164_owner_credits",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1796505020000,
+      "tag": "0167_network_safety",
       "breakpoints": true
     }
   ]

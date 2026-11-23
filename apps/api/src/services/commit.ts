@@ -30,7 +30,7 @@ import { CREDITS_CURRENCY, EARLY_ACCESS_STAGE, firstCycleInput, initialModelBill
 
 /** Wage caps are model credits, counted in the credits' own currency whatever the business counts in. */
 const WAGE_CURRENCY = CREDITS_CURRENCY;
-import { raiseStageToolNeeds, assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
+import { raiseStageToolNeeds, assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, platformCredits, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
 import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, FIRST_DAY_PROMISE, OVERNIGHT_SHIFT, TOOL_NEED_STAGES, ValidationError, regulatedAreasOf, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
@@ -248,11 +248,12 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       await repos.audit.append(tx, businessId, { actorKind: "user", actorId: userId, action: "autopilot.turn_on", target: { kind: "business", id: businessId }, details: { enabled: true, cadence: on.business.autopilotCadence, maxCyclesPerDay: on.business.autopilotMaxCyclesPerDay, via: input.overnight ? "commit_overnight" : "commit" } });
       await writeEventRow(tx, { businessId, type: "autopilot.changed", actor: { kind: "user", id: userId }, payload: autopilotChangedPayload(on.business, "turned_on", null) });
     }
-        // This month's included credits (USD), so the first cycle already runs against a balance that pauses the team. They
-    // come from the founder's monthly pool (`includedCreditsFor`): once its places are taken this month (archived
-    // businesses included), a new business starts with nothing included, never a second grant.
+        // The project's own credits row for the month (what it carries from bought credit), so the first cycle already runs
+    // against a balance that rests the team. The included budget is the owner's, shared by all their projects: a new
+    // project sees what is left of it, never a second one (`owner_credits`, 0164).
     const period = periodOf(new Date());
-    const credits = modelBilling === "credits" ? (await repos.usage.ensurePeriodCredits(tx, businessId, period, await includedCreditsFor(tx, business, period, { lock: true }))).balance : null;
+    if (modelBilling === "credits") await repos.usage.ensurePeriodCredits(tx, businessId, period, await includedCreditsFor(tx, business, period));
+    const credits = modelBilling === "credits" ? await platformCredits(tx, business, period) : null;
     const logo = input.logo && checkedLogo ? (await repos.logos.set(tx, businessId, { source: input.logo.source, logo: checkedLogo, createdBy: userId })).meta : null;
     await repos.businesses.commit(tx, businessId, { archetype: input.archetype });
     await repos.ideas.commit(tx, userId, input.ideaId, businessId);
@@ -402,9 +403,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       entity_ids: [],
     });
 
-    // The founder's included credits for this month already went to another business they took charge of (SEC2 S6):
-    // this one starts with nothing included, so it is stopped like any team whose credits ran out, and told why.
-    if (credits && Number(credits.balanceMinor) <= 0) await creditsUsedUp(tx, business, period, credits);
+    // The owner's shared budget for this month is already used by their other projects: this one is stopped like any
+    // team whose budget ran out, and told why.
+    if (credits && credits.balanceMinor <= 0) await creditsUsedUp(tx, business, period, credits);
 
     const departmentIds = [...departmentIdBySlug.values()];
     await writeEventRow(tx, {
@@ -440,7 +441,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
         hasBudget,
         planTier,
         modelBilling,
-        includedCreditsMinor: credits ? Number(credits.grantedMinor) : null,
+        includedCreditsMinor: credits ? credits.grantedMinor : null,
         logo: logo ? { source: logo.source, mime: logo.mime, sha256: logo.sha256, bytes: logo.bytes } : null,
         door: importLink ? "import" : "ideation",
         importSources: importSources.length,

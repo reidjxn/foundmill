@@ -194,3 +194,5 @@ export function fakeTemporalClient(options: { rejectDuplicates?: boolean } = {})
     connection: { close: async () => undefined },
   };
 }
+
+export { spendAllCredits } from "@foundmill/db/testing/credits";

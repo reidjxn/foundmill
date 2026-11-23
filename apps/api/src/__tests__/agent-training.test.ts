@@ -3,6 +3,7 @@
  * draft copy of the live version on the new model, never the live version itself (which the orchestrator refuses, so the
  * run used to stay queued for good); a queued or running run can be canceled, which signals its workflow to stop.
  */
+import { spendAllCredits } from "@foundmill/db/testing/credits";
 import { periodOf, repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -254,8 +255,7 @@ describe("training says a true price and checks it against the balance (WP-09 T9
   /** Leaves `minor` of this month's credits (the included credits used up first, as the first charge would). */
   const leave = async (businessId: string, minor: number) => {
     const period = periodOf(new Date());
-    const { balance } = await repos.usage.ensurePeriodCredits(hz.db, businessId, period, 0);
-    await repos.usage.chargeCredits(hz.db, businessId, period, Number(balance.balanceMinor));
+    await spendAllCredits(hz.db, businessId, period);
     if (minor > 0) await repos.usage.grantCredits(hz.db, businessId, period, minor);
   };
 

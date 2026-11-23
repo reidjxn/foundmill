@@ -16,7 +16,7 @@ import { createCaller } from "../router";
 import { AppError } from "@foundmill/shared";
 import type { ApiGatewayClient, GatewayCheckoutRequest } from "../services/gateway";
 import { assertSubscriptionChargingOpen, MOCK_PAYMENTS_OFF_MESSAGE, SUBSCRIPTIONS_CLOSED_MESSAGE } from "../services/payments";
-import { createApiHarness, type ApiHarness } from "./harness";
+import { createApiHarness, spendAllCredits, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
 const asked: GatewayCheckoutRequest[] = [];
@@ -151,8 +151,8 @@ describe("billing.topUp (mock)", () => {
     const business = await repos.businesses.create(hz.db, { name: "Mock Only Credits", createdBy: userId, planTier: "scale" });
     await repos.memberships.add(hz.db, business.id, { userId, role: "owner" });
     const flagged = callerWith({ APP_ENV: "staging", MODEL_MODE: "live", ALLOW_MOCK_PAYMENTS: true }, { userId });
-    // The month opened with nothing included (the founder's pool was used): a top-up that opens a period also grants the tier's included credits.
-    await repos.usage.ensurePeriodCredits(hz.db, business.id, periodOf(new Date()), 0);
+    // The owner's shared budget for the month is used up, so the only credits are the simulated top-up's.
+    await spendAllCredits(hz.db, business.id, periodOf(new Date()));
     const r = await flagged.billing.topUp({ businessId: business.id, amountMinor: 2500 });
     expect(r).toMatchObject({ mode: "mock", label: "Mock checkout (no money moves)" });
     await flagged.billing.checkout.completeMock({ businessId: business.id, checkoutId: r.checkout.id });
@@ -242,9 +242,9 @@ describe("billing.changeTier and the plans (WP-14 T14)", () => {
     expect(asked).toEqual([]);
   });
 
-  it("the plans hold projects, not people, from the day sign-up opens; while invite-only a second project is not refused", async () => {
-    expect((await businessAllowance(hz.db, hz.B.ownerId)).allowed).toBeNull();
-    await expect(assertBusinessAllowance(hz.db, hz.B.ownerId)).resolves.toMatchObject({ owned: 1 });
+  it("the plans hold projects, not people, at every stage: Try holds one, and the refusal names the plan that has room", async () => {
+    expect((await businessAllowance(hz.db, hz.B.ownerId)).allowed).toBe(1);
+    await expect(assertBusinessAllowance(hz.db, hz.B.ownerId)).rejects.toMatchObject({ code: "tier_limit", message: expect.stringMatching(/Try holds 1 project and you have 1\. You keep it\. Founder holds up to 5: change plan in Settings › Billing/) });
   });
 });
 
