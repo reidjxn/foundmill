@@ -53,3 +53,9 @@ The first draft's "the code that never had to be written" and "cheaper to write,
 - The verdict needs real use: nothing is measured until `SKILLS_PRELOAD=split` and `SKILLS_PRELOAD_FROM` are set on the day sign-up opens. Both are deploy settings (docs/DEPLOY.md is not changed here).
 - `preloadDetail` on the closing token row is a one-line wrapper around the tested `skillsPreloadFor`, and has no test of its own.
 - The live default-skills eval from T6 still needs a model key.
+
+## CI fixes (Nov 23)
+- `.env.example` now lists `SKILLS_PRELOAD` and `SKILLS_PRELOAD_FROM`, which the env check requires of every variable the
+  code reads.
+- The library listing test caps the payload without bodies. Two more skills took it from under 60 KiB to 61,742 bytes, so
+  the cap is 64 KiB. The bodies still come one at a time.
