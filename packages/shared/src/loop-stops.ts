@@ -71,7 +71,7 @@ export function loopStops(input: LoopStopsInput): LoopStops {
     { id: "spend", when: spendWhen(input, mode), then: ASKS },
   ];
   if (mode === "augmented") asks.push({ id: "outside", when: "Contacting anyone outside the project: an email, a message or a comment", then: ASKS });
-  if (mode !== "automated") asks.push({ id: "permanent", when: "A step that can't be undone (sending an email counts)", then: ASKS });
+  if (mode !== "automated") asks.push({ id: "permanent", when: "A step that can't be undone", then: ASKS });
   if (mode === "assisted") asks.push({ id: "contract", when: "Drafting or changing a contract", then: ASKS });
   asks.push(
     { id: "release", when: "Putting changes live in your product", then: "The team asks you first, unless you handed this to an agent in Team › Responsibilities." },

@@ -17,7 +17,7 @@ import { recordExpiredApprovals } from "@foundmill/events";
 import { LIMITS } from "@foundmill/config";
 import { channelRefusal } from "@foundmill/connectors";
 import { getTemplate, getTemplateByAgentType, type AgentTemplate } from "@foundmill/agents";
-import { changeAgentModels, hireFromTemplate, repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
+import { changeAgentModels, founderOnlyCall, hireFromTemplate, repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
 import { PRICING_CURRENCY, resolveRoadmapItem, roadmapPatchFrom, SetAgentModelParams, UpdateRoadmapParams } from "@foundmill/models";
 import { agentPrincipal, evaluate, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, CHOOSABLE_MODEL_KEYS, CreatePlaybookParams, TASK_KINDS, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
@@ -314,7 +314,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
       // allow (or approved ask): run the typed handler.
       await repos.plans.startAction(db, businessId, action.id);
       try {
-        const handled = await handle(action, params, { businessId, business, agents, workflowId: input.workflowId, approvalId: input.approvalId ?? null });
+        const handled = await handle(action, params, { businessId, business, agents, workflowId: input.workflowId, approvalId: input.approvalId ?? null, planId: input.planId });
         const { action: finished } = await repos.plans.finishAction(db, businessId, action.id, { status: "done", result: handled.result, policyOutcome: approved ? "ask" : "allow" });
         await repos.audit.append(db, businessId, { actorKind: "system", action: `plan.action.${action.type}`, target: { kind: "plan_action", id: action.id }, details: { result: handled.result, approved } });
         return { actionId: finished.id, status: "done", outcome: approved ? "ask" : "allow", approvalId: input.approvalId ?? null, result: handled.result, spawn: handled.spawn, ...(handled.stop?.length ? { stop: handled.stop } : {}) };
@@ -343,7 +343,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
 
   // ---- handlers --------------------------------------------------------------------------------------------------
 
-  async function handle(action: PlanActionRow, p: Record<string, unknown>, ctx: { businessId: string; business: Business; agents: Agent[]; workflowId: string; approvalId: string | null }): Promise<{ result: Record<string, unknown>; spawn: PlanActionResult["spawn"]; stop?: string[] }> {
+  async function handle(action: PlanActionRow, p: Record<string, unknown>, ctx: { businessId: string; business: Business; agents: Agent[]; workflowId: string; approvalId: string | null; planId: string }): Promise<{ result: Record<string, unknown>; spawn: PlanActionResult["spawn"]; stop?: string[] }> {
     const { db } = deps;
     const { businessId } = ctx;
     // An amount the plan did not price in a currency is in the business's own (0025).
@@ -421,8 +421,19 @@ export function createPlanActivities(deps: OrchestratorDeps) {
       case "approve_spend": {
         const approvalId = typeof p.approval_id === "string" ? p.approval_id : null;
         if (approvalId) {
+          // A plan is never the founder's own press: a founder-only approval (a made file's release, a listed remote
+          // change, a hosted-browser step, a stored null type) is answered in Needs you, never here. The params are
+          // written by a model, so the grant is the plan's (system), never the user a `by` param names.
+          const target = await repos.approvals.find(db, businessId, approvalId);
+          if (!target) throw new Error("approval_id names no approval of this business");
+          if (target.decisionType === null || founderOnlyCall(target.connectorKey, target.tool)) throw new Error("only an owner or admin can approve this, in Needs you");
+          // Only a plan a person confirmed (plan.confirm checked that they may answer this approval): never one that ran
+          // without a press (automated mode, vacation, a playbook, an option's plan), whose params a model wrote.
+          if (!(await repos.plans.get(db, businessId, ctx.planId)).confirmedAt) throw new Error("answer this approval in Needs you");
+          // What the confirmer saw is what is granted: never a larger amount, or another currency, than the action states.
+          if (target.amountMinor && (amountOf(p) < target.amountMinor || str(p.currency, ctx.business.currency).toUpperCase() !== (target.currency ?? "").toUpperCase())) throw new Error("the approval is for a larger amount than this plan states; answer it in Needs you");
           // Answered like the Inbox answers it: the item closes and a session waiting on the call carries on.
-          await grantApproval(deps, businessId, approvalId, typeof p.by === "string" ? p.by : null);
+          await grantApproval(deps, businessId, approvalId, null);
           return { result: { approvalId, amountMinor: amountOf(p) }, spawn: [] };
         }
         return { result: { amountMinor: amountOf(p), currency, note: "spend approved within caps; the next matching tool call runs without asking" }, spawn: [] };

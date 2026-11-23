@@ -42,7 +42,7 @@ function plannedGrants(): Map<string, string[]> {
 describe("the connector keys a template may name", () => {
   it("are the connectors that are built: none of a later phase, none the platform keeps to itself", () => {
     expect([...THIRD_PARTY_CONNECTOR_KEYS].sort()).toEqual(
-      ["anthropic", "apollo", "bolagsverket", "buffer", "cloudflare_dns", "companies_house", "domains", "dropbox_sign", "e2b", "ecb_rates", "elevenlabs_voice", "firecrawl", "gemini", "github", "gmail", "google_calendar", "google_drive", "indexnow", "notion", "openai", "opencorporates", "perplexity", "plaid", "posthog", "resend", "runway", "sendgrid", "serpapi", "shopify", "stripe", "tink", "vercel", "voyage"],
+      ["anthropic", "apollo", "bolagsverket", "buffer", "cloudflare_dns", "companies_house", "domains", "dropbox_sign", "e2b", "ecb_rates", "elevenlabs_voice", "firecrawl", "gemini", "github", "gmail", "google_calendar", "google_drive", "indexnow", "lightbringer_mcp", "notion", "openai", "opencorporates", "perplexity", "plaid", "posthog", "resend", "runway", "sendgrid", "serpapi", "shopify", "stripe", "tink", "vercel", "voyage"],
     );
     for (const gone of ["instagram", "google_ads", "ga4", "figma", "lob", "browserbase", "openai_images", "onesignal"]) expect(CONNECTOR_KEYS as readonly string[]).not.toContain(gone);
   });

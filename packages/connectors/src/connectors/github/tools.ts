@@ -21,8 +21,8 @@ import { defineTool } from "../../define";
 
 export const GITHUB_KEY = "github";
 export const GITHUB_API_URL = "https://api.github.com";
-// actions:write starts a workflow run (run_checks); checks:read lists check runs (get_checks).
-export const GITHUB_APP_SCOPES = ["contents:write", "pull_requests:write", "metadata:read", "members:read", "actions:write", "checks:read"];
+// actions:write starts a workflow run (run_checks); checks:read lists check runs (get_checks); deployments:read lists a commit's previews (list_deployments).
+export const GITHUB_APP_SCOPES = ["contents:write", "pull_requests:write", "metadata:read", "members:read", "actions:write", "checks:read", "deployments:read"];
 
 const Owner = z.string().min(1).max(100).regex(/^[A-Za-z0-9-]+$/, "GitHub owner");
 const RepoName = z
@@ -266,6 +266,49 @@ export interface BranchMovedDetails {
 }
 export const branchMovedMessage = (branch: string, expected: string, current: string) => `${branch} moved: its head is ${current.slice(0, 12)}, not ${expected.slice(0, 12)} as expected; nothing was written`;
 
+/**
+ * `list_deployments` (WP-07 T12): the deployments GitHub records for one commit (a Vercel, Netlify or Cloudflare Pages
+ * preview of an agent's branch), each with its newest status. Typed facts only: a `url` is kept only when it is https and
+ * on a preview host this list knows, else null. Called by the platform's merge review, never granted to a template.
+ */
+export const LIST_DEPLOYMENTS_TOOL = "list_deployments";
+export const DEPLOYMENTS_PER_COMMIT = 20;
+/** Preview hosts a deployment's address may be on, and the provider each one names. */
+export const PREVIEW_HOSTS: ReadonlyArray<{ suffix: string; provider: string }> = [
+  { suffix: ".vercel.app", provider: "vercel" },
+  { suffix: ".netlify.app", provider: "netlify" },
+  { suffix: ".pages.dev", provider: "cloudflare_pages" },
+];
+export const DeploymentState = z.enum(["success", "failure", "pending", "inactive"]);
+export const Deployment = z.object({ environment: z.string().max(255), state: DeploymentState, url: z.string().nullable() });
+export type DeploymentT = z.infer<typeof Deployment>;
+export const ListDeploymentsInput = RepoRef.extend({ sha: z.string().regex(/^[0-9a-f]{7,64}$/i, "a commit sha") });
+export const ListDeploymentsOutput = z.object({ items: z.array(Deployment) });
+
+/** The preview provider of an address, or null when it is not https on a known preview host. */
+export function previewProvider(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:" || u.username || u.password) return null;
+    const host = u.hostname.toLowerCase();
+    return PREVIEW_HOSTS.find((h) => host.endsWith(h.suffix) && host.length > h.suffix.length)?.provider ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** A deployment status (`GET /repos/{o}/{r}/deployments/{id}/statuses`); `environment_url` is where it is served. */
+export interface GhDeploymentStatus { state: string; environment_url?: string | null; target_url?: string | null }
+
+/** GitHub's status state as the four this tool reports: error and failure are failures; queued and in_progress pend. */
+export function mapDeployment(environment: string, status: GhDeploymentStatus | null | undefined): DeploymentT {
+  const s = status?.state;
+  const state: DeploymentT["state"] = s === "success" ? "success" : s === "failure" || s === "error" ? "failure" : s === "inactive" ? "inactive" : "pending";
+  const raw = status?.environment_url || status?.target_url || null;
+  return { environment: environment.slice(0, 255), state, url: previewProvider(raw) ? raw : null };
+}
+
 /** Why `run_checks` refuses a branch whose `.github` tree is not the default branch's. */
 export const githubChangedMessage = (branch: string): string => `run_checks refuses to run a workflow that differs from the default branch (.github changed on ${branch}); rebase the branch onto the default branch`;
 
@@ -394,6 +437,16 @@ export const githubTools = [
     hints: {},
     untrusted: "repo",
     untrustedRef: (a) => `${a.owner}/${a.repo}@${a.branch}:checks`,
+    annotations: { readOnlyHint: true },
+  }),
+  defineTool({
+    name: LIST_DEPLOYMENTS_TOOL,
+    description: "The deployments GitHub records for one commit (previews on Vercel, Netlify or Cloudflare Pages), each with its environment, its newest state and its address when that is https on a known preview host. Read by the platform's merge review; not in an agent's tool list.",
+    input: ListDeploymentsInput,
+    output: ListDeploymentsOutput,
+    hints: {},
+    untrusted: "repo",
+    untrustedRef: (a) => `${a.owner}/${a.repo}@${a.sha}:deployments`,
     annotations: { readOnlyHint: true },
   }),
   defineTool({

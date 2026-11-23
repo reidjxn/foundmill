@@ -9,7 +9,7 @@ supersedes: []
 Two platform tools, `read_public_page` and `propose_page_edit` (capabilities `page.read` and `page.propose`), granted to
 the SEO, GEO and content channel agents. An agent reads the hosted page (words, stage, live, listed
 and why not, dates, limits, shown milestones) and proposes new words for the pitch, about or who it is for, with a reason.
-A proposal never touches the draft or the published copy: it waits in four new columns on `project_pages` (migration 0165,
+A proposal never touches the draft or the published copy: it waits in four new columns on `project_pages` (migration 0171,
 no new table), one at a time, and a new one replaces it. The event `page.change_proposed` names the agent and the fields.
 In Product › Public page a panel above the editor reads "‹Agent› suggests a change" with the reason, the words now beside
 the words suggested, "Use this" (copies them into the draft; publishing stays the founder's press) and "Dismiss"

@@ -188,7 +188,8 @@ describe("recorded holds that resolve by themselves", () => {
     const approvals = (await repos.approvals.list(t.db, t.businessId, { sessionId })).items;
     expect(approvals.length).toBeGreaterThan(0);
     for (const a of approvals) {
-      expect(a).toMatchObject({ outcome: "approved", byKind: "system" });
+      // A Stripe call is the founder's (Nov 23, 2026): a hold that moved on by itself closes as expired, never approved.
+      expect(a).toMatchObject({ outcome: "expired", byKind: "system" });
       if (a.inboxItemId) expect((await repos.inbox.get(t.db, t.businessId, a.inboxItemId)).state).toBe("archived");
     }
   });

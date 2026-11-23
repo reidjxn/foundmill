@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { CHANNEL_WAITS_REASON, createCycleActivities, idleSummary } from "../activities/cycle";
-import { APPROVAL_IS_YOURS, autoDecideBlocking, createHolidayActivities, GOAL_IS_YOURS, SIGNOFF_IS_YOURS } from "../activities/holiday";
+import { APPROVAL_IS_YOURS, autoDecideBlocking, createHolidayActivities, GOAL_IS_YOURS, PRESS_IS_YOURS, SIGNOFF_IS_YOURS } from "../activities/holiday";
 import { createPlanActivities } from "../activities/plan";
 import { offerReadyToSellAfterTask, READY_TO_SELL_SUBJECT } from "../activities/session";
 import type { BusinessBrief } from "../activities/types";
@@ -305,5 +305,36 @@ describe("a plan never turns on a channel that cannot run (founder, 2026-11-11)"
     expect(enabled.result).toMatchObject({ enabled: true, deferred: "the founder posts this channel with one press on each draft; no engine runs for it" });
     expect(enabled.spawn).toEqual([]);
     expect(await repos.channels.getByKey(t.db, w.id, "social")).toMatchObject({ enabled: true, kitMode: false, engineWorkflowId: null });
+  });
+});
+
+describe("vacation and Automated mode never press a founder-executed request (founder, 2026-11-22)", () => {
+  it("the note waits for the founder with its reason, whatever the authority, and no approval exists for it", async () => {
+    const actionId = "7d1f5b6e-2a3c-4d5e-8f90-123456789abc";
+    const note = await repos.inbox.createItem(t.db, t.businessId, {
+      type: "decision",
+      from_agent_id: t.chiefId,
+      subject: "Ask Lightbringer to prepare your patent filing",
+      body_md: "Asks Lightbringer's patent team to prepare this invention.",
+      status_strip: [],
+      exhibit: { kind: "none", spec_ref: null },
+      // The recommended option is free and "reversible" on purpose: only the note's key keeps it from being answered.
+      decision: { options: [{ id: "founder_action_run", label: "Ask Lightbringer to prepare this patent", recommended: true, consequence: "Lightbringer is asked to prepare it.", cost_minor: 0, reversible: true }, { id: "founder_action_later", label: "Not now", recommended: false, consequence: "Nothing is sent.", cost_minor: 0, reversible: true }], free_text: false, expires_at: null, key: `founder_action:${actionId}` },
+      blocks_continue: false,
+      source_event_ids: [],
+      entity_ids: [],
+    });
+    const everything = ["publish_content", "spend_above_threshold", "merge_to_main", "message_customers", "hire_agents", "change_models"];
+    const auto = await autoDecideBlocking(t.deps, t.businessId, { chiefOfStaffId: t.chiefId, authority: everything, auditAction: "automated_mode.decide", scope: "Automated mode" });
+    expect(auto.inboxItemIds).not.toContain(note.id);
+    expect((await repos.inbox.get(t.db, t.businessId, note.id)).state).not.toBe("answered");
+    const acts = createHolidayActivities(t.deps);
+    const started = t.clock.now();
+    const h = await repos.holidays.start(t.db, t.businessId, { untilAt: new Date(started.getTime() + 2 * 86_400_000), authority: { decisionTypes: everything }, wakeEvents: [], startedAt: started });
+    const decided = await acts.holidayAutoDecide({ businessId: t.businessId, holiday: await acts.loadHoliday({ businessId: t.businessId, holidayId: h.id }) });
+    expect(decided.inboxItemIds).not.toContain(note.id);
+    expect(Object.fromEntries(decided.waiting.map((w) => [w.inboxItemId, w.reason]))[note.id]).toBe(PRESS_IS_YOURS);
+    expect((await repos.inbox.get(t.db, t.businessId, note.id)).state).not.toBe("answered");
+    expect(await repos.approvals.forInboxItem(t.db, t.businessId, note.id)).toBeNull();
   });
 });

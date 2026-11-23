@@ -52,6 +52,8 @@ export const CEDAR_SCHEMA: SchemaJson<string> = {
             unclassified: bool,
             /** Creates an immutable or customer-visible record that brings money in (a finalized invoice, a payment page). */
             paymentRecord: bool,
+            askAlways: bool,
+            founderExecuted: bool,
           },
         },
       },
@@ -82,6 +84,7 @@ export const CEDAR_SCHEMA: SchemaJson<string> = {
               recipientBasis: { ...str, required: false },
               holidayActive: bool,
               kitMode: bool,
+              founderPress: bool,
             },
           },
         },

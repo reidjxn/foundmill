@@ -61,7 +61,7 @@ describe("sendgrid mock: mail composition and signals", () => {
     expect(mock.sentFor(ctx.businessId)[0]!.body).toMatchObject({ headers: { "List-Unsubscribe": "<https://northwindskincare.com/u/abc>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }, text: "Hello https://northwindskincare.com/u/abc", categories: ["lifecycle"], trackingSettings: { subscriptionTracking: { enable: true } } });
     await mock.callTool("send_mail", { ...base, kind: "marketing", unsubscribeGroupId: 21_904 }, ctx);
     expect(mock.sentFor(ctx.businessId)[1]!.body).toMatchObject({ asm: { groupId: 21_904 } });
-    expect(mock.policyHints.send_mail).toEqual({ contactsThirdParty: true, irreversible: true });
+    expect(mock.policyHints.send_mail).toEqual({ contactsThirdParty: true });
     expect(mock.policyHints.schedule_campaign).toEqual({ contactsThirdParty: true, irreversible: true });
   });
   it("add_suppression blocks later sends (opt-out received elsewhere)", async () => {

@@ -79,6 +79,22 @@ const quoted = (title: string) => `“${title.length > 80 ? `${title.slice(0, 77
 /** A task no longer waiting on the answer: running again in another session, or finished another way. */
 const MOVED_ON: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["running", "review", "merging", "done", "stopped"]);
 
+/**
+ * A plan's `approve_spend` naming an agent's approval answers that approval (orchestrator plan.ts, Nov 23, 2026): whoever
+ * confirms the plan passes the same checks as an answer in Needs you, whatever the action's own policy outcome.
+ */
+export async function assertMayGrantFromPlan(tx: DbTx, ctx: BusinessContext, actions: readonly { type: string; status: string; params: unknown }[]): Promise<void> {
+  for (const a of actions) {
+    const approvalId = a.status === "pending" && a.type === "approve_spend" ? (a.params as { approval_id?: unknown } | null)?.approval_id : undefined;
+    if (typeof approvalId !== "string") continue;
+    const target = await repos.approvals.find(tx, ctx.businessId, approvalId);
+    if (!target) throw new ValidationError("approval_id names no approval of this business", { approvalId });
+    assertApprovalAccess(ctx.membership, target);
+    assertCanResolveApproval(target, { userId: ctx.userId, role: ctx.role });
+    await assertMayResolveApproval(tx, ctx.businessId, { userId: ctx.userId, role: ctx.role }, target);
+  }
+}
+
 export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, approval: Approval, outcome: ApprovalOutcome, givenNote: string | null): Promise<RecordedAnswer> {
   // A rejection of a request that said nothing about what it would run carries the ask for the details, so the agent
   // reads why and asks again properly (first-time founder report, Nov 8, 2026).
@@ -86,7 +102,7 @@ export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, appro
   // Owners and admins, or the member Team › Responsibilities names for this kind of decision (SEC-7).
   // The handler Responsibilities named when the approval opened answers it (owners and admins can step in).
   assertCanResolveApproval(approval, { userId: ctx.userId, role: ctx.role });
-  await assertMayResolveApproval(tx, ctx.businessId, { userId: ctx.userId, role: ctx.role }, approval, ctx.connectors);
+  await assertMayResolveApproval(tx, ctx.businessId, { userId: ctx.userId, role: ctx.role }, approval);
   const resolved = await repos.approvals.resolve(tx, ctx.businessId, approval.id, { outcome, byKind: "user", byId: ctx.userId });
   const [agent, session, stop] = await Promise.all([
     approval.agentId ? repos.agents.get(tx, ctx.businessId, approval.agentId).catch(() => null) : Promise.resolve(null),

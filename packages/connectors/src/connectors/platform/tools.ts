@@ -503,6 +503,15 @@ export const platformTools = [
     untrustedRef: () => "bookings",
     annotations: { readOnlyHint: true },
   }),
+  // ---- founder-executed actions (founder, 2026-11-22) ---------------------------------------------------------------
+  defineTool({
+    name: "prepare_founder_action",
+    description:
+      "Prepare a request that only the founder's own press can send, and nothing else: it reads the invention, records the exact request, and writes ONE note that shows the founder what the press will do. It sends nothing to anyone, files nothing and pays nothing; you cannot press it and no tool of yours can. Today the one kind is asking Lightbringer's patent team to prepare a patent filing: connector lightbringer_mcp, tool request_patent_preparation, inventionId from Lightbringer. Preparing the same request again returns the note already waiting.",
+    input: z.object({ connector: z.string().trim().min(1).max(60), tool: z.string().trim().min(1).max(120), inventionId: z.string().trim().min(1).max(64) }),
+    output: z.object({ actionId: z.string(), inboxItemId: z.string(), created: z.boolean(), note: z.string() }),
+    hints: {},
+  }),
 ] as const;
 
 type ToolIo<N extends (typeof platformTools)[number]["name"]> = Extract<(typeof platformTools)[number], { name: N }>;
@@ -570,6 +579,7 @@ export interface PlatformHost {
   recommendTool(caller: PlatformCaller, args: PlatformArgs<"recommend_tool">): Promise<PlatformResult<"recommend_tool">>;
   bookingSetup(caller: PlatformCaller, args: PlatformArgs<"booking_setup">): Promise<PlatformResult<"booking_setup">>;
   listBookings(caller: PlatformCaller): Promise<PlatformResult<"list_bookings">>;
+  prepareFounderAction(caller: PlatformCaller, args: PlatformArgs<"prepare_founder_action">): Promise<PlatformResult<"prepare_founder_action">>;
 }
 
 /** A platform tool refused for a reason the agent can act on: `not_found`, `not_yours` (someone else's task) or `invalid_state`. */

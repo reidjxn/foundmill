@@ -19,7 +19,9 @@ afterAll(async () => {
 const invite = { summary: "Demo", start: "2026-10-08T13:00:00Z", end: "2026-10-08T13:30:00Z", attendees: ["sara@ledgerly.app"] };
 
 describe("the founder's own calendar and mail at the gateway", () => {
-  it("an invitation asks in automated mode, and a delegate for messages to customers does not decide it", async () => {
+  // Outside contact runs from the first message (founder, Nov 23, 2026): an invitation runs in automated mode, and
+  // where a mode still asks (augmented), only the founder answers.
+  it("an invitation runs in automated mode; in augmented mode it asks, and a delegate for messages to customers does not decide it", async () => {
     await repos.businesses.setBusinessMode(g.db, g.businessId, "automated");
     const dept = await repos.departments.create(g.db, g.businessId, { name: "Ops" });
     const chief = await repos.agents.create(g.db, g.businessId, { name: "Chief", agentType: "chief_of_staff", departmentIds: [dept.id] });
@@ -27,7 +29,9 @@ describe("the founder's own calendar and mail at the gateway", () => {
     await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [{ decisionType: "message_customers", handler: { kind: "agent", id: chief.id } }] });
     try {
       const token = await g.token({ allowedTools: ["google_calendar:create_event"] });
-      const r = await g.client.call(token, { connector: "google_calendar", tool: "create_event", args: invite });
+      expect((await g.client.call(token, { connector: "google_calendar", tool: "create_event", args: invite })).outcome).toBe("allow");
+      await repos.businesses.setBusinessMode(g.db, g.businessId, "augmented");
+      const r = await g.client.call(token, { connector: "google_calendar", tool: "create_event", args: { ...invite, summary: "Demo 2" } });
       expect(r.outcome).toBe("ask");
       const approval = await repos.approvals.get(g.db, g.businessId, (r as { approvalId: string }).approvalId);
       expect(approval.byKind ?? null).toBeNull();
@@ -38,6 +42,7 @@ describe("the founder's own calendar and mail at the gateway", () => {
       expect(mail.handlerKind ?? null).toBeNull();
       expect([...FOUNDER_ACCOUNT_SEND_TOOLS].sort()).toEqual(["gmail:send_message", "google_calendar:create_event", "google_calendar:delete_event", "google_calendar:update_event"]);
     } finally {
+      await repos.businesses.setBusinessMode(g.db, g.businessId, "automated");
       await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
     }
   });

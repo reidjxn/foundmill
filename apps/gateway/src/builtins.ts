@@ -15,6 +15,7 @@ import { AppError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import { createDbPlatformHost, type RepositoryFiles } from "./platform-host";
 import { createCliRunner } from "./cli-runner";
+import type { FounderActionPreparer } from "./founder-action";
 import { createSkillReader } from "./skill-reader";
 import { safeError, type GatewayLogger } from "./pipeline";
 
@@ -132,12 +133,14 @@ export interface GatewayBuiltinsDeps extends QuarantinedReaderDeps {
   live?: LiveConnectorOptions;
   /** The business's code repository for the skill tools; late-bound (the pipeline is built after the connectors). */
   repository?: () => RepositoryFiles | null;
+  /** The founder-executed requests' preparer; late-bound for the same reason. */
+  founderActions?: () => FounderActionPreparer | null;
 }
 
 /** The built-in connectors, wired to this gateway's database and model client. */
 export function createGatewayBuiltins(deps: GatewayBuiltinsDeps): Connector[] {
   const searchWeb = deps.live?.searchWeb ?? platformSearchWeb(deps.models);
   // read_skill comes from its own module (./skill-reader), next to the rest of the platform host.
-  const platform = { ...createDbPlatformHost({ db: deps.db, log: deps.log, ...(deps.repository ? { repository: deps.repository } : {}) }), readSkill: createSkillReader({ db: deps.db, log: deps.log }) };
+  const platform = { ...createDbPlatformHost({ db: deps.db, log: deps.log, ...(deps.repository ? { repository: deps.repository } : {}), ...(deps.founderActions ? { founderActions: deps.founderActions } : {}) }), readSkill: createSkillReader({ db: deps.db, log: deps.log }) };
   return createBuiltinConnectors({ ...deps.live, platform, cliRunner: createCliRunner({ db: deps.db }), quarantinedReader: createQuarantinedReader(deps), ...(searchWeb ? { searchWeb } : {}) });
 }

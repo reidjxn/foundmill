@@ -12,15 +12,21 @@ import { useInvalidateRouters } from "./SettingsScreen";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
 
 export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
 
 type Row = { key: string; integration: { status: string; scopes: readonly string[]; settings?: unknown } | null };
 
 const connected = (r: Row | undefined): r is Row & { integration: NonNullable<Row["integration"]> } => !!r?.integration && r.integration.status !== "disconnected";
 export const contextReadsOn = (r: Row): boolean => (r.integration?.settings as { contextReads?: unknown } | null | undefined)?.contextReads === true;
 
-/** What the Gmail line says the team reads: drafts only until Google grants inbox access. */
+/** What the Gmail line says the team reads: drafts need gmail.compose and the inbox gmail.readonly, both asked for only when reading is turned on. */
 export function gmailReadsLine(scopes: readonly string[]): string {
-  return scopes.includes(GMAIL_READONLY_SCOPE) ? "Your drafts and your inbox." : "Your drafts. Your inbox is read once Google grants inbox access.";
+  const drafts = scopes.includes(GMAIL_COMPOSE_SCOPE);
+  const inbox = scopes.includes(GMAIL_READONLY_SCOPE);
+  if (drafts && inbox) return "Your drafts and your inbox.";
+  if (inbox) return "Your inbox.";
+  if (drafts) return "Your drafts. Your inbox is read once Google grants inbox access.";
+  return "Nothing yet. Your drafts and inbox are read once Google grants access to them.";
 }
 
 export function GoogleContextPanel({ businessId, rows, canEdit }: { businessId: string; rows: readonly Row[]; canEdit: boolean }) {
@@ -44,7 +50,7 @@ export function GoogleContextPanel({ businessId, rows, canEdit }: { businessId: 
 
   return (
     <SettingsSection title="Your mail and calendar as context" data-testid="google-context">
-      <Hint>Let the team read your own mail and calendar on this project, so its work fits what is already happening. What it reads is outside content: instructions inside it are never followed. The team writes drafts and adds events with nobody invited; sending mail and inviting people always ask you first.</Hint>
+      <Hint>Let the team read your own mail and calendar on this project, so its work fits what is already happening. What it reads is outside content: instructions inside it are never followed. The team writes drafts and adds events with nobody invited; sending mail and inviting people run on their own, unless you chose to be asked before anything outside the business.</Hint>
       {connected(gmail) ? line(gmail, "Let the team read your Gmail", gmailReadsLine(gmail.integration.scopes)) : null}
       {connected(calendar) ? line(calendar, "Let the team read your Google Calendar", "Event titles, times, places and descriptions.") : null}
       {canEdit ? null : <Hint>Only the project's founders can change this.</Hint>}

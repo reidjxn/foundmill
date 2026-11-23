@@ -189,13 +189,28 @@ describe("#107 a member cannot widen what an agent does on its own", () => {
     expect(await code(as(adminId).team.approvals.resolve({ businessId, approvalId: spend.id, outcome: "rejected" }))).toBe("OK");
   });
 
-  it("approvalDecisionType and mayDecide follow the connector's hints and the matrix", () => {
-    const connectors = hz.deps.connectors;
-    expect(approvalDecisionType({ connectorKey: "sendgrid", tool: "send_mail" }, connectors)).toBe("message_customers");
-    expect(approvalDecisionType({ connectorKey: "e2b", tool: "create_sandbox" }, connectors)).toBe("spend_above_threshold");
-    expect(approvalDecisionType({ connectorKey: "github", tool: "merge_pr" }, connectors)).toBe("merge_to_main");
-    expect(approvalDecisionType({ connectorKey: "dropbox_sign", tool: "send_signature_request" }, connectors)).toBe("sign_contracts");
-    expect(approvalDecisionType({ connectorKey: "nope", tool: "x" }, connectors)).toBeNull();
+  it("a made file's release, a listed remote change and a hosted-browser step are an owner's or admin's, never the member named for them", async () => {
+    const { businessId, memberId, adminId, ownerId, agent2Id } = hz.A;
+    // The member is named for messaging customers in agent2's department (the test above), which is how the gateway
+    // routed these calls before Nov 22, 2026.
+    for (const [connectorKey, tool] of [["cli_inkscape", "release_output"], ["hubspot_mcp", "manage_crm_objects"], ["notion_mcp", "notion_update_page"], ["browser_canva", "click"]] as const) {
+      for (const decider of [ownerId, adminId]) {
+        const a = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey, tool, args: { decider }, reasons: ["asks"], decisionType: "message_customers" });
+        expect(a.handlerKind, `${connectorKey}:${tool}`).toBeNull();
+        expect(await code(as(memberId).team.approvals.resolve({ businessId, approvalId: a.id, outcome: "approved" })), `${connectorKey}:${tool}`).toBe("FORBIDDEN");
+        expect(await code(as(decider).team.approvals.resolve({ businessId, approvalId: a.id, outcome: "approved" })), `${connectorKey}:${tool}`).toBe("OK");
+      }
+    }
+    // A stored null (a payment record, a hard gate, a row from before the column) is the founder's: never recomputed from hints.
+    const unrouted = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "sendgrid", tool: "send_mail", args: { unrouted: true }, reasons: ["asks"], decisionType: null });
+    expect(await code(as(memberId).team.approvals.resolve({ businessId, approvalId: unrouted.id, outcome: "approved" }))).toBe("FORBIDDEN");
+  });
+
+  it("approvalDecisionType is the stored type, null for founder-only calls; mayDecide follows the matrix", () => {
+    expect(approvalDecisionType({ connectorKey: "sendgrid", tool: "send_mail", decisionType: "message_customers" })).toBe("message_customers");
+    expect(approvalDecisionType({ connectorKey: "sendgrid", tool: "send_mail", decisionType: null })).toBeNull();
+    expect(approvalDecisionType({ connectorKey: "cli_gimp", tool: "release_output", decisionType: "message_customers" })).toBeNull();
+    expect(approvalDecisionType({ connectorKey: "browser_canva", tool: "fill", decisionType: "publish_content" })).toBeNull();
     const d1 = { id: "d1", approvers: [{ decisionType: "spend_above_threshold", handler: { kind: "user", id: "u1" } }] };
     const d2 = { id: "d2", approvers: [] };
     const member = { userId: "u1", role: "member" as const };
@@ -233,6 +248,20 @@ describe("#250 a spend that asked the founder is confirmed by an owner or admin"
     expect(await code(as(memberId).plan.confirm({ businessId, planId: result.plan.id }))).toBe("FORBIDDEN");
     expect((await repos.plans.get(hz.db, businessId, result.plan.id)).status).toBe("pending_confirmation");
     expect((await as(ownerId).plan.confirm({ businessId, planId: result.plan.id })).plan.status).not.toBe("pending_confirmation");
+  });
+});
+
+describe("approve_spend naming an agent's approval is confirmed only by someone who may answer that approval (Nov 23, 2026)", () => {
+  it("a member cannot confirm a plan that grants an approval they were not named for, even when the action itself is allowed; another project's approval is refused", async () => {
+    const { businessId, memberId, ownerId, agent2Id } = hz.A;
+    const spend = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "e2b", tool: "create_sandbox", args: { plan: true }, reasons: ["Above the threshold"], decisionType: "spend_above_threshold" });
+    const other = await repos.approvals.create(hz.db, hz.B.businessId, { agentId: hz.B.agentId, connectorKey: "e2b", tool: "create_sandbox", args: {}, reasons: ["Above the threshold"], decisionType: "spend_above_threshold" });
+    const stage = (approvalId: string) => repos.plans.create(hz.db, businessId, { origin: "free_text", actions: [{ type: "approve_spend", params: { approval_id: approvalId, amount_minor: 0 }, agentId: agent2Id, policyOutcome: "allow" }] });
+    const plan = await stage(spend.id);
+    expect(await code(as(memberId).plan.confirm({ businessId, planId: plan.id }))).toBe("FORBIDDEN");
+    expect((await repos.plans.get(hz.db, businessId, plan.id)).status).toBe("pending_confirmation");
+    expect(await code(as(ownerId).plan.confirm({ businessId, planId: (await stage(other.id)).id }))).toBe("BAD_REQUEST");
+    expect(await code(as(ownerId).plan.confirm({ businessId, planId: plan.id }))).toBe("OK");
   });
 });
 

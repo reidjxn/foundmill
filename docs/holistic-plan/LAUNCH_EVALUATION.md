@@ -147,3 +147,11 @@ After speaking to a lawyer (reported by the coordinating session):
 3. No routing change for finance or legal agents on the free plan. They give general help, not professional advice, so Additional Terms 1(f)(iii) and (iv) do not apply.
 
 The free plan's switch (WP-13 T10) no longer waits on Z.ai paperwork.
+
+### The founder's decisions of Nov 23, 2026 (the pre-launch checklist)
+
+Reported by the coordinating session. These are pre-launch items for Session 11 (Wave 4), not work to do now:
+1. Stripe WP-00 S8 is done last: after the finished product is presented to Luminar, and before launch, since full approvals are needed to take payments. It covers the $5 Try product and price id on the gateway, the four billing webhook events, the customer portal in test and live, and Stripe's live-only settings (public details, Connect platform profile and branding, questionnaire, representative documents).
+2. The spending backstops (Anthropic Console about $750 a month, E2B about $100 a month) are set before launch.
+3. The OpenSRS reseller account ($95 up front) is opened before launch. Session 14's live domain calls wait for it. This replaces "Sunday, Nov 22".
+4. #368 (patents through Lightbringer) merges as it is (option 1).

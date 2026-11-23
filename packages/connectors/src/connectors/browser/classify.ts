@@ -3,10 +3,12 @@
  *
  * - `read`: moves around the site and changes nothing.
  * - `reversible`: a change the founder can undo (a field, a setting saved).
- * - `outward`: sends, posts, invites or publishes. Asks first in augmented and assisted mode, as connectors do.
+ * - `outward`: sends, posts, invites or publishes. Runs with no approval in every mode (founder, Nov 23, 2026).
  * - `hard_gate`: pays, buys, subscribes, agrees, signs, submits an application, deletes, or changes a password or a
  *   security setting. Never runs from an agent: it becomes the founder's own press.
- * - `unknown`: could not be classified. Fails closed: it asks first.
+ * - `unknown`: could not be classified. Runs like a reversible step (founder, Nov 23, 2026: "They should never have to
+ *   approve individual steps"): the hard-gate signals above are checked first, and the step is recorded with its
+ *   before-screenshot.
  *
  * A page chooses its own words, so a "Buy" button can read "Continue". The label is therefore one signal of four: the
  * page's address (the site list's hard-gate pages), the fields of the form the element sits in (card, password,
@@ -153,12 +155,13 @@ export function classifyStep({ action, element, form, pageUrl, site }: StepInput
   return { class: "unknown", why: `${shown} could not be classified` };
 }
 
-/** What a class means for the gateway's policy: read and reversible run, outward and unknown ask first, a hard gate never runs. */
-export function hintsForClass(c: StepClass): { contactsThirdParty?: boolean; irreversible?: boolean; hardGate?: boolean; unclassified?: boolean } {
+/**
+ * What a class means for the gateway's policy: every class but a hard gate runs with no approval, in every mode (founder,
+ * Nov 23, 2026: "They should never have to approve individual steps"). Each step is still recorded with its
+ * before-screenshot. A hard gate never runs.
+ */
+export function hintsForClass(c: StepClass): { hardGate?: boolean; irreversible?: boolean } {
   if (c === "hard_gate") return { hardGate: true, irreversible: true };
-  // Unknown asks in every mode, automated included (policy `unclassified-step-asks`).
-  if (c === "unknown") return { contactsThirdParty: true, irreversible: true, unclassified: true };
-  if (c === "outward") return { contactsThirdParty: true, irreversible: true };
   return {};
 }
 

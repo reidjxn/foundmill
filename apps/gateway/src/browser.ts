@@ -14,6 +14,7 @@
 import { z } from "zod";
 import { BROWSER_SITES, MOCK_BROWSER_SESSIONS, browserConnectorKey, type BrowserHost, type BrowserSessions, type BrowserSessionView } from "@foundmill/connectors";
 import { repos, type Db } from "@foundmill/db";
+import { browserSignInExpiry } from "@foundmill/shared";
 import { GatewayError, modeFor, safeError, type GatewayDeps, type GatewayLogger } from "./pipeline";
 import { isLiveViewUrl } from "./browser-e2b";
 
@@ -74,9 +75,20 @@ export async function stopBrowserSessions(deps: Pick<GatewayDeps, "browserSessio
  * `browser_steps` with the page before it; a screenshot can hold other people's personal data, so the row follows the
  * project's own retention and export rules (packages/db `browser_steps`).
  */
-export function browserHost(db: Db, log: GatewayLogger, sessions: BrowserSessions | null): BrowserHost {
+export function browserHost(db: Db, log: GatewayLogger, sessions: BrowserSessions | null, now: () => Date = () => new Date()): BrowserHost {
+  // One expiry write per sign-in per hour is enough to keep a used sign-in from being deleted as quiet.
+  const touched = new Map<string, number>();
   return {
     ...(sessions ? { sessions } : {}),
+    used: async (businessId, connectorKey) => {
+      const key = `${businessId}:${connectorKey}`;
+      const at = now();
+      if ((touched.get(key) ?? 0) > at.getTime() - 3_600_000) return;
+      touched.set(key, at.getTime());
+      const row = await repos.integrations.getByKey(db, businessId, connectorKey);
+      const credential = row ? await repos.credentials.latest(db, businessId, row.id) : null;
+      if (credential) await repos.credentials.setExpiry(db, businessId, credential.meta.id, browserSignInExpiry(at));
+    },
     recordStep: async (step) => {
       try {
         const { businessId, agentId, sessionId, siteKey, tool, target, why, url, amount, screenshot, simulated } = step;

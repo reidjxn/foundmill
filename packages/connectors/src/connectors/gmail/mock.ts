@@ -2,9 +2,14 @@ import { AppError } from "@foundmill/shared";
 import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, simulate, stableHash } from "../../mock-utils";
 import { GMAIL_LABELS, GMAIL_MESSAGES, isMockSuppressed, MOCK_MAILBOX_ADDRESS } from "./fixtures/mailbox";
-import { GMAIL_KEY, GMAIL_RATE_LIMITS, GMAIL_SCOPES, gmailTools, mapMessage, mapSummary, type GmailMessage } from "./tools";
+import { GMAIL_COMPOSE_SCOPE, GMAIL_DRAFTS_OFF, GMAIL_KEY, GMAIL_RATE_LIMITS, GMAIL_SCOPES, gmailTools, mapMessage, mapSummary, type GmailMessage } from "./tools";
 
 export const SUPPRESSED_CODE = "recipient_suppressed";
+
+/** As live: Gmail drafts need gmail.compose, which is not asked for at launch. */
+const draftable = (scopes: readonly string[]): void => {
+  if (!scopes.includes(GMAIL_COMPOSE_SCOPE)) throw Object.assign(new Error(GMAIL_DRAFTS_OFF), { status: 403, code: "mail_drafts_off" });
+};
 
 /** Shared pre-send guard (mock and live): refuse any recipient on the suppression list. */
 export async function assertNotSuppressed(recipients: string[], isSuppressed: (email: string) => Promise<boolean> | boolean): Promise<void> {
@@ -58,11 +63,13 @@ export function createGmailMock() {
         return { id: m.id, threadId: m.threadId, to: args.to };
       },
       create_draft: async (args, ctx) => {
+        draftable(ctx.integration.scopes);
         const m = outbound(ctx.businessId, args, "DRAFT");
         return { draftId: `r${m.id}`, messageId: m.id };
       },
-      list_drafts: async ({ q, maxResults }, ctx) => ({ items: [...world(ctx.businessId).messages.values()].filter((m) => m.labelIds?.includes("DRAFT")).map((m) => ({ draftId: `r${m.id}`, ...mapSummary(m) })).filter((m) => !q || matchesQuery(m, q)).sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, maxResults) }),
+      list_drafts: async ({ q, maxResults }, ctx) => (draftable(ctx.integration.scopes), { items: [...world(ctx.businessId).messages.values()].filter((m) => m.labelIds?.includes("DRAFT")).map((m) => ({ draftId: `r${m.id}`, ...mapSummary(m) })).filter((m) => !q || matchesQuery(m, q)).sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, maxResults) }),
       get_draft: async ({ draftId }, ctx) => {
+        draftable(ctx.integration.scopes);
         const m = world(ctx.businessId).messages.get(draftId.replace(/^r/, ""));
         if (!m || !m.labelIds?.includes("DRAFT")) throw Object.assign(new Error(`draft ${draftId} not found`), { status: 404 });
         return { draftId, ...mapMessage(m) };
