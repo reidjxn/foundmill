@@ -33,11 +33,11 @@ Use this when a founder needs a real picture file: a logo, a mark, a social bann
 1. Call `new_document` (or `new_image`) once.
 2. Add shapes and text one call at a time, then check the result with the next call's summary. Keep the mark simple: one idea, at most three shapes, the primary brand color on a plain or secondary-color background, the name in text if it fits.
 3. Call `export` with a plain file name that ends in the format, such as `logo.svg`. The file now sits in the working copy. It is not on the project's page and nothing has been sent.
-4. Ask for approval with `release_output` (target `logo`). The founder sees an approval note and decides. Say in your report that the file is waiting for their approval, not that it is live.
+4. Put it to use with `release_output` (target `logo`). It runs at once, with no approval, and shows in the activity feed. Say in your report that the logo is now the file you made, and that the founder can change it again at any time.
 
 ## What not to do
 
-- Never say a file is on the page before the founder approves it.
+- Never say a file is on the page before `release_output` has run.
 - Never use another company's logo, a font you cannot name, or colors the project does not have.
 - A result marked simulated was not made. Say it was simulated and that no file exists.
 - If a command fails, report the error in plain words and stop; do not try other commands to get around it.

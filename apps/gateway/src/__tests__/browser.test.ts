@@ -3,7 +3,7 @@
  * pages:
  * - reading a page runs and comes back untrusted, metered and audited; a field the founder can change back runs too,
  *   although the write tools' own hints say "ask": the step is classified from the page;
- * - a step that publishes asks first in augmented and assisted mode;
+ * - a step that publishes, and one the classifier cannot name, runs with no approval in every mode (founder, Nov 23, 2026);
  * - "Buy now", and the same step labeled "Continue", is denied as a hard gate in every mode: nothing is pressed, the
  *   founder gets one task with what would be pressed and the amount, and the session waits for them;
  * - a never site's address is refused whatever the session token says;
@@ -79,7 +79,7 @@ const ok = (r: CallResponse) => {
 };
 
 describe("steps are classified from the page before they run", () => {
-  it("assisted: a read and a reversible change run; a step that publishes asks first and presses nothing", async () => {
+  it("assisted: a read, a reversible change and a step that publishes all run with no approval", async () => {
     const g = await setup("assisted");
     let p = await g.read("open_page", { url: "/products/new" });
     ok(await g.call("fill", { ref: ref(p, "Product name"), value: "Cedar candle" }));
@@ -87,15 +87,15 @@ describe("steps are classified from the page before they run", () => {
     ok(await g.call("click", { ref: ref(p, "Save product") }));
     expect(g.control.saved(g.businessId, "wave")).toEqual({ product_name: "Cedar candle" });
     p = await g.read("read_page");
-    const publish = await g.call("click", { ref: ref(p, "Publish product") });
-    expect(publish.outcome, JSON.stringify(publish)).toBe("ask");
-    expect(g.steps.map((s) => `${s.tool}:${s.class}`)).toEqual(["fill:reversible", "click:reversible"]);
+    ok(await g.call("click", { ref: ref(p, "Publish product") }));
+    expect(g.steps.map((s) => `${s.tool}:${s.class}`)).toEqual(["fill:reversible", "click:reversible", "click:outward"]);
   });
 
   it("only the founder approves a step on a website: it is never routed to an agent the Responsibilities matrix names (security review)", async () => {
     const g = await setup("assisted");
-    const p = await g.read("open_page", { url: "/products/new" });
-    expect((await g.call("click", { ref: ref(p, "Publish product") })).outcome).toBe("ask");
+    await g.read("open_page", { url: "/products/new" });
+    // A ref the gateway cannot read keeps the strictest hints, so it asks.
+    expect((await g.call("click", { ref: "pdeadbeefe0" })).outcome).toBe("ask");
     const rows = await g.h.pg.query<{ decision_type: string | null }>("select decision_type from approvals where business_id = $1", [g.businessId]);
     expect(rows.rows).toEqual([{ decision_type: null }]);
   });
@@ -106,16 +106,23 @@ describe("steps are classified from the page before they run", () => {
     expect((await g.call("click", { ref: "pdeadbeefe0" })).outcome).toBe("ask");
   });
 
-  it("automated: a step that publishes runs, but one the gateway cannot classify still asks first", async () => {
+  it("automated: a step that publishes runs", async () => {
     const g = await setup("automated");
     const p = await g.read("open_page", { url: "/products/new" });
     ok(await g.call("click", { ref: ref(p, "Publish product") }));
-    await g.read("open_page", { url: "/setup/step-3" });
-    // A stale ref cannot be read from the page at all.
-    const stale = await g.call("click", { ref: "pdeadbeefe0" });
-    expect(stale.outcome, JSON.stringify(stale)).toBe("ask");
-    expect(JSON.stringify(stale)).toContain("unclassified-step-asks");
   });
+
+  // Founder, Nov 23, 2026: "They should never have to approve individual steps."
+  for (const mode of ["augmented", "assisted", "automated"] as const) {
+    it(`${mode}: a step the classifier cannot name runs with no approval and is recorded`, async () => {
+      const g = await setup(mode);
+      const p = await g.read("open_page", { url: "/" });
+      ok(await g.call("click", { ref: ref(p, "Got it") }));
+      expect(g.steps.map((s) => `${s.tool}:${s.class}`)).toEqual(["click:unknown"]);
+      const asks = await g.h.pg.query("select id from approvals where business_id = $1", [g.businessId]);
+      expect(asks.rows).toEqual([]);
+    });
+  }
 
   for (const mode of ["augmented", "assisted", "automated"] as const) {
     it(`${mode}: Buy now, and the same step labeled Continue, is the founder's own press`, async () => {
