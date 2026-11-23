@@ -29,6 +29,7 @@ import { monitorWorker, type WorkerMonitor } from "./services/worker-health";
 import { seedOnBoot } from "./services/seed-on-boot";
 import { startIdeaBoxSweep } from "./services/idea-box";
 import { startShowcaseSweep } from "./services/showcase";
+import { startTeamCallSweep } from "./services/team-call-sweep";
 import { DEMO_ROLL_BOOT_WAIT_MS, demoRollForwardEnabled, startDemoRollForward } from "./services/demo-roll-forward";
 import { notifyEmailEnabled, startNotifyEmail } from "./services/push/email-pass";
 import { backfillDefaultSkillsOnBoot } from "./services/default-skills-backfill";
@@ -159,6 +160,7 @@ export async function main(): Promise<void> {
   let demoRoller: { stop(): void } | null = null;
   let ideaSweep: { stop(): Promise<void> } | null = null;
   let showcaseSweep: { stop(): Promise<void> } | null = null;
+  let teamCallSweep: { stop(): Promise<void> } | null = null;
   let notifyEmail: { stop(): Promise<void> } | null = null;
   let workerMonitor: WorkerMonitor | null = null;
   let warmer: PoolWarmer | null = null;
@@ -188,6 +190,7 @@ export async function main(): Promise<void> {
       { name: "stop sample roll-forward", run: () => demoRoller?.stop() },
       { name: "stop idea box sweep", run: async () => ideaSweep?.stop() },
       { name: "stop showcase sweep", run: async () => showcaseSweep?.stop() },
+      { name: "stop team call sweep", run: async () => teamCallSweep?.stop() },
       { name: "stop key refresh", run: () => keys?.stop() },
       { name: "stop confirm-email check", run: () => confirmEmail?.stop() },
       { name: "stop data-api check", run: () => dataApi?.stop() },
@@ -259,6 +262,8 @@ export async function main(): Promise<void> {
     if (migrated && !lifecycle.stopping) ideaSweep = startIdeaBoxSweep(deps);
     // Showcase videos (0103): asks that ran out, approvals that lapsed, clips to follow, founders who changed.
     if (migrated && !lifecycle.stopping) showcaseSweep = startShowcaseSweep(deps);
+    // Team calls left open (no turn for 15 minutes) are ended and written up, every minute (services/team-call-sweep.ts).
+    if (migrated && !lifecycle.stopping) teamCallSweep = startTeamCallSweep(deps);
   });
   // Email from Foundmill to a person (packages 1.5 and 5.1): a note that waited a day for their answer, at boot and every
   // hour; only with PLATFORM_MAIL_DOMAIN set, and NOTIFY_EMAIL=off turns it off. The gateway sends and counts.

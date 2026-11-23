@@ -58,12 +58,12 @@ describe("team calls (0082): tenancy through the repo", () => {
     expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.teamCalls))).toEqual([]);
   });
 
-  it("a member of A writes nothing of B: no call, no turn, no wrap-up, no reopening", async () => {
+  it("a member of A writes nothing of B: no call, no turn, no wrap-up, no failed mark", async () => {
     await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.create(tx, B.businessId, { kind: "one_to_one", agentIds: [B.agentId], startedBy: A.ownerId }))).rejects.toThrow();
     await expect(h.asUser(A.ownerId).run((tx) => tx.insert(s.teamCalls).values({ businessId: B.businessId, kind: "team", agentIds: [B.agentId] }))).rejects.toThrow(RLS_DENIED);
     await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.appendTurns(tx, B.businessId, bCallId, [say(A.ownerId, "Hello?")]))).rejects.toBeInstanceOf(NotFoundError);
     await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.claimWrapUp(tx, B.businessId, bCallId))).rejects.toBeInstanceOf(NotFoundError);
-    await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.reopenAfterFailedWrapUp(tx, B.businessId, bCallId))).rejects.toBeInstanceOf(NotFoundError);
+    await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.markWrapUpFailed(tx, B.businessId, bCallId))).rejects.toBeInstanceOf(NotFoundError);
     await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.finish(tx, B.businessId, bCallId, { summary: "x", actions: [] }))).rejects.toThrow();
     const b = await h.service().run((tx) => repos.teamCalls.get(tx, B.businessId, bCallId));
     expect(b).toMatchObject({ status: "live", turnCount: 2 });
@@ -120,7 +120,7 @@ describe("team calls (0082): viewers never write", () => {
       expect(await h.asUser(userId).run((tx) => repos.teamCalls.claimWrapUp(tx, A.businessId, call.id))).toBe(false);
       expect((await h.service().run((tx) => repos.teamCalls.get(tx, A.businessId, call.id))).status).toBe("live");
       await h.service().run((tx) => repos.teamCalls.claimWrapUp(tx, A.businessId, call.id));
-      expect(await h.asUser(userId).run((tx) => repos.teamCalls.reopenAfterFailedWrapUp(tx, A.businessId, call.id))).toBe(false);
+      expect(await h.asUser(userId).run((tx) => repos.teamCalls.markWrapUpFailed(tx, A.businessId, call.id))).toBe(false);
       await expect(h.asUser(userId).run((tx) => repos.teamCalls.finish(tx, A.businessId, call.id, { summary: "x", actions: [] }))).rejects.toThrow();
       expect((await h.service().run((tx) => repos.teamCalls.get(tx, A.businessId, call.id))).status).toBe("wrapping_up");
     });

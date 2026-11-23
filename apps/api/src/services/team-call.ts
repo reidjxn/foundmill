@@ -9,7 +9,7 @@
  *              past the call's round ceiling, the answer hands back with no model call.
  * - speech     one agent turn spoken in the agent's accent, with names as this listener reads them (`spokenText`).
  * - transcribe what the founder said (live through the gateway; simulated: empty, the browser recognizes instead).
- * - end        the wrap-up: a summary and action items as typed plan actions, checked by `evaluatePlan` as every decision
+ * - end        (End, leaving the room, or the sweep for a call left open: `startTeamCallSweep`) the wrap-up: a summary and action items as typed plan actions, checked by `evaluatePlan` as every decision
  *              is. Filing actions that policy allows (a task in its department, a new roadmap item, a spec suggestion)
  *              run at once in a `team_call` plan; a hard gate becomes the founder's own step; everything else (money,
  *              outside contact, a channel switched on, a hire, a model change) is staged as a plan that waits for the
@@ -534,23 +534,43 @@ function targetOf(plan: PlanWithActions, actionId: string | undefined): { kind: 
   return { kind: "plan", id: plan.id };
 }
 
-export async function endTeamCall(ctx: BusinessContext, callId: string): Promise<TeamCallView> {
+/** How a call ended: End pressed, the founder left the room, or the sweep found it left open (`startTeamCallSweep`). */
+export type TeamCallEndVia = "button" | "left" | "idle";
+
+/**
+ * Ends the call and writes it up. A wrap-up that fails is tried once more; a second failure ends the call as
+ * `wrap_up_failed` ("Ended, couldn't write up", with Try again), never back to live, and every turn is kept.
+ */
+export async function endTeamCall(ctx: BusinessContext, callId: string, via: TeamCallEndVia = "button"): Promise<TeamCallView> {
   const claimed = await ctx.rls((tx) => repos.teamCalls.claimWrapUp(tx, ctx.businessId, callId));
   if (!claimed) {
     const call = await ctx.rls((tx) => repos.teamCalls.get(tx, ctx.businessId, callId));
     if (call.status === "ended") return getTeamCall(ctx, callId);
     throw new ConflictError("This call is already being written up", { callId });
   }
-  try {
-    return await wrapUp(ctx, callId);
-  } catch (err) {
-    // Nothing said is lost: the call is live again and can be ended once more.
-    await ctx.rls((tx) => repos.teamCalls.reopenAfterFailedWrapUp(tx, ctx.businessId, callId)).catch((e: unknown) => ctx.log.warn({ err: (e as Error).message, callId }, "team call: reopen after a failed wrap-up failed"));
-    throw err;
+  let last: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await wrapUp(ctx, callId, via);
+    } catch (err) {
+      last = err;
+      ctx.log.warn({ err: (err as Error).message, callId, attempt, via }, "team call: wrap-up failed");
+      // Failed after its write committed (reading the view back): it is written up, never twice.
+      const now = await ctx.rls((tx) => repos.teamCalls.get(tx, ctx.businessId, callId)).catch(() => null);
+      if (now?.status === "ended") return getTeamCall(ctx, callId);
+    }
   }
+  const marked = await ctx.rls((tx) => repos.teamCalls.markWrapUpFailed(tx, ctx.businessId, callId)).catch((e: unknown) => {
+    ctx.log.warn({ err: (e as Error).message, callId }, "team call: marking a failed wrap-up failed");
+    return false;
+  });
+  // Not marked (the database refused too): the claim goes stale and the sweep writes it up later.
+  if (!marked) throw last;
+  await ctx.rls((tx) => audit(tx, ctx, { action: "team_call.wrap_up_failed", target: { kind: "team_call", id: callId }, details: { via, error: (last as Error)?.name ?? "unknown" } })).catch(() => undefined);
+  return getTeamCall(ctx, callId);
 }
 
-async function wrapUp(ctx: BusinessContext, callId: string): Promise<TeamCallView> {
+async function wrapUp(ctx: BusinessContext, callId: string, via: TeamCallEndVia): Promise<TeamCallView> {
   const loaded = await ctx.rls(async (tx) => {
     const [call, turns, roster, brief] = await Promise.all([repos.teamCalls.get(tx, ctx.businessId, callId), repos.teamCalls.turns(tx, ctx.businessId, callId), rosterOf(tx, ctx.businessId), briefOf(tx, ctx.businessId)]);
     return { call, turns, roster, brief };
@@ -653,7 +673,7 @@ async function wrapUp(ctx: BusinessContext, callId: string): Promise<TeamCallVie
     const counts = { filedCount: rows.filter((r) => r.status === "filed" || r.status === "founder_step").length, awaitingCount: rows.filter((r) => r.status === "awaiting_go_ahead").length };
     await emit(tx, ctx, { type: "team_call.ended", payload: { callId, kind: call.kind, turnCount: finished.call.turnCount, actionCount: rows.length, ...counts, durationSeconds } });
     if (note && chief) await emit(tx, ctx, { type: "inbox.item_created", actor: { kind: "agent", id: chief.id }, payload: { inboxItemId: note.id, type: note.type, fromAgentId: chief.id, subject: note.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
-    await audit(tx, ctx, { action: "team_call.end", target: { kind: "team_call", id: callId }, details: { actionCount: rows.length, ...counts, filedPlanId: filedPlan?.id ?? null, stagedPlanId: stagedPlan?.id ?? null, noteId: note?.id ?? null } });
+    await audit(tx, ctx, { action: "team_call.end", target: { kind: "team_call", id: callId }, details: { via, actionCount: rows.length, ...counts, filedPlanId: filedPlan?.id ?? null, stagedPlanId: stagedPlan?.id ?? null, noteId: note?.id ?? null } });
     return { exec, filedPlan: filedAfter };
   });
 

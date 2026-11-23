@@ -974,6 +974,13 @@
       "when": 1796591200000,
       "tag": "0169_founder_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1796591300000,
+      "tag": "0170_team_call_wrap_up_failed",
+      "breakpoints": true
     }
   ]
 }

@@ -226,6 +226,19 @@ function asTitle(sentence: string): string {
 
 /** A sentence that turns something down or only frames the call ("Let's not do the journalists yet", "I want to plan the next few weeks"): nothing to file. */
 const NOT_AGREED_RE = /\b(?:let's\s+not|let\s+us\s+not|don't|do\s+not|not\s+yet|not\s+now|hold\s+off|skip\s+(?:it|that|the)|no\s+need|never\s*mind|leave\s+(?:it|that)\s+for\s+now)\b/i;
+/** A founder line that agrees to what an agent just proposed. */
+const AGREED_RE = /^\s*(?:yes|yeah|yep|sure|ok(?:ay)?|sounds\s+good|great|perfect|agreed|deal|go\s+(?:for\s+it|ahead)|let's\s+do\s+(?:it|that)|do\s+(?:it|that))\b/i;
+const PROPOSAL_RE = /^(?:(?:and|also|so|then),?\s+)?(?:i'll|i\s+will|i\s+can|i\s+could|let\s+me|we\s+could|we\s+can|shall\s+i|should\s+i|want\s+me\s+to|how\s+about\s+i)\s+(.+?)[.!?]*$/i;
+/** The steps an agent's turn offers ("I'll draft the launch email") as the founder's sentences ("Draft the launch email."). */
+function proposalsIn(text: string): string[] {
+  return text
+    .replace(/\[\[ent:[^|\]]*\|([^\]]*)\]\]/g, "$1")
+    .split(/(?<=[.!?])\s+/)
+    .flatMap((s) => {
+      const m = PROPOSAL_RE.exec(s.trim());
+      return m?.[1] ? [`${sentenceCase(m[1].replace(/\s+for\s+you$/i, ""))}.`] : [];
+    });
+}
 const FRAMING_RE = /^(?:i\s+want\s+to|i'd\s+like\s+to|let's|we\s+should)\s+(?:plan|talk|discuss|go\s+over|look\s+at|think\s+about|catch\s+up)\b[^,;]*$/i;
 
 /** The kind of work each module's department does (docs/TEAM_CALL.md §4: a task's kind follows its department's work). */
@@ -267,9 +280,19 @@ function titleFor(action: PlanAction, line: string): string {
 
 export function generateTeamCallWrapUp(ctx: MockContext): TeamCallWrapUpOutput {
   const founder = str(ctx.getString("founder_name"));
-  const lines = ctx
-    .getArray<Record<string, unknown>>("founder_lines")
-    .map((l) => (isRecord(l) ? str(l.text) : typeof l === "string" ? str(l) : ""))
+  const founderLines = ctx.getArray<Record<string, unknown>>("founder_lines");
+  const agentTurns = ctx.getArray<Record<string, unknown>>("call_transcript").filter(isRecord);
+  let previous = 0;
+  const lines = founderLines
+    .flatMap((l) => {
+      const text = isRecord(l) ? str(l.text) : typeof l === "string" ? str(l) : "";
+      // "Yes, do that": the steps the agents proposed since the founder last spoke are the founder's, in the founder's form.
+      const n = isRecord(l) && typeof l.n === "number" ? l.n : null;
+      const since = previous;
+      if (n !== null) previous = n;
+      const proposed = n !== null && AGREED_RE.test(text) ? agentTurns.filter((t) => typeof t.n === "number" && t.n > since && t.n < n) : [];
+      return [text, ...proposed.flatMap((t) => proposalsIn(str(t.text)))];
+    })
     .filter(Boolean);
   const business = ctx.getRecord("business");
   const currency = str(business?.currency) || ctx.getString("currency") || undefined;
@@ -299,7 +322,11 @@ export function generateTeamCallWrapUp(ctx: MockContext): TeamCallWrapUpOutput {
   };
 
   // Sentence by sentence, as the plan compiler reads a reply: one gated sentence never turns the others into the founder's step.
-  const sentences = lines.flatMap((l) => l.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/)).map((s) => s.trim()).filter(Boolean);
+  const sentences = lines
+    .flatMap((l) => l.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/))
+    .map((s) => s.trim())
+    // A bare "Yes, do that." is the agreement itself, already read as the step it agreed to.
+    .filter((s) => s && !(AGREED_RE.test(s) && s.split(/\s+/).length <= 5));
   for (const sentence of sentences) {
     const gated = detectHardGates(sentence).length > 0;
     if (!gated && (NOT_AGREED_RE.test(sentence) || FRAMING_RE.test(sentence.replace(/[.!?]+$/, "")))) continue;

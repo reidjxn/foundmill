@@ -12,7 +12,8 @@ import { Lock } from "lucide-react";
 import { Button, CallCaptions, CallControls, CallStage, CallTranscript, CallWrapUp, Panel, StatusPill } from "@foundmill/dugout";
 import { TEAM_CALL_LIMITS, TEAM_CALL_WORDS, type TeamCallRoundView, type TeamCallView } from "@foundmill/shared/team-call";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
+import { errorMessage, resolveBearer, trpcPathPrefix } from "@/lib/trpc";
+import { getRequestAccessToken } from "@/lib/supabase/client";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
@@ -21,6 +22,7 @@ import { NotFoundPanel, isMissing, loadFailed } from "@/components/shell/QuerySt
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { useSpecUser } from "@/components/spec/spec-user";
 import { audioMimeOf, blobToBase64 } from "./browser-speech";
+import { endCallOnLeave } from "./end-on-leave";
 import { callTargetHref } from "./targets";
 import { mergeTurns, newClientTurnId, shouldContinue, turnsToSpeakOnOpen } from "./turns";
 import { useCallMicrophone, type Utterance } from "./use-call-microphone";
@@ -68,11 +70,23 @@ export function CallRoom({ callId }: { callId: string }) {
 function FinishedCall({ call }: { call: TeamCallView }) {
   const { businessId, departments, departmentById } = useBusiness();
   const router = useRouter();
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  // "Ended, couldn't write up": Try again writes the call up (teamCall.end claims a failed write-up again).
+  const retryM = useMutation(
+    trpc.teamCall.end.mutationOptions({
+      onSuccess: (done) => {
+        queryClient.setQueryData(trpc.teamCall.get.queryKey({ businessId, callId: call.id }), done);
+        for (const r of ["teamCall", "inbox", "plan", "dev", "product", "today"]) void queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] });
+      },
+    }),
+  );
+  const failed = call.status === "wrap_up_failed";
   return (
     <div className="flex min-h-0 flex-1 gap-gutter p-gutter" data-testid="call-finished" data-status={call.status}>
       <div className="flex min-w-0 flex-1 flex-col gap-gutter overflow-y-auto">
         <div className="flex items-center gap-2">
-          <StatusPill tone={call.status === "ended" ? "neutral" : "info"}>{call.status === "ended" ? "Call ended" : TEAM_CALL_WORDS.wrappingUp}</StatusPill>
+          <StatusPill tone={call.status === "ended" ? "neutral" : failed ? "warn" : "info"}>{call.status === "ended" ? "Call ended" : failed ? TEAM_CALL_WORDS.wrapUpFailed : TEAM_CALL_WORDS.wrappingUp}</StatusPill>
           {call.visibility === "private" ? (
             <StatusPill tone="neutral" icon={Lock} data-testid="call-private">
               {TEAM_CALL_WORDS.privateCall}
@@ -90,6 +104,24 @@ function FinishedCall({ call }: { call: TeamCallView }) {
             departmentName={(id) => departmentById(id)?.name ?? "Department"}
             onOpenTarget={(target) => router.push(callTargetHref(businessId, departments, target))}
           />
+        ) : failed ? (
+          <Panel title="What was discussed">
+            <div className="flex flex-col items-start gap-3" data-testid="call-wrap-up-failed">
+              <p className="max-w-[var(--reading-measure)] text-body text-secondary" role="status">
+                {TEAM_CALL_WORDS.wrapUpFailedLine}
+              </p>
+              {retryM.isError ? (
+                <p className="text-small text-status-bad" role="alert">
+                  {errorMessage(retryM.error)}
+                </p>
+              ) : null}
+              {call.canSpeak ? (
+                <Button size="sm" variant="primary" loading={retryM.isPending} onClick={() => retryM.mutate({ businessId, callId: call.id })} data-testid="call-wrap-up-retry">
+                  Try again
+                </Button>
+              ) : null}
+            </div>
+          </Panel>
         ) : (
           <Panel title="What was discussed">
             <p className="text-body text-secondary" role="status">
@@ -248,7 +280,40 @@ function LiveCall({ call }: { call: TeamCallView }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mutateAsync is stable
   }, [discussReady, rounds, run, businessId, callId]);
 
+  // Leaving the room ends the call (Back, the sidebar, a closed tab): `left` is set once End or a leave has been sent.
+  const left = useRef(false);
+  const bearer = useRef<string | null>(null);
+  useEffect(() => {
+    let on = true;
+    // Read now and every minute: a closing tab has no time to ask for one.
+    const read = () => void resolveBearer(getRequestAccessToken).then((t) => on && (bearer.current = t), () => undefined);
+    read();
+    const t = setInterval(read, 60_000);
+    return () => {
+      on = false;
+      clearInterval(t);
+    };
+  }, []);
+  const leave = useRef(() => {});
+  leave.current = () => {
+    if (left.current || !call.canSpeak) return;
+    left.current = true;
+    endCallOnLeave({ businessId, callId }, bearer.current);
+  };
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // A remount straight after an unmount (React's development double run) is not a leave.
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    const onHide = () => leave.current();
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      leaveTimer.current = setTimeout(() => leave.current(), 0);
+    };
+  }, []);
+
   const end = useCallback(() => {
+    left.current = true;
     setEnding(true);
     playback.stop();
     mic.stop();
@@ -261,6 +326,7 @@ function LiveCall({ call }: { call: TeamCallView }) {
       })
       .catch((err: unknown) => {
         // The call stays open: nothing said is lost.
+        left.current = false;
         setEnding(false);
         setFailed({ item: { text: "", via: "typed", clientTurnId: "" }, message: errorMessage(err) });
       });

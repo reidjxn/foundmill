@@ -73,7 +73,11 @@ export const teamCallRouter = router({
     .use(modelLimited("teamCallSpeech"))
     .mutation(({ ctx, input }) => transcribeOnCall(ctx, input)),
 
-  end: sectionWrite("team").input(z.object({ callId: Id })).use(modelLimited("teamCall")).mutation(({ ctx, input }) => endTeamCall(ctx, input.callId)),
+  /** `via`: End pressed (default), the founder left the room (the page's keepalive request), or the api's sweep. */
+  end: sectionWrite("team")
+    .input(z.object({ callId: Id, via: z.enum(["button", "left", "idle"]).optional() }))
+    .use(modelLimited("teamCall"))
+    .mutation(({ ctx, input }) => endTeamCall(ctx, input.callId, input.via)),
 });
 
 const ownerOrAdmin = (role: string) => {
