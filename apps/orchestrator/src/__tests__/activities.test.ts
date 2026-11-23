@@ -7,6 +7,7 @@
 import { getSkillTests, getTemplateByAgentType, storedCustomTest } from "@foundmill/agents";
 import { assets, openApprovalItem, periodOf, postAttributions, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { MODELS, createModelClient, meter } from "@foundmill/models";
+import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createChannelActivities, emptyChannelState, launchApprovalReason, weeklyBudgetMinor } from "../activities/channel";
 import { createCycleActivities } from "../activities/cycle";
@@ -15,7 +16,7 @@ import { createHealthActivities } from "../activities/health";
 import { AWAITING_GO_AHEAD, classifyDecision, createHolidayActivities, decisionAuthorities, vacationVerdict, type VacationContext } from "../activities/holiday";
 import { createJourneyActivities } from "../activities/journey";
 import { createPlanActivities } from "../activities/plan";
-import { createScheduleActivities } from "../activities/schedules";
+import { browserKeepSubject, createScheduleActivities } from "../activities/schedules";
 import { createTrainingActivities, scoreTest } from "../activities/training";
 import { usageSink } from "../deps";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
@@ -882,5 +883,23 @@ describe("nightly schedules", () => {
     expect(rollup.businesses).toBe(1);
     const bench = await acts.benchmarksRebuild({ businessIds: [t.businessId] });
     expect(bench.notes[0]).toMatch(/Estimate/);
+  });
+
+  it("a saved sign-in to a website left unused: one note a week before, then it is deleted (Part D)", async () => {
+    const acts = createScheduleActivities(t.deps);
+    const row = await repos.integrations.upsert(t.db, t.businessId, { connectorKey: "browser_wave", status: "connected", authKind: "oauth", accountLabel: "Signed in to Wave", settings: { config: { siteKey: "wave" } } });
+    const cred = await repos.credentials.store(t.db, t.businessId, { integrationId: row.id, kind: "secret", record: await encryptJson(createVault({ DEV_MASTER_KEY: generateMasterKey(), APP_ENV: "test" }), { kind: "oauth", secret: "{\"cookies\":[]}" }, buildAad(t.businessId, "credentials", "pending")), expiresAt: new Date(t.clock.nowMs() + 5 * 86_400_000) });
+    await acts.credentialExpiryScan({ businessIds: [t.businessId] });
+    await acts.credentialExpiryScan({ businessIds: [t.businessId] });
+    const notes = await repos.inbox.openBySubject(t.db, t.businessId, browserKeepSubject("Wave"));
+    expect(notes).toHaveLength(1);
+    expect((notes[0]!.decision as { key: string }).key).toBe("browser_keep:wave");
+    expect(notes[0]!.bodyMd).toContain("will be deleted in 5 days");
+    // Not used by the day: deleted, and the site reads Sign in again.
+    await repos.credentials.setExpiry(t.db, t.businessId, cred.id, new Date(t.clock.nowMs() - 60_000));
+    await acts.credentialExpiryScan({ businessIds: [t.businessId] });
+    expect(await repos.credentials.latest(t.db, t.businessId, row.id)).toBeNull();
+    expect((await repos.integrations.getByKey(t.db, t.businessId, "browser_wave"))?.status).toBe("expired");
+    expect((await repos.audit.list(t.db, t.businessId, { limit: 50 })).items.some((a) => a.action === "browser.sign_in_deleted")).toBe(true);
   });
 });

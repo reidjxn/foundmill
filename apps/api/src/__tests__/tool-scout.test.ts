@@ -20,7 +20,13 @@ const PICK = {
   sources: [{ url: "https://www.twilio.com/pricing", title: "Twilio pricing" }],
 };
 
-async function recommend(businessId: string, agentId: string, category: "sms" | "analytics") {
+const WAVE = {
+  pick: { name: "Wave", catalogKey: "wave", route: "browser" as const, why: "Free invoices for a small US business.", whyNow: "The first invoice goes out this week.", cost: "Free to start (Estimate).", founderSteps: "You sign up with Wave and sign in once inside Foundmill." },
+  alternatives: [{ name: "Xero", line: "More complete, a monthly fee." }],
+  sources: [{ url: "https://www.waveapps.com/pricing", title: "Wave pricing" }],
+};
+
+async function recommend(businessId: string, agentId: string, category: "sms" | "analytics" | "invoicing_accounting", pick: typeof PICK | typeof WAVE = PICK) {
   const item = await repos.inbox.createItem(hz.db, businessId, {
     type: "decision",
     from_agent_id: agentId,
@@ -41,7 +47,7 @@ async function recommend(businessId: string, agentId: string, category: "sms" | 
     source_event_ids: [],
     entity_ids: [],
   });
-  await repos.toolNeeds.recommend(hz.db, businessId, category, { ...PICK, inboxItemId: item.id });
+  await repos.toolNeeds.recommend(hz.db, businessId, category, { ...pick, inboxItemId: item.id });
   return item;
 }
 
@@ -98,6 +104,20 @@ describe("the founder's answer to a recommendation", () => {
     expect(task!.goalMd).toContain("Never sign up, accept terms, pay or enter a key for the founder.");
     // No integration was created by the answer.
     expect(await repos.integrations.getByKey(hz.db, businessId, "twilio")).toBeNull();
+  });
+
+  it("Yes to a pick by the hosted browser gives the owning department a setup task that states done first and checks by reading back (Part D)", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const finance = await repos.agents.create(hz.db, businessId, { name: "Finance Lead", agentType: "finance_lead", modelKey: "sonnet", initialVersion: { instructions: { role: "finance" }, tools: [] } });
+    const item = await recommend(businessId, agentId, "invoicing_accounting", WAVE);
+    await hz.caller({ userId: ownerId }).inbox.decide({ businessId, itemId: item.id, chosenOption: TOOL_PICK_NOTE.options.yes });
+    const task = (await repos.tasks.list(hz.db, businessId, { limit: 200 })).items.find((t) => t.title === "Set up Wave in its website");
+    expect(task).toMatchObject({ kind: "ops", status: "ready", assigneeAgentId: finance.id });
+    expect(task!.goalMd).toContain("browser_wave");
+    expect(task!.goalMd).toContain("Before the first change, write down in this task what done looks like");
+    expect(task!.goalMd).toContain("reported as not verified");
+    expect(task!.goalMd).toContain("Never sign up, accept terms, pay or enter a password, a card or a code for the founder.");
+    expect(task!.acceptance).toContain("Each setting was checked by reading the page back");
   });
 
   it("Not now keeps the question away for about a month, and creates no task", async () => {
