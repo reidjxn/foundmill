@@ -327,6 +327,16 @@ Copy: "One thing the team cannot do yet: <title>. It is parked; nothing is neede
 Steps: tests first (the summary carries the title; the composer's note has the clause once and no to-do); build. verify: named tests.
 Done when: a stopped task is on record for the founder in one clause and never as a chore. Counting the gaps as a report is WP-02's.
 
+### [x] T19: The next block reasons, fixed in code (Nov 23, 2026) [S] [session.ts; sandbox]
+Why: the Nov 23 measurement (e0-production-evidence.md, "Blocked sessions by reason").
+Produces: the E2B provider caps every sandbox lifetime at 1 hour (`E2B_MAX_TTL_MINUTES`); a code session that changed no file gets one turn to make the change or say why (`NO_CHANGES_TURN`); the sandbox's dependency install is tried once more after a failure. The log is docs/log/2026-11/2026-11-23-claude-wp05-block-reasons-fixes.md.
+Done when: the named tests pass in packages/sandbox and apps/orchestrator.
+
+### [ ] T20: Measure "dependency" blocks again on sessions after Nov 17 [S] [ships alone; no code]
+Why: "dependency" written by an agent is the largest group of query 2 (ops 70, code 43, research 29 sessions, 58% of the 244 blocked or failed sessions together), but no single detail in it is above 2%, and every session in it started before T1 to T18 were all live.
+Steps: run queries 2 and 3 for sessions created after Nov 17, 2026, read-only; group the "dependency" details by cause (waiting on another agent, missing input, missing tool, not connected). verify: the tables are in e0-production-evidence.md.
+Done when: any single cause over 15% of the new blocks has its own task here, or the reading says none does.
+
 ## Corrections to the audits
 1. AR-08: no `run_log` column is needed; the session's Redis stream already holds every run's tool calls and survives a deploy (`readSessionEvents`).
 2. AR-12: the gateway's audit rows already carry `sessionId` and `argsHash`, and `repos.audit.latestMatching` exists; results are not stored, so a repeat is answered with a notice, not the first result.
