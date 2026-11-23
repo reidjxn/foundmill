@@ -215,7 +215,7 @@ export const integrationsRouter = router({
       if (typeof input.input.code !== "string") {
         const account = typeof input.input.shop === "string" ? input.input.shop.trim().toLowerCase() : null;
         const state = signConnectState(ctx.env.SESSION_TOKEN_SECRET, { userId: ctx.userId!, businessId: ctx.businessId, connectorKey: input.connectorKey, account });
-        const first = (await ctx.gateway.connect(ctx.businessId, input.connectorKey, { ...(account ? { shop: account } : {}), ...(input.connectorKey === "gmail" && input.input.readMail === true ? { readMail: true } : {}), state, redirectUri })).record;
+        const first = (await ctx.gateway.connect(ctx.businessId, input.connectorKey, { ...(account ? { shop: account } : {}), ...(input.connectorKey === "gmail" && input.input.readMail === true ? { readMail: true } : {}), ...(input.connectorKey === "google_drive" && input.input.readDrive === true ? { readDrive: true } : {}), state, redirectUri })).record;
         const consentUrl = typeof first.config.authorizeUrl === "string" ? first.config.authorizeUrl : null;
         return { integration: await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey), record: { ...first, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null, signIn: NO_SIGN_IN };
       }
