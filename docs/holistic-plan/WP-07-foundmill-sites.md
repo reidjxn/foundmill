@@ -313,7 +313,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T12: Show the previews a connected repository already has   [M] [ships alone] [no go-ahead needed; lowest priority]
 
-- [ ] done
+- [x] done
 
 **Why:** A4-17. Every agent pull request on Foundmill's own repository carries a Vercel preview; nothing records it (`packages/connectors/src/connectors/github/webhooks.ts:65-67`).
 **Files:** modify `packages/connectors/src/connectors/github/tools.ts`, `index.ts`, `mock.ts`, `github.test.ts`, `packages/connectors/src/grants.ts`, `apps/gateway/src/code-repository.ts` (first-party read rule), `apps/orchestrator/src/activities/merge.ts`, `apps/orchestrator/src/__tests__/merge.test.ts`.

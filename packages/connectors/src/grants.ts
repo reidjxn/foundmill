@@ -189,6 +189,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     // A pull request reports its merge state (get_pull_request); get_checks reads the check runs of an agent's branch head.
     "checks.read": ["get_pull_request", "get_checks"],
     "actions.read": ["get_checks"],
+    // The previews GitHub records for a commit: read by the platform's merge review (WP-07 T12); no template grants it.
+    "deployments.read": ["list_deployments"],
     // Starts the CI workflow on an agent/ branch (the founder's push settings still apply). Granted to the QA engineer and the engineering lead.
     "checks.run": ["run_checks"],
     "pulls.create": ["create_branch", "commit_files", "open_pr"],

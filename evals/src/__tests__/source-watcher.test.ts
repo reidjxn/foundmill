@@ -7,9 +7,15 @@ import { buildSourceRelevanceRequest, candidateBlocks } from "@foundmill/agents"
 import { MockModelClient } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
 import { SOURCE_WATCH_CASES } from "../source-watcher/cases";
-import { checkSourceWatch, runSourceWatchCase } from "../source-watcher/run";
+import { checkSourceWatch, runSourceWatchCase, sourceForGrader } from "../source-watcher/run";
 
 describe("Source Watcher eval cases", () => {
+  it("the grader reads the source with its title, as the agent did", () => {
+    const c = SOURCE_WATCH_CASES.find((x) => x.id === "source_watch.interview_features")!;
+    expect(sourceForGrader(c)).toContain("Aalto Accounting");
+    expect(sourceForGrader(c)).toContain(c.content.text);
+  });
+
   it("have unique ids, a rubric, and name only blocks of their spec", () => {
     expect(new Set(SOURCE_WATCH_CASES.map((c) => c.id)).size).toBe(SOURCE_WATCH_CASES.length);
     for (const c of SOURCE_WATCH_CASES) {

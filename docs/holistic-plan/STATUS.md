@@ -27,13 +27,18 @@ Recorded in docs/log/2026-11/ (find them with `node scripts/decisions-index.mjs 
 
 All by the coordinating session on the founder's word (reported by that session, not checked here): `domains` (Nov 16) and `web` (Nov 17) added to `LIVE_CONNECTORS` on the gateway, api and orchestrator; `OPERATOR_USER_IDS` set on the api to the founder's one account (Nov 17); the `sites` service and its domain (WP-00 S9, above); `LIVE_MODE` is 1 on the api and stays so (founder, Nov 17).
 
-## Open pull requests and branches (Nov 22)
+## Open pull requests and branches (Nov 23)
 
 | Pull request | What | State |
 | --- | --- | --- |
-| #303 (draft) | WP-14 T9: share a Customer Update as a card | open, Session 5 |
-| #358 | One included budget per owner and project limits at every stage (WP-14) | open, Session 3 |
-| #365 | People and community safety before sign-up opens (M1 to L3) | open |
+| #303 | WP-14 T9: share a Customer Update as a card | open, Session 5 |
+| #368 | Part C: patents through Lightbringer, and founder-executed tools (migration 0163) | merges as is (founder, Nov 23, option 1) |
+| #372 | WP-08 T8: page tools for the SEO and GEO agents | open |
+| #377 | WP-06 T13: coding agents start with two coding skills | open |
+| #378 | WP-06 T11 and T10: make an edit live without a run; the scoped per-agent check | open |
+| #376, #379 | the grader-agreement eval also tries Opus at low; the tool scout uses the hosted browser route | open |
+
+Merged Nov 22 to 23: #358 (one included budget per owner, project limits at every stage), #365 (people and community safety), #369, #370 (booking slot lock), #371 (the first restore drill, Nov 22, passed: WP-11 T3's runbook is proven), #374 (WP-07 T12: the merge review records a connected repository's preview).
 
 Merged since Nov 20: #238 (WP-11 T4, T5, T7), #330 (WP-09 T9), #332 (WP-14 T15), #334 (Session 2), #336 (the streak), #341, #351 and #356 (domains: Path B, Path A on OpenSRS, paying for a domain before it is registered), #344 and #352 (Resting; Billing's team budget in outcomes), #345 (the idea box shows the page, 390 px journey tested), #346 (the opt-in gallery at /explore), #347 (remote MCP in the gateway: Notion, HubSpot, a custom server; the Gmail scope split), #348 (the console by stage), #349 and #350, #353 (CLI-Anything in the sandbox), #354 (First ten; `create_payment_link` mock-first), #355 (WP-11 T6, T9), #357 (the three red specs), #359 and #363 (below), #361, #362 (community safety H1 to H4), #364 (Commit's spend cap starts at 0 again).
 
@@ -49,19 +54,19 @@ Part C (patents through Lightbringer and founder-executed tools) will open as a 
 | --- | --- | --- | --- |
 | 1 | Consolidate: #238, #319, STATUS | `docs/holistic-plan/STATUS.md` | done: #238, #319 and #333 merged; STATUS kept current |
 | 2 | Models: WP-09 T6, T7; WP-13 T7 | `packages/models/src/routing.ts` | merged (#334) |
-| 3 | Plans and money: #300 (merged), WP-14 T1, T3, one budget per owner, project limits |  | #300, #344 and #352 merged; the one budget per owner and project limits are #358, open |
-| 4 | Skills: #330, WP-06 T13, T11, T10 |  | #330 merged; WP-06 T13, T11, T10 not checked here |
+| 3 | Plans and money: #300 (merged), WP-14 T1, T3, one budget per owner, project limits |  | #300, #344, #352 and #358 merged |
+| 4 | Skills: #330, WP-06 T13, T11, T10 |  | #330 merged; WP-06 T13 (#377) and T11, T10 (#378) open |
 | 4b | CLI-Anything in the sandbox: the E2B template, the connector with its mock, wrappers, staged outputs and approval, default skills for Design, Product and Marketing; an eval where a Design agent makes a logo file and the founder's approval puts it on the page | `infra/e2b/`, `packages/sandbox/` | merged (#353) |
-| 5 | Go-to-market: #244 (merged), #303, WP-08 T4, T5, T6, T8, T12 |  | #244 and #354 merged; #303 open; WP-08 T6, T8, T12 not started |
+| 5 | Go-to-market: #244 (merged), #303, WP-08 T4, T5, T6, T8, T12 |  | #244 and #354 merged; #303 and #372 (WP-08 T8) open; WP-08 T6 and T12 not started |
 | 5b | MCP in the gateway, starting with Notion; the Settings cleanup and Builder view's custom MCP field; then Gmail's scope split (send and compose first, read later) | `apps/gateway/src/pipeline.ts`, `apps/gateway/src/mcp.ts` | merged (#347) |
 | 6 | Wave 2: the console by stage (WP-10 T1 to T4, T10) |  | merged (#348) |
 | 7 | Wave 2: waitlist and people (WP-14 T15, #332) |  | merged (#332) |
 | 8 | Wave 2: data (WP-11 T6, T9) |  | merged (#355) |
 | 9, 10 | Wave 3: the first shareable thing at 390 px; cards and the gallery |  | Session 9 merged (#345); Session 10's gallery merged (#346); cards (Open Graph images, Share progress card) not checked |
-| 11 | Wave 4: production, live keys, Google's verification, founder zero | | not started |
+| 11 | Wave 4: production, live keys, Google's verification, founder zero |  | not started; pre-launch checklist (founder, Nov 23): Stripe S8 last, after the product is presented to Luminar; spending backstops and the OpenSRS reseller account ($95 up front) before launch |
 | 12 | The streak shows the days opened; the morning email drops its streak line |  | merged (#336) |
 | 13 | WP-11 T3, T8, T10 | | merged (#337); its production steps wait for Session 11 |
-| 14 | Domains: Path B, then Path A on OpenSRS (the reseller account opens Nov 22) |  | Path B (#341), Path A (#351) and paying first (#356) merged; the OpenSRS reseller account (the founder opened it Nov 22) gates the live calls |
+| 14 | Domains: Path B, then Path A on OpenSRS (the reseller account opens Nov 22) |  | Path B (#341), Path A (#351) and paying first (#356) merged; the live calls wait for the OpenSRS reseller account, which the founder opens before launch (Nov 23) |
 | 15 | Gmail and Google Calendar as context | | merged (#339); needs Session 5b's scope split for reading the inbox |
 
 | Package | Task | Name | State | Waits on |
@@ -73,12 +78,12 @@ Part C (patents through Lightbringer and founder-executed tools) will open as a 
 | WP-00 | S5 | Open the door | waiting | Founder: on Nov 17 sign-up stays invite-only on the free plan; opening waits on the $5 entry plan (WP-09 T16), WP-09 T2 and WP-03 T8's switches |
 | WP-00 | S6 | Real web research | waiting | Desktop; web search on every plan runs on Haiku 5.5 (WP-13 T5, #260), so this is the production switch |
 | WP-00 | S7 | Indexing | waiting | cloud half merged (WP-03 T6, #245); Desktop runs the five curl checks, after sign-up opens (indexing follows SIGNUP_OPEN) |
-| WP-00 | S8 | Payments | waiting | Founder, then Desktop; Pro checkout waits until GLM is working (Nov 16); the $5 entry plan needs it before opening (Nov 17) |
+| WP-00 | S8 | Payments | waiting | Founder, then Desktop; done last (founder, Nov 23): after the finished product is presented to Luminar and before launch, since full approvals are needed to take payments. Covers the $5 Try product and price id on the gateway, the four billing webhook events, the customer portal in test and live, and Stripe's live-only settings (public details, Connect platform profile and branding, questionnaire, representative documents) |
 | WP-00 | S9 | A domain for Foundmill Sites | mostly done (Nov 19) | `foundmill.app` is bought, its DNS and the `*.foundmill.app` wildcard certificate are on the `sites` service; still open: the `sites_reader` password and `DATABASE_URL` on `sites`, and `SITES_DOMAIN=foundmill.app` on api, orchestrator and sites (Session 11 checks and sets them) |
 | WP-00 | S10 | Supabase settings | done (Nov 15) | redirect list narrowed to three; confirm-signup code merged (WP-03 T4, #195) |
 | WP-00 | S11 | Skills in cloud sessions | done | optional founder step: plugins in the setup script |
 | WP-00 | S12 | Watching production | waiting | cloud halves merged (WP-01 T2 #146, WP-02 T12 #168); Founder for accounts later |
-| WP-00 | S13 | Spending backstops | waiting | Founder |
+| WP-00 | S13 | Spending backstops | waiting | Founder: set before launch (Nov 23): the Anthropic Console monthly limit about $750 and the E2B team monthly limit about $100 |
 | WP-00 | S14 | Hosting plan | done (Nov 19) | the Vercel team is on Pro |
 | WP-00 | S15 | Mail reputation | waiting | Founder at Spaceship, later |
 | WP-00 | S16 | Leftovers | waiting | Desktop, on the founder's go; the variable list is in docs/DEPLOY.md §3 (WP-11 T19) |
@@ -158,10 +163,10 @@ Part C (patents through Lightbringer and founder-executed tools) will open as a 
 | WP-06 | T7 | Picker data: suggestions, the body on request, availability | merged (#243) |  |
 | WP-06 | T8 | Measure once on the platform: evidence and starting ratings | waiting | Founder: the measuring run waits for the key to be confirmed, later, on the batch route (Nov 16) |
 | WP-06 | T9 | Hire writes measured ratings; adding a skill shows its evidence | waiting | T8 |
-| WP-06 | T10 | The scoped per-agent check | not started |  |
-| WP-06 | T11 | Make an edit live without a run | not started | kept (founder, Nov 19): "Make it live without testing", built on `claude/sharp-shannon-0a434k`; Session 4 ships it, ratings marked "not tested since the change" |
+| WP-06 | T10 | The scoped per-agent check | pull request open (#378) | with T11 |
+| WP-06 | T11 | Make an edit live without a run | pull request open (#378) | with T10 |
 | WP-06 | T12 | Two honesty fixes in Recruitment and Training copy | merged (#247) |  |
-| WP-06 | T13 | Coding agents start with Ponytail and Caveman | partly merged (#311, #310) | the rule and the two skills are merged; Session 4 checks what the product's own coding agents still lack |
+| WP-06 | T13 | Coding agents start with Ponytail and Caveman | pull request open (#377) |  |
 | WP-07 | T1 | Specialists can record a supplier and an interaction | merged (#234) |  |
 | WP-07 | T2 | Site tables, the switch and the events | merged (#240) | with T4 |
 | WP-07 | T3 | A site session starts from the latest release and ends in a release | merged (#271) |  |
@@ -173,7 +178,7 @@ Part C (patents through Lightbringer and founder-executed tools) will open as a 
 | WP-07 | T9 | The Planner builds for a site; first builds; the demo task | merged (#271) |  |
 | WP-07 | T10 | The proof: idea to published site to a sign-up in Customers | merged (#271) |  |
 | WP-07 | T11 | A founder who has a repository can choose it without Builder view | merged (#236) |  |
-| WP-07 | T12 | Show the previews a connected repository already has | not started |  |
+| WP-07 | T12 | Show the previews a connected repository already has | merged (#374) |  |
 | WP-08 | T1 | The positioning record, read by every marketing call | merged (#241, #261) |  |
 | WP-08 | T2 | A reply to the project is kept and can be answered | merged (#267) | behind the mail switch; WP-00 S1 and S2 are done, so it can go on |
 | WP-08 | T3 | Write to your followers | merged (#278) |  |
@@ -181,7 +186,7 @@ Part C (patents through Lightbringer and founder-executed tools) will open as a 
 | WP-08 | T5 | The first ten conversations | merged (#354) | as titled in #354: "First ten"; not checked against the diff |
 | WP-08 | T6 | A price, a pay or booking button and "Ask a question" on the page | not started | a WP-00 step (see the package) |
 | WP-08 | T7 | The project page for search engines and AI readers | merged (#244) | took migration 0143 |
-| WP-08 | T8 | Two page tools, so the SEO and GEO agents can work on the hosted page | not started | #241 is merged, so it can start |
+| WP-08 | T8 | Two page tools, so the SEO and GEO agents can work on the hosted page | pull request open (#372) | page tools for the SEO and GEO agents, with a suggestion panel |
 | WP-08 | T9 | The Channel Board a real project sees | merged (#252) |  |
 | WP-08 | T10 | No email without a basis, decided in policy | merged (#269) |  |
 | WP-08 | T11 | Stop showing schedules that nothing runs | merged (#252) |  |

@@ -19,7 +19,11 @@ describe.skipIf(!live)("golden tasks per template (live)", () => {
       const results = await runAll(tasks, 4, (task) => runGoldenTask(task, { client: client! }));
       const summary = summariseGolden(results);
       for (const r of results) {
-        if (!r.passed) console.warn(`[eval] ${r.taskId} score ${r.score.toFixed(2)} < ${r.threshold}${r.error ? ` (${r.error})` : ""}\n${r.outputText.slice(0, 800)}`);
+        if (r.passed) continue;
+        // A score of 0 is usually a failed deterministic check: name it, so a live run says which (Nov 22, 2026).
+        const failedChecks = r.checks.filter((c) => !c.passed).map((c) => `check ${c.kind} failed${c.detail ? `: ${c.detail}` : ""}`);
+        const lines = [...failedChecks, ...(r.grader?.lines ?? []).filter((l) => l.score < r.threshold).map((l) => `grader ${l.score}: ${l.reason}`)];
+        console.warn(`[eval] ${r.taskId} score ${r.score.toFixed(2)} < ${r.threshold}${r.error ? ` (${r.error})` : ""}\n${lines.join("\n")}\n${r.outputText.slice(0, 2000)}`);
       }
       console.warn(`[eval] golden: ${summary.passed}/${summary.total} passed, cost ${summary.costMinor} minor (Estimate)`);
       expect(summary.failed).toEqual([]);
