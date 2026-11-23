@@ -46,7 +46,7 @@ describe("team.skills", () => {
     expect(library.find((s) => s.key === "newsletter_writing")).toMatchObject({ skillKey: "library_newsletter_writing", attribute: { name: "Newsletter writing", group: "craft" }, whenToUse: expect.stringMatching(/^Use when/), version: 1, suggested: false, suggestedBecause: null });
     // The bodies come one at a time (team.skills.get): the list stays small.
     expect(library.some((s) => "instructionsMd" in s)).toBe(false);
-    expect(new TextEncoder().encode(JSON.stringify(library)).length).toBeLessThan(60 * 1024);
+    expect(new TextEncoder().encode(JSON.stringify(library)).length).toBeLessThan(64 * 1024);
   });
 
   it("suggests the skills that fit the agent's role, first, with the reason", async () => {

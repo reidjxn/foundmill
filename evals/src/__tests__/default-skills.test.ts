@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { defaultSkillKeysFor, librarySkillKey } from "@foundmill/agents";
 import { hireFromTemplate, repos, type Db } from "@foundmill/db";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
-import { DEFAULT_SKILL_CASES, checkDefaultSkillsRequest, type StoredDefault } from "../skills/default-skills";
+import { DEFAULT_SKILL_CASES, checkDefaultSkillsRequest, defaultSkillsRequest, type StoredDefault } from "../skills/default-skills";
 
 let h: TestHarness;
 const stored = new Map<string, StoredDefault[]>();
@@ -35,4 +35,17 @@ describe("skills.default (offline)", () => {
       expect(checkDefaultSkillsRequest(c, skills)).toEqual([]);
     });
   }
+
+  it("skills.default.coding (WP-06 T13): a coding hire carries both coding skills, and its code task loads both only when the preload is on", () => {
+    const c = DEFAULT_SKILL_CASES.find((x) => x.templateKey === "qa_engineer")!;
+    const skills = stored.get(c.templateKey)!;
+    expect(skills.map((s) => s.skillKey)).toEqual(expect.arrayContaining(["library_smallest_change", "library_terse_working_notes"]));
+    const codeCase = { ...c, task: { title: "Fix the signup form", goal: "The email check rejects valid addresses." } };
+    const loaded = (preload: boolean) => defaultSkillsRequest(codeCase, skills, preload).system;
+    expect(loaded(true)).toContain("# Smallest complete change");
+    expect(loaded(true)).toContain("# Terse working notes");
+    expect(loaded(false)).not.toContain("# Smallest complete change");
+    expect(loaded(false)).not.toContain("# Terse working notes");
+  });
 });
+

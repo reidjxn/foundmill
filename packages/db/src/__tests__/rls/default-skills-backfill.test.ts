@@ -99,4 +99,22 @@ describe("default skills backfill (0141)", () => {
     expect(await defaults(B.businessId, theirs.id, theirs.agentType)).toEqual([]);
     await backfillDefaultSkills(h.db);
   });
+
+  it("WP-06 T13: an agent already on release 1 gets only release 2's two coding skills, and a role that writes no code gets nothing", async () => {
+    const onRelease1 = async (templateKey: string) => {
+      const hired = await hireFromTemplate(h.db, A.businessId, templateKey);
+      for (const key of ["library_smallest_change", "library_terse_working_notes"]) await repos.skills.removeFromAgent(h.db, A.businessId, hired.agent.id, key);
+      await h.db.execute(sql`update agents set default_skills_version = 1 where id = ${hired.agent.id}::uuid`);
+      return hired.agent;
+    };
+    const coder = await onRelease1("backend_engineer");
+    const lead = await onRelease1("finance_lead");
+    const before = await defaults(A.businessId, coder.id, coder.agentType);
+    expect((await backfillDefaultSkills(h.db)).failed).toEqual([]);
+    const after = await defaults(A.businessId, coder.id, coder.agentType);
+    expect(after.filter((k) => !before.includes(k))).toEqual(["library_smallest_change", "library_terse_working_notes"]);
+    expect(await defaults(A.businessId, lead.id, lead.agentType)).toEqual(expected("finance_lead"));
+    expect((await repos.agents.get(h.db, A.businessId, lead.id)).defaultSkillsVersion).toBe(DEFAULT_SKILLS_VERSION);
+  });
 });
+
