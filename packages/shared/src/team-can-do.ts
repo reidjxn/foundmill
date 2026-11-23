@@ -34,7 +34,7 @@ export type TeamCanDoOutcome = "ask" | "allow";
 export interface TeamCanDoPromises {
   /** Contacting someone outside the business in a way that can be undone (a send that cannot be undone is `permanent`). */
   outside: TeamCanDoOutcome;
-  /** A step that cannot be undone (sending an email counts). Putting changes live always asks, whatever this says. */
+  /** A step that cannot be undone. Putting changes live always asks, whatever this says. */
   permanent: TeamCanDoOutcome;
   /** Spending at or under the line in force (the smaller of the business's line and the agent's own limit). */
   spendWithinLine: TeamCanDoOutcome;
@@ -186,7 +186,7 @@ export function teamCanDoWords(input: SpendLineInput & { mode: BusinessMode; hol
  */
 export function teamCanDoOptionDescription(mode: BusinessMode, line: SpendLineInput): string {
   if (mode === "augmented") return "The team researches, drafts and prepares on its own. It asks you before contacting anyone, spending anything or doing anything it can't undo.";
-  if (mode === "assisted") return `The team does routine work on its own. It asks you ${beforeSpending(line, false)}, before anything it can't undo (sending an email counts) and before any contract.`;
+  if (mode === "assisted") return `The team does routine work on its own. It asks you ${beforeSpending(line, false)}, before anything it can't undo and before any contract. It emails people outside the project on its own.`;
   const spend = spendLineKind(line.lineMinor) === "always" ? "Every spend still asks you" : `It still asks you ${beforeSpending(line, false)}`;
   return `The team works without asking, and the Chief of Staff answers the team's questions in the Inbox for you. ${spend}, and putting changes live in your product still comes to you.`;
 }

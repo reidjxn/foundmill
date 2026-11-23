@@ -359,7 +359,12 @@ describe("public profiles: search and profile pages, \"On Foundmill\" (audit GLS
     await goLive(hz.A.businessId);
     const bizName = (await repos.businesses.get(hz.db, hz.A.businessId)).name;
     await repos.founders.upsert(hz.db, hz.A.adminId, { displayName: "Ada Adminson", visibility: "public" });
-    const seeker = as(hz.B.memberId);
+    // Founder cards list confirmed adults only (0167), and searching for people needs the seeker's confirmation too.
+    // The seeker is someone new: B's member was blocked by A's owner above, so A's business no longer turns up for them (M5).
+    const seekerId = await hz.h.createUser("seeker@live.test");
+    await Promise.all([hz.A.adminId, seekerId, hz.B.memberId].map((id) => repos.social.confirmAdult(hz.db, id)));
+    expect((await as(hz.B.memberId).live.people.search({ q: bizName })).hits.filter((h) => h.businessId === hz.A.businessId && h.kind === "business")).toEqual([]);
+    const seeker = as(seekerId);
 
     const byBusiness = await seeker.live.people.search({ q: bizName });
     expect(byBusiness.hits).toContainEqual(expect.objectContaining({ kind: "business", businessId: hz.A.businessId, name: bizName, userId: null }));
@@ -382,7 +387,7 @@ describe("public profiles: search and profile pages, \"On Foundmill\" (audit GLS
     expect((await as(hz.A.adminId).live.people.search({ q: "Ada Admin" })).hits.filter((h) => h.kind === "founder")).toEqual([]);
 
     // A request in flight is shown on the profile; a block either way hides the person.
-    const request = await repos.social.requestConnection(hz.db, hz.B.memberId, hz.A.adminId);
+    const request = await repos.social.requestConnection(hz.db, seekerId, hz.A.adminId);
     expect((await seeker.live.people.profile({ kind: "founder", id: hz.A.adminId })).connection).toEqual({ id: request.id, status: "requested", direction: "outgoing" });
     await repos.social.respondConnection(hz.db, hz.A.adminId, request.id, "blocked");
     expect((await seeker.live.people.search({ q: "Ada Admin" })).hits.filter((h) => h.kind === "founder")).toEqual([]);

@@ -56,9 +56,9 @@ const StepOut = z.object({
 const elementFacts = (elements: readonly { ref: string; role: string; label: string }[]) => elements.slice(0, FACTS_LIMITS.arrayItems).map((e) => ({ ref: fact.id(e.ref, 16), role: fact.id(e.role, 16), label: fact.label(e.label) }));
 const pageFacts = (data: PageOutT) => ({ url: fact.url(data.url), needsFounder: fact.id(data.needsFounder, 16), pageAskedMeToCount: data.pageAskedMeTo.length, elements: elementFacts(data.elements) });
 
-// `unclassified`: a call the gateway cannot read from the page asks first in every mode, automated included.
-const ASKS = { contactsThirdParty: true, irreversible: true, unclassified: true } as const;
-const WRITE_NOTE = "The step is classified first: a change the founder can undo runs; one that sends, posts, invites or publishes asks first; one that pays, agrees, signs, deletes or changes a security setting is never pressed by the team and becomes the founder's own press. Use a ref from the newest read_page, one change at a time, then read the page again to check it.";
+// A call the gateway cannot read from the page (no session, a ref from an older read) keeps the strictest hints.
+const ASKS = { contactsThirdParty: true, irreversible: true } as const;
+const WRITE_NOTE = "The step is classified first: a step runs at once and is recorded, including one that sends, posts, invites or publishes; one that pays, agrees, signs, deletes or changes a security setting is never pressed by the team and becomes the founder's own press. Use a ref from the newest read_page, one change at a time, then read the page again to check it.";
 
 export const browserTools = (siteName: string) =>
   [

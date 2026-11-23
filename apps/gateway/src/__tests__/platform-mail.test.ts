@@ -87,27 +87,20 @@ describe("platform_mail through the gateway (mock)", () => {
     expect(g.rateLimits.peek(`pm:${g.businessId}:day`, Date.now())).toBe(0);
   });
 
-  it("a first message to someone the founder added asks the founder, in every mode; someone new is refused (WP-08 T10)", async () => {
+  // Outside contact from the first message (founder, Nov 23, 2026): a person the founder added, and someone new, are
+  // mailed in assisted and automated mode; augmented mode asks for every outside contact.
+  it("a first message to someone the founder added, or to someone new, runs in assisted and automated mode and asks in augmented mode", async () => {
     await g.mailable("new.person@example.com", "recorded");
-    for (const mode of ["assisted", "automated"] as const) {
+    for (const [mode, to] of [["assisted", "new.person@example.com"], ["automated", "other.person@example.com"]] as const) {
       await repos.businesses.setBusinessMode(g.db, g.businessId, mode);
-      const r = (await g.client.call(token, message("new.person@example.com"))) as AskResponse;
-      expect(r.outcome, mode).toBe("ask");
-      expect(r.approvalId).toBeTruthy();
-      expect(r.policyIds).toContain("mail-recorded-basis-asks");
+      expect(asAllow(await g.client.call(token, message(to))).result.ok, mode).toBe(true);
+      expect(mock.sentFor(g.businessId).some((m) => m.to === to), mode).toBe(true);
     }
-    expect(mock.sentFor(g.businessId).some((m) => m.to === "new.person@example.com")).toBe(false);
-    expect(g.rateLimits.peek(`pm:${g.businessId}:day`, Date.now())).toBe(0);
-    // Nobody at this address agreed, wrote or paid, and the founder did not add them: refused, with no approval to ask.
-    const approvals = async () => (await g.h.pg.query<{ n: number }>("select count(*)::int as n from approvals where business_id = $1", [g.businessId])).rows[0]!.n;
-    const before = await approvals();
-    for (const mode of ["augmented", "assisted", "automated"] as const) {
-      await repos.businesses.setBusinessMode(g.db, g.businessId, mode);
-      const r = asDeny(await g.client.call(token, message("other.person@example.com")));
-      expect(r.policyIds, mode).toEqual(["mail-needs-basis"]);
-    }
-    expect(await approvals()).toBe(before);
-    expect(mock.sentFor(g.businessId).some((m) => m.to === "other.person@example.com")).toBe(false);
+    await repos.businesses.setBusinessMode(g.db, g.businessId, "augmented");
+    const r = (await g.client.call(token, message("third.person@example.com"))) as AskResponse;
+    expect(r.outcome).toBe("ask");
+    expect(r.policyIds).toContain("augmented-ask-external");
+    await repos.businesses.setBusinessMode(g.db, g.businessId, "automated");
   });
 
   it("sends from the project's own address with signed custom args, marks it simulated and writes mail.sent", async () => {
@@ -304,7 +297,7 @@ describe("platform_mail through the gateway (mock)", () => {
   });
 });
 
-describe("no mail connected: a send to someone with no basis is told it is not connected", () => {
+describe("no mail connected: a send is told it is not connected", () => {
   let g: GatewayFixture;
   let calls = 0;
 
@@ -316,7 +309,7 @@ describe("no mail connected: a send to someone with no basis is told it is not c
   }, 120_000);
   afterAll(async () => g.close());
 
-  // The basis policy (`mail-needs-basis`) would refuse both; the agent must learn that mail is not connected instead.
+  // The agent must learn that mail is not connected.
   it("SendGrid with no row answers integration_not_connected, and the project address off answers platform-mail-off", async () => {
     const token = await g.token({ allowedTools: ["sendgrid:*", "platform_mail:*"], sessionId: await g.newSession() });
     await expect(g.client.call(token, { connector: "sendgrid", tool: "send_mail", args: { kind: "transactional", from: "hello@project.example", to: ["nobody@example.com"], subject: "Welcome", text: "Hi." } })).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
@@ -325,7 +318,7 @@ describe("no mail connected: a send to someone with no basis is told it is not c
     expect(calls).toBe(0);
     // Cedar's refusal is still on the record for both.
     const rows = (await repos.audit.list(g.db, g.businessId, { action: "tool.call", limit: 10 })).items.map((a) => a.details as { outcome: string; policyIds: string[]; errorCode?: string });
-    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({ outcome: "deny", policyIds: ["mail-needs-basis"], errorCode: "integration_not_connected" }), expect.objectContaining({ outcome: "deny", policyIds: [PLATFORM_MAIL_POLICY.off, "mail-needs-basis"] })]));
+    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({ outcome: "deny", policyIds: [PLATFORM_MAIL_POLICY.off] })]));
   });
 
   it("any other refusal keeps its own answer: a suppressed recipient is refused, not told to connect", async () => {

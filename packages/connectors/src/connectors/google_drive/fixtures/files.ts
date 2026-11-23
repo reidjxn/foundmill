@@ -7,6 +7,11 @@ export const DRIVE_FILES: GFile[] = [
   { id: "1dLogoPng", name: "Logo.png", mimeType: "image/png", modifiedTime: "2026-08-02T12:00:00.000Z", webViewLink: "https://drive.google.com/file/d/1dLogoPng/view", size: "48213", owners: [{ emailAddress: "reid@northwindskincare.com" }] },
 ];
 
+/** In the founder's Drive but never opened with Foundmill: visible only with `drive.readonly`. */
+export const DRIVE_FOUNDER_ONLY_FILES: GFile[] = [
+  { id: "1eFounderBudget2026", name: "Personal budget 2026", mimeType: "application/vnd.google-apps.spreadsheet", modifiedTime: "2026-09-30T19:00:00.000Z", webViewLink: "https://docs.google.com/spreadsheets/d/1eFounderBudget2026", owners: [{ emailAddress: "reid@northwindskincare.com" }] },
+];
+
 export const DRIVE_DOCS: Record<string, GDoc> = {
   "1bInvestorUpdateSept2026": {
     documentId: "1bInvestorUpdateSept2026",

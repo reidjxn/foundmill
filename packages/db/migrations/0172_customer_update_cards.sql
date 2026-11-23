@@ -1,4 +1,4 @@
--- 0166 — a Customer Update shared as a card (docs/holistic-plan/WP-14-behavior-brief.md T9; docs/DESIGN.md §9f).
+-- 0172 — a Customer Update shared as a card (docs/holistic-plan/WP-14-behavior-brief.md T9; docs/DESIGN.md §9f).
 -- A founder shares one Customer Update at a time, by their own press: the api writes one row here with exactly what
 -- the public card shows, and deletes it when the founder stops sharing. Nothing is public by default: a journey with
 -- no row here has no card.

@@ -68,7 +68,7 @@ test.describe("settings › what the team can do", () => {
     const asks = stops.getByTestId("stops-asks");
     await expect(asks.getByTestId("stop-always_yours")).toContainText("Always comes to you. The team prepares it and never does it itself.");
     await expect(asks.getByTestId("stop-spend")).toContainText("A purchase over the agent's own limit (£250 unless you set one)");
-    await expect(asks.getByTestId("stop-permanent")).toContainText("A step that can't be undone (sending an email counts)");
+    await expect(asks.getByTestId("stop-permanent")).toContainText("A step that can't be undone");
     await expect(asks.getByTestId("stop-contract")).toBeVisible();
     await expect(asks.getByTestId("stop-outside")).toHaveCount(0);
     await expect(asks.getByTestId("stop-release")).toContainText("Putting changes live in your product");

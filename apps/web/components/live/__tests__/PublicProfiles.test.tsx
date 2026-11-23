@@ -197,3 +197,32 @@ describe("/profiles/[kind]/[id]", () => {
     expect(ctx.push).toHaveBeenCalledWith("/network");
   });
 });
+
+describe("an account that has not confirmed 18+ yet", () => {
+  const summary = (confirmed: () => boolean) => () => ({ unreadMessages: 0, requestsWaiting: 0, invitations: 0, moderation: 0, total: 0, adultConfirmed: confirmed() });
+
+  it("a person's page asks in one step, then opens straight away; nothing is read before", async () => {
+    let confirmed = false;
+    api.handlers["live.summary"] = summary(() => confirmed);
+    api.handlers["live.profile.confirmAdult"] = () => ((confirmed = true), { adultConfirmedAt: new Date() });
+    api.handlers["live.people.profile"] = () => ({ profile: FOUNDER_HIT, businesses: [BUSINESS_HIT], founders: [FOUNDER_HIT], isSelf: false, connection: null });
+    mount(<ProfileScreen kind="founder" id={ids.ana} />);
+    const notice = await screen.findByTestId("adult-notice");
+    expect(notice.textContent).toMatch(/to find people/);
+    expect(callsTo(api, "live.people.profile")).toEqual([]);
+    fireEvent.click(within(notice).getByRole("checkbox", { name: "I am 18 or older" }));
+    fireEvent.click(within(notice).getByTestId("adult-confirm"));
+    expect(await screen.findByTestId("profile-screen")).toBeTruthy();
+    expect(callsTo(api, "live.people.profile")).toEqual([{ kind: "founder", id: ids.ana }]);
+  });
+
+  it("the CRM typeahead's 'On Foundmill' group asks to confirm instead of saying the search is unavailable", async () => {
+    api.handlers["live.summary"] = summary(() => false);
+    api.handlers["live.people.search"] = () => ({ hits: [FOUNDER_HIT] });
+    mount(<OnNetworkResults text="Ana" />);
+    const group = await screen.findByTestId("crm-on-network");
+    expect(await within(group).findByTestId("adult-notice")).toBeTruthy();
+    expect(group.textContent).not.toMatch(/not available/);
+    expect(callsTo(api, "live.people.search")).toEqual([]);
+  });
+});

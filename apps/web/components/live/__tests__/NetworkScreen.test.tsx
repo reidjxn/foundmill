@@ -282,12 +282,16 @@ describe("/network", () => {
     mount();
     const notice = await screen.findByTestId("adult-notice");
     expect(notice.textContent).toMatch(/The network is for adults/);
+    // Reading other people waits for the confirmation (L3): Find people is not asked for, so no dead error shows.
+    expect(screen.queryByTestId("find-people")).toBeNull();
+    expect(callsTo(api, "live.people.find")).toEqual([]);
     const confirm = within(notice).getByTestId("adult-confirm") as HTMLButtonElement;
     expect(confirm.disabled).toBe(true);
     fireEvent.click(within(notice).getByRole("checkbox", { name: "I am 18 or older" }));
     fireEvent.click(confirm);
     await waitFor(() => expect(callsTo(api, "live.profile.confirmAdult")).toEqual([{ confirm: true }]));
     await waitFor(() => expect(screen.queryByTestId("adult-notice")).toBeNull());
+    expect(await screen.findByTestId("find-people")).toBeTruthy();
   });
 
   it("audit #28: community invitations wait on Network, to join or decline", async () => {

@@ -6,11 +6,13 @@ import { fromBase64Url } from "../_shared/mime";
 import { GMAIL_MESSAGES } from "./fixtures/mailbox";
 import { createGmailConnector } from "./index";
 import { createGmailMock, gmailMock } from "./mock";
-import { GMAIL_READ_SCOPE } from "./tools";
+import { GMAIL_COMPOSE_SCOPE, GMAIL_READ_SCOPE } from "./tools";
 
 describeConnectorContract("gmail (mock)", {
   connector: gmailMock,
   mode: "mock",
+  // Drafts need the founder's later opt-in (gmail.compose); the suite runs with it, "gmail drafts" below without.
+  integration: { ...makeToolContext(gmailMock).integration, scopes: [GMAIL_COMPOSE_SCOPE] },
   calls: [
     { tool: "list_messages", args: {}, check: (r) => expect(isUntrusted(r.data) && (r.data.content as { items: unknown[] }).items).toHaveLength(4) },
     { tool: "list_messages", args: { q: "from:maja is:unread" }, check: (r) => expect(isUntrusted(r.data) && (r.data.content as { items: { id: string }[] }).items.map((i) => i.id)).toEqual(["18f1a0001"]) },
@@ -24,6 +26,19 @@ describeConnectorContract("gmail (mock)", {
     { tool: "get_draft", args: { draftId: "r18f1a0005" }, check: (r) => expect(isUntrusted(r.data) && r.data.content).toMatchObject({ draftId: "r18f1a0005", subject: "Call on Thursday?" }) },
     { tool: "get_draft", args: { draftId: "r18f1a0001" }, expectOk: false },
   ],
+});
+
+describe("gmail drafts", () => {
+  it("answers plainly without gmail.compose, mock and live, and never fakes a draft", async () => {
+    for (const c of [createGmailMock(), createGmailConnector({ secrets: {}, fetch: routedFetch({}) })]) {
+      const ctx = makeToolContext(c, { credential: { kind: "oauth", secret: "tok" } });
+      for (const [tool, args] of [["create_draft", { to: ["a@example.com"], subject: "s", text: "t" }], ["list_drafts", {}], ["get_draft", { draftId: "r18f1a0005" }]] as const) {
+        const r = await c.callTool(tool, args, ctx);
+        expect(r.ok, `${c.key} ${tool}`).toBe(false);
+        expect(r.error?.message).toContain("Gmail drafts are not available");
+      }
+    }
+  });
 });
 
 describe("gmail quarantine", () => {
@@ -83,5 +98,7 @@ describe("gmail live (canned)", () => {
     expect(await scopeOf({})).not.toContain("gmail.readonly");
     expect(await scopeOf({})).toContain("gmail.send");
     expect(await scopeOf({ readMail: true })).toContain("gmail.readonly");
+    expect(await scopeOf({})).not.toContain("gmail.compose");
+    expect(await scopeOf({ readMail: true })).toContain("gmail.compose");
   });
 });

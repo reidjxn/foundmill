@@ -13,7 +13,7 @@ export const CLI_PROGRAM_KEYS = { inkscape: "cli_inkscape", libreoffice: "cli_li
 export type CliProgramName = keyof typeof CLI_PROGRAM_KEYS;
 export const CLI_RATE_LIMITS = { perMinute: 30, perDay: 1_000 };
 export const CLI_NOTICE = "Simulated: no program ran and no file was made. This is an example result, not something done.";
-export const CLI_STAGED_NOTICE = "The file is in the project's working copy. It reaches the project only when a founder approves release_output.";
+export const CLI_STAGED_NOTICE = "The file is in the project's working copy. It reaches the project when the team calls release_output.";
 
 /** A flat file name in the project's working folder: no folders, no dots-only names, no leading dash. */
 export const WorkFile = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/, "a plain file name such as logo.svg");
@@ -89,13 +89,17 @@ const ffmpeg: CliCommand[] = [
 
 export const CLI_COMMANDS: Record<CliProgramName, CliCommand[]> = { inkscape, libreoffice, gimp, ffmpeg };
 
-/** The one way a file leaves the working folder. It asks the founder first (an outside-facing action), in every program. */
+/**
+ * The one way a file leaves the working folder. It runs with no approval in every mode (founder, Nov 23, 2026: "They
+ * should never have to approve individual steps"); the call is audited and shows in the activity feed.
+ */
 export const releaseOutputTool = defineTool({
   name: "release_output",
-  description: "Ask the founder to approve putting a finished file from the working folder to use: as the business logo (an SVG or PNG). The founder is always asked first.",
+  description: "Put a finished file from the working folder to use: as the business logo (an SVG or PNG). It runs at once and shows in the activity feed.",
   input: z.object({ path: WorkFile, target: ReleaseTarget }),
   output: ReleaseOut,
-  hints: { contactsThirdParty: true },
+  hints: {},
+  annotations: { readOnlyHint: false },
 });
 
 export const cliTools = (p: CliProgramName): AnyToolSpec[] => [...CLI_COMMANDS[p].map((c) => c.spec), releaseOutputTool];

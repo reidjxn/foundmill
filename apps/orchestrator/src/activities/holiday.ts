@@ -14,7 +14,7 @@
 import { LIMITS } from "@foundmill/config";
 import { isApprovalOption, nextCycleNumberOf, repos, type Agent, type Business, type Executor, type InboxItem } from "@foundmill/db";
 import { PRICING_CURRENCY, compileOptionPlan, type PlanAction } from "@foundmill/models";
-import { DECISION_TYPES, formatMoney, planSectionWalls, type DecisionType, type EventType, type SectionMembership } from "@foundmill/shared";
+import { DECISION_TYPES, formatMoney, founderActionIdOfDecision, planSectionWalls, type DecisionType, type EventType, type SectionMembership } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { MAX_HOLIDAY_CYCLES } from "../holiday-contract";
 import { emitEvent, systemActor } from "../events";
@@ -118,6 +118,8 @@ export function isApprovalItem(item: Pick<InboxItem, "decision">): boolean {
  * the Chief of Staff answered it, and answering the note alone would leave the approval pending and its session waiting.
  */
 export const APPROVAL_IS_YOURS = "an agent's call waits for your approval";
+/** A request only the founder's own press can send (a founder-executed tool, founder 2026-11-22) is never answered for them. */
+export const PRESS_IS_YOURS = "only your own press sends it";
 
 const MONEY_WORDS: Partial<Record<PlanAction["type"], string>> = { set_budget: "a budget", approve_spend: "approving spend", train_agent: "a paid training run", create_task: "a task with a budget" };
 
@@ -134,6 +136,7 @@ export function vacationVerdict(item: Pick<InboxItem, "subject" | "bodyMd" | "de
   const recommended = options.find((o) => o.recommended) ?? options[0];
   if (!recommended) return { kind: "wait", reason: "it has no option to choose" };
   if (isApprovalItem(item)) return { kind: "wait", reason: APPROVAL_IS_YOURS };
+  if (founderActionIdOfDecision(item.decision)) return { kind: "wait", reason: PRESS_IS_YOURS };
   if (!ctx.chiefOfStaffId) return { kind: "wait", reason: "there is no Chief of Staff to decide it" };
   // Every authority the recommended option needs must be granted: a costed customer decision needs the spend authority as
   // well as the messaging one (audit VO-E1).
@@ -179,6 +182,7 @@ export const GOAL_IS_YOURS = "setting the goal is yours";
  */
 async function foundersOwnReason(db: OrchestratorDeps["db"], businessId: string, item: Pick<InboxItem, "id" | "decision">): Promise<string | null> {
   if (isApprovalItem(item) || (await repos.approvals.forInboxItem(db, businessId, item.id))) return APPROVAL_IS_YOURS;
+  if (founderActionIdOfDecision(item.decision)) return PRESS_IS_YOURS;
   if (await repos.productSignoffs.forInboxItem(db, businessId, item.id)) return SIGNOFF_IS_YOURS;
   if (await repos.goals.forInboxItem(db, businessId, item.id)) return GOAL_IS_YOURS;
   return null;

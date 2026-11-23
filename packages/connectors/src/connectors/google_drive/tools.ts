@@ -5,7 +5,12 @@ import { defineTool } from "../../define";
 export const GOOGLE_DRIVE_KEY = "google_drive";
 export const DRIVE_BASE_URL = "https://www.googleapis.com/drive/v3";
 export const DOCS_BASE_URL = "https://docs.googleapis.com/v1";
-export const GOOGLE_DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/documents", "https://www.googleapis.com/auth/drive.readonly"];
+/** Launch scopes (Nov 23, 2026): `drive.file` (non-sensitive) reaches only files Foundmill created or the founder opened with Foundmill; `documents` is sensitive. */
+export const GOOGLE_DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/documents"];
+/** "Restricted" at Google (yearly outside assessment): asked for only when the founder turns Drive reading on (`connect` input `readDrive: true`). */
+export const GOOGLE_DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+/** What `search_files` covered: the whole Drive needs `drive.readonly`; without it, only Foundmill's own files. */
+export const driveSearchScope = (scopes: readonly string[]): "whole_drive" | "foundmill_files" => (scopes.includes(GOOGLE_DRIVE_READ_SCOPE) ? "whole_drive" : "foundmill_files");
 
 export const DriveFile = z.object({ id: z.string(), name: z.string(), mimeType: z.string(), modifiedTime: z.string(), webViewLink: z.string().nullable(), size: z.number().int().nullable(), owners: z.array(z.string()) });
 export type DriveFileT = z.infer<typeof DriveFile>;
@@ -14,9 +19,9 @@ export const FileId = z.string().min(5).max(200);
 export const googleDriveTools = [
   defineTool({
     name: "search_files",
-    description: "Search Drive files by name/content (free text) or a Drive query (`name contains 'x' and mimeType = '...'`).",
+    description: "Search Drive files by name/content (free text) or a Drive query (`name contains 'x' and mimeType = '...'`). Until the founder turns Drive reading on, this searches only files the team created or the founder opened here (`searched: \"foundmill_files\"`), not the whole Drive: say so, and never report a file as missing from the founder's Drive.",
     input: z.object({ q: z.string().min(1).max(300), mimeType: z.string().max(100).optional(), pageSize: z.number().int().min(1).max(100).default(20), pageToken: z.string().optional() }),
-    output: z.object({ items: z.array(DriveFile), nextPageToken: z.string().nullable() }),
+    output: z.object({ items: z.array(DriveFile), nextPageToken: z.string().nullable(), searched: z.enum(["whole_drive", "foundmill_files"]) }),
     hints: {},
     untrusted: "file",
     untrustedRef: (a) => `search:${a.q}`,
