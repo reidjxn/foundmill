@@ -2,12 +2,15 @@
  * Gmail and Google Calendar as context (founder, Nov 19, 2026). Agents read the founder's own drafts, inbox and calendar
  * only on a project where the founder said yes (`integrations.settings.contextReads`), and the inbox only once Google
  * granted `gmail.readonly`. Without that, these reads are taken out of the session's grants before its token is minted,
- * so the gateway refuses them as out of scope. Writing drafts and events is unchanged; sends and invitations ask first
+ * so the gateway refuses them as out of scope. Gmail drafts need gmail.compose (restricted at Google, Nov 23, 2026), so without it no draft tool is in a session; writing events is unchanged; sends and invitations ask first
  * (policy `founder-google-send-asks`).
  */
 import { GATEWAY_TOOL_NAMES } from "./grants";
 
 export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+/** Restricted at Google (Nov 23, 2026): without it, no Gmail draft tool is in a session at all. */
+export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
+const GMAIL_DRAFT_TOOLS = ["create_draft", "list_drafts", "get_draft"] as const;
 
 /** The reads that carry the founder's own mail and calendar text, by what turns them on. */
 export const CONTEXT_READ_TOOLS = {
@@ -25,6 +28,7 @@ export interface ContextReads {
 export function blockedContextReads(reads: ContextReads): Set<string> {
   const blocked = new Set<string>();
   const add = (connector: string, tools: readonly string[]) => tools.forEach((t) => blocked.add(`${connector}:${t}`));
+  if (!reads.gmail.scopes.includes(GMAIL_COMPOSE_SCOPE)) add("gmail", GMAIL_DRAFT_TOOLS);
   if (!reads.gmail.on) add("gmail", [...CONTEXT_READ_TOOLS.gmail.drafts, ...CONTEXT_READ_TOOLS.gmail.inbox]);
   else if (!reads.gmail.scopes.includes(GMAIL_READONLY_SCOPE)) add("gmail", CONTEXT_READ_TOOLS.gmail.inbox);
   if (!reads.googleCalendar.on) add("google_calendar", CONTEXT_READ_TOOLS.google_calendar.events);

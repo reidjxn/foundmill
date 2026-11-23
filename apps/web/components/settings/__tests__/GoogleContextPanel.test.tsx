@@ -18,7 +18,7 @@ vi.mock("@/lib/trpc-react", () => ({
 vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => toast }));
 vi.mock("../SettingsScreen", () => ({ useInvalidateRouters: () => async () => undefined }));
 
-import { GMAIL_READONLY_SCOPE, gmailReadsLine, GoogleContextPanel } from "../GoogleContextPanel";
+import { GMAIL_COMPOSE_SCOPE, GMAIL_READONLY_SCOPE, gmailReadsLine, GoogleContextPanel } from "../GoogleContextPanel";
 
 const gmail = (settings: Record<string, unknown> = {}, scopes: string[] = []) => ({ key: "gmail", integration: { status: "connected", scopes, settings } });
 const renderPanel = (rows: Parameters<typeof GoogleContextPanel>[0]["rows"], canEdit = true) =>
@@ -37,8 +37,9 @@ describe("GoogleContextPanel", () => {
   });
 
   it("says the inbox waits for Google's inbox permission", () => {
-    expect(gmailReadsLine([])).toMatch(/drafts\. Your inbox is read once Google grants inbox access/);
-    expect(gmailReadsLine([GMAIL_READONLY_SCOPE])).toBe("Your drafts and your inbox.");
+    expect(gmailReadsLine([])).toMatch(/^Nothing yet\./);
+    expect(gmailReadsLine([GMAIL_COMPOSE_SCOPE])).toMatch(/drafts\. Your inbox is read once Google grants inbox access/);
+    expect(gmailReadsLine([GMAIL_READONLY_SCOPE, GMAIL_COMPOSE_SCOPE])).toBe("Your drafts and your inbox.");
   });
 
   it("a founder turns Gmail on", async () => {

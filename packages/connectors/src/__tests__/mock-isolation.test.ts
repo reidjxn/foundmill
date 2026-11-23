@@ -14,6 +14,7 @@ import { HS_REQUESTS } from "../connectors/dropbox_sign/fixtures/requests";
 import { createDropboxSignMock } from "../connectors/dropbox_sign/mock";
 import { createE2bMock } from "../connectors/e2b/mock";
 import { createGmailMock } from "../connectors/gmail/mock";
+import { GMAIL_COMPOSE_SCOPE } from "../connectors/gmail/tools";
 import { createGoogleCalendarMock } from "../connectors/google_calendar/mock";
 import { createGoogleDriveMock } from "../connectors/google_drive/mock";
 import { NOTION_PAGE_BRAND } from "../connectors/notion/fixtures/workspace";
@@ -28,7 +29,8 @@ import { createTinkMock } from "../connectors/tink/mock";
 const A = uuidFromSeed("isolation", "business", "a");
 const B = uuidFromSeed("isolation", "business", "b");
 
-const ctxFor = (connector: Connector, businessId: string) => makeToolContext(connector, { businessId, integration: mockIntegrationRecord(connector.key, businessId) });
+// Gmail drafts need the founder's later opt-in (gmail.compose); this suite tests isolation, so it has it.
+const ctxFor = (connector: Connector, businessId: string) => makeToolContext(connector, { businessId, integration: mockIntegrationRecord(connector.key, businessId, connector.key === "gmail" ? { scopes: [GMAIL_COMPOSE_SCOPE] } : {}) });
 const call = (connector: Connector, businessId: string, tool: string, args: unknown) => connector.callTool(tool, args, ctxFor(connector, businessId));
 /** The data of a result, unwrapped when the tool returns third-party content. */
 const data = <T>(r: ToolResult): T => (isUntrusted(r.data) ? r.data.content : r.data) as T;
