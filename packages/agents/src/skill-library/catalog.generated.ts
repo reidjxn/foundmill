@@ -1373,10 +1373,10 @@ export const SKILL_LIBRARY: readonly LibrarySkill[] = Object.freeze([
   {
     key: "patent_preparation",
     name: "Patent preparation",
-    description: "Gets an invention ready for a patent filing from the project's own records, warns about showing it too soon and prepares the founder's one request.",
+    description: "Gets an invention ready for a patent filing and warns about showing it too soon.",
     category: "legal",
     attribute: { name: "Patent preparation", group: "judgement" },
-    whenToUse: "Use when the project has something it invented, or is about to show, sell or publish one, or the founder asks about a patent.",
+    whenToUse: "Use when the project invented something, or the founder asks about a patent.",
     roles: ["legal_lead"],
     defaultFor: ["legal_lead"],
     defaultSince: 5,
