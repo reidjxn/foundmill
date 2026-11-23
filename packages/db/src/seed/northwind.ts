@@ -311,7 +311,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     { connectorKey: "shopify", authKind: "oauth", accountLabel: "northwind-skincare.myshopify.example", scopes: ["read_orders", "read_customers", "read_products"], settings: { shop: "northwind-skincare" } },
     { connectorKey: "sendgrid", authKind: "api_key", accountLabel: "mail.northwindskincare.example", scopes: ["mail.send", "marketing.campaigns"], settings: { sendingDomain: "mail.northwindskincare.example", dmarc: "p=quarantine" } },
     { connectorKey: "tink", authKind: "oauth", accountLabel: "Northwind Business Current", scopes: ["accounts:read", "transactions:read"] },
-    { connectorKey: "google_drive", authKind: "oauth", accountLabel: "lab@northwindskincare.example", scopes: ["drive.readonly"] },
+    { connectorKey: "google_drive", authKind: "oauth", accountLabel: "lab@northwindskincare.example", scopes: ["drive.file", "documents"] },
   ]);
   const finance = await seedFinance(ctx, {
     businessId,

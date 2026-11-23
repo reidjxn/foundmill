@@ -4,10 +4,14 @@ import { defineTool } from "../../define";
 
 export const GMAIL_KEY = "gmail";
 export const GMAIL_BASE_URL = "https://gmail.googleapis.com/gmail/v1";
-/** Launch scopes ("sensitive" at Google): sending and drafting only. */
-export const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.compose"];
+/** Launch scope ("sensitive" at Google, Nov 23, 2026): sending only. Agents' drafts live in Foundmill (the approval note), not in Gmail. */
+export const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"];
 /** "Restricted" at Google (yearly outside assessment): asked for only when the founder turns reading on (`connect` input `readMail: true`). */
 export const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+/** Also "restricted" (Google's console, Nov 23, 2026): Gmail drafts. Asked for with reading, never by default. */
+export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
+export const GMAIL_DRAFT_TOOLS: ReadonlySet<string> = new Set(["create_draft", "list_drafts", "get_draft"]);
+export const GMAIL_DRAFTS_OFF = "Gmail drafts are not available: Gmail draft access is not turned on. Write the email in your note for the founder, or send it with send_message, which asks the founder first.";
 export const GMAIL_READ_TOOLS: ReadonlySet<string> = new Set(["list_messages", "get_message"]);
 export const GMAIL_READ_OFF = "Reading the mailbox is off. The founder turns it on in Settings › Integrations › Gmail, which asks Google for read access.";
 
@@ -48,8 +52,8 @@ export const gmailTools = [
     output: z.object({ id: z.string(), threadId: z.string(), to: z.array(z.string()) }),
     hints: { contactsThirdParty: true, irreversible: true },
   }),
-  defineTool({ name: "create_draft", annotations: { readOnlyHint: false }, description: "Save a draft in the connected mailbox for the founder to review and send.", input: Compose, output: z.object({ draftId: z.string(), messageId: z.string() }), hints: {} }),
-  // Drafts are read with gmail.compose, so they are context before gmail.readonly is granted (founder, Nov 19, 2026).
+  defineTool({ name: "create_draft", annotations: { readOnlyHint: false }, description: "Save a draft in the connected mailbox for the founder to review and send. Needs Gmail draft access, which is off at launch: without it this answers that drafts are not available, so write the email in your note or use send_message (asks first).", input: Compose, output: z.object({ draftId: z.string(), messageId: z.string() }), hints: {} }),
+  // Drafts are read with gmail.compose (restricted at Google, Nov 23, 2026), so they need the founder's reading opt-in.
   defineTool({
     name: "list_drafts",
     description: "Drafts in the connected mailbox, newest first (summaries only; a body via get_draft). Read for context only.",
