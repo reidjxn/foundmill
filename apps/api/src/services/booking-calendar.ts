@@ -10,8 +10,8 @@
  *   busy calendar time is never offered).
  * - **A confirmed booking** (`add_event`: the founder's own calendar, no attendees, nobody invited or notified). It
  *   has no Meet link: only `create_event` can add one, and that tool invites people and asks the founder first.
- * - **A canceled or moved booking** leaves its event where it is: `delete_event` and `update_event` ask the founder
- *   first (policy `founder-google-send-asks`), and booking never waits on an approval. The founder's note says so.
+ * - **A canceled or moved booking** leaves its event where it is: `delete_event` and `update_event` notify the
+ *   attendees, and booking does not move or cancel the founder's own events. The founder's note says so.
  */
 import { repos, type Executor } from "@foundmill/db";
 import type { BusyRange } from "@foundmill/shared/booking";

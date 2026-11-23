@@ -50,7 +50,8 @@ export const gmailTools = [
     description: "Send an email from the connected mailbox on behalf of the business (BUILD §2.3: never claim to be human; the global suppression list is checked first). Use threadId + inReplyToMessageId to reply in-thread.",
     input: Compose,
     output: z.object({ id: z.string(), threadId: z.string(), to: z.array(z.string()) }),
-    hints: { contactsThirdParty: true, irreversible: true },
+    // Outside contact runs in assisted and automated mode from the first message (founder, Nov 23, 2026).
+    hints: { contactsThirdParty: true },
   }),
   defineTool({ name: "create_draft", annotations: { readOnlyHint: false }, description: "Save a draft in the connected mailbox for the founder to review and send. Needs Gmail draft access, which is off at launch: without it this answers that drafts are not available, so write the email in your note or use send_message (asks first).", input: Compose, output: z.object({ draftId: z.string(), messageId: z.string() }), hints: {} }),
   // Drafts are read with gmail.compose (restricted at Google, Nov 23, 2026), so they need the founder's reading opt-in.

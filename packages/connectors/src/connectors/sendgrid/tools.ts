@@ -73,7 +73,8 @@ export const sendgridTools = [
     description: "Send an email on behalf of the business (never claiming to be human — BUILD §2.3). Refused when the sender is not verified, when marketing mail has no unsubscribe, or when any recipient is on the suppression list.",
     input: SendMail,
     output: SendResult,
-    hints: { contactsThirdParty: true, irreversible: true },
+    // Outside contact runs in assisted and automated mode from the first message (founder, Nov 23, 2026).
+    hints: { contactsThirdParty: true },
     costMinor: (a) => Math.ceil((a.to.length + a.cc.length + a.bcc.length) * 0.1),
   }),
   defineTool({ name: "list_campaigns", description: "Marketing single sends (drafts, scheduled and sent), newest first.", input: z.object({ pageSize: z.number().int().min(1).max(100).default(25) }), output: z.object({ items: z.array(Campaign) }), hints: {}, untrusted: "api", untrustedRef: () => "singlesends", annotations: { readOnlyHint: true } }),

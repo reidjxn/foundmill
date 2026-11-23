@@ -148,8 +148,8 @@ export interface ApprovalRouting {
  */
 /**
  * Calls that send mail from the founder's own Gmail or invite people from their own calendar (founder, Nov 19, 2026):
- * their approval is the founder's in every case, whoever Team › Responsibilities names. Policy `founder-google-send-asks`
- * lists the same tools.
+ * where a mode still asks for them (augmented, or a cancellation in assisted), their approval is the founder's in every
+ * case, whoever Team › Responsibilities names.
  */
 export const FOUNDER_ACCOUNT_SEND_TOOLS: ReadonlySet<string> = new Set(["gmail:send_message", "google_calendar:create_event", "google_calendar:update_event", "google_calendar:delete_event"]);
 

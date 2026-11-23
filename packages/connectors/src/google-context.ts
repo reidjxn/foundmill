@@ -2,8 +2,9 @@
  * Gmail and Google Calendar as context (founder, Nov 19, 2026). Agents read the founder's own drafts, inbox and calendar
  * only on a project where the founder said yes (`integrations.settings.contextReads`), and the inbox only once Google
  * granted `gmail.readonly`. Without that, these reads are taken out of the session's grants before its token is minted,
- * so the gateway refuses them as out of scope. Gmail drafts need gmail.compose (restricted at Google, Nov 23, 2026), so without it no draft tool is in a session; writing events is unchanged; sends and invitations ask first
- * (policy `founder-google-send-asks`).
+ * so the gateway refuses them as out of scope. Gmail drafts need gmail.compose (restricted at Google, Nov 23, 2026), so
+ * without it no draft tool is in a session; writing events is unchanged; sends and invitations run in assisted and
+ * automated mode (founder, Nov 23, 2026).
  */
 import { GATEWAY_TOOL_NAMES } from "./grants";
 

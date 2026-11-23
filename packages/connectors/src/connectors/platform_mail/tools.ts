@@ -53,7 +53,8 @@ export const platformMailTools = [
       "Send one email to one person from the project's own address (replies come back to the project). Plain text, optionally with simple HTML (paragraphs, line breaks, bold, italics, lists, headings, links); no attachments. An unsubscribe link is added to every message, and the founder's postal address to every marketing message (US law); without that address no marketing message is sent. Set purpose to reply only to answer a message this person sent the project, or to receipt only to confirm something they paid for, and then add no promotion: anything else is marketing. A first message to someone outside the project waits for the founder's OK unless they said otherwise; refused when the person unsubscribed or bounced, or when the project's daily limit is reached. Never claim to be a person.",
     input: PlatformSendMail,
     output: PlatformSendResult,
-    hints: { contactsThirdParty: true, irreversible: true },
+    // Outside contact runs in assisted and automated mode from the first message (founder, Nov 23, 2026).
+    hints: { contactsThirdParty: true },
   }),
 ] as const;
 
