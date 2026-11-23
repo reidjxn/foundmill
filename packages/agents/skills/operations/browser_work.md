@@ -51,7 +51,7 @@ A saved report with two lists: what was set, each marked checked or not verified
 ## Check before you hand it over
 
 - Everything in your done list was either checked by reading the page back or is marked not verified.
-- Nothing was paid, agreed to, sent, posted or deleted by you.
+- Nothing was paid, agreed to or deleted by you. Anything you sent, posted or published is in your report.
 - You report no simulated step as done. In simulation, say it was simulated.
 
 ## What needs the founder

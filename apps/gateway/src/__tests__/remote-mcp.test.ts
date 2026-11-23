@@ -11,9 +11,10 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
-import { createNotionMcpConnector, type Connector } from "@foundmill/connectors";
+import { createHubspotMcpConnector, createNotionMcpConnector, type Connector } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { storeCredential } from "../credentials";
+import { doneKeyOf } from "../pipeline";
 import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallResponse } from "../types";
 import { setupGateway, type GatewayFixture } from "./harness";
 
@@ -79,18 +80,18 @@ describe("live", () => {
     expect(vendor.calls).toEqual([]);
   });
 
-  for (const mode of ["augmented", "assisted"] as const) {
-    it(`${mode}: a listed write that changes pages, and an unlisted tool, ask first and reach no server`, async () => {
+  // Founder, Nov 23, 2026: "They should never have to approve individual steps."
+  for (const mode of ["augmented", "assisted", "automated"] as const) {
+    it(`${mode}: a listed change to a page runs with no approval; an unlisted tool still asks and reaches no server`, async () => {
       const vendor = server();
       const g = (open = await setupGateway({ mode: "live", businessMode: mode, connectors: live(vendor.fetch) }));
       await connect(g);
       const token = await g.token({ allowedTools: ["notion_mcp:*"] });
-      for (const call of [UPDATE, unlisted("notion-brand-new")]) {
-        const r = await g.client.call(token, call);
-        expect(r.outcome, `${mode} ${call.tool}: ${JSON.stringify(r)}`).toBe("ask");
-        expect((r as AskResponse).approvalId).toBeTruthy();
-      }
-      expect(vendor.calls).toEqual([]);
+      expect(asAllow(await g.client.call(token, UPDATE)).result.ok).toBe(true);
+      const r = await g.client.call(token, unlisted("notion-brand-new"));
+      expect(r.outcome, `${mode}: ${JSON.stringify(r)}`).toBe("ask");
+      expect((r as AskResponse).approvalId).toBeTruthy();
+      expect(vendor.calls.map((c) => c.name)).toEqual(["notion-update-page"]);
     });
   }
 
@@ -107,30 +108,18 @@ describe("live", () => {
     expect(vendor.calls).toEqual([]);
   });
 
-  it("automated and on vacation: a listed change asks the founder, and Team › Responsibilities cannot decide it", async () => {
+  it("on vacation: a listed change runs with no approval", async () => {
     const vendor = server();
     const g = (open = await setupGateway({ mode: "live", businessMode: "automated", connectors: live(vendor.fetch) }));
     await connect(g);
-    // Every decision type handed to another agent in the caller's department: the worst case.
-    const dept = await repos.departments.create(g.db, g.businessId, { name: "Delegated" });
-    const reviewer = await repos.agents.create(g.db, g.businessId, { name: "Reviewer", agentType: "review_agent", departmentIds: [dept.id] });
-    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
-    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: ["message_customers", "publish_content", "spend_above_threshold"].map((decisionType) => ({ decisionType, handler: { kind: "agent", id: reviewer.id } })) });
     const token = await g.token({ allowedTools: ["notion_mcp:*"] });
-    const asked = async (args: Record<string, unknown>) => {
-      const r = await g.client.call(token, { connector: "notion_mcp", tool: "notion_update_page", args });
-      expect(r.outcome, JSON.stringify(r)).toBe("ask");
-      const approval = await repos.approvals.get(g.db, g.businessId, (r as AskResponse).approvalId);
-      expect(approval).toMatchObject({ outcome: null, handlerKind: null });
-    };
-    await asked({ page_id: "p1", command: "update_properties", properties: { Status: "Done" } });
     const holiday = await repos.holidays.start(g.db, g.businessId, { untilAt: new Date(Date.now() + 86_400_000), budgetCeilingMinor: 50_000 });
     try {
-      await asked({ page_id: "p2", command: "update_content", content_updates: [{ old_str: "Draft", new_str: "Final" }] });
+      expect(asAllow(await g.client.call(token, { connector: "notion_mcp", tool: "notion_update_page", args: { page_id: "p2", command: "update_content", content_updates: [{ old_str: "Draft", new_str: "Final" }] } })).result.ok).toBe(true);
     } finally {
       await repos.holidays.end(g.db, g.businessId, holiday.id);
     }
-    expect(vendor.calls).toEqual([]);
+    expect(vendor.calls.map((c) => c.name)).toEqual(["notion-update-page"]);
   });
 
   it("arguments that delete, trash or change access are denied before anyone is asked, also with the owner's approval in hand", async () => {
@@ -187,5 +176,14 @@ describe("mock", () => {
     const token = await g.token({ allowedTools: ["notion_mcp:notion_search"] });
     const r = asAllow(await g.client.call(token, SEARCH));
     expect(r.result).toMatchObject({ ok: true, simulated: true, notice: SIMULATED_NOTICE });
+  });
+});
+
+describe("unasked HubSpot changes", () => {
+  it("a repeat of the same manage call in one session is answered from the first run, not run again", () => {
+    const hubspot = createHubspotMcpConnector({ secrets: {} });
+    const session = { agentId: "a1", sessionId: "s1" };
+    expect(doneKeyOf(hubspot, "manage_crm_objects", { objectType: "contacts" }, {}, session)).toBeTruthy();
+    expect(doneKeyOf(hubspot, "search_crm_objects", {}, {}, session)).toBeNull();
   });
 });

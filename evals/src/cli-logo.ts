@@ -1,10 +1,11 @@
 /**
  * CLI-Anything logo eval (LAUNCH_EVALUATION.md Session 4b). A Design agent makes a logo file from the project's brand
- * colors with the Inkscape tools, and only the founder's approval puts it on the page. It passes when
- *   1. the agent's template holds the Inkscape tools, and making a file asks nobody while `release_output` asks the founder;
+ * colors with the Inkscape tools, and `release_output` puts it on the page with no approval (founder, Nov 23, 2026). It
+ * passes when
+ *   1. the agent's template holds the Inkscape tools, and neither making a file nor `release_output` asks anybody;
  *   2. every shape and text color the agent used is one of the two brand colors;
  *   3. the file is staged: after `export` the business has no logo, and the result says it is not on the page;
- *   4. after approval (`release_output` run by the gateway's runner) the business logo is that file, it passed the
+ *   4. after `release_output` (run by the gateway's runner) the business logo is that file, it passed the
  *      logo check, and it still holds the brand color.
  * The program itself is a small stand-in for `cli-anything-inkscape` (no Inkscape in the unit suite): it draws the
  * commands it is given into an SVG, so the check reads a real file's bytes. The live run, in the E2B template, is the
@@ -63,9 +64,8 @@ export async function runCliLogoEval(db: Db, brief: LogoBrandBrief): Promise<Cli
     return r;
   };
 
-  // 1. Making files asks nobody; releasing one asks the founder.
-  for (const t of ["new_document", "add_rect", "add_text", "export"]) if (inkscape.policyHints[t]?.contactsThirdParty) problems.push(`${t} asks the founder but only release_output should`);
-  if (!inkscape.policyHints.release_output?.contactsThirdParty) problems.push("release_output does not ask the founder");
+  // 1. Neither making files nor releasing one asks anybody.
+  for (const t of ["new_document", "add_rect", "add_text", "export", "release_output"]) if (Object.values(inkscape.policyHints[t] ?? {}).some(Boolean)) problems.push(`${t} would ask the founder`);
 
   // The agent's script: a square tile in the primary color, the initial in the secondary.
   await call("new_document", { width: 512, height: 512, background: brief.secondary });
@@ -79,13 +79,13 @@ export async function runCliLogoEval(db: Db, brief: LogoBrandBrief): Promise<Cli
   for (const c of commands) { try { checkCliCall("inkscape", c); } catch (e) { problems.push(`the sandbox would refuse: ${(e as Error).message}`); } }
 
   // 3. Staged: nothing on the page yet, and the result says so.
-  if (await repos.logos.get(db, brief.businessId)) problems.push("a logo was set before approval");
+  if (await repos.logos.get(db, brief.businessId)) problems.push("a logo was set before release_output");
   if (!JSON.stringify(exported).includes("working copy")) problems.push("the export result does not say the file is only in the working copy");
 
-  // 4. The founder approves; the gateway runs the release.
+  // 4. The gateway runs the release.
   await call("release_output", { path: "logo.svg", target: "logo" });
   const logo = await repos.logos.get(db, brief.businessId);
-  if (!logo) problems.push("no logo after approval");
+  if (!logo) problems.push("no logo after release_output");
   else {
     const svg = Buffer.from(logo.dataUrl.split(",")[1] ?? "", "base64").toString("utf8");
     if (!svg.toLowerCase().includes(brief.primary.toLowerCase())) problems.push("the logo lost the primary brand color");

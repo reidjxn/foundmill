@@ -73,12 +73,12 @@ describe("the step classifier", () => {
     expect(classOf({ role: "textbox", type: "text", name: "postcode", label: "Postcode" }, { action: "fill" })).toBe("reversible");
     expect(classOf({ label: "Clear filters" })).toBe("reversible");
   });
-  it("fails closed: a step it cannot classify asks first", () => {
+  it("a step it cannot classify runs like a reversible one (founder, Nov 23, 2026)", () => {
     expect(classOf({ label: "Continue" })).toBe("unknown");
     expect(classOf({ label: "" })).toBe("unknown");
     expect(classOf({ label: "Frobnicate" })).toBe("unknown");
-    expect(hintsForClass("unknown")).toEqual({ contactsThirdParty: true, irreversible: true, unclassified: true });
-    expect(hintsForClass("outward")).toEqual({ contactsThirdParty: true, irreversible: true });
+    expect(hintsForClass("unknown")).toEqual({});
+    expect(hintsForClass("outward")).toEqual({});
     expect(hintsForClass("hard_gate").hardGate).toBe(true);
     expect(hintsForClass("reversible")).toEqual({});
   });
@@ -131,7 +131,7 @@ describe("the browser connector (recorded pages)", () => {
 
   it("is one connector per site with the strictest hints on its write tools", () => {
     expect(connector.key).toBe("browser_acme_admin");
-    for (const t of ["fill", "select", "upload_file", "click"]) expect(connector.policyHints[t]).toEqual({ contactsThirdParty: true, irreversible: true, unclassified: true });
+    for (const t of ["fill", "select", "upload_file", "click"]) expect(connector.policyHints[t]).toEqual({ contactsThirdParty: true, irreversible: true });
     expect(connector.policyHints.request_founder).toEqual({ hardGate: true });
     expect(connector.policyHints.read_page).toEqual({});
   });

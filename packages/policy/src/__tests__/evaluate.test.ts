@@ -24,10 +24,13 @@ function run(mode: BusinessMode, t: Partial<ToolCtxInput> = {}, ctx: CallContext
 const TOOLS = {
   internalDraft: { connector: "notion", name: "write_page" },
   codeOnBranch: { connector: "github", name: "push_branch" },
-  releaseFile: { connector: "cli_inkscape", name: "release_output", contactsThirdParty: true },
+  releaseFile: { connector: "cli_inkscape", name: "release_output" },
   unlistedRemote: { connector: "notion_mcp", name: "call_unlisted_tool", contactsThirdParty: true, irreversible: true },
-  notionUpdatePage: { connector: "notion_mcp", name: "notion_update_page", irreversible: true },
-  hubspotManageCrm: { connector: "hubspot_mcp", name: "manage_crm_objects", contactsThirdParty: true, irreversible: true },
+  notionUpdatePage: { connector: "notion_mcp", name: "notion_update_page" },
+  hubspotManageCrm: { connector: "hubspot_mcp", name: "manage_crm_objects" },
+  hubspotMarketingEmail: { connector: "hubspot_mcp", name: "manage_marketing_email", contactsThirdParty: true, irreversible: true },
+  /** A hosted-browser step the classifier could not name: no hints (founder, Nov 23, 2026). */
+  browserUnknownStep: { connector: "browser_wave", name: "click" },
   notionRead: { connector: "notion_mcp", name: "notion_fetch" },
   mergeToMain: { connector: "github", name: "merge_pr", irreversible: true },
   /** An irreversible step that is not a release: the mode rules alone decide it. */
@@ -49,14 +52,18 @@ type Row = { name: string; tool: ToolCtxInput; ctx?: CallContextInput; expect: R
 const TABLE: Row[] = [
   { name: "internal draft", tool: TOOLS.internalDraft, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   { name: "code on a branch", tool: TOOLS.codeOnBranch, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
+  // No per-step approval in any mode (founder, Nov 23, 2026): a made file's release, a change in Notion or HubSpot, a
+  // browser step the classifier could not name.
+  { name: "releasing a made file", tool: TOOLS.releaseFile, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
+  { name: "browser step the classifier could not name", tool: TOOLS.browserUnknownStep, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   // Going live is the founder's one tap in every mode (decision 2026-11-01).
-  { name: "releasing a made file", tool: TOOLS.releaseFile, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "cli-release-asks-founder" },
   { name: "merge to the default branch", tool: TOOLS.mergeToMain, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "release-asks-founder" },
   // A remote MCP tool on no list asks in every mode, automated included (founder, 2026-11-19).
   { name: "remote MCP tool on no list", tool: TOOLS.unlistedRemote, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "unlisted-remote-tool-asks" },
-  // A listed remote MCP tool that can change, move or remove the founder's records asks in every mode (Nov 22, 2026).
-  { name: "Notion page change", tool: TOOLS.notionUpdatePage, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "remote-change-asks-founder" },
-  { name: "HubSpot record change", tool: TOOLS.hubspotManageCrm, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "remote-change-asks-founder" },
+  { name: "Notion page change", tool: TOOLS.notionUpdatePage, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
+  { name: "HubSpot record change", tool: TOOLS.hubspotManageCrm, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
+  // Mail and posts to outside people from HubSpot still ask in every mode (first contact waits for the founder).
+  { name: "HubSpot marketing email", tool: TOOLS.hubspotMarketingEmail, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "remote-change-asks-founder" },
   { name: "Notion read", tool: TOOLS.notionRead, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   { name: "send email (external)", tool: TOOLS.sendEmail, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
   { name: "ad spend within threshold", tool: TOOLS.adSpend, ctx: { amountMinor: 10_000 }, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
@@ -97,8 +104,8 @@ describe("evaluate: every rule × every business mode", () => {
   }
 });
 
-describe("a listed remote change asks on vacation too", () => {
-  for (const t of [TOOLS.notionUpdatePage, TOOLS.hubspotManageCrm, TOOLS.releaseFile]) {
+describe("a listed remote mail or post asks on vacation too", () => {
+  for (const t of [TOOLS.hubspotMarketingEmail]) {
     for (const mode of BUSINESS_MODES) {
       it(`${t.connector}:${t.name} in ${mode} on vacation → ask`, () => {
         const result = evaluate({ principal: agent(), tool: t, business: business(mode, true), context: { holidayActive: true } });

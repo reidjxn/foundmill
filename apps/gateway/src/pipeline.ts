@@ -291,7 +291,8 @@ const argsSummary = (args: unknown): Record<string, unknown> => ({
 });
 
 /** Platform tools that act once per ask: a second identical request is the same request (WP-05 T14). */
-const ONCE_PER_SESSION_TOOLS: ReadonlySet<string> = new Set(["platform:request_human_action", "platform:create_task"]);
+// HubSpot's manage tools create as well as change, and run unasked (founder, Nov 23, 2026): a repeat must not make a second record.
+const ONCE_PER_SESSION_TOOLS: ReadonlySet<string> = new Set(["platform:request_human_action", "platform:create_task", ...["manage_crm_objects", "manage_blog_post", "manage_landing_page", "manage_website_page"].map((t) => `hubspot_mcp:${t}`)]);
 /** How far back a session's earlier identical call counts (a session never runs longer). */
 const REPLAY_WINDOW_MS = 8 * 60 * 60 * 1000;
 export const REPLAYED_NOTE = "This exact call already ran in this session and went through. It was not run again.";

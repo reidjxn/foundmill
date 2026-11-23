@@ -193,7 +193,9 @@ describe("policy lists", () => {
       for (const t of s.tools) if (t.hints?.hardGate) expect(t.humanAction, t.remote).toBeDefined();
       expect(listProblems(s), s.key).toEqual([]);
     }
-    expect(remoteToolList(HUBSPOT_MCP).find((t) => t.name === "manage_crm_objects")?.hints).toMatchObject({ contactsThirdParty: true, irreversible: true });
+    // Changes to the founder's own records run (founder, Nov 23, 2026); mail and posts to outside people still ask.
+    expect(remoteToolList(HUBSPOT_MCP).find((t) => t.name === "manage_crm_objects")?.hints).toEqual({});
+    expect(remoteToolList(HUBSPOT_MCP).find((t) => t.name === "manage_marketing_email")?.hints).toMatchObject({ contactsThirdParty: true, irreversible: true });
   });
 });
 

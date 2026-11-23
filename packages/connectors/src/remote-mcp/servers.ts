@@ -55,11 +55,11 @@ const NOTION_TOOLS: RemoteTool[] = [
   { remote: "notion-get-teams", description: "List the teamspaces.", inputSchema: obj({ query: str("Teamspace name") }) },
   { remote: "notion-get-comments", description: "Read the comments on a page.", inputSchema: obj({ page_id: str("Page id") }, ["page_id"]) },
   { remote: "notion-create-pages", writes: true, description: "Create pages in the founder's own workspace.", inputSchema: obj({ parent: { type: "object" }, pages: { type: "array", items: { type: "object" } } }, ["pages"]) },
-  { remote: "notion-update-page", description: "Change a page's properties or content.", inputSchema: obj({ page_id: str("Page id"), command: { type: "string", enum: ["update_properties", "update_content"], description: "update_properties (properties, icon, cover) or update_content (search and replace)" } }, ["page_id", "command"]), hints: { irreversible: true } },
+  { remote: "notion-update-page", writes: true, description: "Change a page's properties or content.", inputSchema: obj({ page_id: str("Page id"), command: { type: "string", enum: ["update_properties", "update_content"], description: "update_properties (properties, icon, cover) or update_content (search and replace)" } }, ["page_id", "command"]) },
   { remote: "notion-move-pages", description: "Move pages to another parent.", inputSchema: obj({ page_or_database_ids: { type: "array", items: { type: "string" } }, new_parent: { type: "object" } }, ["page_or_database_ids", "new_parent"]), hints: { irreversible: true } },
   { remote: "notion-duplicate-page", writes: true, description: "Copy a page.", inputSchema: obj({ page_id: str("Page id") }, ["page_id"]) },
   { remote: "notion-create-database", writes: true, description: "Create a database.", inputSchema: obj({ title: str("Title"), properties: { type: "object" } }, ["properties"]) },
-  { remote: "notion-update-database", description: "Change a database's properties.", inputSchema: obj({ database_id: str("Database id") }, ["database_id"]), hints: { irreversible: true } },
+  { remote: "notion-update-database", writes: true, description: "Change a database's properties.", inputSchema: obj({ database_id: str("Database id") }, ["database_id"]) },
   // A comment notifies the people mentioned in it.
   { remote: "notion-create-comment", description: "Comment on a page; people mentioned are notified.", inputSchema: obj({ page_id: str("Page id"), rich_text: { type: "array" } }, ["page_id", "rich_text"]), hints: SEND_AND_NOTIFY },
 ];
@@ -82,13 +82,15 @@ const HUBSPOT_TOOLS: RemoteTool[] = [
   HUBSPOT_READ("get_social_channels", "Connected social channels."),
   HUBSPOT_READ("read_social_posts", "Read social posts."),
   HUBSPOT_READ("get_social_post_analytics", "Social post results."),
-  // Create or change records the account's people and customers see: asks first.
-  { remote: "manage_crm_objects", description: "Create or change CRM records.", inputSchema: obj(), hints: { contactsThirdParty: true, irreversible: true } },
+  // Records and pages in the founder's own account run with no approval (founder, Nov 23, 2026: "They should never have to
+  // approve individual steps"); deleting one is still refused (`remoteHardGateCall`).
+  { remote: "manage_crm_objects", writes: true, description: "Create or change CRM records.", inputSchema: obj() },
+  { remote: "manage_blog_post", writes: true, description: "Create or change blog posts.", inputSchema: obj() },
+  { remote: "manage_landing_page", writes: true, description: "Create or change landing pages.", inputSchema: obj() },
+  { remote: "manage_website_page", writes: true, description: "Create or change website pages.", inputSchema: obj() },
+  // Mail and posts reach outside people: these stay as they were until the founder decides first contact.
   { remote: "manage_marketing_email", description: "Create or change marketing emails.", inputSchema: obj(), hints: SEND_AND_NOTIFY },
   { remote: "manage_social_posts", description: "Create or change social posts.", inputSchema: obj(), hints: SEND_AND_NOTIFY },
-  { remote: "manage_blog_post", description: "Create or change blog posts.", inputSchema: obj(), hints: SEND_AND_NOTIFY },
-  { remote: "manage_landing_page", description: "Create or change landing pages.", inputSchema: obj(), hints: SEND_AND_NOTIFY },
-  { remote: "manage_website_page", description: "Create or change website pages.", inputSchema: obj(), hints: SEND_AND_NOTIFY },
 ];
 
 const SHOPIFY_TOOLS: RemoteTool[] = [
