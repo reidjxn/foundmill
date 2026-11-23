@@ -14,6 +14,7 @@ const DAY = 24 * HOUR;
 export const LIVE_LIMITS = {
   requests: { limit: LIMITS.liveRequestsPerUserPerHour, windowMs: HOUR },
   requestsToOne: { limit: LIMITS.liveRequestsPerPairPerDay, windowMs: DAY },
+  requestsReceived: { limit: LIMITS.liveRequestsPerRecipientPerDay, windowMs: DAY },
   messages: { limit: LIMITS.liveMessagesPerUserPerMinute, windowMs: MINUTE },
   messagesPerHour: { limit: LIMITS.liveMessagesPerUserPerHour, windowMs: HOUR },
   messagesInThread: { limit: LIMITS.liveMessagesPerThreadPerMinute, windowMs: MINUTE },
@@ -24,6 +25,7 @@ export const LIVE_LIMITS = {
   reports: { limit: LIMITS.liveReportsPerUserPerHour, windowMs: HOUR },
   joins: { limit: LIMITS.liveJoinsPerUserPerDay, windowMs: DAY },
   communityEdits: { limit: LIMITS.liveCommunityEditsPerUserPerDay, windowMs: DAY },
+  communityReads: { limit: LIMITS.liveCommunityReadsPerUserPerMinute, windowMs: MINUTE },
 } as const;
 
 /** Spends one connection request from the person and from the pair, or throws TOO_MANY_REQUESTS. */
@@ -33,6 +35,11 @@ export async function takeConnectionRequest(limits: RateLimitStore, userId: stri
     { key: `live:request:${userId}:${toUserId}`, rule: LIVE_LIMITS.requestsToOne },
   ];
   await takeOrThrow(limits, "Connection request", entries);
+}
+
+/** Spends one of the requests a person receives in a day from everyone (M2); taken only when a request reaches them. */
+export async function takeRequestReceived(limits: RateLimitStore, toUserId: string): Promise<void> {
+  await takeOrThrow(limits, "Requests to this person", [{ key: `live:request-received:${toUserId}`, rule: LIVE_LIMITS.requestsReceived }]);
 }
 
 /** People searches (Find people, the name search) a person may run in a minute: each one reads every public profile. */
@@ -80,6 +87,11 @@ export async function takeCommunityJoin(limits: RateLimitStore, userId: string):
 /** Spends one change to a community from its owner's day (a new name or description is a screening model call). */
 export async function takeCommunityEdit(limits: RateLimitStore, userId: string): Promise<void> {
   await takeOrThrow(limits, "Community changes", [{ key: `live:community-edit:${userId}`, rule: LIVE_LIMITS.communityEdits }]);
+}
+
+/** Spends one community read (a list, a community, its feed, its queue, invitations) from the person's minute. */
+export async function takeCommunityRead(limits: RateLimitStore, userId: string): Promise<void> {
+  await takeOrThrow(limits, "Reading communities", [{ key: `live:community-read:${userId}`, rule: LIVE_LIMITS.communityReads }]);
 }
 
 /** Spends one post report from the person's hour. */

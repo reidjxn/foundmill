@@ -7,13 +7,16 @@ import { APP_NAME } from "@foundmill/config";
 import { Chip, Icon } from "@foundmill/dugout";
 import { publicHitDescription, publicProfileHref, publicSearchText, type PublicHit } from "@/lib/public-search";
 import { useTRPC } from "@/lib/trpc-react";
+import { AdultNotice, useCanReadPeople } from "./shared";
 
 /** Public profiles matching `text` (two characters or more); empty while `enabled` is false or the text is short. */
 export function usePublicSearch(text: string, enabled = true) {
   const trpc = useTRPC();
   const q = publicSearchText(text);
-  const query = useQuery(trpc.live.people.search.queryOptions({ q: q ?? "--", limit: 8 }, { enabled: enabled && q !== null, staleTime: 15_000, retry: false, placeholderData: (previous) => previous }));
-  return { hits: q === null ? [] : (query.data?.hits ?? []), isLoading: q !== null && query.isLoading, error: query.error, text: q };
+  // Searching for people waits for the 18+ confirmation; `needsAdult` says so, and the caller shows AdultNotice.
+  const canRead = useCanReadPeople();
+  const query = useQuery(trpc.live.people.search.queryOptions({ q: q ?? "--", limit: 8 }, { enabled: enabled && q !== null && canRead === true, staleTime: 15_000, retry: false, placeholderData: (previous) => previous }));
+  return { hits: q === null || canRead !== true ? [] : (query.data?.hits ?? []), isLoading: q !== null && (canRead === null || query.isLoading), error: query.error, text: q, needsAdult: canRead === false };
 }
 
 /** Rows that open a profile page; every row is labeled "On {APP_NAME}". */
@@ -37,8 +40,15 @@ export function PublicHitList({ hits, "data-testid": testId }: { hits: readonly 
 
 /** The typeahead's "On {APP_NAME}" group (a LIVE business): public profiles that match the typed words, beneath the CRM's own records. */
 export function OnNetworkResults({ text }: { text: string }) {
-  const { hits, isLoading, error, text: q } = usePublicSearch(text);
+  const { hits, isLoading, error, text: q, needsAdult } = usePublicSearch(text);
   if (q === null) return null;
+  if (needsAdult) {
+    return (
+      <section aria-label={`On ${APP_NAME}`} className="border-t border-subtle" data-testid="crm-on-network">
+        <AdultNotice />
+      </section>
+    );
+  }
   return (
     <section aria-label={`On ${APP_NAME}`} className="border-t border-subtle" data-testid="crm-on-network">
       <h3 className="t-label flex items-center gap-1 bg-panel-alt px-3 py-1">

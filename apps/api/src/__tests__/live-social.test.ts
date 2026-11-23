@@ -17,7 +17,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ADULTS_ONLY } from "../routers/live";
 import { plainQuote } from "../services/live";
-import { takeCommunityJoin } from "../services/live-limits";
+import { takeCommunityJoin, takeCommunityRead, takeRequestReceived } from "../services/live-limits";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -615,5 +615,74 @@ describe("network safety before sign-up opens (PR #217's H1 to H4)", () => {
     expect(await members(blocker.userId)).not.toContain(blocked.userId);
     expect(await members(blocked.userId)).not.toContain(blocker.userId);
     expect(await members(owner.userId)).toEqual(expect.arrayContaining([blocker.userId, blocked.userId]));
+  });
+});
+
+describe("network safety before sign-up opens (PR #217's M1 to L3)", () => {
+  it("M1: community reads are limited per person per minute", async () => {
+    const reader = await founder("m1-reader");
+    for (let i = 0; i < LIMITS.liveCommunityReadsPerUserPerMinute; i++) await takeCommunityRead(hz.limits, reader.userId);
+    expect((await failure(as(reader.userId).live.communities.list())).code).toBe("TOO_MANY_REQUESTS");
+    expect((await failure(as(reader.userId).live.communities.invitations())).code).toBe("TOO_MANY_REQUESTS");
+  });
+
+  it("M2: a person receives a bounded number of requests a day, and the note on a request is screened", async () => {
+    const asker = await founder("m2-asker");
+    const target = await founder("m2-target");
+    // A held note is refused, and nothing reaches the person asked.
+    const held = await failure(as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: target.userId, message: "Text me on 415 555 0100" }));
+    expect(held).toEqual({ code: "BAD_REQUEST", message: expect.stringMatching(/Moderation held this note/) });
+    expect(await repos.social.listConnections(hz.db, target.userId, { direction: "incoming" })).toEqual([]);
+    expect((await as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: target.userId, message: "Loved your post on pricing." })).status).toBe("requested");
+    // Everyone's requests to one person count together.
+    const busy = await founder("m2-busy");
+    for (let i = 0; i < LIMITS.liveRequestsPerRecipientPerDay; i++) await takeRequestReceived(hz.limits, busy.userId);
+    expect((await failure(as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: busy.userId }))).code).toBe("TOO_MANY_REQUESTS");
+    expect(await repos.social.listConnections(hz.db, busy.userId, { direction: "incoming" })).toEqual([]);
+    // A refused request spends nothing of what the person receives: a held note leaves the target's day untouched.
+    const fresh = await founder("m2-fresh");
+    for (let i = 0; i < LIMITS.liveRequestsPerRecipientPerDay - 1; i++) await takeRequestReceived(hz.limits, fresh.userId);
+    await failure(as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: fresh.userId, message: "Text me on 415 555 0100" }));
+    expect((await as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: fresh.userId })).status).toBe("requested");
+  });
+
+  it("M5: search leaves out the businesses of someone blocked either way, and lookup does not name them", async () => {
+    const viewer = await founder("m5-viewer");
+    const other = await founder("m5zq-other");
+    await repos.founders.upsert(hz.db, other.userId, { displayName: "Mara Quill", timeCommitment: "full_time", residence: "United States", visibility: "public" });
+    const before = await as(viewer.userId).live.people.search({ q: "Biz m5zq" });
+    expect(before.hits.map((h) => h.businessId)).toContain(other.businessId);
+    expect((await as(viewer.userId).live.people.lookup({ userIds: [other.userId] })).users).toEqual([{ userId: other.userId, displayName: "Mara Quill" }]);
+    await as(other.userId).live.connections.block({ userId: viewer.userId });
+    expect((await as(viewer.userId).live.people.search({ q: "Biz m5zq" })).hits.map((h) => h.businessId)).not.toContain(other.businessId);
+    expect((await as(viewer.userId).live.people.lookup({ userIds: [other.userId] })).users).toEqual([{ userId: other.userId, displayName: null }]);
+    expect((await failure(as(viewer.userId).live.people.profile({ kind: "business", id: other.businessId }))).code).toBe("NOT_FOUND");
+  });
+
+  it("L1: a business shows next to a member, or as a community's owner, only while the person still belongs to it", async () => {
+    const owner = await founder("l1-owner");
+    const member = await founder("l1-member");
+    const room = await as(owner.userId).live.communities.create({ name: "L1 room", businessId: owner.businessId });
+    await as(member.userId).live.communities.join({ communityId: room.id, businessId: member.businessId });
+    const view = async () => as(owner.userId).live.communities.get({ communityId: room.id });
+    expect((await view()).community.ownerBusinessId).toBe(owner.businessId);
+    expect((await view()).members.find((m) => m.userId === member.userId)!.businessId).toBe(member.businessId);
+    // Someone else keeps the businesses going; the two people leave them.
+    for (const b of [owner, member]) {
+      await repos.memberships.add(hz.db, b.businessId, { userId: await hz.h.createUser(`l1-next-${b.userId}@live-social.test`), role: "owner" });
+      await repos.memberships.remove(hz.db, b.businessId, b.userId);
+    }
+    expect((await view()).community.ownerBusinessId).toBeNull();
+    expect((await view()).members.find((m) => m.userId === member.userId)!.businessId).toBeNull();
+    expect((await as(member.userId).live.communities.list()).find((c) => c.id === room.id)!.ownerBusinessId).toBeNull();
+  });
+
+  it("L3: reading other people waits for the 18+ confirmation; one's own page does not", async () => {
+    const minor = await founder("l3-unconfirmed", true, false);
+    const other = await founder("l3-other");
+    for (const call of [as(minor.userId).live.people.find(), as(minor.userId).live.people.search({ q: "Biz" }), as(minor.userId).live.people.profile({ kind: "founder", id: other.userId })]) {
+      expect(await failure(call)).toEqual({ code: "FORBIDDEN", message: ADULTS_ONLY });
+    }
+    expect((await failure(as(minor.userId).live.people.profile({ kind: "founder", id: minor.userId }))).code).not.toBe("FORBIDDEN");
   });
 });

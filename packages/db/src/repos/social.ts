@@ -8,7 +8,7 @@
  * view only selects LIVE businesses (0012), so the visibility rule is enforced in SQL, not here.
  */
 import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
-import { AppError, ForbiddenError, NotFoundError, OWNER_ROLES, ValidationError, VISIBILITY } from "@foundmill/shared";
+import { AppError, ForbiddenError, NotFoundError, OWNER_ROLES, ValidationError, VISIBILITY, WRITE_ROLES } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
@@ -246,7 +246,22 @@ export const socialRepo = {
     const rows = await socialRepo.searchPublic(db, q, { limit: limit + 10 });
     // One query for every founder in the page (a block either way, never announced).
     const blocked = await socialRepo.blockedWith(db, viewerId, [...new Set(rows.flatMap((r) => (r.kind === "founder" && r.userId && r.userId !== viewerId ? [r.userId] : [])))]);
-    return rows.filter((r) => r.kind === "business" || (!!r.userId && r.userId !== viewerId && !blocked.has(r.userId))).slice(0, limit);
+    // M5: a business run by someone blocked either way does not turn up either.
+    const hiddenBusinesses = await socialRepo.runByBlocked(db, viewerId, rows.flatMap((r) => (r.kind === "business" ? [r.businessId] : [])));
+    return rows.filter((r) => (r.kind === "business" ? !hiddenBusinesses.has(r.businessId) : !!r.userId && r.userId !== viewerId && !blocked.has(r.userId))).slice(0, limit);
+  },
+
+  /**
+   * Which of these businesses are run by someone blocked either way with the viewer (M5): an owner, cofounder or admin,
+   * the roles the `public_profiles` view lists as its founders. Such a business does not turn up for the viewer.
+   */
+  async runByBlocked(db: Executor, viewerId: string, businessIds: readonly string[]): Promise<Set<string>> {
+    if (!businessIds.length) return new Set();
+    const rows = await db
+      .select({ businessId: memberships.businessId })
+      .from(memberships)
+      .where(and(inArray(memberships.businessId, [...new Set(businessIds)]), inArray(memberships.role, [...OWNER_ROLES, "admin"]), ne(memberships.userId, viewerId), membershipNotEnded, sql`not ${noBlockBetween(viewerId, memberships.userId)}`));
+    return new Set(rows.map((r) => r.businessId));
   },
 
   /**
@@ -669,6 +684,8 @@ export const socialRepo = {
         .from(founderProfiles)
         .where(and(inArray(founderProfiles.userId, userIds), isNull(founderProfiles.archivedAt)));
       const others = userIds.filter((id) => id !== viewerId);
+      // M5: nobody blocked either way is named, whatever their visibility (a block is never announced).
+      const blocked = await socialRepo.blockedWith(db, viewerId, others);
       const accepted = new Set<string>();
       const contacted = new Set<string>();
       const coMembers = new Set<string>();
@@ -701,6 +718,7 @@ export const socialRepo = {
       users = userIds.map((userId) => {
         const p = byId.get(userId);
         if (!p) return { userId, displayName: null };
+        if (blocked.has(userId)) return { userId, displayName: null };
         const visible =
           userId === viewerId ||
           p.visibility === "public" ||
@@ -727,6 +745,22 @@ export const socialRepo = {
       for (const b of own) cards.set(b.businessId, { businessId: b.businessId, name: b.name, slug: b.slug, kitPrimary: b.kitPrimary, kitSecondary: b.kitSecondary, archetype: b.archetype, live: b.gameMode === "live" });
     }
     return { users, businesses: [...cards.values()] };
+  },
+
+  /**
+   * Which of these (person, business) pairs still hold: the person belongs to the business with a role that writes and
+   * the membership has not ended (L1). A community member who spoke as a business, or a community's owning business,
+   * is shown only while this holds, so someone who left a business no longer appears to speak for it. Keys are
+   * `${userId}:${businessId}`.
+   */
+  async stillSpeaksFor(db: Executor, pairs: readonly { userId: string; businessId: string | null }[]): Promise<Set<string>> {
+    const wanted = pairs.filter((p): p is { userId: string; businessId: string } => !!p.businessId);
+    if (!wanted.length) return new Set();
+    const rows = await db
+      .select({ userId: memberships.userId, businessId: memberships.businessId })
+      .from(memberships)
+      .where(and(inArray(memberships.userId, [...new Set(wanted.map((p) => p.userId))]), inArray(memberships.businessId, [...new Set(wanted.map((p) => p.businessId))]), inArray(memberships.role, [...WRITE_ROLES]), ne(memberships.source, "example"), membershipNotEnded));
+    return new Set(rows.map((r) => `${r.userId}:${r.businessId}`));
   },
 
   /** The owner of a listed business (the longest-standing owner or cofounder): the person a request to connect with the business reaches. Null when it is not listed. */
@@ -936,14 +970,15 @@ export const socialRepo = {
     return rows.length > 0;
   },
 
-  /** The invitations waiting for this person's answer, newest first, with their community (archived ones are left out). */
+  /** The invitations waiting for this person's answer, newest first (at most 100), with their community (archived ones are left out). */
   async listInvitations(db: Executor, userId: string): Promise<{ community: Community; invitedBy: string | null; invitedAt: Date }[]> {
     const rows = await db
       .select({ community: communities, invitedBy: communityMembers.invitedBy, invitedAt: communityMembers.updatedAt })
       .from(communityMembers)
       .innerJoin(communities, eq(communities.id, communityMembers.communityId))
       .where(and(eq(communityMembers.userId, userId), eq(communityMembers.status, "invited"), isNull(communities.archivedAt)))
-      .orderBy(desc(communityMembers.updatedAt));
+      .orderBy(desc(communityMembers.updatedAt))
+      .limit(100);
     return rows;
   },
 

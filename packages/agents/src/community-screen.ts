@@ -12,13 +12,13 @@ import { buildSystemPrompt } from "./club-rules";
 import { untrustedBlock } from "./foundations";
 import { getTemplate } from "./registry";
 
-export type CommunityScreenKind = "community_post" | "community_profile";
+export type CommunityScreenKind = "community_post" | "community_profile" | "connection_note";
 
 export interface CommunityScreenInput {
   text: string;
-  /** What is screened: a post, or a community's name and description. */
+  /** What is screened: a post, a community's name and description, or the note on a request to connect. */
   kind: CommunityScreenKind;
-  /** The community's name as plain text ("" for a community being created). */
+  /** The community's name as plain text ("" for a community being created, or a note to connect). It travels inside the untrusted block: an owner writes it. */
   communityName: string;
   appName: string;
 }
@@ -86,15 +86,16 @@ export function communityScreenLocalFlags(text: string): string[] {
 
 /** The `moderation` call for one text: the utility's own system prompt, and the text as untrusted data in the user message. */
 export function buildCommunityScreenRequest(input: CommunityScreenInput): { route: "moderation"; system: string; messages: { role: "user"; content: string }[]; maxTokens: number } {
-  const what = input.kind === "community_post" ? "community post" : "community name and description";
-  const where = input.communityName ? `the community "${input.communityName}"` : "a new community";
+  const what = input.kind === "community_post" ? "community post" : input.kind === "connection_note" ? "note on a request to connect, which one person sends another" : "community name and description";
+  // The community's name is the owner's words, so it is data like the text (L2 of #217's review), never prompt text.
+  const where = input.kind === "connection_note" ? "the network" : input.communityName ? "the community named in the data" : "a new community";
   return {
     route: "moderation",
     system: buildSystemPrompt({ businessName: `${input.appName} communities`, appName: input.appName, template: getTemplate("moderation") }),
     messages: [
       {
         role: "user",
-        content: `Screen this ${what} from ${where} before members see it. Allow it, or flag it for a human moderator with the categories it breaks.\n\n${untrustedBlock(input.kind, { kind: input.kind, text: input.text })}`,
+        content: `Screen this ${what} from ${where} before ${input.kind === "connection_note" ? "the person sees it" : "members see it"}. Allow it, or flag it for a human moderator with the categories it breaks.\n\n${untrustedBlock(input.kind, { kind: input.kind, ...(input.communityName ? { community: input.communityName } : {}), text: input.text })}`,
       },
     ],
     maxTokens: COMMUNITY_SCREEN_MAX_TOKENS,
