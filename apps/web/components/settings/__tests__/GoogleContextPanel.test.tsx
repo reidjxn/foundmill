@@ -44,7 +44,7 @@ describe("GoogleContextPanel", () => {
 
   it("a founder turns Gmail on", async () => {
     renderPanel([gmail()]);
-    expect(screen.getByTestId("google-context").textContent).toMatch(/sending mail and inviting people always ask you first/);
+    expect(screen.getByTestId("google-context").textContent).toMatch(/sending mail and inviting people run on their own, unless you chose to be asked before anything outside the business/);
     await act(async () => void fireEvent.click(screen.getByRole("checkbox", { name: /Let the team read your Gmail/ })));
     expect(setContextReads).toHaveBeenCalledWith(expect.objectContaining({ businessId: "b1", connectorKey: "gmail", on: true }));
   });

@@ -9,7 +9,7 @@
  *   truth for that time. A calendar that cannot be read answers null and the caller offers no slot (fail closed: a
  *   busy calendar time is never offered).
  * - **A confirmed booking** (`add_event`: the founder's own calendar, no attendees, nobody invited or notified). It
- *   has no Meet link: only `create_event` can add one, and that tool invites people and asks the founder first.
+ *   has no Meet link: only `create_event` can add one, and that tool invites people.
  * - **A canceled or moved booking** leaves its event where it is: `delete_event` and `update_event` notify the
  *   attendees, and booking does not move or cancel the founder's own events. The founder's note says so.
  */

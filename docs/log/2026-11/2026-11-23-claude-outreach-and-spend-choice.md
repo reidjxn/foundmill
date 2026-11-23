@@ -20,6 +20,7 @@ Founder, Nov 23, 2026, as relayed by the coordinating session, on the two areas 
 - Tests: the policy table and `founder-google.test.ts`.
 - Gateway tests: platform mail (a person the founder added runs in assisted, someone new runs in automated, augmented asks), the founder's calendar (an invitation runs in automated and asks in augmented, answered by the founder only), follow confirmation and the BYO-key ask list.
 - The Settings unit tests and the commit and team-can-do Playwright specs follow the new labels.
+- Copy that said sends and invitations always ask first now says they run on their own unless the project asks before anything outside the business: the Gmail drafts refusal (#384), the `create_draft` and `add_event` descriptions, the Google context panel in Settings (with its unit test and `settings-plain.spec.ts`), and comments in `grants.ts` and `booking-calendar.ts`.
 
 ## Decisions
 - Spending: the founder asked in this session, "Don't we already have a budget cap set by users?" Yes: the spend cap per action is that budget. So no new budget was added; the two answers that already existed are reworded. Paying and moving money stay hard gates.

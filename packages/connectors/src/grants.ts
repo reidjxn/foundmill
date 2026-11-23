@@ -173,7 +173,7 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
   // A redeploy goes live and uses the founder's build minutes: it asks first.
   vercel: { "deployments.list": ["list_deployments"], "deployments.read": ["list_deployments", "get_deployment"], "deployments.create": ["create_deployment"] },
   posthog: { "insights.query": ["query_insights"] },
-  // The founder's own Resend account and verified domain; a message to someone outside the project asks first.
+  // The founder's own Resend account and verified domain; a message to someone outside the project runs in assisted and automated mode.
   resend: { "mail.send": ["send_mail", "list_domains"], "domains.read": ["list_domains"] },
   // Generated video and voiceover on the founder's own Runway and ElevenLabs accounts (founder, 2026-11-13). Starting a clip
   // or a voiceover spends the founder's money and asks first; looking a task up and listing voices are free reads.
