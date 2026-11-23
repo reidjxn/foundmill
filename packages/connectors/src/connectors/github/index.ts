@@ -19,7 +19,7 @@ import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { githubMock } from "./mock";
 import { branchMoved } from "./moved";
-import { archiveTooLargeMessage, ciState, CI_WORKFLOW, COMPARE_FILE_PAGES, COMPARE_FILES_PER_PAGE, fileWriteBuffer, MAX_ARCHIVE_BYTES, githubChangedMessage, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapCompareFile, mapPullRequest, mapRepository, mapTreeEntry, MAX_FILE_BYTES, MAX_TREE_ENTRIES, type GhCheckRun, type GhCompareFile, type GhPullRequest, type GhRepository } from "./tools";
+import { archiveTooLargeMessage, ciState, CI_WORKFLOW, COMPARE_FILE_PAGES, COMPARE_FILES_PER_PAGE, fileWriteBuffer, MAX_ARCHIVE_BYTES, githubChangedMessage, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapDeployment, DEPLOYMENTS_PER_COMMIT, type GhDeploymentStatus, mapCompareFile, mapPullRequest, mapRepository, mapTreeEntry, MAX_FILE_BYTES, MAX_TREE_ENTRIES, type GhCheckRun, type GhCompareFile, type GhPullRequest, type GhRepository } from "./tools";
 import { createGithubWebhook } from "./webhooks";
 
 type RestOctokit = InstanceType<typeof Octokit>;
@@ -403,6 +403,17 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           // Check runs from other workflows or apps can be green before CI has run on this head: the CI workflow's own newest run decides first.
           const ci = (await o.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: CI_WORKFLOW, head_sha: headSha, per_page: 1 })).data.workflow_runs[0];
           return { headSha, state: ciState(ci, checks, runs.length >= total), checks };
+        },
+        list_deployments: async ({ owner, repo, sha }, ctx) => {
+          const o = await octokitFor(ctx);
+          const deployments = (await o.rest.repos.listDeployments({ owner, repo, sha, per_page: DEPLOYMENTS_PER_COMMIT })).data;
+          const items = await Promise.all(
+            deployments.map(async (d) => {
+              const newest = (await o.rest.repos.listDeploymentStatuses({ owner, repo, deployment_id: d.id, per_page: 1 })).data[0] as GhDeploymentStatus | undefined;
+              return mapDeployment(d.environment, newest);
+            }),
+          );
+          return { items };
         },
         open_pr: async ({ owner, repo, title, body, head, base: givenBase, draft }, ctx) => {
           const o = await octokitFor(ctx);

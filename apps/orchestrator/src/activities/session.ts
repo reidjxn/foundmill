@@ -34,7 +34,7 @@ import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, attachedSkills, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, NO_TOOL_LOOP_PRELOAD_BODIES, restoredWorkspaceNote, selectSkills, SESSION_PRELOAD_BODIES, ToolGrant, type AgentTemplate, type AttachedSkill } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, modelFundingFor, sandboxCostMicroMinor } from "@foundmill/config";
 import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, withBrowserSites, BROWSER_WORK_SKILL, browserSiteOfConnector, withContextReads, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
-import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, freeCapCheck, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
+import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, founderOnlyCall, freeCapCheck, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, readSessionEvents, type SessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_ENDPOINTS, MODEL_PRICING, MODEL_PROVIDER, MODELS, resolveModel, type ModelId, type ModelKey as RoutedModelKey, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, capturePages, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
@@ -791,13 +791,16 @@ class SessionRecorder {
     const { deps, ctx } = this;
     try {
       let approval = await repos.approvals.get(deps.db, ctx.input.businessId, approvalId);
+      let stored: "approved" | "rejected" | "expired" = outcome;
       if (approval.outcome === null) {
-        approval = await repos.approvals.resolve(deps.db, ctx.input.businessId, approvalId, { outcome, byKind: by ? "user" : "system", byId: by });
+        // A founder-only call's hold that moved on by itself is closed as expired: only an owner or admin approves one.
+        stored = !by && outcome === "approved" && founderOnlyCall(approval.connectorKey, approval.tool) ? "expired" : outcome;
+        approval = await repos.approvals.resolve(deps.db, ctx.input.businessId, approvalId, { outcome: stored, byKind: by ? "user" : "system", byId: by });
         await emitEvent(deps.db, {
           businessId: ctx.input.businessId,
           type: "approval.resolved",
           actor: by ? { kind: "user", id: by } : systemActor,
-          payload: { approvalId, agentId: ctx.agent.id, outcome, resolvedBy: by ? { kind: "user", id: by } : systemActor, note: null, latencyMs: Math.max(0, deps.clock.nowMs() - new Date(approval.createdAt).getTime()) },
+          payload: { approvalId, agentId: ctx.agent.id, outcome: stored, resolvedBy: by ? { kind: "user", id: by } : systemActor, note: null, latencyMs: Math.max(0, deps.clock.nowMs() - new Date(approval.createdAt).getTime()) },
         });
       }
       await closeApprovalItem(deps.db, ctx.input.businessId, approval);

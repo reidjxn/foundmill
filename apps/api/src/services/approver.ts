@@ -6,8 +6,7 @@
  * founder first (`plan.confirm`), so a member can never approve a spend above the threshold, a contract send or a merge
  * to main that nobody handed to them.
  */
-import { repos, type Approval, type Department, type Executor } from "@foundmill/db";
-import type { ConnectorRegistry } from "@foundmill/connectors";
+import { founderOnlyCall, repos, type Approval, type Department, type Executor } from "@foundmill/db";
 import { ADMIN_ROLES as SHARED_ADMIN_ROLES, DECISION_TYPES, ForbiddenError, type DecisionType, type MembershipRole } from "@foundmill/shared";
 
 export interface Decider {
@@ -63,33 +62,20 @@ export function assertMayDecide(decider: Decider, decisionType: DecisionType | n
 }
 
 /**
- * The decision type of an agent's approval, from the tool it asked for (the gateway's `decisionTypeFor`, from the
- * connector's own hints): a contract tool is signing, a merge is merge to main, a spending tool is a spend above the
- * threshold, a tool that contacts people is messaging customers. Anything else is the founder's.
+ * The decision type of an agent's approval: the one it was routed under when it opened (Team › Responsibilities). A
+ * stored null is the founder's (a hard gate, a payment record, a hosted-browser step, a call no type fits, or a row from
+ * before 0054 added the column) and is never recomputed from the connector's hints, and a founder-only call
+ * (`founderOnlyCall`: a made file's release, a listed remote change, mail from the founder's own account) is the
+ * founder's whatever type it carries (security review, Nov 22, 2026).
  */
-export function approvalDecisionType(approval: Pick<Approval, "connectorKey" | "tool"> & { decisionType?: DecisionType | null }, connectors: Pick<ConnectorRegistry, "get"> | null): DecisionType | null {
-  // The type the approval was routed under when it opened (Team › Responsibilities) is the one that counts.
-  if (approval.decisionType) return approval.decisionType;
-  const key = approval.connectorKey;
-  const tool = approval.tool;
-  if (!key || !tool) return null;
-  if (key === "dropbox_sign") return "sign_contracts";
-  if (key === "github" && tool === "merge_pr") return "merge_to_main";
-  let hints: { spendsMoney?: boolean; contactsThirdParty?: boolean };
-  try {
-    hints = connectors?.get(key, "mock").policyHints[tool] ?? {};
-  } catch {
-    return null;
-  }
-  if (hints.spendsMoney) return "spend_above_threshold";
-  if (hints.contactsThirdParty) return "message_customers";
-  return null;
+export function approvalDecisionType(approval: Pick<Approval, "connectorKey" | "tool" | "decisionType">): DecisionType | null {
+  return founderOnlyCall(approval.connectorKey, approval.tool) ? null : approval.decisionType;
 }
 
 /** Refuses (403) a person who may not answer this agent's approval. */
-export async function assertMayResolveApproval(db: Executor, businessId: string, decider: Decider, approval: Pick<Approval, "agentId" | "connectorKey" | "tool"> & { decisionType?: DecisionType | null }, connectors: Pick<ConnectorRegistry, "get"> | null): Promise<void> {
+export async function assertMayResolveApproval(db: Executor, businessId: string, decider: Decider, approval: Pick<Approval, "agentId" | "connectorKey" | "tool" | "decisionType">): Promise<void> {
   if (ADMIN_ROLES.includes(decider.role)) return;
-  const decisionType = approvalDecisionType(approval, connectors);
+  const decisionType = approvalDecisionType(approval);
   const [departments, agent] = await Promise.all([repos.departments.list(db, businessId), approval.agentId ? repos.agents.get(db, businessId, approval.agentId).catch(() => null) : Promise.resolve(null)]);
   assertMayDecide(decider, decisionType, departments, agent?.departmentIds ?? []);
 }

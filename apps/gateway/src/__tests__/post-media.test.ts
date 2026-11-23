@@ -16,8 +16,12 @@ import type { AllowResponse, AskResponse, CallResponse } from "../types";
 import { setupGateway, type GatewayFixture } from "./harness";
 
 let g: GatewayFixture;
+/** The project's owner: an approval no decision type fits is the founder's to answer (Nov 22, 2026). */
+let ownerId: string;
 beforeAll(async () => {
   g = await setupGateway({ connectors: [elevenlabsVoiceMock, runwayMock] });
+  ownerId = await g.h.createUser("owner@test.local");
+  await repos.memberships.add(g.db, g.businessId, { userId: ownerId, role: "owner" });
   await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "elevenlabs_voice", status: "mock", authKind: "api_key", accountLabel: "ElevenLabs (mock)" });
   await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "runway", status: "mock", authKind: "api_key", accountLabel: "Runway (mock)" });
 }, 120_000);
@@ -43,7 +47,7 @@ async function approvedVoiceover(sessionId: string | null, text: string): Promis
   const call = { connector: "elevenlabs_voice", tool: "generate_voiceover", args: { text } };
   const asked = asAsk(await g.client.call(token, call));
   expect(asked.approvalId).toBeTruthy();
-  await repos.approvals.resolve(g.db, g.businessId, asked.approvalId, { outcome: "approved", byKind: "user" });
+  await repos.approvals.resolve(g.db, g.businessId, asked.approvalId, { outcome: "approved", byKind: "user", byId: ownerId });
   return asAllow(await g.client.call(token, call));
 }
 

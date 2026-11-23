@@ -26,6 +26,9 @@ const TOOLS = {
   codeOnBranch: { connector: "github", name: "push_branch" },
   releaseFile: { connector: "cli_inkscape", name: "release_output", contactsThirdParty: true },
   unlistedRemote: { connector: "notion_mcp", name: "call_unlisted_tool", contactsThirdParty: true, irreversible: true },
+  notionUpdatePage: { connector: "notion_mcp", name: "notion_update_page", irreversible: true },
+  hubspotManageCrm: { connector: "hubspot_mcp", name: "manage_crm_objects", contactsThirdParty: true, irreversible: true },
+  notionRead: { connector: "notion_mcp", name: "notion_fetch" },
   mergeToMain: { connector: "github", name: "merge_pr", irreversible: true },
   /** An irreversible step that is not a release: the mode rules alone decide it. */
   deleteBranch: { connector: "github", name: "delete_branch", irreversible: true },
@@ -51,6 +54,10 @@ const TABLE: Row[] = [
   { name: "merge to the default branch", tool: TOOLS.mergeToMain, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "release-asks-founder" },
   // A remote MCP tool on no list asks in every mode, automated included (founder, 2026-11-19).
   { name: "remote MCP tool on no list", tool: TOOLS.unlistedRemote, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "unlisted-remote-tool-asks" },
+  // A listed remote MCP tool that can change, move or remove the founder's records asks in every mode (Nov 22, 2026).
+  { name: "Notion page change", tool: TOOLS.notionUpdatePage, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "remote-change-asks-founder" },
+  { name: "HubSpot record change", tool: TOOLS.hubspotManageCrm, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "remote-change-asks-founder" },
+  { name: "Notion read", tool: TOOLS.notionRead, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   { name: "send email (external)", tool: TOOLS.sendEmail, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
   { name: "ad spend within threshold", tool: TOOLS.adSpend, ctx: { amountMinor: 10_000 }, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
   { name: "ad spend at threshold (boundary)", tool: TOOLS.adSpend, ctx: { amountMinor: THRESHOLD }, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
@@ -85,6 +92,17 @@ describe("evaluate: every rule × every business mode", () => {
         expect(result.policyIds.length).toBeGreaterThan(0);
         expect(result.reasons.length).toBe(result.policyIds.length);
         if (row.policy) expect(result.policyIds).toContain(row.policy);
+      });
+    }
+  }
+});
+
+describe("a listed remote change asks on vacation too", () => {
+  for (const t of [TOOLS.notionUpdatePage, TOOLS.hubspotManageCrm, TOOLS.releaseFile]) {
+    for (const mode of BUSINESS_MODES) {
+      it(`${t.connector}:${t.name} in ${mode} on vacation → ask`, () => {
+        const result = evaluate({ principal: agent(), tool: t, business: business(mode, true), context: { holidayActive: true } });
+        expect(result.outcome).toBe("ask");
       });
     }
   }

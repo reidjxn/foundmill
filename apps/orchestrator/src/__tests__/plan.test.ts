@@ -165,6 +165,26 @@ describe("executePlanAction on PGlite", () => {
     }
   });
 
+  it("approve_spend naming a founder-only approval fails and leaves it open; an ordinary one is granted as the plan's, never as the user its params name", async () => {
+    const owner = (await repos.memberships.list(t.db, t.businessId, { role: "owner" }))[0]!.userId;
+    const run = async (approvalId: string) => {
+      const plan = await repos.plans.create(t.db, t.businessId, { origin: "option", actions: [{ type: "approve_spend", params: { approval_id: approvalId, by: owner }, agentId: t.workerId }] });
+      return acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: plan.actions[0]!.id, workflowId: "plan:test", approved: true });
+    };
+    for (const [connectorKey, tool, decisionType] of [["cli_inkscape", "release_output", "message_customers"], ["hubspot_mcp", "manage_crm_objects", "message_customers"], ["browser_canva", "click", null], ["stripe", "finalize_invoice", null]] as const) {
+      const release = await repos.approvals.create(t.db, t.businessId, { agentId: t.workerId, connectorKey, tool, args: {}, reasons: ["asks"], decisionType });
+      const result = await run(release.id);
+      expect(result.status, `${connectorKey}:${tool}`).toBe("failed");
+      expect((await repos.approvals.get(t.db, t.businessId, release.id)).outcome).toBeNull();
+    }
+    const spend = await repos.approvals.create(t.db, t.businessId, { agentId: t.workerId, connectorKey: "e2b", tool: "create_sandbox", args: {}, reasons: ["asks"], decisionType: "spend_above_threshold" });
+    expect((await run(spend.id)).status).toBe("done");
+    const granted = await repos.approvals.get(t.db, t.businessId, spend.id);
+    expect(granted.outcome).toBe("approved");
+    expect(granted.byKind).toBe("system");
+    expect(granted.byId).toBeNull();
+  });
+
   it("rejected approval records the action as denied without executing", async () => {
     await repos.businesses.setBusinessMode(t.db, t.businessId, "augmented");
     try {

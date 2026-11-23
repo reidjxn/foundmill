@@ -9,8 +9,12 @@ import { SAFE_EMAIL, sendRefusals, setupGateway, type GatewayFixture } from "./h
 import type { AllowResponse, AskResponse, CallResponse } from "../types";
 
 let g: GatewayFixture;
+/** The project's owner: an approval no decision type fits is the founder's to answer (Nov 22, 2026). */
+let ownerId: string;
 beforeAll(async () => {
   g = await setupGateway({ businessMode: "augmented" });
+  ownerId = await g.h.createUser("owner@test.local");
+  await repos.memberships.add(g.db, g.businessId, { userId: ownerId, role: "owner" });
 }, 120_000);
 afterAll(async () => {
   await g.close();
@@ -62,7 +66,7 @@ describe("one approval per gated call", () => {
     const token = await g.token();
     const args = { to: SAFE_EMAIL, body: "Welcome aboard" };
     const asked = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args }));
-    await repos.approvals.resolve(g.db, g.businessId, asked.approvalId, { outcome: "approved", byKind: "user" });
+    await repos.approvals.resolve(g.db, g.businessId, asked.approvalId, { outcome: "approved", byKind: "user", byId: ownerId });
 
     const ran = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args }));
     expect(ran.result.data).toEqual({ sent: true, to: SAFE_EMAIL });
@@ -85,7 +89,7 @@ describe("one approval per gated call", () => {
     const token = await g.token();
     const args = { to: SAFE_EMAIL, body: "Your change is live" };
     const asked = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args }));
-    await repos.approvals.resolve(g.db, g.businessId, asked.approvalId, { outcome: "approved", byKind: "user" });
+    await repos.approvals.resolve(g.db, g.businessId, asked.approvalId, { outcome: "approved", byKind: "user", byId: ownerId });
 
     // GitHub's "not mergeable" a moment after the checks pass (Nov 6, 2026): nothing happened, so the founder's yes stays.
     sendRefusals.push(405);
@@ -102,7 +106,7 @@ describe("one approval per gated call", () => {
 
     // An error with no answer from the vendor (or a 5xx) may have done the thing: that approval is spent.
     const second = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args: { ...args, body: "Second change" } }));
-    await repos.approvals.resolve(g.db, g.businessId, second.approvalId, { outcome: "approved", byKind: "user" });
+    await repos.approvals.resolve(g.db, g.businessId, second.approvalId, { outcome: "approved", byKind: "user", byId: ownerId });
     sendRefusals.push(null);
     const dropped = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args: { ...args, body: "Second change" } }));
     expect(dropped.result.ok).toBe(false);
@@ -128,7 +132,7 @@ describe("one approval per gated call", () => {
     const asked = asAsk(await g.client.call(await g.token({ sessionId: s1 }), { connector: "test", tool: "send_message", args }));
     expect((await repos.approvals.get(g.db, g.businessId, asked.approvalId)).taskId).toBe(task.id);
     await repos.agents.endSession(g.db, g.businessId, s1, { endedAt: new Date(), tokensIn: 0, tokensOut: 0, costMinor: 0, outcome: "blocked" });
-    await repos.approvals.resolve(g.db, g.businessId, asked.approvalId, { outcome: "approved", byKind: "user" });
+    await repos.approvals.resolve(g.db, g.businessId, asked.approvalId, { outcome: "approved", byKind: "user", byId: ownerId });
 
     const s2 = await sessionOnTask(task.id);
     asAllow(await g.client.call(await g.token({ sessionId: s2 }), { connector: "test", tool: "send_message", args }));
@@ -249,7 +253,7 @@ describe("money stays inside what was approved", () => {
       expect(await repos.approvals.get(g.db, g.businessId, asked.approvalId)).toMatchObject({ amountMinor: 900_000, currency: "USD" });
       const item = await repos.inbox.get(g.db, g.businessId, (await repos.approvals.get(g.db, g.businessId, asked.approvalId)).inboxItemId!);
       expect(item.bodyMd).toContain("$9,000.00");
-      await repos.approvals.resolve(g.db, g.businessId, asked.approvalId, { outcome: "approved", byKind: "user" });
+      await repos.approvals.resolve(g.db, g.businessId, asked.approvalId, { outcome: "approved", byKind: "user", byId: ownerId });
       // The same arguments with a larger amount in the call's context are not what the founder approved.
       const bigger = asAsk(await g.client.call(token, { connector: "test", tool: "spend", args: { amountMinor: 900_000 }, context: { amountMinor: 950_000, currency: "USD" } }));
       expect(bigger.approvalId).not.toBe(asked.approvalId);
@@ -272,7 +276,7 @@ describe("money stays inside what was approved", () => {
     const approvalId = (r as { approvalId?: string }).approvalId!;
     const approval = await repos.approvals.get(g.db, g.businessId, approvalId);
     expect(approval).toMatchObject({ inboxItemId: null, taskId: null });
-    await repos.approvals.resolve(g.db, g.businessId, approvalId, { outcome: "approved", byKind: "user" });
+    await repos.approvals.resolve(g.db, g.businessId, approvalId, { outcome: "approved", byKind: "user", byId: ownerId });
     expect((await g.client.call(token, { connector: "test", tool: "pay_out", args: { amountMinor: 100 } })).outcome).toBe("deny");
     expect(g.seen).toHaveLength(0);
   });

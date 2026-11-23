@@ -9,7 +9,7 @@
  * and a granted approval is used once (`useGranted`): by the same call of the session still waiting, or of the next
  * session on the task when the first one had ended before the founder answered.
  */
-import { DECISION_TYPES, ValidationError, type DecisionType } from "@foundmill/shared";
+import { DECISION_TYPES, ForbiddenError, ValidationError, isAdminRole, type DecisionType } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, isNotNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentSessions, agents, APPROVAL_BY_KINDS, APPROVAL_OUTCOMES, approvals, departments, memberships, tasks, type Approval, type APPROVAL_HANDLER_KINDS } from "../schema";
@@ -153,9 +153,45 @@ export interface ApprovalRouting {
  */
 export const FOUNDER_ACCOUNT_SEND_TOOLS: ReadonlySet<string> = new Set(["gmail:send_message", "google_calendar:create_event", "google_calendar:update_event", "google_calendar:delete_event"]);
 
+/**
+ * Calls whose approval only an owner or admin gives, in every mode and whoever Team › Responsibilities names (security
+ * review, Nov 22, 2026): never an agent, the Chief of Staff, the system, a plan or a member with a delegation. A file
+ * made with a program reaches the project only when the founder approves it (founder, 2026-11-19); a listed remote MCP
+ * tool that can change, move or remove the founder's own records; mail and invitations from the founder's own account;
+ * and every hosted-browser step (`browser_<site>`, a step read from a page the site chooses the words of). Policy
+ * `cli-release-asks-founder` and `remote-change-asks-founder` ask for the same tools.
+ */
+export const FOUNDER_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  ...FOUNDER_ACCOUNT_SEND_TOOLS,
+  ...["cli_inkscape", "cli_libreoffice", "cli_ffmpeg", "cli_gimp"].map((c) => `${c}:release_output`),
+  ...["notion_update_page", "notion_move_pages", "notion_update_database"].map((t) => `notion_mcp:${t}`),
+  ...["manage_crm_objects", "manage_marketing_email", "manage_social_posts", "manage_blog_post", "manage_landing_page", "manage_website_page"].map((t) => `hubspot_mcp:${t}`),
+]);
+
+export function founderOnlyCall(connectorKey: string | null | undefined, tool: string | null | undefined): boolean {
+  if (!connectorKey || !tool) return false;
+  return FOUNDER_ONLY_TOOLS.has(`${connectorKey}:${tool}`) || connectorKey.startsWith("browser_");
+}
+
+/**
+ * Whether a yes from this decider stands for this approval. A founder-only call needs a person who is an owner or admin
+ * of the project now. A stored null decision type is the founder's too (a hard gate, a payment record, a call no type
+ * fits, or a row from before 0054 added the column: fail closed): a person who gives it must be an owner or admin, and
+ * only such a person's yes runs a call (`use`). The system's own bookkeeping of a recorded hold may still close one as
+ * approved, but that never runs anything.
+ */
+async function yesStands(db: Executor, businessId: string, approval: Pick<Approval, "connectorKey" | "tool" | "decisionType">, by: { byKind: string | null; byId: string | null }, use = false): Promise<boolean> {
+  const listed = founderOnlyCall(approval.connectorKey, approval.tool);
+  if (!listed && !(approval.decisionType === null && (use || by.byKind === "user"))) return true;
+  if (by.byKind !== "user" || !by.byId) return false;
+  const rows = await db.select({ role: memberships.role }).from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, by.byId), membershipNotEnded)).limit(1);
+  return rows.length > 0 && isAdminRole(rows[0]!.role);
+}
+
 export async function routeApproval(db: Executor, businessId: string, input: { agentId?: string | null; decisionType: DecisionType | null; founderOnly?: boolean; founderAccount?: boolean }): Promise<ApprovalRouting> {
   const none: ApprovalRouting = { decisionType: input.decisionType, handlerKind: null, handlerId: null, decidedByAgent: null };
-  // Mail from the founder's own Gmail and invitations from their own calendar: the founder answers, never a delegate.
+  // A founder-only call (`founderOnlyCall`: mail from the founder's own account, a made file's release, a listed remote
+  // change, a hosted-browser step): the founder answers, never a delegate.
   if (!input.decisionType || input.founderAccount === true) return none;
   const live = await db.select({ id: departments.id, approvers: departments.approvers }).from(departments).where(and(eq(departments.businessId, businessId), isNull(departments.archivedAt)));
   if (live.length === 0) return none;
@@ -200,7 +236,7 @@ export const approvalsRepo = {
       agentId: v.agentId,
       decisionType: v.decisionType === undefined ? inferDecisionType(v.connectorKey, v.tool) : v.decisionType,
       founderOnly: inferDecisionType(v.connectorKey, v.tool) === "merge_to_main",
-      founderAccount: FOUNDER_ACCOUNT_SEND_TOOLS.has(`${v.connectorKey}:${v.tool}`),
+      founderAccount: founderOnlyCall(v.connectorKey, v.tool),
     });
     return one(
       await db
@@ -300,6 +336,10 @@ export const approvalsRepo = {
   /** Resolves once; a second resolution is refused so two founders cannot both answer. */
   async resolve(db: Executor, businessId: string, approvalId: string, input: ResolveApprovalInput): Promise<Approval> {
     const v = parseInput(ResolveApprovalInput, input, "approval resolution");
+    if (v.outcome === "approved") {
+      const current = await approvalsRepo.get(db, businessId, approvalId);
+      if (current.resolvedAt === null && !(await yesStands(db, businessId, current, { byKind: v.byKind, byId: v.byId ?? null }))) throw new ForbiddenError("Only an owner or admin can approve this");
+    }
     const rows = await db
       .update(approvals)
       .set({ outcome: v.outcome, byKind: v.byKind, byId: v.byId ?? null, resolvedAt: new Date() })
@@ -366,7 +406,7 @@ export const approvalsRepo = {
     if (v.amountMinor > 0 && !v.currency) return null;
     const taskId = v.sessionId ? await taskOfSession(db, businessId, v.sessionId) : null;
     const candidates = await db
-      .select({ id: approvals.id })
+      .select()
       .from(approvals)
       .where(
         and(
@@ -386,6 +426,8 @@ export const approvalsRepo = {
       .orderBy(desc(approvals.resolvedAt))
       .limit(3);
     for (const c of candidates) {
+      // A yes a delegate gave before the founder-only rule (or one that no longer stands) never runs the call.
+      if (!(await yesStands(db, businessId, c, c, true))) continue;
       const used = await db
         .update(approvals)
         .set({ usedAt: new Date(), usedBySessionId: v.sessionId, updatedAt: new Date() })
@@ -402,6 +444,8 @@ export const approvalsRepo = {
    * delegation is withdrawn. Null when it is not an approved, unused approval.
    */
   async useDecided(db: Executor, businessId: string, approvalId: string, sessionId: string | null): Promise<Approval | null> {
+    const decided = await approvalsRepo.find(db, businessId, approvalId);
+    if (!decided || !(await yesStands(db, businessId, decided, decided, true))) return null;
     const used = await db
       .update(approvals)
       .set({ usedAt: new Date(), usedBySessionId: sessionId, updatedAt: new Date() })

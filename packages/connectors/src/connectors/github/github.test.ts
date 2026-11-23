@@ -8,7 +8,7 @@ import { GH_MERGED_PR, GH_REPOS, MOCK_OWNER } from "./fixtures/repos";
 import { createGithubConnector, slots } from "./index";
 import { createGithubMock, githubMock, mergedPullRequestPayload, signedDeliveryRequest } from "./mock";
 import { readTarGz, writeTarGz } from "./tarball";
-import { BRANCH_MOVED, checksState, CommitFilesInput, GetChecksOutput, GITHUB_APP_SCOPES, gitBlobSha, RunChecksOutput } from "./tools";
+import { BRANCH_MOVED, checksState, CommitFilesInput, GetChecksOutput, GITHUB_APP_SCOPES, gitBlobSha, mapDeployment, previewProvider, RunChecksOutput } from "./tools";
 
 /** A signed install state as apps/api issues it (the connector checks only its shape). */
 const STATE = "eyJiIjoiYTEiLCJ1IjoidTEifQ.c2lnbmF0dXJl";
@@ -226,8 +226,8 @@ describe("github mock: run_checks and get_checks", () => {
     expect(tool("get_checks").annotations).toMatchObject({ readOnlyHint: true });
     expect(githubMock.policyHints.run_checks).toEqual({});
     expect(githubMock.policyHints.get_checks).toEqual({});
-    expect(githubMock.auth.scopes).toEqual(expect.arrayContaining(["contents:write", "pull_requests:write", "metadata:read", "members:read", "actions:write", "checks:read"]));
-    expect(GITHUB_APP_SCOPES).toEqual(["contents:write", "pull_requests:write", "metadata:read", "members:read", "actions:write", "checks:read"]);
+    expect(githubMock.auth.scopes).toEqual(expect.arrayContaining(["contents:write", "pull_requests:write", "metadata:read", "members:read", "actions:write", "checks:read", "deployments:read"]));
+    expect(GITHUB_APP_SCOPES).toEqual(["contents:write", "pull_requests:write", "metadata:read", "members:read", "actions:write", "checks:read", "deployments:read"]);
   });
 
   it("refuses a branch that is not an agent/ working branch, before anything happens", async () => {
@@ -1133,5 +1133,54 @@ describe("commit_files rebuild", () => {
     expect((await mock.callTool("commit_files", { ...repo, branch: "agent/t2", message: "new", rebuild: true, fromRef: mainSha.baseSha, files: [{ path: "a.ts", content: "a" }] }, ctx)).data).toMatchObject({ created: true, rebuilt: false, committed: true });
     // Without rebuild, a commit still goes on top of the branch as before.
     expect((await mock.callTool("commit_files", { ...repo, branch: "agent/t2", message: "more", files: [{ path: "b.ts", content: "b" }] }, ctx)).data).toMatchObject({ created: false, rebuilt: false, committed: true });
+  });
+});
+
+describe("list_deployments (WP-07 T12)", () => {
+  const content = (r: { data?: unknown }) => (isUntrusted(r.data) ? r.data.content : r.data) as { items: { environment: string; state: string; url: string | null }[] };
+
+  it("keeps an address only when it is https on a known preview host", () => {
+    expect(previewProvider("https://shop-git-agent-t1.vercel.app")).toBe("vercel");
+    expect(previewProvider("https://deploy-preview-4--shop.netlify.app/pricing")).toBe("netlify");
+    expect(previewProvider("https://abc123.shop.pages.dev")).toBe("cloudflare_pages");
+    for (const bad of ["http://shop.vercel.app", "https://vercel.app", "https://shop.vercel.app.evil.example", "https://user:pw@shop.vercel.app", "javascript:alert(1)", "not a url", "", null]) expect(previewProvider(bad), String(bad)).toBeNull();
+    expect(mapDeployment("Preview", { state: "success", environment_url: "https://evil.example" })).toEqual({ environment: "Preview", state: "success", url: null });
+    expect(mapDeployment("Preview", { state: "error" }).state).toBe("failure");
+    expect(mapDeployment("Preview", { state: "in_progress" }).state).toBe("pending");
+    expect(mapDeployment("Preview", null).state).toBe("pending");
+  });
+
+  it("mock: a preview for an agent branch head, a failed one for a failing branch, nothing for an unknown commit", async () => {
+    const mock = createGithubMock();
+    const ctx = makeToolContext(mock);
+    const sha = (await mock.callTool("create_branch", { owner: MOCK_OWNER, repo: "ledgerly-app", branch: "agent/t12" }, ctx)).data as { sha: string };
+    const ok = content(await mock.callTool("list_deployments", { owner: MOCK_OWNER, repo: "ledgerly-app", sha: sha.sha }, ctx));
+    expect(ok.items).toEqual([{ environment: "Preview", state: "success", url: expect.stringMatching(/^https:\/\/ledgerly-app-git-agent-t12-mock\.vercel\.app$/) }]);
+    const failing = createGithubMock({ failingBranches: ["agent/t12"] });
+    const head = ((await failing.callTool("create_branch", { owner: MOCK_OWNER, repo: "ledgerly-app", branch: "agent/t12" }, ctx)).data as { sha: string }).sha;
+    expect(content(await failing.callTool("list_deployments", { owner: MOCK_OWNER, repo: "ledgerly-app", sha: head }, ctx)).items).toEqual([{ environment: "Preview", state: "failure", url: null }]);
+    expect(content(await mock.callTool("list_deployments", { owner: MOCK_OWNER, repo: "ledgerly-app", sha: "f".repeat(40) }, ctx)).items).toEqual([]);
+    expect((await mock.callTool("list_deployments", { owner: MOCK_OWNER, repo: "ledgerly-app", sha: "main" }, ctx)).error?.code).toBe("invalid_args");
+  });
+
+  it("live: reads the commit's deployments and each one's newest status, and drops an address off the preview hosts", async () => {
+    const sha = "a".repeat(40);
+    const seen: string[] = [];
+    const fetch = routedFetch({
+      "GET https://api.github.com/repos/acme/shop/deployments": (_req, url) => {
+        seen.push(url.search);
+        return jsonResponse([{ id: 1, environment: "Preview" }, { id: 2, environment: "Production – shop" }]);
+      },
+      "GET https://api.github.com/repos/acme/shop/deployments/1/statuses": () => jsonResponse([{ state: "success", environment_url: "https://shop-git-agent-t1-acme.vercel.app" }]),
+      "GET https://api.github.com/repos/acme/shop/deployments/2/statuses": () => jsonResponse([{ state: "success", environment_url: "https://shop.example.com" }]),
+    });
+    const connector = createGithubConnector({ secrets: {}, fetch });
+    const r = await connector.callTool("list_deployments", { owner: "acme", repo: "shop", sha }, makeToolContext(connector, { mode: "live", credential: { kind: "app", secret: "ghs_installation_token" } }));
+    expect(r.ok, JSON.stringify(r.error)).toBe(true);
+    expect(content(r).items).toEqual([
+      { environment: "Preview", state: "success", url: "https://shop-git-agent-t1-acme.vercel.app" },
+      { environment: "Production – shop", state: "success", url: null },
+    ]);
+    expect(seen[0]).toContain(`sha=${sha}`);
   });
 });
