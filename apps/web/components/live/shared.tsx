@@ -79,8 +79,20 @@ export function PersonalNotice({ className }: { className?: string }) {
 }
 
 /**
+ * Whether the person may read other people (search, Find people, a person's page): the api asks for the 18+ confirmation
+ * first. True once `live.summary` says they confirmed (or when it cannot load, so the reads answer for themselves); false
+ * while it says they have not, when `AdultNotice` asks in one step; null while it loads.
+ */
+export function useCanReadPeople(): boolean | null {
+  const trpc = useTRPC();
+  const summary = useQuery(trpc.live.summary.queryOptions(undefined, { staleTime: 10_000, retry: false }));
+  return summary.data ? summary.data.adultConfirmed : summary.isError ? true : null;
+}
+
+/**
  * Shown above a LIVE screen until the founder confirms that they are 18 or older (BUILD §11.14: the network is for
- * adults). Reading stays open; the API refuses asking to connect, accepting, writing, joining and posting until then.
+ * adults). The API refuses finding people, asking to connect, accepting, writing, joining and posting until then; one
+ * tick and Confirm records it and lets the person straight in.
  * The answer comes from `live.summary`, the query behind the shell's Network badge, so it costs no extra call.
  */
 export function AdultNotice({ className }: { className?: string }) {
@@ -93,7 +105,7 @@ export function AdultNotice({ className }: { className?: string }) {
     trpc.live.profile.confirmAdult.mutationOptions({
       onSuccess: () => {
         void qc.invalidateQueries({ queryKey: trpcPathPrefix("live.summary") as unknown[] });
-        toast({ title: "Confirmed", description: "You can connect, write, join and post on the network.", tone: "good" });
+        toast({ title: "Confirmed", description: "You can find people, connect, write, join and post on the network.", tone: "good" });
       },
       onError: (err) => toast({ title: "Not confirmed", description: errorMessage(err), tone: "bad" }),
     }),
@@ -104,7 +116,7 @@ export function AdultNotice({ className }: { className?: string }) {
       <StatusPill tone="warn" icon={ShieldCheck}>
         18+
       </StatusPill>
-      <p className="min-w-0 flex-1 basis-48 text-body text-secondary">The network is for adults. Confirm that you are 18 or older before you connect, write, join or post.</p>
+      <p className="min-w-0 flex-1 basis-48 text-body text-secondary">The network is for adults. Confirm that you are 18 or older to find people, connect, write, join or post.</p>
       <span className="flex min-h-tap shrink-0 items-center gap-2 @page-wide:min-h-0">
         <Checkbox id="adult-confirm" checked={checked} onCheckedChange={(v) => setChecked(v === true)} />
         <Label htmlFor="adult-confirm" className="normal-case tracking-normal text-body text-primary">

@@ -86,7 +86,12 @@ describe("site_address_holds", () => {
   it("a business keeps at most 2 holds, its newest: renaming in a loop reserves nothing more", async () => {
     const F = await createBusinessFixture(h, "holds-f");
     await liveSite(F, "loop-0");
-    for (let i = 1; i <= 5; i += 1) await rename(F.businessId, `loop-${i}`);
+    for (let i = 1; i <= 5; i += 1) {
+      // PGlite's now() moves in whole milliseconds, so quick renames can share a time and the trigger's tie-break (a
+      // random id) would pick. Moving the earlier holds back a second gives each rename a time of its own.
+      await h.pg.query(`update site_address_holds set released_at = released_at - interval '1 second' where released_by_business = $1 and released_at <> 'infinity'`, [F.businessId]);
+      await rename(F.businessId, `loop-${i}`);
+    }
     const held = (await h.pg.query<{ slug: string }>(`select slug from site_address_holds where released_by_business = $1 order by slug`, [F.businessId])).rows.map((r) => r.slug);
     expect(held).toEqual(["loop-3", "loop-4"]);
   });
