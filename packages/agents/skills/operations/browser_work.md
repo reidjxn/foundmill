@@ -42,7 +42,7 @@ Some tools have only a website. The founder signs in once, and you work in that 
 
 ## What good looks like
 
-The founder opens your report and reads: "Set in Wave: business name Northwind Candles (checked), currency USD (checked), sales tax 8.25% (checked), first product Cedar candle at $24 (checked). Not verified: the logo upload, which the page did not show back."
+The founder opens your report and reads: "Set in Wave: business name Northwind Candles (checked), currency USD (checked), sales tax 8.25% (checked), first product Lavender candle at $24 (checked). Not verified: the logo upload, which the page did not show back."
 
 ## Output
 
