@@ -15,6 +15,7 @@ import { AppError, businessTimeZone, ConflictError, formatMoney, NotFoundError, 
 import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type BookingService, type BookingSettings, type Db, type Executor, type ResolvedSkill, type Task, type ToolNeed, type ToolNeedHeld } from "@foundmill/db";
 import { acceptanceLines, acceptanceRefusal, catalogLines, connectorKeysFor, PlatformToolError, recommendationProblems, toolRecommendationNote, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
+import { FounderActionError, type FounderActionPreparer } from "./founder-action";
 import { hashRecipient } from "./recipients";
 import { recipientBasis } from "./recipient-basis";
 import type { GatewayLogger } from "./pipeline";
@@ -98,6 +99,8 @@ export interface DbPlatformHostOptions {
   now?: () => Date;
   /** Late-bound: the gateway's pipeline exists only after the connectors are registered. */
   repository?: () => RepositoryFiles | null;
+  /** Prepares a founder-executed request through the gateway's own pipeline (founder-action.ts); late-bound like `repository`. */
+  founderActions?: () => FounderActionPreparer | null;
 }
 
 /** An email address (written out or spelled "at … dot") or a run of 8 or more digits; ISO dates do not count. */
@@ -105,7 +108,7 @@ const hasContactDetail = (text: string): boolean =>
   /[@＠]/.test(text) || /\bat\b.*\bdot\b/i.test(text) || (text.replace(/\b\d{4}-\d{2}-\d{2}\b/g, "").match(/\+?\d[\d\s().-]{6,}\d/g) ?? []).some((p) => p.replace(/\D/g, "").length >= 8);
 const SIMULATED_NOTICE = "Simulated: this session's sources were simulated, so this record is marked simulated and is not a real company.";
 
-export function createDbPlatformHost({ db, log, now = () => new Date(), repository = () => null }: DbPlatformHostOptions): PlatformHost {
+export function createDbPlatformHost({ db, log, now = () => new Date(), repository = () => null, founderActions = () => null }: DbPlatformHostOptions): PlatformHost {
   const notFound = (what: string, id: string) => new PlatformToolError("not_found", `${what} ${id} is not part of this business`);
   const taskOf = async (caller: PlatformCaller, taskId: string): Promise<Task> => {
     try {
@@ -567,6 +570,17 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
         return draft;
       });
       return { updateId: row.id, followers: await repos.followers.count(db, caller.businessId) };
+    },
+    // ---- founder-executed requests (founder, 2026-11-22): only a note is written; the press is the founder's ---------
+    async prepareFounderAction(caller, args) {
+      const preparer = founderActions();
+      if (!preparer) throw new PlatformToolError("invalid_state", "Founder requests cannot be prepared here.");
+      try {
+        return await preparer.prepare(caller, args);
+      } catch (e) {
+        if (e instanceof FounderActionError) throw new PlatformToolError("invalid_state", e.message);
+        throw e;
+      }
     },
     // ---- the tool scout (founder, Nov 22, 2026) ----------------------------------------------------------------
     async raiseToolNeed(caller, { category, missing, taskId }) {

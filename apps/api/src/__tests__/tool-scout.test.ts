@@ -132,3 +132,16 @@ describe("the founder's answer to a recommendation", () => {
     expect(await repos.toolNeeds.raise(hz.db, businessId, { category: "analytics", reason: "x" })).toMatchObject({ raised: false, why: "not_now" });
   });
 });
+
+describe("an invention at take charge (founder, Nov 22, 2026)", () => {
+  it("plans the patent step for first customers, with the timing reason, and raises nothing on day one", async () => {
+    const userId = await hz.h.createUser("inventor@test.local");
+    const caller = hz.caller({ userId, email: "inventor@test.local" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Ines", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low", budgetMinor: null });
+    const idea = (await caller.idea.generate({ prompt: "a self-leveling hinge for bike racks" })).ideas[0]!;
+    await hz.db.update(ideaVersions).set({ title: "Levelrack", pitch: "We invented a new method for keeping a bike rack level on a loaded car." }).where(eq(ideaVersions.ideaId, idea.id));
+    const bid = (await caller.idea.commit({ ideaId: idea.id, name: "Levelrack", archetype: "consumer_app", gameMode: "personal" })).business.id;
+    expect((await repos.toolNeeds.list(hz.db, bid)).map((n) => [n.category, n.stage, n.status, n.reason])).toEqual([["patents_ip", "first_customers", "planned", "You are about to show the product in public. Showing an invention before you file can cost the right to patent it."]]);
+    expect((await repos.tasks.list(hz.db, bid, { kind: "tool_need", limit: 10 })).items).toEqual([]);
+  });
+});

@@ -153,6 +153,7 @@ export interface ApprovalRouting {
  */
 export const FOUNDER_ACCOUNT_SEND_TOOLS: ReadonlySet<string> = new Set(["gmail:send_message", "google_calendar:create_event", "google_calendar:update_event", "google_calendar:delete_event"]);
 
+
 /**
  * Calls whose approval only an owner or admin gives, in every mode and whoever Team › Responsibilities names (security
  * review, Nov 22, 2026): never an agent, the Chief of Staff, the system, a plan or a member with a delegation. A file
@@ -172,8 +173,9 @@ export const FOUNDER_ONLY_TOOLS: ReadonlySet<string> = new Set([
  * Connectors that act in the founder's own accounts (Nov 23, 2026): every call of theirs that asks is the founder's to
  * approve, whatever tool it is, so a tool added later, `call_unlisted_tool` and a custom MCP server are covered too.
  * Sends through the project's own sending channels (SendGrid, Resend, Buffer, the platform's mail) stay delegable.
+ * Lightbringer (founder, 2026-11-22): what its tools send goes to its practitioners from the founder's own account.
  */
-export const FOUNDER_ACCOUNT_CONNECTORS: ReadonlySet<string> = new Set(["gmail", "google_calendar", "google_drive", "notion_mcp", "hubspot_mcp", "shopify_mcp", "mcp_custom", "shopify", "stripe", "github", "cloudflare_dns", "vercel"]);
+export const FOUNDER_ACCOUNT_CONNECTORS: ReadonlySet<string> = new Set(["lightbringer_mcp", "gmail", "google_calendar", "google_drive", "notion_mcp", "hubspot_mcp", "shopify_mcp", "mcp_custom", "shopify", "stripe", "github", "cloudflare_dns", "vercel"]);
 
 /** The person's own Google account: only the person who connected it approves a call in it (as `setContextReads`). */
 const OWN_GOOGLE_ACCOUNT: ReadonlySet<string> = new Set(["gmail", "google_calendar", "google_drive"]);

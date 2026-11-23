@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
 import { AppError, uuid } from "@foundmill/shared";
-import { ConfigError, type Connector, type JsonSchemaObject, type McpToolDefinition, type MockConnector, type PolicyHint, type ToolContext } from "../contract";
+import { ConfigError, ConnectInputError, type Connector, type JsonSchemaObject, type McpToolDefinition, type MockConnector, type PolicyHint, type ToolContext } from "../contract";
 import { buildLiveConnector, buildMockConnector, defineTool, healthResult, type AnyToolSpec } from "../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord } from "../mock-utils";
 import { resolveLiveOptions, type LiveConnectorOptions, type PlatformSecrets } from "../platform";
@@ -31,6 +31,8 @@ export interface RemoteTool {
   writes?: boolean;
   /** Required with `hints.hardGate`: what the founder does at the vendor instead. */
   humanAction?: { title: string; instructions: string };
+  /** The typed read of the answer's `structured` part (checked values built with `fact.*`, never free text). */
+  facts?: (structured: unknown) => unknown;
 }
 
 export interface RemoteServer {
@@ -68,6 +70,20 @@ export const hardGateName = (name: string): boolean => {
   // "api_key" is two words; check the joined form too.
   return [...words, words.join("")].some((w) => HARD_GATE_STEMS.some((stem) => w.startsWith(stem))) || words.join("").includes("apikey");
 };
+/**
+ * What is wrong with a server's list, as sentences (empty when it is sound): a hard gate needs its human action, and a
+ * listed tool whose name sounds like a hard gate must be a `hardGate` entry or `founderExecuted` (the founder's own press,
+ * the one way such a tool runs; never a session-token call, see `remoteFounderExecutedCall`).
+ */
+export function listProblems(server: Pick<RemoteServer, "key" | "tools">): string[] {
+  const out: string[] = [];
+  for (const t of server.tools) {
+    if (t.hints?.hardGate && !t.humanAction) out.push(`${server.key}.${t.remote} is a hard gate without a human action`);
+    if (hardGateName(t.remote) && !t.hints?.hardGate && !t.hints?.founderExecuted) out.push(`${server.key}.${t.remote} sounds like a hard gate but is listed as allowed`);
+    if (t.hints?.founderExecuted && t.hints.hardGate) out.push(`${server.key}.${t.remote} is both a hard gate and founder-executed`);
+  }
+  return out;
+}
 export const toolName = (remote: string): string => remote.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").replace(/^(?=\d)/, "t_");
 
 const Args = z.record(z.string(), z.unknown());
@@ -90,6 +106,7 @@ function specsOf(server: RemoteServer): AnyToolSpec[] {
       ...(t.humanAction ? { humanAction: () => t.humanAction! } : {}),
       // Every answer is a third party's text, whatever the tool: it reaches agents inside the untrusted envelope.
       ...(t.hints?.hardGate ? {} : { untrusted: "api" as const, untrustedRef: () => `${server.key}:${t.remote}` }),
+      ...(t.facts && !t.hints?.hardGate ? { facts: (data: { structured?: unknown }) => t.facts!(data.structured) } : {}),
       annotations: { readOnlyHint: !t.writes && (!t.hints || Object.values(t.hints).every((v) => !v)) },
     }),
   );
@@ -169,6 +186,10 @@ export function createRemoteMcpConnector(server: RemoteServer, options: RemoteOp
         const start = consentStartOf({ state: given.state, redirectUri: given.redirectUri }, server.displayName);
         const { verifier } = pkceFor(secrets.mcpOauthSecret, server.key, start.state);
         const t = await exchangeCode(fetch, ep, id, { code: given.code, redirectUri: start.redirectUri, verifier, resource: server.url }, now);
+        // A server that grants a scope Foundmill did not ask for (Lightbringer's `mcp:trade-secrets`) is not connected.
+        const granted = typeof t.raw.scope === "string" ? t.raw.scope.split(/[\s,]+/).filter(Boolean) : [];
+        const extra = server.scopes ? granted.filter((s) => !server.scopes!.includes(s)) : [];
+        if (extra.length > 0) throw new ConnectInputError(server.key, "scope", `${server.displayName} granted access ${APP_NAME} did not ask for (${extra.join(", ")}), so it was not connected. Connect it again and leave that access out.`);
         const createdAt = now().toISOString();
         const label = typeof t.raw.workspace_name === "string" && t.raw.workspace_name ? t.raw.workspace_name : server.displayName;
         const account = [t.raw.workspace_id, t.raw.hub_id, t.raw.user_id].find((v): v is string | number => typeof v === "string" || typeof v === "number");

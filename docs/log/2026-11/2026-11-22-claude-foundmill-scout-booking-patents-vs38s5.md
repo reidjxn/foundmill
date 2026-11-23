@@ -2,8 +2,8 @@
 date: 2026-11-22
 branch: claude/foundmill-scout-booking-patents-vs38s5
 pr: 359
-title: The tool scout (Part A, #359) and booking of our own, free on every plan (Part B)
-areas: [shared, connectors, agents, db, gateway, api, orchestrator, ingest, evals, events, dugout, modules, web, sites, config]
+title: The tool scout (#359), booking of our own (#363), and patents through Lightbringer with founder-executed tools (Part C)
+areas: [shared, connectors, agents, db, gateway, api, orchestrator, ingest, evals, events, dugout, modules, web, sites, config, policy]
 supersedes: []
 ---
 ## What changed
@@ -100,3 +100,45 @@ Left as known limits: a booking's email address is not proven before the slot is
 - The live eval (`booking-setup.eval.test.ts`) was not run: no model key in the session.
 - Outlook and iCloud calendars, several people, group classes, recurring sessions and packages: later, as the brief says.
 - The Today strip was not looked at in a real browser at 390 px with a booking in it.
+
+## Part C: what changed (patents through Lightbringer, founder-executed tools)
+Founder, Nov 22, 2026: connect the Lightbringer MCP so a founder links their own Lightbringer account and the team prepares patents with it; a hard-gated action may run from the founder's one explicit press on the exact payload, through a founder-executed tool, and never from an agent. FOUNDMILL.md has both: Lightbringer in the line of approved OAuth clients, and the founder-executed rule.
+
+- **The real tool list was read before building** (server `lightbringer-mcp-server` 4.27.0, 51 tools, Nov 22, 2026; `tools/list` answers without sign-in). `lightbringer_mcp` is a `RemoteServer` with Foundmill's own policy for each listed tool, a recorded mock, scopes `mcp:read mcp:write` (never `mcp:trade-secrets`), and `live: false` until `LIGHTBRINGER_MCP_CLIENT_ID` is set.
+- **Policy**: reading the portfolio and drafting or checking a disclosure run; anything that reaches Lightbringer's people or changes what others see asks first in every mode (a new `askAlways` hint and policy, because the existing hints did not force an ask in automated mode); permanent deletes and inviting members are hard gates; `request_patent_preparation` is founder-executed.
+- **Founder-executed tools**: a `founderExecuted` hint. Such a tool is in no agent's tool list, and every session-token call to it is refused before scope. The gateway runs it only at `POST /v1/founder-actions/execute`, from a press token minted by the api for one call, valid for at most five minutes, bound to a hash of the exact payload the founder saw.
+- **`founder_actions`** (migration 0169): the prepared request, its payload and hash, what the note showed, who pressed and when, and the result.
+- **The press**: an agent prepares (`prepare_founder_action`, typed facts only) and one Needs you note shows exactly what the press does. Only a founder of the project can press it, in the console. Vacation auto-decide, the email one-click answer, Today's one tap and delegation can never answer it. If the invention changed after the note was shown, the request is voided and a new note is written.
+- **When it is offered**: hardware already needs `patents_ip` before its first public showing; any project whose idea describes an invention (`describesInvention`) gets the same need planned at take charge.
+- **Skill** `patent_preparation` for the Legal Lead (defaults release 5; 3 is the CLI-Anything skills and 4 is working in a website). **Evals**: a patent offer before the launch post, no agent reaching the request tool even when a document says to, and injections inside portfolio documents; each with an offline twin.
+
+## Part C: decisions
+### Lightbringer's MCP cannot file or pay, so the one press asks Lightbringer to prepare the filing
+The brief describes one press, "File this patent for $X", that submits and pays. The real tool list has no tool that files a patent and none that pays or quotes a fee; the server says payments and paid terms need a human handoff on its side, and that `request_patent_preparation` "does not itself complete preparation, file a patent or pay for services".
+
+So the founder-executed tool is `request_patent_preparation`: the press tells Lightbringer, in the founder's name and from the founder's own account, to prepare this invention for filing. The note says what the press does and does not do, and shows no dollar figure because none exists to show. Filing and payment then happen between the founder and Lightbringer.
+
+The founder chose this on Nov 23, 2026 ("merge #368 when green and ready", relayed by the coordinating session; the founder marked the pull request ready and turned auto-merge on): merge as is, with filing and payment staying between the founder and Lightbringer.
+
+### Inviting members is a hard gate, not ask-first
+Its name matches a hard-gate stem and it changes who can see the founder's inventions. The rule was kept rather than excepted.
+
+### The Legal Lead is granted reads, drafting and the preparer only
+The ask-first tools exist and can be granted; adding them all pushed the Legal Lead past the tool budget the orchestrator's test enforces.
+
+### Preparing is a platform tool with an allow-list of one pair
+`prepare_founder_action` accepts only (connector, tool) pairs that are founder-executed. It reads the invention through the gateway as the calling agent and keeps only typed facts: the id, the title as a quoted label, the reference and a content hash.
+
+### What the security review changed before the draft was opened
+An independent read-only review found no way for an agent alone to run the request, and two requirements that failed. Fixed here:
+- A custom MCP server pointed at Lightbringer could reach the request behind an ordinary ask. Now any connector's unlisted-tool call is refused when its name, folded to letters and digits, is a founder-executed tool's, and a host that has a Foundmill list cannot be connected as a custom server.
+- An admin could press and a cofounder could not. Now only an owner or a cofounder can, checked in the api and again in the gateway.
+- A request that may have reached Lightbringer is never reported as "Nothing was sent": a third result, `unknown`, answers the note with "check in your Lightbringer account before you ask again".
+- Every refusal of a press is audited, never with the token.
+- Also: a voided request writes its replacement only when it really was voided; a session token naming a founder-executed tool is refused at mint; the re-read compares every typed fact; a sign-in that grants a scope outside the two requested is refused.
+Known limits, left for a later change: the press has no fresh sign-in window; an agent can still edit the invention's draft in Lightbringer between the founder's press and Lightbringer's team reading it; the press's policy check sees only that the tool is founder-executed, not its other hints.
+
+## Part C: not done
+- The fee, card on file and "filed and paid" result of the brief: not possible through this MCP today (see the first decision).
+- `apps/web/e2e/founder-action.spec.ts` passes against a recorder standing in for the gateway (it does not start in the default e2e stack, where the spec skips). The failed and unknown results are covered by the gateway tests only.
+- Live Lightbringer sign-in and tools were never exercised: only the recorded mock and an in-process fake server. The live evals were not run (no model key).

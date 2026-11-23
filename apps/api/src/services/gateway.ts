@@ -435,6 +435,37 @@ export interface ApiGatewayClient {
   answerReply?(input: GatewayAnswerReplyRequest): Promise<GatewayAnswerReplyResult>;
   /** The founders' update to their followers (`POST /v1/platform-mail/send-update`). Absent (test doubles): not sent. */
   sendUpdate?(input: GatewaySendUpdateRequest): Promise<GatewaySendUpdateResult>;
+  /**
+   * The founder's press on a founder-executed request (`POST /v1/founder-actions/execute`, founder 2026-11-22). The
+   * client mints the single-use press token here, bound to the request, the project, the founder and the payload hash the
+   * note showed; the gateway checks everything again. Absent (test doubles): nothing is sent.
+   */
+  executeFounderAction?(input: GatewayFounderActionRequest): Promise<GatewayFounderActionResult>;
+}
+
+export interface GatewayFounderActionRequest {
+  businessId: string;
+  actionId: string;
+  userId: string;
+  /** The sha256 (hex) of the canonical payload the note showed. */
+  payloadHash: string;
+}
+
+/** What the gateway answers (apps/gateway `FounderActionOutcome`): `refused` and `failed` sent nothing; `voided` replaced the request. */
+export type GatewayFounderActionResult =
+  | { status: "executed"; simulated: boolean; message: string }
+  | { status: "voided"; message: string; newActionId: string | null }
+  | { status: "failed"; reason: string }
+  | { status: "unknown"; reason: string }
+  | { status: "refused"; code: string; reason: string };
+
+export const PRESS_AUDIENCE = "foundmill-gateway/founder-press";
+/** A press token lives this long: it is minted at the press and spent at once. */
+export const PRESS_TOKEN_SECONDS = 120;
+
+/** The press token (apps/gateway `signFounderPressToken` verifies it): its own audience, so no other token passes for it. */
+export async function signFounderPressToken(secret: string, claims: GatewayFounderActionRequest): Promise<string> {
+  return new SignJWT({ ...claims }).setProtectedHeader({ alg: "HS256", typ: "JWT" }).setIssuer(TOKEN_ISSUER).setAudience(PRESS_AUDIENCE).setIssuedAt().setExpirationTime(`${PRESS_TOKEN_SECONDS}s`).setJti(randomUUID()).sign(new TextEncoder().encode(secret));
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -520,6 +551,10 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     generatePortrait: (personaKey, businessId, style) => post<GatewayPortrait>("/v1/personas/portrait", { personaKey, ...(style ? { style } : {}), ...(businessId ? { businessId } : {}) }, Math.max(timeoutMs, PORTRAIT_TIMEOUT_MS)),
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
+    executeFounderAction: async (input) => {
+      if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "Neither API_SERVICE_TOKEN_SECRET nor SESSION_TOKEN_SECRET is set on the api, so it cannot call the gateway", 412);
+      return post<GatewayFounderActionResult>("/v1/founder-actions/execute", { pressToken: await signFounderPressToken(opts.secret, input) });
+    },
     confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     bookingMail: (input) => post<GatewayBookingMailResult>("/v1/platform-mail/booking", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     // Up to 50 messages in sequence: the press waits for them (the client's timeout, at least a minute).

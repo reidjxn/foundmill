@@ -134,6 +134,8 @@ describe("approvals routed by Responsibilities (TPD-04)", () => {
     // A send through the project's own sending channel (not the founder's own Gmail, Nov 23, 2026) is delegable.
     const message = await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "sendgrid", tool: "send_email" });
     expect(message).toMatchObject({ decisionType: "message_customers", handlerKind: "user", handlerId: memberId, outcome: null, resolvedAt: null });
+    // Lightbringer's asks go out from the founder's own account (founder, 2026-11-22): the delegate for messages never answers them.
+    expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "lightbringer_mcp", tool: "reply_to_comment" })).toMatchObject({ decisionType: "message_customers", handlerKind: null, handlerId: null, outcome: null, byKind: null });
     // An agent never decides a signature, and an explicit null (a hard gate) is not routed.
     expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "dropbox_sign", tool: "send_envelope" })).toMatchObject({ decisionType: "sign_contracts", handlerKind: null, outcome: null });
     expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "github", tool: "merge_pr", decisionType: null })).toMatchObject({ decisionType: null, handlerKind: null, outcome: null });

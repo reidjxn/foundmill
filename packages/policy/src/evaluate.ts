@@ -60,6 +60,8 @@ export function toEntities(input: EvaluateInput): Entities {
       securitySettings: tool.securitySettings,
       unclassified: tool.unclassified,
       paymentRecord: tool.paymentRecord,
+      askAlways: tool.askAlways,
+      founderExecuted: tool.founderExecuted,
     },
     parents: [],
   };
@@ -80,6 +82,7 @@ export function toContext(input: EvaluateInput): Record<string, CedarValueJson> 
     suppressed: c.suppressed,
     holidayActive: c.holidayActive ?? input.business.holidayActive,
     kitMode: c.kitMode,
+    founderPress: c.founderPress,
   };
   if (c.recipient !== undefined) ctx["recipient"] = c.recipient;
   if (c.recipientCountry !== undefined) ctx["recipientCountry"] = c.recipientCountry;

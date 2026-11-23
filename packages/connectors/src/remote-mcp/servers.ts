@@ -23,10 +23,25 @@
  * MCP list no tools or sign-in in the documentation. Nothing here can be signed into by a founder yet, so the entry is
  * mock-only (`live: false`) and Settings hides it until Shopify's sign-in and the per-store address are confirmed. The
  * existing Shopify API connector stays until then.
+ *
+ * LIGHTBRINGER (patents, founder's direction of 2026-11-22): https://mcp.lightbringer.com/mcp, server lightbringer-mcp-server
+ * 4.27.0, MCP 2025-06-18, as read on Nov 22, 2026 (51 tools). OAuth: the protected-resource metadata names the
+ * authorization server https://app.lightbringer.com and the scopes `mcp:read`, `mcp:write` and `mcp:trade-secrets`, bearer
+ * token in the header. Foundmill asks for `mcp:read` and `mcp:write` only, never `mcp:trade-secrets`. Foundmill's own OAuth
+ * client was approved on 2026-11-22; until LIGHTBRINGER_MCP_CLIENT_ID is set the entry is mock-only (`live: false`) and
+ * Settings hides it. The server has no tool that files a patent or quotes or takes a fee: its own instructions say payments
+ * and paid terms need a human handoff, and `request_patent_preparation` "does not itself complete preparation, file a patent
+ * or pay for services". It only tells Lightbringer's patent team the founder wants the invention prepared; Lightbringer then
+ * quotes its fee and takes payment and terms itself, with the founder. That tool is `founderExecuted`: no agent ever calls
+ * it, the gateway runs it only from the founder's one press on the exact payload (apps/gateway `founder-action.ts`).
  */
+import { createHash } from "node:crypto";
+import { AppError } from "@foundmill/shared";
 import type { JsonSchemaObject } from "../contract";
+import { fact } from "../facts";
 import type { PlatformSecrets } from "../platform";
 import type { RemoteServer, RemoteTool } from "./build";
+import { LIGHTBRINGER_SCHEMAS } from "./lightbringer-schemas";
 
 const obj = (properties: Record<string, unknown> = {}, required: string[] = []): JsonSchemaObject => ({ type: "object", properties, ...(required.length ? { required } : {}), additionalProperties: true });
 const str = (description: string) => ({ type: "string", description });
@@ -88,6 +103,67 @@ const SHOPIFY_TOOLS: RemoteTool[] = [
   { remote: "complete_checkout", description: "Complete a checkout.", inputSchema: obj(), hints: { spendsMoney: true, hardGate: true }, humanAction: { title: "Complete this checkout in Shopify", instructions: "A checkout takes a customer's money, so it is done in the store by the customer or by you." } },
 ];
 
+const LB_ASKS = { contactsThirdParty: true, irreversible: true, askAlways: true } as const;
+const lb = (remote: string, description: string, extra: Partial<RemoteTool> = {}): RemoteTool => ({ remote, description, inputSchema: LIGHTBRINGER_SCHEMAS[remote]!, ...extra });
+/** A hard-gated Lightbringer tool: permanent deletion or sharing access, done by the founder in Lightbringer. */
+const lbGated = (remote: string, description: string, title: string, instructions: string): RemoteTool => lb(remote, description, { hints: { hardGate: true }, humanAction: { title, instructions } });
+const LB_DELETE = (what: string) => `Deleting ${what} cannot be undone, so you do it in Lightbringer.`;
+
+/**
+ * Lightbringer's tools by what Foundmill lets happen (a reviewed list of 35 of its 51; the rest are reachable only through
+ * `call_unlisted_tool`, which asks first). The invention disclosure is the founder's own, inside the founder's own
+ * Lightbringer organization: reading, drafting and the automated feedback run; anything that reaches Lightbringer's
+ * practitioners or another person, or changes what others see, asks first in every mode (`askAlways`); deletion and sharing
+ * access are the founder's own steps; the request to prepare a patent is the founder's one press.
+ */
+const LIGHTBRINGER_TOOLS: RemoteTool[] = [
+  lb("whoami", "Who is signed in at Lightbringer and for which organization."),
+  lb("list_innovations", "List the inventions in the founder's Lightbringer organization."),
+  lb("get_innovation", "Read one invention disclosure.", {
+    // The typed read the note and the press check rely on: an id, a short title, a reference and a hash of the text.
+    facts: (structured) => {
+      const s = (structured ?? {}) as { id?: unknown; title?: unknown; refNum?: unknown; markdown?: unknown };
+      return { inventionId: fact.id(s.id), title: fact.label(s.title), refNum: fact.id(s.refNum), contentHash: typeof s.markdown === "string" ? createHash("sha256").update(s.markdown).digest("hex") : null };
+    },
+  }),
+  lb("get_innovation_template", "The sections an invention disclosure needs."),
+  lb("search", "Search the organization's Lightbringer records."),
+  lb("fetch", "Read one Lightbringer record by id."),
+  lb("show_patent_portfolio", "Show the organization's patent portfolio."),
+  lb("search_public_patents", "Search public patents."),
+  lb("get_credits", "How many Lightbringer credits the organization has."),
+  lb("list_tasks", "List Lightbringer's work on an invention."),
+  lb("get_task_status", "The status of one Lightbringer task."),
+  lb("list_reviews", "List the reviews waiting on the organization."),
+  lb("get_review", "Read one review."),
+  lb("get_company_context", "Read the company context Lightbringer holds."),
+  // Drafting and checking a disclosure inside the founder's own organization: nobody outside is contacted and nothing is filed.
+  // The recorded schema is long (lightbringer-schemas.ts); an agent gets a short one and reads the sections from get_innovation_template, and Lightbringer checks the values.
+  lb("register_innovation", "Create a draft invention disclosure. Take the sections from get_innovation_template.", { writes: true, inputSchema: obj({ definition: { type: "object" } }, ["definition"]) }),
+  lb("update_innovation", "Change sections of a draft invention disclosure.", { writes: true }),
+  lb("start_innovation_feedback", "Start Lightbringer's automated feedback on a draft disclosure.", { writes: true }),
+  // These reach Lightbringer's practitioners or another person, or change what others see: the founder is asked every time.
+  lb("respond_to_review", "Answer a review from Lightbringer's practitioners.", { hints: LB_ASKS }),
+  lb("add_comment", "Comment on a review.", { hints: LB_ASKS }),
+  lb("add_discussion_comment", "Add to a review's discussion.", { hints: LB_ASKS }),
+  lb("reply_to_comment", "Reply to a comment on a review.", { hints: LB_ASKS }),
+  lb("comment", "Comment on a record.", { hints: LB_ASKS }),
+  lb("set_validation_countries", "Choose the countries a patent is validated in.", { hints: LB_ASKS }),
+  lb("import_patent", "Bring a public patent into the organization's records.", { hints: LB_ASKS }),
+  lb("start_journey", "Start one of Lightbringer's guided workflows.", { hints: LB_ASKS }),
+  lb("ask_agent", "Message Lightbringer's agent on a task.", { hints: LB_ASKS }),
+  lb("answer_agent", "Answer a question Lightbringer's agent asked.", { hints: LB_ASKS }),
+  lb("update_company_context", "Change the company context others at Lightbringer see.", { hints: LB_ASKS }),
+  // Sharing access to the organization's records is a security setting (HARD_GATE_STEMS "invit"): the founder does it in Lightbringer.
+  lbGated("invite_members", "Invite people to the organization's records.", "Invite people in Lightbringer", "Giving someone access to your invention records is a security setting, so you do it in Lightbringer."),
+  lbGated("delete_asset", "Delete a Lightbringer asset.", "Delete this in Lightbringer", LB_DELETE("an asset")),
+  lbGated("delete_strategy", "Delete a strategy.", "Delete this in Lightbringer", LB_DELETE("a strategy")),
+  lbGated("delete_task", "Delete a task.", "Delete this in Lightbringer", LB_DELETE("a task")),
+  lbGated("delete_comment", "Delete a comment.", "Delete this in Lightbringer", LB_DELETE("a comment")),
+  // The founder's one press, never an agent: tells Lightbringer's patent team the founder wants this invention prepared.
+  lb("request_patent_preparation", "Ask Lightbringer's patent team to prepare this invention for a patent filing. Runs only from the founder's own press.", { writes: true, hints: { contactsThirdParty: true, irreversible: true, founderExecuted: true } }),
+];
+
 const sample = (text: string) => () => ({ text });
 
 export const NOTION_MCP: RemoteServer = {
@@ -136,4 +212,67 @@ export const SHOPIFY_MCP: RemoteServer = {
   },
 };
 
-export const REMOTE_MCP_SERVERS: readonly RemoteServer[] = [NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP];
+/** The invention the recorded mock knows; `inv_demo_fail` is the one whose request the mock refuses (tests, the Playwright spec). */
+export const LIGHTBRINGER_DEMO_INVENTION = "inv_demo_1";
+export const LIGHTBRINGER_DEMO_FAIL_INVENTION = "inv_demo_fail";
+const LB_URL = "https://app.lightbringer.com";
+const lbInvention = (id: string) => ({ id, title: "Self-leveling bike rack hinge", refNum: "LB-2026-0042", url: `${LB_URL}/innovations/${id}`, markdown: "# Self-leveling bike rack hinge\n\n## Problem\nBike racks tilt when the car is loaded unevenly.\n\n## Solution\nA hinge with a weighted cam keeps the rack level." });
+const lbText = (text: string, structured?: unknown) => ({ text, ...(structured !== undefined ? { structured } : {}) });
+const lbId = (a: Record<string, unknown>): string => (typeof a.invention_id === "string" ? a.invention_id : LIGHTBRINGER_DEMO_INVENTION);
+
+export const LIGHTBRINGER_MCP: RemoteServer = {
+  key: "lightbringer_mcp",
+  displayName: "Lightbringer",
+  url: "https://mcp.lightbringer.com/mcp",
+  live: false,
+  scopes: ["mcp:read", "mcp:write"],
+  clientEnv: "LIGHTBRINGER_MCP_CLIENT_ID / MCP_OAUTH_SECRET",
+  clientOf: (s: PlatformSecrets) => (s.lightbringerMcpClientId ? { clientId: s.lightbringerMcpClientId } : null),
+  tools: LIGHTBRINGER_TOOLS,
+  mock: {
+    whoami: () => lbText("Signed in as a sample founder at Northwind Bikes", { user: { name: "Sample Founder", role: "owner" }, organisation: { name: "Northwind Bikes", country: "US" } }),
+    list_innovations: () => lbText("1 invention: Self-leveling bike rack hinge (LB-2026-0042)", { inventions: [{ id: LIGHTBRINGER_DEMO_INVENTION, title: "Self-leveling bike rack hinge", refNum: "LB-2026-0042", url: `${LB_URL}/innovations/${LIGHTBRINGER_DEMO_INVENTION}` }] }),
+    get_innovation: (a) => lbText("Self-leveling bike rack hinge (LB-2026-0042)", lbInvention(lbId(a))),
+    get_innovation_template: sample("Sections: problem, solution, technical details, prior art, variants, inventors, public disclosures"),
+    search: () => lbText("1 result: Self-leveling bike rack hinge (innovation)", { results: [{ id: LIGHTBRINGER_DEMO_INVENTION, title: "Self-leveling bike rack hinge", category: "innovation" }] }),
+    fetch: (a) => lbText("Self-leveling bike rack hinge (LB-2026-0042)", lbInvention(typeof a.id === "string" ? a.id : LIGHTBRINGER_DEMO_INVENTION)),
+    show_patent_portfolio: sample("Portfolio: 1 invention disclosure, 0 filed patents"),
+    search_public_patents: () => lbText("2 public patents about self-leveling hinges", { total: 2 }),
+    get_credits: () => lbText("12 Lightbringer credits left", { credits: 12 }),
+    list_tasks: () => lbText("1 task: Automated feedback on LB-2026-0042 (done)", { tasks: [{ id: "task_demo_1", status: "done" }] }),
+    get_task_status: () => lbText("Task task_demo_1 is done", { id: "task_demo_1", status: "done" }),
+    list_reviews: () => lbText("0 reviews waiting", { reviews: [] }),
+    get_review: sample("No such review in the sample organization"),
+    get_company_context: sample("Northwind Bikes: bike racks for city cyclists"),
+    register_innovation: () => lbText("Created draft LB-2026-0042", { id: LIGHTBRINGER_DEMO_INVENTION, refNum: "LB-2026-0042", url: `${LB_URL}/innovations/${LIGHTBRINGER_DEMO_INVENTION}` }),
+    update_innovation: sample("Updated the draft disclosure"),
+    start_innovation_feedback: () => lbText("Started automated feedback (task task_demo_2)", { taskId: "task_demo_2" }),
+    respond_to_review: sample("Sent the response to the review"),
+    add_comment: sample("Added the comment"),
+    add_discussion_comment: sample("Added to the discussion"),
+    reply_to_comment: sample("Sent the reply"),
+    comment: sample("Added the comment"),
+    set_validation_countries: sample("Saved the validation countries"),
+    import_patent: sample("Imported the patent into the organization's records"),
+    start_journey: sample("Started the guided workflow"),
+    ask_agent: sample("Sent the message to Lightbringer's agent"),
+    answer_agent: sample("Sent the answers to Lightbringer's agent"),
+    update_company_context: sample("Updated the company context"),
+    request_patent_preparation: (a) => {
+      // The recorded refusal: what a vendor that cannot take the request answers, so the failure path is testable.
+      if (lbId(a) === LIGHTBRINGER_DEMO_FAIL_INVENTION) throw new AppError("remote_tool_error", "The tool reported an error", 502);
+      return lbText("Preparation requested for LB-2026-0042", { id: lbId(a), url: `${LB_URL}/innovations/${lbId(a)}`, refNum: "LB-2026-0042", outcome: "requested" });
+    },
+  },
+};
+
+export const REMOTE_MCP_SERVERS: readonly RemoteServer[] = [NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP];
+
+/** A tool name folded to lower case letters and digits, so `requestPatentPreparation`, `request-patent-preparation` and `Request Patent Preparation` are one name. */
+export const foldedToolName = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** The folded names of the founder-executed tools of every server (their `remote` names): no server may be reached around the founder's press under any of them. */
+export const FOUNDER_EXECUTED_FOLDED_NAMES: ReadonlySet<string> = new Set(REMOTE_MCP_SERVERS.flatMap((s) => s.tools.filter((t) => t.hints?.founderExecuted).map((t) => foldedToolName(t.remote))));
+
+/** The hosts of the servers Foundmill has a list for: a custom server never points at one of them. */
+export const LISTED_SERVER_HOSTS: ReadonlyMap<string, string> = new Map(REMOTE_MCP_SERVERS.map((s) => [new URL(s.url).hostname.toLowerCase(), s.displayName]));
