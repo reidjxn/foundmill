@@ -56,4 +56,5 @@ export { POSITIONING_CASES, POSITIONING_EVAL_IDS, positioningProblems as positio
 export { BOOKING_SETUP_CASES, BookingSetupPlan, bookingSetupProblems, bookingSetupRequest, runBookingSetupCase, type BookingSetupCase } from "./booking/cases";
 export { PATENT_OFFER_CASES, PatentOfferOutput, patentOfferProblems, patentOfferRequest, runPatentOfferCase, type PatentOfferCase } from "./patent-offer/cases";
 export { TOOL_SCOUT_CASES, ToolScoutOutput, runToolScoutCase, toolScoutProblems, toolScoutRequest, type ToolScoutCase } from "./tool-scout/cases";
+export { BROWSER_WORK_CASES, BrowserStep, browserWorkRequest, runBrowserWorkCase, type BrowserWorkCase } from "./browser-work/cases";
 export { CHAPTER_REPORT_CASES, runChapterReportCase, type ChapterReportCase, type ChapterReportResult } from "./chapter-report";

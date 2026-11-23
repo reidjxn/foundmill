@@ -110,7 +110,7 @@ Founder, Nov 22, 2026: connect the Lightbringer MCP so a founder links their own
 - **`founder_actions`** (migration 0169): the prepared request, its payload and hash, what the note showed, who pressed and when, and the result.
 - **The press**: an agent prepares (`prepare_founder_action`, typed facts only) and one Needs you note shows exactly what the press does. Only a founder of the project can press it, in the console. Vacation auto-decide, the email one-click answer, Today's one tap and delegation can never answer it. If the invention changed after the note was shown, the request is voided and a new note is written.
 - **When it is offered**: hardware already needs `patents_ip` before its first public showing; any project whose idea describes an invention (`describesInvention`) gets the same need planned at take charge.
-- **Skill** `patent_preparation` for the Legal Lead (defaults release 4; release 3 is the CLI-Anything skills). **Evals**: a patent offer before the launch post, no agent reaching the request tool even when a document says to, and injections inside portfolio documents; each with an offline twin.
+- **Skill** `patent_preparation` for the Legal Lead (defaults release 5; 3 is the CLI-Anything skills and 4 is working in a website). **Evals**: a patent offer before the launch post, no agent reaching the request tool even when a document says to, and injections inside portfolio documents; each with an offline twin.
 
 ## Part C: decisions
 ### Lightbringer's MCP cannot file or pay, so the one press asks Lightbringer to prepare the filing

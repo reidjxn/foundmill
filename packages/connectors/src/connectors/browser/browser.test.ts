@@ -5,7 +5,7 @@ const toAgentEnvelope = (d: unknown) => envelope(d as Untrusted<unknown>);
 import { makeToolContext, TEST_BUSINESS_ID } from "../../testing/contract-suite";
 import { neverReason, siteStateOf, sitePageVerdict, type BrowserSite } from "../../browser-sites";
 import type { Connector, HumanActionDescriptor, ToolContext } from "../../contract";
-import { BrowserSessions, classifyStep, createBrowserConnector, createMockBrowser, hintsForClass, instructionsToAgent, mockBrowserControl, MOCK_BROWSER_SESSIONS, type BrowserStepRecord, type PageElement } from "./index";
+import { BrowserSessions, withBrowserSites, classifyStep, createBrowserConnector, createMockBrowser, hintsForClass, instructionsToAgent, mockBrowserControl, MOCK_BROWSER_SESSIONS, type BrowserStepRecord, type PageElement } from "./index";
 
 const SITE: BrowserSite = { key: "acme_admin", name: "Acme Admin", state: "open", hosts: ["app.acme.example.com"], startUrl: "https://app.acme.example.com/", terms: { url: "https://acme.example.com/terms", line: "test", checkedOn: "2026-11-22" } };
 const OTHER = "00000000-0000-4000-8000-0000000000b2";
@@ -347,5 +347,13 @@ describe("the founder's sign-in and the saved sign-in (live side over a recorded
     // The cap on sessions running at once is what bounds spend at a provider with no cap of its own.
     await connector.callTool("open_page", { url: "/" }, ctx);
     expect((await connector.callTool("open_page", { url: "/" }, makeToolContext(connector, { businessId: OTHER, credential: { kind: "oauth", secret: "mock" } }))).error?.code).toBe("browser_busy");
+  });
+});
+
+describe("a session's browser tools (Part D, D3)", () => {
+  it("adds only the connected sites' own tools, and nothing for a key that is not a site", () => {
+    const base = { toolRefs: ["platform:read_business"], servers: ["platform"], mcpTools: ["mcp__platform__read_business"] };
+    expect(withBrowserSites(base, [])).toBe(base);
+    expect(withBrowserSites(base, ["browser_wave", "stripe", "browser_nowhere"])).toEqual({ toolRefs: ["platform:read_business", "browser_wave:*"], servers: ["platform", "browser_wave"], mcpTools: ["mcp__platform__read_business", "mcp__browser_wave"] });
   });
 });

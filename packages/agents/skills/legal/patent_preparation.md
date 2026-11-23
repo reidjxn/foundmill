@@ -8,7 +8,7 @@ attribute_group: judgement # us-english-allow
 when_to_use: Use when the project has something it invented, or is about to show, sell or publish one, or the founder asks about a patent.
 roles: legal_lead
 default_for: legal_lead
-default_since: 4
+default_since: 5
 stage: idea, building, page_live, first_followers
 needs: none
 adapted_from: original

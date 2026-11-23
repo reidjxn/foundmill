@@ -48,8 +48,12 @@ export type ToolNeedStage = (typeof TOOL_NEED_STAGES)[number];
 export const TOOL_NEED_STATUSES = ["open", "recommended", "accepted", "not_now"] as const;
 export type ToolNeedStatus = (typeof TOOL_NEED_STATUSES)[number];
 
-/** How a tool comes into a project, in order of preference (the vendor's own MCP server, an API key, a link), or Foundmill's own feature. */
-export const TOOL_ROUTES = ["foundmill", "remote_mcp", "api_key", "link"] as const;
+/**
+ * How a tool comes into a project, in order of preference: Foundmill's own feature, the vendor's own MCP server, the
+ * founder's API key, the hosted browser in the account the founder signed in to (founder, Nov 22, 2026: only when the
+ * tool has no MCP server and no API, and its site is on Foundmill's site list), or a link.
+ */
+export const TOOL_ROUTES = ["foundmill", "remote_mcp", "api_key", "browser", "link"] as const;
 export type ToolRoute = (typeof TOOL_ROUTES)[number];
 
 /** Days a "Not now" keeps the question away, unless the founder's note names another time. */

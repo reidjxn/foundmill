@@ -14,7 +14,7 @@ needs: web_research
 adapted_from: original
 license_note: original
 improves: prioritisation # us-english-allow
-version: 1
+version: 2
 ---
 # Tool scout
 
@@ -45,7 +45,7 @@ Timing matters more than completeness. A project that handles other people's mon
    - countries: does it serve the project's customers;
    - price for this project at its current size, always an Estimate;
    - a test mode, so the team can build against it before a live key exists;
-   - how it comes in, in this order of preference: the vendor's own sign-in in Settings › Integrations, the founder's own key, or only a link;
+   - how it comes in, in this order of preference: the vendor's own sign-in in Settings › Integrations, the founder's own key, the hosted browser (the team works in the tool's website, in the account the founder signed in to), or only a link;
    - anything a regulator expects of this kind of tool. Cite the rule, and hand questions of law to the Legal Lead.
 4. **Pick one.** The cheapest option that fully does the job wins. A free route comes first.
 5. **Send it with `recommend_tool`:** the pick, why it fits in one or two plain sentences, why now in one sentence, the cost for this project, the two options you did not pick with one line each, and your sources. The platform writes what the founder has to do.
@@ -71,10 +71,19 @@ One note to the founder through `recommend_tool`, and one saved report with the 
 
 Signing up with a vendor, accepting its terms, paying and entering a live key are the founder's steps, always. Never do them, and never ask for a password or a key in a message.
 
+## The hosted browser route
+
+Some tools have no sign-in for the team and no key: only a website. When the platform's options for a kind of tool include one that comes in by the hosted browser, you may pick it. The rules:
+
+- Only a tool the platform lists with that route. Never name the browser route for a vendor yourself, and never for a site the platform does not offer: banks, brokerages, government and identity sites, health records, password managers and sites whose terms forbid it are never offered.
+- Prefer a tool with its own sign-in or key whenever one fits: the browser is slower, costs more, and breaks when the site changes.
+- The note offers the browser and names the simpler choice: the founder uses the tool themselves and sends its link.
+
 ## After the founder says yes
 
 - The vendor's own sign-in or the founder's key: wait until it shows as connected. Then set it up in the vendor's test mode first. A result from a test mode is never reported as a real outcome.
 - A software project: the engineers add the vendor's kit to the project's own code on a branch, with tests, as a pull request the founder approves. Live keys go in only when the founder enters them.
+- The hosted browser: the founder signs in once in Settings › Integrations. The setup is then a task for the department that owns the tool, done with the `browser_work` skill: done is written down first, every change is read back, and anything that could not be checked is reported as not verified.
 - Only a link: put it on the project's page for the founder to approve.
 
 ## If a tool is missing

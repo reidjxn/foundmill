@@ -11,12 +11,13 @@
  * - the founder's routes list, take over, hand back and stop; Stop all agents ends the session.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { BrowserSessions, browserSite, createBrowserConnector, createMockBrowser, type BrowserStepRecord, type MockBrowserControl } from "@foundmill/connectors";
+import { BrowserSessions, browserSite, catalogTool, createBrowserConnector, createMockBrowser, toolRecommendationNote, RecommendToolArgs, type BrowserStepRecord, type MockBrowserControl } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { storeCredential } from "../credentials";
 import { signServiceToken } from "../tokens";
 import type { AllowResponse, CallResponse, DenyResponse } from "../types";
-import { setupGateway, TEST_SECRET, type GatewayFixture } from "./harness";
+import { setupGateway, silentLog, TEST_SECRET, type GatewayFixture } from "./harness";
+import { browserHost } from "../browser";
 
 const SITE = browserSite("wave")!;
 const KEY = "browser_wave";
@@ -213,5 +214,92 @@ describe("the founder watches, takes over, hands back and stops", () => {
     await g.h.pg.query("update businesses set agents_stopped_at = now(), agents_stopped_reason = 'kill_switch' where id = $1", [g.businessId]);
     expect((await g.call("read_page")).outcome).toBe("deny");
     expect(g.sessions.list(g.businessId)).toHaveLength(0);
+  });
+});
+
+describe("a quiet saved sign-in (Part D)", () => {
+  it("each use moves its deletion date to 30 days from now, at most once an hour", async () => {
+    const at = { now: new Date("2026-11-22T12:00:00Z") };
+    const g = await setup("assisted");
+    const row = (await repos.integrations.getByKey(g.db, g.businessId, KEY))!;
+    const host = browserHost(g.db, silentLog, null, () => at.now);
+    await host.used!(g.businessId, KEY);
+    const first = (await repos.credentials.latest(g.db, g.businessId, row.id))!.meta.expiresAt;
+    expect(new Date(first!).toISOString()).toBe("2026-12-22T12:00:00.000Z");
+    at.now = new Date("2026-11-22T12:30:00Z");
+    await host.used!(g.businessId, KEY);
+    expect((await repos.credentials.latest(g.db, g.businessId, row.id))!.meta.expiresAt).toEqual(first);
+    at.now = new Date("2026-11-23T12:00:00Z");
+    await host.used!(g.businessId, KEY);
+    expect(new Date((await repos.credentials.latest(g.db, g.businessId, row.id))!.meta.expiresAt!).toISOString()).toBe("2026-12-23T12:00:00.000Z");
+  });
+
+  it("a new saved sign-in is stored with that date", async () => {
+    const g = await setup("assisted", { signIn: false });
+    const connector = g.deps.registry.get(KEY, "live");
+    await connector.connect(g.businessId, {});
+    const done = await connector.connect(g.businessId, { done: true });
+    expect(Math.round((new Date(done.credentialToStore!.expiresAt!).getTime() - Date.now()) / 86_400_000)).toBe(30);
+  });
+});
+
+describe("Part D, D4: the scenarios end to end", () => {
+  it("a website-only pick: the note says the browser route, the founder signs in, and a three-step setup is read back", async () => {
+    // The recommendation: the catalog's route wins over what the agent wrote.
+    const note = toolRecommendationNote(RecommendToolArgs.parse({ category: "invoicing_accounting", pick: { name: "Wave", route: "link", why: "Free invoices.", whyNow: "Two shops asked this week.", cost: "$0 a month" }, alternatives: [{ name: "Xero", line: "$20 a month." }, { name: "QuickBooks Online", line: "$35 a month." }], sources: [{ url: "https://www.waveapps.com/pricing", title: "Wave pricing" }] }));
+    expect(note.pick.route).toBe("browser");
+    expect(catalogTool("wave")?.connectorKey).toBe(KEY);
+    // The founder signs in: no saved sign-in until Done.
+    const g = await setup("assisted", { signIn: false });
+    const connector = g.deps.registry.get(KEY, "live");
+    expect((await connector.connect(g.businessId, {})).credentialToStore).toBeUndefined();
+    const done = await connector.connect(g.businessId, { done: true });
+    const row = await repos.integrations.upsert(g.db, g.businessId, { connectorKey: KEY, status: "connected", authKind: "oauth", accountLabel: done.accountLabel, settings: { config: done.config } });
+    await storeCredential(g.db, g.vault, g.businessId, row.id, done.credentialToStore!);
+    // Three changes, each read back.
+    for (const [path, field, value, save] of [["/settings/business", "Business name", "Northwind Candles", "Save"], ["/settings/tax", "Default tax rate", "8.25", "Save"], ["/products/new", "Product name", "Cedar candle", "Save product"]] as const) {
+      let p = await g.read("open_page", { url: path });
+      ok(await g.call("fill", { ref: ref(p, field), value }));
+      p = await g.read("read_page");
+      ok(await g.call("click", { ref: ref(p, save) }));
+      expect((await g.read("open_page", { url: path })).text, path).toContain(`${field}: ${value}`);
+    }
+    expect(g.control.saved(g.businessId, "wave")).toEqual({ business_name: "Northwind Candles", tax_rate: "8.25", product_name: "Cedar candle" });
+    expect(g.steps.filter((s) => s.class === "reversible")).toHaveLength(6);
+  });
+
+  it("one project never uses another project's saved sign-in", async () => {
+    const opened: { businessId: string; contextId: string }[] = [];
+    const g = await setup("assisted");
+    const open = g.sessions.driver.open.bind(g.sessions.driver);
+    g.sessions.driver.open = async (input) => (opened.push({ businessId: input.businessId, contextId: input.contextId }), open(input));
+    const mine = (await repos.credentials.latest(g.db, g.businessId, (await repos.integrations.getByKey(g.db, g.businessId, KEY))!.id, "secret"))!;
+    expect(mine).toBeTruthy();
+    // A second project with its own saved sign-in.
+    const other = await repos.businesses.create(g.db, { name: "Other Project", businessMode: "assisted" });
+    const agent = await repos.agents.create(g.db, other.id, { name: "Other Worker", agentType: "developer", modelKey: "sonnet", initialVersion: { instructions: { role: "worker" }, tools: [] } });
+    const otherRow = await repos.integrations.upsert(g.db, other.id, { connectorKey: KEY, status: "connected", authKind: "oauth", settings: { config: { siteKey: "wave" } } });
+    await storeCredential(g.db, g.vault, other.id, otherRow.id, { kind: "oauth", secret: "other-projects-sign-in" });
+    const session = (await repos.agents.createSession(g.db, other.id, { agentId: agent.id, modelKey: "sonnet" })).id;
+    const otherTok = (await g.client.mintSessionToken({ businessId: other.id, agentId: agent.id, sessionId: session, allowedTools: [`${KEY}:*`], kitMode: false })).token;
+    await g.read("open_page", { url: "/" });
+    await g.client.call(otherTok, { connector: KEY, tool: "open_page", args: { url: "/" } });
+    expect(opened.map((o) => o.businessId)).toEqual([g.businessId, other.id]);
+    expect(opened[1]!.contextId).toBe("other-projects-sign-in");
+    expect(opened[0]!.contextId).not.toBe("other-projects-sign-in");
+    // Each project sees, holds and stops only its own session.
+    expect(g.sessions.list(g.businessId)).toHaveLength(1);
+    expect(g.sessions.list(other.id)).toHaveLength(1);
+    expect((await g.post("/v1/browser/stop", { businessId: other.id })).json).toEqual({ stopped: 1 });
+    expect(g.sessions.list(g.businessId)).toHaveLength(1);
+  });
+
+  it("Stop all agents ends a running browser session within seconds", async () => {
+    const g = await setup("assisted");
+    await g.read("open_page", { url: "/settings/business" });
+    const started = Date.now();
+    expect((await g.post("/v1/browser/stop", { businessId: g.businessId })).json).toEqual({ stopped: 1 });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(g.sessions.list(g.businessId)).toEqual([]);
   });
 });
