@@ -77,6 +77,12 @@ import type {
 
 /** `max_tokens` of a web search request: the search's titles and addresses are short (as the gateway sent it before T3). */
 export const WEB_SEARCH_MAX_TOKENS = 2_048;
+/** Searches one `searchWeb` call may run: a second when the first finds too little to quote (WP-05 T1 step 3). */
+export const WEB_SEARCH_MAX_USES = 2;
+/** The longest snippet a result keeps. */
+export const WEB_SEARCH_SNIPPET_MAX_CHARS = 300;
+/** The search request: the quoted sentence per result comes back as a citation, which is where the snippet is read. */
+export const webSearchPrompt = (query: string): string => `Search the web for: ${query}. For each result, quote one sentence from the page that says what it is about.`;
 
 /**
  * Highest budget the truncation retry doubles up to. A non-streaming call this long still finishes well inside
@@ -356,13 +362,19 @@ export class LiveModelClient implements ModelClient {
     const direct = plan.resolution.modelKey === "haiku";
     const params: Anthropic.MessageCreateParamsNonStreaming = {
       ...plan.base,
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1, ...(direct ? { allowed_callers: ["direct"] } : {}) } as Anthropic.WebSearchTool20260209],
-      messages: [{ role: "user", content: `Search the web for: ${req.query}\nList what the search returns; do not add anything.` }],
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: WEB_SEARCH_MAX_USES, ...(direct ? { allowed_callers: ["direct"] } : {}) } as Anthropic.WebSearchTool20260209],
+      messages: [{ role: "user", content: webSearchPrompt(req.query) }],
     };
     const call = { route, signal: req.signal, scope: req.scope, attribution: req.attribution };
     const { message, requestId } = await this.send(params, call, req.scope ?? "default", 0, plan);
     const results: WebSearchResult["results"] = [];
     let failed: string | null = null;
+    // The snippet is the page's own sentence the answer cited for that address (`cited_text`), never the answer's text.
+    const snippets = new Map<string, string>();
+    for (const block of message.content) {
+      if (block.type !== "text" || !block.citations) continue;
+      for (const c of block.citations) if (c.type === "web_search_result_location" && c.cited_text && !snippets.has(c.url)) snippets.set(c.url, c.cited_text.replace(/\s+/g, " ").trim().slice(0, WEB_SEARCH_SNIPPET_MAX_CHARS));
+    }
     for (const block of message.content) {
       if (block.type !== "web_search_tool_result") continue;
       // An error comes back as an object, results as a list (HTTP 200 either way).
@@ -370,7 +382,7 @@ export class LiveModelClient implements ModelClient {
         failed = block.content.error_code;
         continue;
       }
-      for (const r of block.content) results.push({ url: r.url, title: r.title, pageAge: r.page_age ?? null });
+      for (const r of block.content) results.push({ url: r.url, title: r.title, pageAge: r.page_age ?? null, snippet: snippets.get(r.url) || null });
     }
     const usage = toUsage(message.usage);
     const searches = failed ? 0 : (message.usage.server_tool_use?.web_search_requests ?? 0);

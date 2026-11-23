@@ -132,7 +132,7 @@ describe("web.search_web live (LIVE_CONNECTORS=web, MODEL_MODE=live)", () => {
     expect(out.result.ok, JSON.stringify(out.result.error)).toBe(true);
     expect(out.result.data).toMatchObject({ untrusted: true, content: { results: [{ url: "https://cups.example/wholesale", title: "Cups", pageAge: null }] } });
     expect(requests).toHaveLength(1);
-    expect(requests[0]).toMatchObject({ apiKey: "sk-ant-platform-test", body: { model: resolveModel("webSearch").modelId, tools: [{ type: "web_search_20260209", max_uses: 1 }] } });
+    expect(requests[0]).toMatchObject({ apiKey: "sk-ant-platform-test", body: { model: resolveModel("webSearch").modelId, tools: [{ type: "web_search_20260209", max_uses: 2 }] } });
     const tokens = (await repos.usage.list(ldb, r.businessId, { sessionId: r.sessionId, kind: "tokens" })).items;
     expect(tokens).toHaveLength(1);
     expect(tokens[0]).toMatchObject({ agentId: r.agentId, billedTo: "credits", details: { service: "gateway", route: "webSearch" } });
