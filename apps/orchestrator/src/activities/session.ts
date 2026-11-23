@@ -2090,6 +2090,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     judged = { print: policy.fileTools ? await fingerprintWorkspace(cwd) : null, pushes: recorder.agentPushed.count, agentBlocked: agentBlock !== null, nothingWritten, reviewBase, changes, acceptanceCommand, acceptance };
     return judged;
   };
+  /** The one turn a code session that changed no file is sent before it ends (NO_CHANGES_TURN). */
+  let changeTurnSent = false;
   /** Fix turns sent for a failing acceptance run in this session (at most ACCEPTANCE_FIX_TURNS). */
   let fixTurnsSent = 0;
   /**
@@ -2104,7 +2106,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     const v = j.acceptance;
     const goesBack = v !== null && v.status === "failed" && v.exitCode !== null && j.acceptanceCommand !== null && fixTurnsSent < ACCEPTANCE_FIX_TURNS && !recorder.loop.loopDetected;
     if (!goesBack) {
-      fixTurnsSent = ACCEPTANCE_FIX_TURNS + 1;
+      // A session that changed nothing ran no tests: its turn to make the change (NO_CHANGES_TURN) still gets them after.
+      if (!j.nothingWritten) fixTurnsSent = ACCEPTANCE_FIX_TURNS + 1;
       return { verdict: v, fixTurn: null };
     }
     fixTurnsSent += 1;
@@ -2245,6 +2248,14 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
                 continue;
               }
               if (endingNow) continue;
+              // A code session about to end with no file changed gets one turn to make the change or say why (WP-05 T19):
+              // "no changes" was the second most common block (11 of 304, Nov 23, 2026), with no turn back to the agent.
+              if (!changeTurnSent && (judged as WorkJudgment | null)?.nothingWritten && !recorder.agentBlock && !recorder.pendingApprovalId) {
+                changeTurnSent = true;
+                await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `${agent.name} changed no file; it gets one more turn to make the change or say what stops it.` });
+                send(NO_CHANGES_TURN);
+                continue;
+              }
             }
           }
           if (!creditsOut && askToReport()) continue;
@@ -2666,6 +2677,7 @@ export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_T
   const pnpmSpec = toolchain.pnpm ? `pnpm@${toolchain.pnpm}` : SANDBOX_PNPM;
   const pnpmWanted = toolchain.pnpm ? `[ "$(pnpm --version 2>/dev/null)" = "${toolchain.pnpm}" ]` : "command -v pnpm >/dev/null 2>&1";
   const filter = toolchain.filters.map((name) => ` --filter ${JSON.stringify(`${name}...`)}`).join("");
+  const install = `pnpm install --no-frozen-lockfile --ignore-scripts --ignore-pnpmfile ${PNPM_SAFE_FLAGS} --reporter=append-only${filter}`;
   return withOutputTail(ACCEPTANCE_PREPARE_LOG, [
     'export PATH="$HOME/.fm-tools/bin:$PATH"',
     PNPM_SAFE_ENV,
@@ -2679,7 +2691,9 @@ export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_T
       : []),
     `${pnpmWanted} || ${npmGlobal(pnpmSpec)}`,
     'hash -r; echo "pnpm $(pnpm --version)"',
-    `if [ -f package.json ]; then pnpm install --no-frozen-lockfile --ignore-scripts --ignore-pnpmfile ${PNPM_SAFE_FLAGS} --reporter=append-only${filter}; fi`,
+    // Once more after a failure: a dropped registry connection ended runs as "Dependency install failed" (8 of 304
+    // blocks, WP-05 T19); a project whose install really fails fails the same way twice.
+    `if [ -f package.json ]; then ${install} || { echo "Dependency install failed; trying once more in 5 s"; sleep 5; ${install}; }; fi`,
     // Still online: the test server the workflow tests start, which the offline phase could not fetch.
     ...temporalTestServerPrepareLines(),
   ]);
@@ -2932,6 +2946,8 @@ function namesList(names: readonly string[]): string {
   return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)!}`;
 }
 
+/** The turn a code session that is about to end with no file changed is sent, once. */
+export const NO_CHANGES_TURN = "You ended without changing any file in the workspace, so the task is not done. Make the change the task asks for and end your turn, or call block_task with what stops you. If the change is already in place, call block_task and say where, so the founder can close the task.";
 export const NO_CHANGES_REASON = "no changes: the session ended without changing any file in the workspace";
 /** Why a code task with an acceptance command whose run never happened is not done. */
 export const ACCEPTANCE_NOT_RUN_REASON = "acceptance tests did not run";
