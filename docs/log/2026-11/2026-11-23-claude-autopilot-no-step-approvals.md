@@ -6,12 +6,20 @@ areas: [policy, connectors, gateway, agents, docs]
 supersedes: []
 ---
 ## The founder's rule
-Founder, Nov 23, 2026, as relayed by the coordinating session: "we should not over burden users with approvals ... If the user has to approve every time the browser does something new, that is a terrible experience ... They expect it to run completely on autopilot, regardless of the setting they choose in Foundmill, and just get the job done. They should never have to approve individual steps. The same is true with changes in Notion or Hubspot, or a CLI-Anything release ... If they are burdened with having to approve each individual step, they will feel that Foundmill isn't automated at all ... They need to feel that Foundmill is magic."
+Founder, Nov 23, 2026, as relayed by the coordinating session:
+
+> "we should not over burden users with approvals ... If the user has to approve every time the browser does something new, that is a terrible experience ...
+> They expect it to run completely on autopilot, regardless of the setting they choose in Foundmill, and just get the job done.
+> They should never have to approve individual steps. The same is true with changes in Notion or Hubspot, or a CLI-Anything release ... If they are burdened with having to approve each individual step, they will feel that Foundmill isn't automated at all ... They need to feel that Foundmill is magic."
 
 ## What changed
 - `packages/policy`: `47-unclassified-step.cedar` is removed; `45-release.cedar` loses `cli-release-asks-founder` (the merge to main keeps `release-asks-founder`); `48-remote-change.cedar` keeps only HubSpot's marketing email and social posts.
-- `packages/connectors`: the browser classifier's `unknown` and `outward` classes have no hints (they run like a reversible step); the write tools' static fallback drops `unclassified`. Notion `notion-update-page` and `notion-update-database`, and HubSpot `manage_crm_objects`, `manage_blog_post`, `manage_landing_page` and `manage_website_page`, become `writes: true` with no hints. CLI-Anything `release_output` has no hints. Each is on `INTERNAL_WRITE_TOOLS` with its reason. The mock Wave dashboard gains a "Got it" button so a test can press an `unknown` step.
-- Tests: the policy table (Notion change, HubSpot record, release, unknown browser step: allow in every mode; HubSpot marketing email: ask in every mode); the gateway browser test (an unknown step runs with no approval row in augmented, assisted and automated); the gateway Notion test (a listed change runs in every mode and on vacation; an unlisted tool still asks). The existing `Buy now` / `Continue` tests still pass: a `hard_gate` step is denied in every mode and gives the founder a task. The CLI logo eval no longer expects an approval.
+- `packages/connectors`: the browser classifier's `unknown` and `outward` classes have no hints (they run like a reversible step); the write tools' static fallback drops `unclassified`.
+- Notion `notion-update-page` and `notion-update-database`, and HubSpot `manage_crm_objects`, `manage_blog_post`, `manage_landing_page` and `manage_website_page`, become `writes: true` with no hints.
+- CLI-Anything `release_output` has no hints. Each is on `INTERNAL_WRITE_TOOLS` with its reason. The mock Wave dashboard gains a "Got it" button so a test can press an `unknown` step.
+- Tests: the policy table (Notion change, HubSpot record, release, unknown browser step: allow in every mode; HubSpot marketing email: ask in every mode).
+- Tests: the gateway browser test (an unknown step runs with no approval row in augmented, assisted and automated); the gateway Notion test (a listed change runs in every mode and on vacation; an unlisted tool still asks).
+- Tests: the existing `Buy now` / `Continue` tests still pass: a `hard_gate` step is denied in every mode and gives the founder a task. The CLI logo eval no longer expects an approval.
 - Copy: FOUNDMILL.md (the connector paragraph's "Anything outward or costly asks first" sentence and the CLI-Anything line), packages/connectors/CLAUDE.md, the `make_brand_assets` and `browser_work` skills (and the generated catalog), the `release_output` description and staged notice, and the Settings › Integrations explainer.
 
 ## Decisions
