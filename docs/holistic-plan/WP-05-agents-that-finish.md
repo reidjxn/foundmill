@@ -83,7 +83,7 @@ where b.is_demo = false and s.ended_at is null and s.started_at < now() - interv
 
 ## Tasks
 
-### T0: Read why sessions block, once, before building [S] [ships alone; no code]
+### [x] T0: Read why sessions block, once, before building [S] [ships alone; no code]
 Why: A7-01 ("measure before tuning"); the 67%.
 Steps:
 1. A Desktop session runs queries 1 to 3 and pastes the three result tables into `docs/holistic-plan/audits/e0-production-evidence.md` under a new heading "Blocked sessions by reason, <date>". verify: query 1 without the date filter returns 215 / 81 / 23.
