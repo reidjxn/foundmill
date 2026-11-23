@@ -21,6 +21,7 @@ import { createGatewayBuiltins, gatewayUsageSink, readerClientFor, type Quaranti
 import { platformMailConfig } from "./platform-mail";
 import type { RepositoryFiles } from "./platform-host";
 import { createRepositoryFiles } from "./repository-files";
+import { createFounderActionPreparer, type FounderActionPreparer } from "./founder-action";
 import { gatewayConfig, type GatewayConfig } from "./config";
 import { prepareDb, type DbReadiness } from "./db-boot";
 import { type GatewayDeps, type GatewayLogger } from "./pipeline";
@@ -110,6 +111,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   let registry = options.registry;
   // The skill tools read the business's repository through this gateway's own pipeline, built further down.
   let repositoryFiles: RepositoryFiles | null = null;
+  let founderActionPreparer: FounderActionPreparer | null = null;
   // The hosted browser's live sessions: one set for the process, shared by the site connectors and the founder's routes.
   // E2B desktop sandboxes (founder, Nov 22, 2026), on the platform's E2B key: one short-lived sandbox per session.
   const browserSessions = secrets.e2bApiKey ? new BrowserSessions(createE2bBrowserDriver({ apiKey: secrets.e2bApiKey, ...(env.E2B_BROWSER_TEMPLATE ? { template: env.E2B_BROWSER_TEMPLATE } : {}) })) : null;
@@ -122,7 +124,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
       isSuppressed: (businessId, email) => repos.channels.isSuppressed(db, businessId, { emailHash: hashRecipient("email", email) }),
     });
     // The task board, typed messages, web reads and the quarantined reader are served here like any connector (BUILD §9.9).
-    for (const connector of createGatewayBuiltins({ ...readerDeps, live: { secrets }, repository: () => repositoryFiles })) registry.register(connector);
+    for (const connector of createGatewayBuiltins({ ...readerDeps, live: { secrets }, repository: () => repositoryFiles, founderActions: () => founderActionPreparer })) registry.register(connector);
   }
 
   let rateLimitStoreKind: "memory" | "redis" = "memory";
@@ -153,6 +155,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   const reader: UntrustedReader = options.reader ?? createUntrustedReader(readerClientFor(readerDeps));
   const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail, turnstile: { secret: env.TURNSTILE_SECRET_KEY ?? null }, speechStreamer: createElevenlabsSpeechStreamer({ secrets }), ...(env.STRIPE_ENTRY_PRICE_ID ? { entryPriceId: env.STRIPE_ENTRY_PRICE_ID } : {}), paidEntry: env.PAID_ENTRY === true, browserSessions };
   repositoryFiles = createRepositoryFiles(deps);
+  founderActionPreparer = createFounderActionPreparer(deps);
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).
   let readiness: DbReadiness | null = null;
   const app = createGatewayApp(deps, {

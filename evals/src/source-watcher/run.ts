@@ -55,12 +55,17 @@ export function checkSourceWatch(c: SourceWatchCase, relevance: SourceRelevance,
   return problems;
 }
 
+/** The source with its title and notes, as the agent got it: the grader read the text alone and called the title's firm name invented (live run of Nov 22, 2026). */
+export function sourceForGrader(c: SourceWatchCase): string {
+  return [`Title: ${c.content.title ?? c.source.title}`, c.content.notes ? `Notes: ${c.content.notes}` : "", c.content.text].filter(Boolean).join("\n");
+}
+
 function graderMessage(c: SourceWatchCase, relevance: SourceRelevance, proposal: DraftedProposal | null, problems: string[]): string {
   const rubric = c.rubric.map((r, i) => `${i + 1}. ${r}`).join("\n");
   const checks = problems.length ? problems.map((p) => `- FAILED: ${p}`).join("\n") : "- all deterministic checks passed";
   const blocks = c.blocks.map((b) => `${b.section}: ${docText(b.content)}`).join("\n");
   const output = JSON.stringify({ relevance, proposal: proposal ? { ...proposal, hunks: proposal.hunks.map((h) => ({ section: c.blocks.find((b) => b.id === h.specBlockId)?.section, before: docText(h.ours), after: docText(h.theirs) })) } : null }, null, 2);
-  return `Task given to the agent:\nRead a new ${c.source.kind} source for ${c.businessName}, score it against the specification and, where a block is out of date, propose the smallest change (case ${c.id}: ${c.title}).\n\nThe specification before:\n${blocks}\n\nThe source (untrusted):\n${c.content.text}\n\nRubric:\n${rubric}\n\nDeterministic check results (authoritative):\n${checks}\n\nAgent output:\n<output>\n${output.slice(0, 60_000)}\n</output>`;
+  return `Task given to the agent:\nRead a new ${c.source.kind} source for ${c.businessName}, score it against the specification and, where a block is out of date, propose the smallest change (case ${c.id}: ${c.title}).\n\nThe specification before:\n${blocks}\n\nThe source (untrusted), as the agent read it:\n${sourceForGrader(c)}\n\nRubric:\n${rubric}\n\nDeterministic check results (authoritative):\n${checks}\n\nAgent output:\n<output>\n${output.slice(0, 60_000)}\n</output>`;
 }
 
 /** One case end to end. Never throws; errors land in `error`. */

@@ -6,7 +6,8 @@
 import { openApprovalItem, repos } from "@foundmill/db";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { AppError } from "@foundmill/shared";
+import { AppError, BROWSER_SIGN_IN } from "@foundmill/shared";
+import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { createCaller } from "../router";
 import type { ApiDeps, CallerUser } from "../context";
 import type { GatewayBrowserSession, GatewayConnectResult } from "../services/gateway";
@@ -189,5 +190,32 @@ describe("a hosted-browser hard stop in the Inbox", () => {
     const { item } = await openApprovalItem(db, A, approval, { agentId: hz.A.agentId, agentName: "Web Lead", connectorName: "Carrd (website)" });
     const seen = await hz.caller({ userId: hz.A.ownerId }).inbox.get({ businessId: A, itemId: item.id });
     expect(seen.approval?.browserStep).toEqual({ stepId: step.id, siteKey: "carrd" });
+  });
+});
+
+describe("a quiet saved sign-in (Part D)", () => {
+  async function keepNote(businessId: string, agentId: string) {
+    const row = await repos.integrations.upsert(hz.db, businessId, { connectorKey: "browser_wave", status: "connected", authKind: "oauth", settings: { config: { siteKey: "wave" } } });
+    const soon = new Date(Date.now() + 5 * 86_400_000);
+    const record = await encryptJson(createVault({ DEV_MASTER_KEY: generateMasterKey(), APP_ENV: "test" }), { kind: "oauth", secret: "{}" }, buildAad(businessId, "credentials", "pending"));
+    const cred = await repos.credentials.store(hz.db, businessId, { integrationId: row.id, kind: "secret", record, expiresAt: soon });
+    const item = await repos.inbox.createItem(hz.db, businessId, { type: "decision", from_agent_id: agentId, subject: "Keep your saved sign-in to Wave?", body_md: "It will be deleted in 5 days.", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: BROWSER_SIGN_IN.options.keep, label: "Keep it", recommended: false, consequence: "Kept.", cost_minor: 0, reversible: true }, { id: BROWSER_SIGN_IN.options.letGo, label: "Let it go", recommended: true, consequence: "Deleted on the day.", cost_minor: 0, reversible: true }], free_text: false, expires_at: null, key: "browser_keep:wave" }, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+    return { item, cred, soon, rowId: row.id };
+  }
+
+  it("Keep it gives the sign-in another 30 days; only owners, cofounders and admins answer", async () => {
+    const { businessId, ownerId, agentId, memberId } = hz.A;
+    const { item, rowId } = await keepNote(businessId, agentId);
+    await expect(hz.caller({ userId: memberId }).inbox.decide({ businessId, itemId: item.id, chosenOption: BROWSER_SIGN_IN.options.keep })).rejects.toThrow(/saved sign-ins|write access/);
+    await hz.caller({ userId: ownerId }).inbox.decide({ businessId, itemId: item.id, chosenOption: BROWSER_SIGN_IN.options.keep });
+    const after = await repos.credentials.latest(hz.db, businessId, rowId);
+    expect(Math.round((new Date(after!.meta.expiresAt!).getTime() - Date.now()) / 86_400_000)).toBe(BROWSER_SIGN_IN.quietDays);
+  });
+
+  it("Let it go leaves the date as it is", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const { item, rowId, soon } = await keepNote(businessId, agentId);
+    await hz.caller({ userId: ownerId }).inbox.decide({ businessId, itemId: item.id, chosenOption: BROWSER_SIGN_IN.options.letGo });
+    expect(new Date((await repos.credentials.latest(hz.db, businessId, rowId))!.meta.expiresAt!).getTime()).toBe(soon.getTime());
   });
 });

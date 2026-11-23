@@ -235,7 +235,7 @@ test.describe("settings, plain words", () => {
     const screen = await openSettings(page, "integrations");
     const panel = screen.getByTestId("google-context");
     await expect(panel).toBeVisible({ timeout: LONG });
-    await expect(panel).toContainText("sending mail and inviting people always ask you first");
+    await expect(panel).toContainText("sending mail and inviting people run on their own, unless you chose to be asked before anything outside the business");
     await expect(panel).toContainText("Your inbox is read once Google grants inbox access.");
     await expect(async () => {
       await panel.getByRole("checkbox", { name: /Let the team read your Gmail/ }).click();

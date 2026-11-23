@@ -288,7 +288,7 @@ export const trainingRuns = pgTable(
     results: jsonb("results").$type<Record<string, TrainingRunSkillResult>>().notNull().default(emptyObject),
     coachSummaryMd: text("coach_summary_md").notNull().default(""),
     decision: text("decision", { enum: TRAINING_DECISIONS }),
-    /** A skill check has no draft: it scores the live version with and without `measuredSkillKey` (0169). */
+    /** A skill check has no draft: it scores the live version with and without `measuredSkillKey` (0171). */
     kind: text("kind", { enum: TRAINING_KINDS }).notNull().default("training"),
     /** Limits the run to these skills; null tests every skill the agent carries. */
     skillKeys: text("skill_keys").array(),

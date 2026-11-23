@@ -53,6 +53,7 @@ const EVERY_SECRET: Record<keyof Required<PlatformSecrets>, true> = {
   hubspotMcpClientId: true,
   hubspotMcpClientSecret: true,
   shopifyMcpClientId: true,
+  lightbringerMcpClientId: true,
   notionClientSecret: true,
   dropboxSignApiKey: true,
   opensrsUsername: true,

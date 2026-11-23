@@ -33,8 +33,8 @@ import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, attachedSkills, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, NO_TOOL_LOOP_PRELOAD_BODIES, restoredWorkspaceNote, selectSkills, SESSION_PRELOAD_BODIES, ToolGrant, type AgentTemplate, type AttachedSkill } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, modelFundingFor, sandboxCostMicroMinor } from "@foundmill/config";
-import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, withContextReads, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
-import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, freeCapCheck, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
+import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, withBrowserSites, BROWSER_WORK_SKILL, browserSiteOfConnector, withContextReads, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
+import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, founderOnlyCall, freeCapCheck, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, readSessionEvents, type SessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_ENDPOINTS, MODEL_PRICING, MODEL_PROVIDER, MODELS, resolveModel, type ModelId, type ModelKey as RoutedModelKey, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, capturePages, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
@@ -72,6 +72,15 @@ import type { AgentSessionInput, MergeInput, SessionFinish, SessionLaunch, Sessi
 const ToolGrants = z.array(ToolGrant);
 const CONTROL_POLL_MS = 250;
 /** How often a running session re-reads its business's stop flag (one indexed read per session). */
+
+/** The project's connected websites (`browser_<site>`), when the agent holds the browser_work skill; else none (Part D, D3). */
+async function browserSitesFor(db: OrchestratorDeps["db"], businessId: string, agent: { id: string; agentType: string }): Promise<string[]> {
+  const skills = await repos.skills.listAddedForAgent(db, businessId, agent.id, agent.agentType);
+  if (!skills.some((s) => s.skillKey === BROWSER_WORK_SKILL)) return [];
+  const rows = await repos.integrations.list(db, businessId);
+  return rows.filter((r) => browserSiteOfConnector(r.connectorKey) !== null && r.archivedAt === null && (r.status === "connected" || r.status === "mock" || r.status === "degraded")).map((r) => r.connectorKey);
+}
+
 export const STOP_CHECK_MS = 5_000;
 /** The stop a running session gives itself when it finds the team stopped. */
 export const AGENTS_STOPPED_REASON = "agents stopped";
@@ -782,13 +791,16 @@ class SessionRecorder {
     const { deps, ctx } = this;
     try {
       let approval = await repos.approvals.get(deps.db, ctx.input.businessId, approvalId);
+      let stored: "approved" | "rejected" | "expired" = outcome;
       if (approval.outcome === null) {
-        approval = await repos.approvals.resolve(deps.db, ctx.input.businessId, approvalId, { outcome, byKind: by ? "user" : "system", byId: by });
+        // A founder-only call's hold that moved on by itself is closed as expired: only an owner or admin approves one.
+        stored = !by && outcome === "approved" && founderOnlyCall(approval.connectorKey, approval.tool) ? "expired" : outcome;
+        approval = await repos.approvals.resolve(deps.db, ctx.input.businessId, approvalId, { outcome: stored, byKind: by ? "user" : "system", byId: by });
         await emitEvent(deps.db, {
           businessId: ctx.input.businessId,
           type: "approval.resolved",
           actor: by ? { kind: "user", id: by } : systemActor,
-          payload: { approvalId, agentId: ctx.agent.id, outcome, resolvedBy: by ? { kind: "user", id: by } : systemActor, note: null, latencyMs: Math.max(0, deps.clock.nowMs() - new Date(approval.createdAt).getTime()) },
+          payload: { approvalId, agentId: ctx.agent.id, outcome: stored, resolvedBy: by ? { kind: "user", id: by } : systemActor, note: null, latencyMs: Math.max(0, deps.clock.nowMs() - new Date(approval.createdAt).getTime()) },
         });
       }
       await closeApprovalItem(deps.db, ctx.input.businessId, approval);
@@ -885,7 +897,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       if (business.agentsStoppedAt) throw ApplicationFailure.nonRetryable("Agents are stopped for this business", AGENT_PAUSED_FAILURE);
       // A second read's revision keeps only the document tools (./second-read); the founder's mail and calendar are read
       // only where the founder said yes (packages/connectors google-context).
-      const grants = withContextReads(await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(version, template))), await repos.integrations.contextReads(deps.db, input.businessId));
+      const grants = withContextReads(await sessionGrantsFor(deps.db, input.businessId, task.id, withBrowserSites(resolveGrants(parseGrants(version, template)), await browserSitesFor(deps.db, input.businessId, agent))), await repos.integrations.contextReads(deps.db, input.businessId));
       const route: RouteKey = template.route;
       const { provider, mode, fellBackFrom } = await deps.sandbox();
       // The credit saver: a session on the platform key whose month's credits are low runs routine work on the route's
@@ -1629,7 +1641,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 
   // A second read's revision keeps only the document tools (./second-read): its goal carries another agent's notes.
   // The founder's mail and calendar are read only where the founder said yes (packages/connectors google-context).
-  const grants = withContextReads(await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(live.version, live.template))), await repos.integrations.contextReads(deps.db, input.businessId));
+  const grants = withContextReads(await sessionGrantsFor(deps.db, input.businessId, task.id, withBrowserSites(resolveGrants(parseGrants(live.version, live.template)), await browserSitesFor(deps.db, input.businessId, agent))), await repos.integrations.contextReads(deps.db, input.businessId));
   if (grants.unresolved.length > 0) deps.log.info({ sessionId: input.sessionId, unresolved: grants.unresolved.map((u) => `${u.connectorKey}.${u.capability}`).slice(0, 50) }, "granted capabilities no tool serves yet");
   // What the gateway would refuse as not connected (WP-05 T12, the gateway's own rule): the agent is told, and a research
   // or channel task whose every outside connector is refused does not start, before any workspace, token or SDK exists.

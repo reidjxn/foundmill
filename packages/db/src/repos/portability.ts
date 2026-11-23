@@ -70,6 +70,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   pay_links: t(s.payLinks, "development"),
   // 0154: what the project needs a tool for, what was recommended and why, and the founder's answer.
   tool_needs: t(s.toolNeeds, "team"),
+  // 0169: requests an agent prepared for the founder to press (the press token's hash is a credential, not data).
+  founder_actions: t(s.founderActions, "team", { omit: ["tokenHash"] }),
   // 0162: each write step the team took in a website (deleted with the project, like every record here). The page's
   // screenshot stays out, like post_media's file: it may hold other people's personal data and one page of rows would
   // carry hundreds of PNGs.

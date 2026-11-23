@@ -251,7 +251,8 @@ export interface WebSearchRequest {
 }
 
 export interface WebSearchResult {
-  results: { url: string; title: string; pageAge: string | null }[];
+  /** `snippet`: a sentence from the page the search cited for it (page text, untrusted), or null when none was cited. */
+  results: { url: string; title: string; pageAge: string | null; snippet: string | null }[];
   usage: TokenUsage;
   /** The tokens and the search fee (an Estimate). */
   cost: MeterResult;

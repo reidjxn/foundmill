@@ -17,9 +17,9 @@ describe("cli connectors", () => {
     await expect(mock.callTool("release_output", { path: "logo.svg", target: "logo" }, ctx("b2"))).resolves.toMatchObject({ ok: false });
     expect(JSON.stringify(await mock.callTool("release_output", { path: "logo.svg", target: "logo" }, ctx("b1")))).toContain('"released":true');
   });
-  it("release_output asks first; making a file does not", () => {
+  it("release_output and making a file run with no approval (founder, Nov 23, 2026)", () => {
     const c = createCliConnector("inkscape");
-    expect(c.policyHints.release_output).toMatchObject({ contactsThirdParty: true });
+    expect(c.policyHints.release_output).toEqual({});
     expect(c.policyHints.export).toEqual({});
   });
   it("live runs through the host runner in the business's own folder, and fails without one", async () => {

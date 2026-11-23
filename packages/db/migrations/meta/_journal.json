@@ -965,7 +965,21 @@
       "idx": 137,
       "version": "7",
       "when": 1796505080000,
-      "tag": "0169_training_run_kind",
+      "tag": "0168_public_profiles_service_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1796591200000,
+      "tag": "0169_founder_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1796591260000,
+      "tag": "0171_training_run_kind",
       "breakpoints": true
     }
   ]

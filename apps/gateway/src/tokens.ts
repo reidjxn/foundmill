@@ -181,3 +181,48 @@ export function bearerToken(header: string | undefined | null): string | null {
   const m = /^Bearer\s+(.+)$/i.exec(header.trim());
   return m?.[1]?.trim() || null;
 }
+
+/**
+ * The founder's press (founder, 2026-11-22): a token the api mints at the founder's one press of a Needs you note, bound
+ * to the request (`actionId`), the project, the founder and the sha256 of the exact payload the note showed. It is a third
+ * audience, so a session or service token never verifies as one and the other way round. It lives at most
+ * `MAX_PRESS_TOKEN_SECONDS`; the gateway spends it once (`founder-action.ts` records the token's id on the request).
+ */
+export const PRESS_AUDIENCE = "foundmill-gateway/founder-press";
+export const MAX_PRESS_TOKEN_SECONDS = 300;
+
+export const PressClaims = z.object({ actionId: Id, businessId: Id, userId: Id, payloadHash: z.string().regex(/^[0-9a-f]{64}$/) });
+export type PressClaims = z.infer<typeof PressClaims>;
+export interface PressToken extends PressClaims {
+  jti: string;
+  exp: number;
+  iat: number;
+}
+
+export async function signFounderPressToken(secret: string, claims: PressClaims, ttlSeconds: number, now: () => Date = () => new Date()): Promise<{ token: string; jti: string }> {
+  const parsed = PressClaims.parse(claims);
+  const iat = Math.floor(now().getTime() / 1000);
+  const jti = randomUUID();
+  const token = await new SignJWT({ ...parsed }).setProtectedHeader({ alg: "HS256", typ: "JWT" }).setIssuer(TOKEN_ISSUER).setAudience(PRESS_AUDIENCE).setIssuedAt(iat).setExpirationTime(iat + Math.floor(ttlSeconds)).setJti(jti).sign(key(secret));
+  return { token, jti };
+}
+
+/** Verifies under the api's own secret when it has one (the shared secret only while the switch is in progress), else the shared secret. */
+export async function verifyFounderPressToken(secrets: { shared: string; api: string | null; legacy: boolean }, token: string, now: () => Date = () => new Date()): Promise<PressToken> {
+  const candidates = secrets.api ? (secrets.legacy ? [secrets.api, secrets.shared] : [secrets.api]) : [secrets.shared];
+  let payload: JWTPayload | null = null;
+  let last: unknown = null;
+  for (const s of candidates) {
+    try {
+      payload = await verify(s, token, PRESS_AUDIENCE, now);
+      break;
+    } catch (e) {
+      last = e;
+    }
+  }
+  if (!payload) throw last ?? new UnauthorizedError("Press token is invalid");
+  const claims = PressClaims.safeParse(payload);
+  if (!claims.success || typeof payload.jti !== "string") throw new UnauthorizedError("Press token claims are malformed");
+  if (payload.exp! - payload.iat! > MAX_PRESS_TOKEN_SECONDS) throw new UnauthorizedError("Press token lives longer than a press may");
+  return { ...claims.data, jti: payload.jti, exp: payload.exp!, iat: payload.iat! };
+}

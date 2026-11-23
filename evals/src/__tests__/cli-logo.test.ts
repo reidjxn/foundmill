@@ -11,7 +11,7 @@ beforeAll(async () => { h = await createTestDb(); db = h.db as unknown as Db; })
 afterAll(async () => { await h.close?.(); });
 
 describe("CLI-Anything logo eval", () => {
-  it("a Design agent makes a logo from the brand colors, and approval puts it on the page", async () => {
+  it("a Design agent makes a logo from the brand colors, and release_output puts it on the page", async () => {
     const b = await repos.businesses.create(db, { name: "Northwind Skincare" });
     const r = await runCliLogoEval(db, { businessId: b.id, name: "Northwind", primary: "#2b6cb0", secondary: "#f5b841" });
     expect(r.problems).toEqual([]);

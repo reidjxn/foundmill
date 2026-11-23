@@ -11,9 +11,10 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
-import { createNotionMcpConnector, type Connector } from "@foundmill/connectors";
+import { createHubspotMcpConnector, createNotionMcpConnector, type Connector } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { storeCredential } from "../credentials";
+import { doneKeyOf } from "../pipeline";
 import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallResponse } from "../types";
 import { setupGateway, type GatewayFixture } from "./harness";
 
@@ -53,7 +54,7 @@ afterEach(async () => {
 });
 
 const SEARCH = { connector: "notion_mcp", tool: "notion_search", args: { query: "launch" } } as const;
-const UPDATE = { connector: "notion_mcp", tool: "notion_update_page", args: { page_id: "p1" } } as const;
+const UPDATE = { connector: "notion_mcp", tool: "notion_update_page", args: { page_id: "p1", command: "update_properties", properties: { Status: "Done" } } } as const;
 const unlisted = (tool: string) => ({ connector: "notion_mcp", tool: "call_unlisted_tool", args: { tool, arguments: {} } }) as const;
 
 describe("live", () => {
@@ -79,18 +80,18 @@ describe("live", () => {
     expect(vendor.calls).toEqual([]);
   });
 
-  for (const mode of ["augmented", "assisted"] as const) {
-    it(`${mode}: a listed write that changes pages, and an unlisted tool, ask first and reach no server`, async () => {
+  // Founder, Nov 23, 2026: "They should never have to approve individual steps."
+  for (const mode of ["augmented", "assisted", "automated"] as const) {
+    it(`${mode}: a listed change to a page runs with no approval; an unlisted tool still asks and reaches no server`, async () => {
       const vendor = server();
       const g = (open = await setupGateway({ mode: "live", businessMode: mode, connectors: live(vendor.fetch) }));
       await connect(g);
       const token = await g.token({ allowedTools: ["notion_mcp:*"] });
-      for (const call of [UPDATE, unlisted("notion-brand-new")]) {
-        const r = await g.client.call(token, call);
-        expect(r.outcome, `${mode} ${call.tool}: ${JSON.stringify(r)}`).toBe("ask");
-        expect((r as AskResponse).approvalId).toBeTruthy();
-      }
-      expect(vendor.calls).toEqual([]);
+      expect(asAllow(await g.client.call(token, UPDATE)).result.ok).toBe(true);
+      const r = await g.client.call(token, unlisted("notion-brand-new"));
+      expect(r.outcome, `${mode}: ${JSON.stringify(r)}`).toBe("ask");
+      expect((r as AskResponse).approvalId).toBeTruthy();
+      expect(vendor.calls.map((c) => c.name)).toEqual(["notion-update-page"]);
     });
   }
 
@@ -103,6 +104,49 @@ describe("live", () => {
       const r = await g.client.call(token, unlisted(name));
       expect(r.outcome, name).toBe("deny");
       expect(JSON.stringify(r)).toContain("hard-gate");
+    }
+    expect(vendor.calls).toEqual([]);
+  });
+
+  it("on vacation: a listed change runs with no approval", async () => {
+    const vendor = server();
+    const g = (open = await setupGateway({ mode: "live", businessMode: "automated", connectors: live(vendor.fetch) }));
+    await connect(g);
+    const token = await g.token({ allowedTools: ["notion_mcp:*"] });
+    const holiday = await repos.holidays.start(g.db, g.businessId, { untilAt: new Date(Date.now() + 86_400_000), budgetCeilingMinor: 50_000 });
+    try {
+      expect(asAllow(await g.client.call(token, { connector: "notion_mcp", tool: "notion_update_page", args: { page_id: "p2", command: "update_content", content_updates: [{ old_str: "Draft", new_str: "Final" }] } })).result.ok).toBe(true);
+    } finally {
+      await repos.holidays.end(g.db, g.businessId, holiday.id);
+    }
+    expect(vendor.calls.map((c) => c.name)).toEqual(["notion-update-page"]);
+  });
+
+  it("arguments that delete, trash or change access are denied before anyone is asked, also with the owner's approval in hand", async () => {
+    const vendor = server();
+    const g = (open = await setupGateway({ mode: "live", businessMode: "automated", connectors: live(vendor.fetch) }));
+    await connect(g);
+    const token = await g.token({ allowedTools: ["notion_mcp:*"] });
+    const destructive: { tool: string; args: Record<string, unknown> }[] = [
+      { tool: "notion_update_page", args: { page_id: "p1", command: "update_properties", in_trash: true } },
+      { tool: "notion_update_page", args: { page_id: "p1", archived: true } },
+      // A command the documentation does not list (a whole-body replace) cannot show what it removes: fail closed.
+      { tool: "notion_update_page", args: { page_id: "p1", command: "replace_content", new_str: "" } },
+      { tool: "notion_update_page", args: { page_id: "p1" } },
+      // Moved items inherit access from the new parent: an access change the arguments cannot rule out.
+      { tool: "notion_move_pages", args: { page_or_database_ids: ["p1"], new_parent: { page_id: "p9" } } },
+      // "Omitted options are removed", and a property set to null is removed with its values.
+      { tool: "notion_update_database", args: { database_id: "d1", properties: { Status: { select: { options: [{ name: "Done" }] } } } } },
+      { tool: "notion_update_database", args: { database_id: "d1", properties: { Notes: null } } },
+      { tool: "notion_update_page", args: { page_id: "p1", command: "update_content", operation: { type: "delete_block" } } },
+    ];
+    for (const call of destructive) {
+      // An owner already said yes to this very call (or a delegate did, before the founder-only rule): no matter.
+      await repos.approvals.create(g.db, g.businessId, { agentId: g.agentId, sessionId: g.sessionId, connectorKey: "notion_mcp", tool: call.tool, args: call.args, reasons: ["asks"] }).then((a) => g.h.pg.query("update approvals set outcome = 'approved', by_kind = 'system', resolved_at = now() where id = $1", [a.id]));
+      const r = await g.client.call(token, { connector: "notion_mcp", tool: call.tool, args: call.args });
+      expect(r.outcome, `${call.tool} ${JSON.stringify(call.args)}: ${JSON.stringify(r)}`).toBe("deny");
+      expect(JSON.stringify(r)).toContain("hard-gate");
+      expect((r as { approvalId?: string }).approvalId).toBeUndefined();
     }
     expect(vendor.calls).toEqual([]);
   });
@@ -132,5 +176,14 @@ describe("mock", () => {
     const token = await g.token({ allowedTools: ["notion_mcp:notion_search"] });
     const r = asAllow(await g.client.call(token, SEARCH));
     expect(r.result).toMatchObject({ ok: true, simulated: true, notice: SIMULATED_NOTICE });
+  });
+});
+
+describe("unasked HubSpot changes", () => {
+  it("a repeat of the same manage call in one session is answered from the first run, not run again", () => {
+    const hubspot = createHubspotMcpConnector({ secrets: {} });
+    const session = { agentId: "a1", sessionId: "s1" };
+    expect(doneKeyOf(hubspot, "manage_crm_objects", { objectType: "contacts" }, {}, session)).toBeTruthy();
+    expect(doneKeyOf(hubspot, "search_crm_objects", {}, {}, session)).toBeNull();
   });
 });

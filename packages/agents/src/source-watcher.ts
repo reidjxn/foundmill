@@ -174,6 +174,9 @@ export interface SourceRelevance {
   weaknesses?: string[];
 }
 
+/** Cut at a word boundary with an ellipsis, never mid-word ("two months o" read as a broken summary, Nov 22, 2026). */
+const clipWords = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max - 1).replace(/\s+\S*$/, "")}…`);
+
 const plainList = (xs: readonly string[], max: number, chars: number) => [...new Set(xs.map((x) => plainLine(x).slice(0, chars)).filter(Boolean))].slice(0, max);
 
 /** Keeps candidate ids only (each once, the best score), clamps scores and stores every string as plain text. */
@@ -195,7 +198,7 @@ export function finaliseRelevance(out: SourceRelevanceOutput, ctx: { source: Sou
     severity: out.severity,
   };
   if (ctx.source.kind === "competitor") {
-    const pricing = out.pricing ? plainLine(out.pricing).slice(0, 200) : "";
+    const pricing = out.pricing ? clipWords(plainLine(out.pricing), 200) : "";
     if (pricing) relevance.pricing = pricing;
     const strengths = plainList(out.strengths, 3, 120);
     const weaknesses = plainList(out.weaknesses, 3, 120);

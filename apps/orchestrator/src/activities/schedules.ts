@@ -14,9 +14,9 @@
  */
 import { Context } from "@temporalio/activity";
 import { buildMarkovModel, conversionPathsFromTouches } from "@foundmill/journey";
-import { catchUpMilestones, repos, stopBusinessAgents } from "@foundmill/db";
-import { channelAvailability, channelAvailabilityFacts, everyChannelAvailable } from "@foundmill/connectors";
-import { channelEngineMayRun, type ChannelKey } from "@foundmill/shared";
+import { catchUpMilestones, repos, stopBusinessAgents, type Executor } from "@foundmill/db";
+import { browserSiteOfConnector, channelAvailability, channelAvailabilityFacts, everyChannelAvailable } from "@foundmill/connectors";
+import { BROWSER_SIGN_IN, channelEngineMayRun, type ChannelKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { DueBusinessDeletion, EngineToEnsure, ScheduleBatch, ScheduleResult } from "./types";
@@ -53,6 +53,51 @@ async function eachBusiness(deps: OrchestratorDeps, task: string, businessIds: r
     ctx?.heartbeat(i + 1);
   }
 }
+
+
+/**
+ * A saved sign-in to a website nobody used for a while (founder, Nov 22, 2026): `BROWSER_SIGN_IN.warnDays` before its
+ * date the founder gets one decision note (emailed as a waiting decision), and on the date it is deleted from the vault
+ * and the site reads "Sign in again". Using the site, or answering Keep it, moves the date.
+ */
+async function quietBrowserSignIn(db: Executor, businessId: string, integration: { id: string; connectorKey: string; accountLabel: string | null }, credentialId: string, daysRemaining: number): Promise<void> {
+  const site = browserSiteOfConnector(integration.connectorKey)!;
+  if (daysRemaining <= 0) {
+    await repos.credentials.revoke(db, businessId, credentialId);
+    await repos.integrations.setStatus(db, businessId, integration.id, "expired", "Sign in again");
+    await repos.audit.append(db, businessId, { actorKind: "system", action: "browser.sign_in_deleted", target: { kind: "integration", id: integration.id }, details: { connector: integration.connectorKey, reason: "unused", quietDays: BROWSER_SIGN_IN.quietDays } });
+    return;
+  }
+  if (daysRemaining > BROWSER_SIGN_IN.warnDays) return;
+  const subject = browserKeepSubject(site.name);
+  // Said once: a note still waiting for its answer is not written again.
+  if ((await repos.inbox.openBySubject(db, businessId, subject)).some((i) => i.state !== "answered")) return;
+  const chief = await repos.agents.chiefOfStaff(db, businessId);
+  if (!chief) return;
+  const item = await repos.inbox.createItem(db, businessId, {
+    type: "decision",
+    from_agent_id: chief.id,
+    subject,
+    body_md: `Nobody on the team has worked in ${site.name} for a while, so your saved sign-in to it will be deleted in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}. Keep it if the team will work there again soon. If you let it go, you can sign in again whenever you want.`,
+    status_strip: [],
+    exhibit: { kind: "none", spec_ref: null },
+    decision: {
+      options: [
+        { id: BROWSER_SIGN_IN.options.keep, label: "Keep it", recommended: false, consequence: `The sign-in is kept for another ${BROWSER_SIGN_IN.quietDays} days.`, cost_minor: 0, reversible: true },
+        { id: BROWSER_SIGN_IN.options.letGo, label: "Let it go", recommended: true, consequence: "It is deleted on the day. Nothing else changes.", cost_minor: 0, reversible: true },
+      ],
+      free_text: false,
+      expires_at: null,
+      key: `${BROWSER_SIGN_IN.keyPrefix}${site.key}`,
+    },
+    blocks_continue: false,
+    source_event_ids: [],
+    entity_ids: [],
+  });
+  await emitEvent(db, { businessId, type: "inbox.item_created", actor: { kind: "agent", id: chief.id }, payload: { inboxItemId: item.id, type: item.type, fromAgentId: chief.id, subject: item.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
+}
+
+export const browserKeepSubject = (siteName: string): string => `Keep your saved sign-in to ${siteName}?`;
 
 export function createScheduleActivities(deps: OrchestratorDeps) {
   const at = (iso?: string) => (iso ? new Date(iso) : deps.clock.now());
@@ -171,6 +216,8 @@ export function createScheduleActivities(deps: OrchestratorDeps) {
           eventIds.push(ev.id);
           touched += 1;
           if (daysRemaining <= 0 && integration.status !== "expired") await repos.integrations.setStatus(db, businessId, integration.id, "expired", "credential expired");
+          // A saved sign-in to a website (the hosted browser) left unused: one note a week before, then it is deleted.
+          if (browserSiteOfConnector(integration.connectorKey)) await quietBrowserSignIn(db, businessId, integration, cred.id, daysRemaining);
         }
       });
       return { businesses: input.businessIds.length, touched, eventIds, notes };

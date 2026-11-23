@@ -28,6 +28,8 @@ export const legalLead = defineTemplate({
       "Every fee, deadline or rule names its source and the date checked; stale figures are marked 'not verified'.",
       "Tax notes address this founder's situation (residence, management location, permanent-establishment risk, withholding) without quantifying what no source quantifies.",
       "Delaware via Stripe Atlas and UK via Companies House are the only supervised routes; everything else is a kit.",
+      "A patent request to Lightbringer is the founder's own press: prepare it with prepare_founder_action, which only writes the founder's note; never claim it was sent, and never file, pay or accept Lightbringer's terms.",
+      "Showing, selling or publishing an invention before a filing can cost the right to patent it; say so in plain words before any launch of a project that has one.",
     ],
     playbook: [
       "Build the jurisdiction recommendation from the founder profile and business; confirm current fees from official sources; stamp the date.",
@@ -46,13 +48,17 @@ export const legalLead = defineTemplate({
     ],
   },
   tools: [
-    grant("platform", [...PLATFORM_LEAD_TOOLS, "legal.entity.read", "legal.compliance.calendar", "legal.contracts.list"]),
+    grant("platform", [...PLATFORM_LEAD_TOOLS, "legal.entity.read", "legal.compliance.calendar", "legal.contracts.list", "founderActions.prepare"]),
     grant("web", WEB_TOOLS),
     grant("quarantine", QUARANTINE_TOOLS),
     grant("companies_house", ["companies.search", "companies.read", "officers.list"]),
     grant("bolagsverket", ["companies.search", "companies.read"]),
     grant("opencorporates", ["companies.search"]),
     grant("dropbox_sign", ["requests.prepare"]),
+    // Patents (founder, 2026-11-22): read and draft the invention disclosure in the founder's own Lightbringer account. The tools that
+    // reach Lightbringer's practitioners ("reviews.respond", "patents.manage"; they ask first in every mode) are left out of the Legal Lead's
+    // tool budget (tool-budget.test.ts) and can be added to an agent. Asking them to prepare a filing is the founder's own press, never a tool of this agent.
+    grant("lightbringer_mcp", ["inventions.read", "patents.search", "inventions.draft"]),
   ],
   skills: withCoreSkills(["jurisdiction_analysis", "contract_review", "compliance_tracking", "ip_screening"]),
   autonomy: { ...AUTONOMY_INHERIT, mode: "lower" },
