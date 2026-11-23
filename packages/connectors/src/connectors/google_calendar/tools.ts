@@ -53,7 +53,7 @@ export const googleCalendarTools = [
   // The founder's own calendar, nobody else's: no attendees and no invitations, so it runs like a draft (founder, Nov 19, 2026).
   defineTool({
     name: "add_event",
-    description: "Put an event on the founder's own calendar with no attendees: nobody is invited or notified. To invite people, use create_event, which asks the founder first.",
+    description: "Put an event on the founder's own calendar with no attendees: nobody is invited or notified. To invite people, use create_event, which asks the founder first only when the project is set to ask before anything outside the business.",
     // Only the founder's primary calendar: a shared, delegated or room calendar shows the event to other people.
     input: z.object({ calendarId: z.literal("primary").default("primary"), summary: z.string().min(1).max(300), description: z.string().max(5000).optional(), location: z.string().max(500).optional(), start: Iso, end: Iso, timeZone: z.string().max(60).default("Europe/Stockholm") }).refine((v) => Date.parse(v.end) > Date.parse(v.start), "end must be after start"),
     output: CalendarEvent,

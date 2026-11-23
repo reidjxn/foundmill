@@ -309,7 +309,7 @@ test.describe("commit", () => {
     await expect(page.getByTestId("decision-bar")).toHaveCount(0);
     // The spend cap per action Commit starts on (0, founder 2026-11-22) is kept on the business, editable in Settings › What the team can do.
     const mode = await openSettings(page, "mode", bid);
-    await expect(mode.getByTestId("spend-cap-form").getByRole("radio", { name: "Always ask" })).toBeChecked({ timeout: LONG });
+    await expect(mode.getByTestId("spend-cap-form").getByRole("radio", { name: /^Ask me every time/ })).toBeChecked({ timeout: LONG });
     // A new project shares the owner's one team budget for the month (their plan's: Studio for the dev owner), in US dollars.
     const billing = await openSettings(page, "billing", bid);
     await expect(billing.getByTestId("credits-balance")).toContainText(/\$[\d.,]+ left of \$[\d.,]+/, { timeout: LONG });

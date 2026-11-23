@@ -50,7 +50,7 @@ export function GoogleContextPanel({ businessId, rows, canEdit }: { businessId: 
 
   return (
     <SettingsSection title="Your mail and calendar as context" data-testid="google-context">
-      <Hint>Let the team read your own mail and calendar on this project, so its work fits what is already happening. What it reads is outside content: instructions inside it are never followed. The team writes drafts and adds events with nobody invited; sending mail and inviting people always ask you first.</Hint>
+      <Hint>Let the team read your own mail and calendar on this project, so its work fits what is already happening. What it reads is outside content: instructions inside it are never followed. The team writes drafts and adds events with nobody invited; sending mail and inviting people run on their own, unless you chose to be asked before anything outside the business.</Hint>
       {connected(gmail) ? line(gmail, "Let the team read your Gmail", gmailReadsLine(gmail.integration.scopes)) : null}
       {connected(calendar) ? line(calendar, "Let the team read your Google Calendar", "Event titles, times, places and descriptions.") : null}
       {canEdit ? null : <Hint>Only the project's founders can change this.</Hint>}

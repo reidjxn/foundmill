@@ -123,11 +123,11 @@ describe("What the team can do", () => {
     fireEvent.change(field, { target: { value: "lots" } });
     expect(within(form).getByText("Use a number, like 250.")).toBeTruthy();
     fireEvent.change(field, { target: { value: "50" } });
-    expect(screen.getByRole("radio", { name: "An amount" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: /^Small spends run on their own/ }).getAttribute("aria-checked")).toBe("true");
     fireEvent.click(save);
     await waitFor(() => expect(setSpendCap).toHaveBeenCalledWith({ businessId: BUSINESS, spendCapMinor: 5_000 }));
     await waitFor(() => expect(saved).toHaveBeenCalledWith("Amount saved"));
-    fireEvent.click(screen.getByRole("radio", { name: /^Always ask/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Ask me every time/ }));
     fireEvent.click(save);
     await waitFor(() => expect(setSpendCap).toHaveBeenLastCalledWith({ businessId: BUSINESS, spendCapMinor: 0 }));
   });

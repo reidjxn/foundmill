@@ -40,7 +40,7 @@ export function parseSpendLineDraft(draft: SpendLineDraft, currency: string): Pa
   if (!s) return { ok: false, error: "Enter an amount, like 250." };
   if (!/^\d+(\.\d+)?$/.test(s)) return { ok: false, error: "Use a number, like 250." };
   const minor = majorToMinor(Number(s), currency);
-  if (minor <= 0) return { ok: false, error: "Use an amount above 0, or choose Always ask." };
+  if (minor <= 0) return { ok: false, error: "Use an amount above 0, or choose Ask me every time." };
   if (!Number.isSafeInteger(minor)) return { ok: false, error: "Use a smaller amount." };
   return { ok: true, minor };
 }
