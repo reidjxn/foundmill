@@ -73,13 +73,16 @@ export const TOOL_CATALOG: readonly CatalogTool[] = Object.freeze([
   vendor({ key: "quickbooks", name: "QuickBooks Online", categories: ["invoicing_accounting"], url: "https://quickbooks.intuit.com", regions: ["US", "CA", "UK"], route: "link", testMode: true, priceBand: "under_50", note: "Bookkeeping and invoices; common in the US." }),
   vendor({ key: "resend", name: "Resend", categories: ["email"], url: "https://resend.com", regions: "global", route: "api_key", connectorKey: "resend", testMode: true, priceBand: "free_tier", note: "Email from your own domain, on your own account." }),
   vendor({ key: "twilio", name: "Twilio", categories: ["sms"], url: "https://www.twilio.com", regions: "global", route: "api_key", testMode: true, priceBand: "usage", note: "Text messages; a fee per message, and some countries ask you to register the sender first." }),
+  // The hosted browser's route (founder, Nov 22, 2026): no MCP server and no API covers Wave's setup, and its site is on
+  // the site list (`browser-sites.ts`). Its entry there is ask first: the founder is told Foundmill has not confirmed it.
+  vendor({ key: "wave", name: "Wave", categories: ["invoicing_accounting"], url: "https://www.waveapps.com", regions: ["US", "CA"], route: "browser", connectorKey: "browser_wave", testMode: false, priceBand: "free_tier", note: "Invoices and simple bookkeeping, free to start; the team sets it up in its website for you." }),
   vendor({ key: "tally", name: "Tally", categories: ["forms"], url: "https://tally.so", regions: "global", route: "link", testMode: false, priceBand: "free_tier", note: "Longer forms and surveys, linked from your page." }),
   vendor({ key: "hubspot", name: "HubSpot", categories: ["help_desk"], url: "https://www.hubspot.com", regions: "global", route: "remote_mcp", connectorKey: "hubspot_mcp", testMode: false, priceBand: "free_tier", note: "A shared inbox and customer records." }),
   vendor({ key: "posthog", name: "PostHog", categories: ["analytics"], url: "https://posthog.com", regions: "global", route: "api_key", connectorKey: "posthog", testMode: false, priceBand: "free_tier", note: "What people do in your product, with a large free allowance." }),
   vendor({ key: "shopify", name: "Shopify", categories: ["shipping", "inventory"], url: "https://www.shopify.com", regions: "global", route: "remote_mcp", connectorKey: "shopify_mcp", testMode: true, priceBand: "under_50", note: "A store with stock counts and shipping labels built in." }),
   vendor({ key: "shippo", name: "Shippo", categories: ["shipping"], url: "https://goshippo.com", regions: ["US", "CA", "UK", "EU", "AU"], route: "api_key", testMode: true, priceBand: "free_tier", note: "Compares carriers and prints labels; a small fee per label." }),
   // Approved by the founder, Nov 22, 2026: the catalog's patents and IP vendor, through its own remote MCP server.
-  vendor({ key: "lightbringer", name: "Lightbringer", categories: ["patents_ip"], url: "https://lightbringer.com", regions: ["US"], route: "remote_mcp", testMode: false, priceBand: "quote", note: "Prepares and files a patent application with its own patent practitioners. You file with one press; the fee is quoted before you do." }),
+  vendor({ key: "lightbringer", name: "Lightbringer", categories: ["patents_ip"], url: "https://lightbringer.com", regions: ["US"], route: "remote_mcp", connectorKey: "lightbringer_mcp", testMode: false, priceBand: "quote", note: "Its own patent practitioners prepare a patent application. You ask once with one press; Lightbringer then quotes its fee and takes payment and terms itself, with you." }),
 ]);
 
 const BY_KEY = new Map(TOOL_CATALOG.map((t) => [t.key, t] as const));
@@ -107,7 +110,7 @@ export function catalogToolNamed(name: string, category: ToolCategory): CatalogT
 
 /** The catalog as the scout reads it: one line per option of a category. */
 export function catalogLines(category: ToolCategory): string[] {
-  return catalogFor(category).map((t) => `${t.name}: ${t.note} ${PRICE_BAND_WORDS[t.priceBand]} (Estimate, checked ${t.checkedOn}). Comes in by: ${t.route === "foundmill" ? `${APP_NAME}'s own, nothing to sign up for` : t.route === "remote_mcp" ? "the vendor's own sign-in in Settings › Integrations" : t.route === "api_key" ? "your own key in Settings › Integrations" : "a link"}. ${t.testMode ? "Has a test mode." : "No test mode."}`);
+  return catalogFor(category).map((t) => `${t.name}: ${t.note} ${PRICE_BAND_WORDS[t.priceBand]} (Estimate, checked ${t.checkedOn}). Comes in by: ${t.route === "foundmill" ? `${APP_NAME}'s own, nothing to sign up for` : t.route === "remote_mcp" ? "the vendor's own sign-in in Settings › Integrations" : t.route === "api_key" ? "your own key in Settings › Integrations" : t.route === "browser" ? `the hosted browser: you sign in once inside ${APP_NAME} and the team works in its website (or simply a link)` : "a link"}. ${t.testMode ? "Has a test mode." : "No test mode."}`);
 }
 
 export { TOOL_CATEGORIES };

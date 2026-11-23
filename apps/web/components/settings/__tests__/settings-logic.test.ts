@@ -148,7 +148,7 @@ describe("settings logic", () => {
     expect(parseSpendLineDraft({ kind: "amount", amount: "50" }, "GBP")).toEqual({ ok: true, minor: 5_000 });
     expect(parseSpendLineDraft({ kind: "amount", amount: "" }, "GBP")).toEqual({ ok: false, error: "Enter an amount, like 250." });
     expect(parseSpendLineDraft({ kind: "amount", amount: "lots" }, "GBP")).toEqual({ ok: false, error: "Use a number, like 250." });
-    expect(parseSpendLineDraft({ kind: "amount", amount: "0" }, "GBP")).toEqual({ ok: false, error: "Use an amount above 0, or choose Always ask." });
+    expect(parseSpendLineDraft({ kind: "amount", amount: "0" }, "GBP")).toEqual({ ok: false, error: "Use an amount above 0, or choose Ask me every time." });
     expect(parseSpendLineDraft({ kind: "always", amount: "lots" }, "GBP")).toEqual({ ok: true, minor: 0 });
     expect(parseSpendLineDraft({ kind: "agent", amount: "" }, "GBP")).toEqual({ ok: true, minor: null });
     expect([spendLineSavedTitle(null), spendLineSavedTitle(0), spendLineSavedTitle(5_000)]).toEqual(["Each agent's own limit applies", "Every purchase asks you now", "Amount saved"]);

@@ -7,9 +7,13 @@ import { jsonResponse, routedFetch, type FetchLike } from "../http";
 import { isUntrusted } from "../quarantine";
 import { describeConnectorContract, makeToolContext } from "../testing/contract-suite";
 import { createMcpCustomConnector, assertPublicServer } from "./custom";
-import { createRemoteMcpConnector, hardGateName, remoteToolList, toolName, UNLISTED_TOOL } from "./build";
+import { createRemoteMcpConnector, hardGateName, listProblems, remoteToolList, toolName, UNLISTED_TOOL, type RemoteServer } from "./build";
+import { FOUNDER_EXECUTED_TOOLS, remoteFounderExecutedCall } from "./index";
+import { LIGHTBRINGER_SCHEMAS } from "./lightbringer-schemas";
+import { CAPABILITY_TOOLS, isFounderExecutedTool, resolveGrants } from "../grants";
 import { discoverEndpoints, pkceFor } from "./oauth";
-import { HUBSPOT_MCP, NOTION_MCP, REMOTE_MCP_SERVERS, SHOPIFY_MCP } from "./servers";
+import { HUBSPOT_MCP, LIGHTBRINGER_MCP, NOTION_MCP, REMOTE_MCP_SERVERS, SHOPIFY_MCP } from "./servers";
+import { remoteHardGateCall } from "./index";
 
 const SECRET = "x".repeat(40);
 const secrets = { notionMcpClientId: "cid-notion", mcpOauthSecret: SECRET };
@@ -185,11 +189,31 @@ describe("remote MCP sign-in", () => {
 
 describe("policy lists", () => {
   it("every listed tool that is not a pure read says why, and a hard gate has a human action and no handler", async () => {
-    for (const s of REMOTE_MCP_SERVERS) for (const t of s.tools) {
-      if (t.hints?.hardGate) expect(t.humanAction, t.remote).toBeDefined();
-      expect(hardGateName(t.remote) && !t.hints?.hardGate, `${s.key}.${t.remote} sounds like a hard gate but is listed as allowed`).toBe(false);
+    for (const s of REMOTE_MCP_SERVERS) {
+      for (const t of s.tools) if (t.hints?.hardGate) expect(t.humanAction, t.remote).toBeDefined();
+      expect(listProblems(s), s.key).toEqual([]);
     }
-    expect(remoteToolList(HUBSPOT_MCP).find((t) => t.name === "manage_crm_objects")?.hints).toMatchObject({ contactsThirdParty: true, irreversible: true });
+    // Changes to the founder's own records run (founder, Nov 23, 2026); mail and posts to outside people still ask.
+    expect(remoteToolList(HUBSPOT_MCP).find((t) => t.name === "manage_crm_objects")?.hints).toEqual({});
+    expect(remoteToolList(HUBSPOT_MCP).find((t) => t.name === "manage_marketing_email")?.hints).toMatchObject({ contactsThirdParty: true, irreversible: true });
+  });
+});
+
+describe("listed change tools whose arguments delete or change access (Nov 22, 2026)", () => {
+  it("are named for the gateway to deny; ordinary changes and reads are not", () => {
+    for (const args of [{ action: "delete", objectType: "contacts", ids: ["1"] }, { operations: [{ op: "ARCHIVE" }] }, { archived: true, objectType: "deals" }, { requests: [{ type: "merge" }] }, { deleteIds: ["1"] }, { action: "batchArchive" }, { operationType: "HARD_DELETE" }, { crud_action: "delete" }, { properties: { archived: true } }, { data: { in_trash: true } }, { payload: '{"action":"delete"}' }, JSON.parse(`${"{\"a\":".repeat(14)}1${"}".repeat(14)}`)]) {
+      expect(remoteHardGateCall("hubspot_mcp", "manage_crm_objects", args), JSON.stringify(args)).not.toBeNull();
+    }
+    expect(remoteHardGateCall("hubspot_mcp", "manage_blog_post", { action: "delete", id: "9" })).not.toBeNull();
+    expect(remoteHardGateCall("hubspot_mcp", "manage_crm_objects", { objectType: "contacts", properties: { firstname: "Maja", note: "remove from the newsletter" }, archived: false })).toBeNull();
+    expect(remoteHardGateCall("hubspot_mcp", "search_crm_objects", { action: "delete" })).toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_update_page", { page_id: "p", command: "update_content", content_updates: [{ old_str: "a", new_str: "b" }] })).toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_update_page", { page_id: "p", command: "replace_content" })).not.toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_update_page", { data: { page_id: "p", command: "replace_content" } })).not.toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_update_page", { command: "update_properties", data: { command: "replace_content" } })).not.toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_move_pages", { page_or_database_ids: ["p"] })).not.toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_fetch", { id: "p", in_trash: true })).toBeNull();
+    expect(remoteHardGateCall("notion_mcp", "notion_update_database", { database_id: "d", title: "Leads" })).toBeNull();
   });
 });
 
@@ -213,5 +237,108 @@ describe("custom MCP server", () => {
     expect(ran.error).toBeUndefined();
     expect((await c.callTool("call_unlisted_tool", { tool: "delete_all", arguments: {} }, ctx)).error?.code).toBe("hard_gate");
     expect(seen.calls.map((x) => x.name)).toEqual(["lookup_order"]);
+  });
+});
+
+describe("Lightbringer's list (patents, founder 2026-11-22)", () => {
+  const by = (pred: (t: (typeof LIGHTBRINGER_MCP.tools)[number]) => boolean) => LIGHTBRINGER_MCP.tools.filter(pred).map((t) => t.remote).sort();
+  const RUN = ["whoami", "list_innovations", "get_innovation", "get_innovation_template", "search", "fetch", "show_patent_portfolio", "search_public_patents", "get_credits", "list_tasks", "get_task_status", "list_reviews", "get_review", "get_company_context"];
+  const DRAFT = ["register_innovation", "update_innovation", "start_innovation_feedback"];
+  const ASKS = ["respond_to_review", "add_comment", "add_discussion_comment", "reply_to_comment", "comment", "set_validation_countries", "import_patent", "start_journey", "ask_agent", "answer_agent", "update_company_context"];
+
+  it("lists exactly the reviewed tools in four classes, each with its recorded input schema", () => {
+    expect(by((t) => !t.hints && !t.writes)).toEqual([...RUN].sort());
+    expect(by((t) => !t.hints && t.writes === true)).toEqual([...DRAFT].sort());
+    expect(by((t) => t.hints?.askAlways === true)).toEqual([...ASKS].sort());
+    expect(by((t) => t.hints?.hardGate === true)).toEqual(["delete_asset", "delete_comment", "delete_strategy", "delete_task", "invite_members"]);
+    expect(by((t) => t.hints?.founderExecuted === true)).toEqual(["request_patent_preparation"]);
+    expect(LIGHTBRINGER_MCP.tools).toHaveLength(RUN.length + DRAFT.length + ASKS.length + 5 + 1);
+    for (const t of LIGHTBRINGER_MCP.tools) expect(LIGHTBRINGER_SCHEMAS[t.remote], t.remote).toBeDefined();
+    for (const t of LIGHTBRINGER_MCP.tools.filter((x) => x.hints?.askAlways)) expect(t.hints, t.remote).toMatchObject({ contactsThirdParty: true, irreversible: true });
+  });
+
+  it("asks for the read and write scopes, never the trade secrets scope, and stays mock-only until its client exists", async () => {
+    expect(LIGHTBRINGER_MCP.scopes).toEqual(["mcp:read", "mcp:write"]);
+    expect(LIGHTBRINGER_MCP.url).toBe("https://mcp.lightbringer.com/mcp");
+    expect(LIGHTBRINGER_MCP.live).toBe(false);
+    await expect(createRemoteMcpConnector(LIGHTBRINGER_MCP, { secrets: { lightbringerMcpClientId: "x" } }).connect("b", { state: "eyJ1IjoxfQ.c2ln", redirectUri: "https://app.example.com/cb" })).rejects.toThrow(/not confirmed/);
+  });
+
+  it("the founder-executed tool is in no capability, no wildcard and no named grant, and call_unlisted_tool cannot name it", () => {
+    expect([...FOUNDER_EXECUTED_TOOLS]).toEqual(["lightbringer_mcp:request_patent_preparation"]);
+    expect(isFounderExecutedTool("lightbringer_mcp", "request_patent_preparation")).toBe(true);
+    expect(Object.values(CAPABILITY_TOOLS.lightbringer_mcp!).flat()).not.toContain("request_patent_preparation");
+    const wildcard = resolveGrants([{ connectorKey: "lightbringer_mcp", tools: ["*"] }]);
+    expect(wildcard.toolRefs).not.toContain("lightbringer_mcp:request_patent_preparation");
+    expect(wildcard.toolRefs).not.toContain("lightbringer_mcp:*");
+    expect(wildcard.mcpTools).not.toContain("mcp__lightbringer_mcp__request_patent_preparation");
+    const named = resolveGrants([{ connectorKey: "lightbringer_mcp", tools: ["request_patent_preparation"] }]);
+    expect(named.toolRefs).toEqual([]);
+    expect(named.unresolved).toHaveLength(1);
+    for (const spelling of ["request_patent_preparation", "Request-Patent-Preparation", "REQUEST_PATENT_PREPARATION"]) expect(remoteFounderExecutedCall("lightbringer_mcp", UNLISTED_TOOL, { tool: spelling }), spelling).toBe(spelling);
+    expect(remoteFounderExecutedCall("lightbringer_mcp", UNLISTED_TOOL, { tool: "whoami" })).toBeNull();
+    expect(remoteFounderExecutedCall("lightbringer_mcp", "whoami", { tool: "request_patent_preparation" })).toBeNull();
+  });
+
+  it("the recorded mock answers every listed tool that can run and reads an invention with typed facts", async () => {
+    const c = createRemoteMcpConnector(LIGHTBRINGER_MCP).mock;
+    const ctx = makeToolContext(c, { mode: "mock" });
+    for (const t of LIGHTBRINGER_MCP.tools.filter((x) => !x.hints?.hardGate)) {
+      const args = Object.fromEntries((t.inputSchema.required ?? []).map((k) => [k, k === "invention_id" ? "inv_demo_1" : "x"]));
+      const r = await c.callTool(toolName(t.remote), args, ctx);
+      expect(r.ok, `${t.remote}: ${JSON.stringify(r.error)}`).toBe(true);
+    }
+    const r = await c.callTool("get_innovation", { invention_id: "inv_demo_1" }, ctx);
+    expect(isUntrusted(r.data)).toBe(true);
+    expect((r.data as { facts?: Record<string, unknown> }).facts).toMatchObject({ inventionId: "inv_demo_1", title: "Self-leveling bike rack hinge", refNum: "LB-2026-0042", contentHash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect((await c.callTool("delete_task", { task_id: "t" }, ctx)).error?.code).toBe("hard_gate");
+  });
+});
+
+describe("a founder-executed tool may carry a hard-gate name, and only that kind", () => {
+  const server = (hints: NonNullable<RemoteServer["tools"][number]["hints"]>): Pick<RemoteServer, "key" | "tools"> => ({ key: "fake_mcp", tools: [{ remote: "submit_filing", description: "Submit a filing.", inputSchema: { type: "object", properties: {} }, hints }] });
+  it("passes as founderExecuted, fails as an ordinary listed tool, and cannot be both gated and founder-executed", () => {
+    expect(hardGateName("submit_filing")).toBe(true);
+    expect(listProblems(server({ contactsThirdParty: true, irreversible: true, founderExecuted: true }))).toEqual([]);
+    expect(listProblems(server({ contactsThirdParty: true, irreversible: true }))).toEqual(["fake_mcp.submit_filing sounds like a hard gate but is listed as allowed"]);
+    expect(listProblems(server({ hardGate: true, founderExecuted: true }))).toEqual(expect.arrayContaining([expect.stringContaining("both a hard gate and founder-executed")]));
+  });
+});
+
+describe("no custom server reaches the founder's press (security review P2-1)", () => {
+  const SPELLINGS = ["request_patent_preparation", "requestPatentPreparation", "request-patent-preparation", "Request Patent Preparation", "requestpatentpreparation", "REQUEST.PATENT.PREPARATION"];
+
+  it("call_unlisted_tool of any connector, mcp_custom and lightbringer_mcp included, is refused for the name in any spelling", () => {
+    for (const connector of ["mcp_custom", "lightbringer_mcp", "notion_mcp", "anything_else"]) for (const tool of SPELLINGS) expect(remoteFounderExecutedCall(connector, UNLISTED_TOOL, { tool }), `${connector} ${tool}`).toBe(tool);
+    expect(remoteFounderExecutedCall("mcp_custom", UNLISTED_TOOL, { tool: "lookup_order" })).toBeNull();
+    expect(remoteFounderExecutedCall("mcp_custom", "list_remote_tools", { tool: "request_patent_preparation" })).toBeNull();
+  });
+
+  it("a custom server never points at a vendor Foundmill has a list for, and its handler refuses the name too", async () => {
+    const resolveHost = async () => ["93.184.216.34"];
+    for (const url of ["https://mcp.lightbringer.com/mcp", "https://MCP.Lightbringer.com/other", "https://mcp.notion.com/mcp"]) await expect(assertPublicServer(url, resolveHost), url).rejects.toThrow(/own server\. Connect .* under its own name in Settings › Integrations/);
+    await expect(assertPublicServer("https://mcp.example.com/mcp", resolveHost)).resolves.toBeInstanceOf(URL);
+    const seen = newSeen();
+    const c = createMcpCustomConnector({ fetch: fakeServer(seen), resolveHost });
+    const ctx = makeToolContext(c, { mode: "live", credential: { kind: "api_key", secret: "t" }, integration: { ...makeToolContext(c).integration, status: "connected", config: { server: "https://mcp.example.com/mcp" } } });
+    for (const tool of SPELLINGS) expect(["founder_executed", "invalid_args"], tool).toContain((await c.callTool("call_unlisted_tool", { tool, arguments: {} }, ctx)).error?.code);
+    expect(seen.calls).toEqual([]);
+  });
+});
+
+describe("a sign-in that grants more than was asked is not connected (security review)", () => {
+  const live = { ...LIGHTBRINGER_MCP, live: true };
+  const meta = (scope: string) => ({
+    "GET https://mcp.lightbringer.com/.well-known/oauth-protected-resource/mcp": () => jsonResponse({ authorization_servers: ["https://app.lightbringer.com"] }),
+    "GET https://app.lightbringer.com/.well-known/oauth-authorization-server": () => jsonResponse({ authorization_endpoint: "https://app.lightbringer.com/authorize", token_endpoint: "https://app.lightbringer.com/token", code_challenge_methods_supported: ["S256"] }),
+    "POST https://app.lightbringer.com/token": () => jsonResponse({ access_token: "A", refresh_token: "R", expires_in: 3600, scope }),
+  });
+  const state = "eyJ1IjoxfQ.c2ln";
+  const redirectUri = "https://app.example.com/integrations/oauth/callback";
+  const connect = (scope: string) => createRemoteMcpConnector(live, { secrets: { lightbringerMcpClientId: "cid", mcpOauthSecret: SECRET }, fetch: routedFetch(meta(scope)), now: () => new Date("2026-11-22T12:00:00Z") }).connect("b1", { code: "abc", redirectUri, state });
+
+  it("refuses a token that carries mcp:trade-secrets and keeps one that carries only what was asked", async () => {
+    await expect(connect("mcp:read mcp:write mcp:trade-secrets")).rejects.toThrow(/mcp:trade-secrets/);
+    await expect(connect("mcp:read mcp:write")).resolves.toMatchObject({ status: "connected", credentialToStore: { secret: "A" } });
   });
 });

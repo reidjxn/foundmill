@@ -92,7 +92,8 @@ describe("live: outward or costly tools ask first in augmented and assisted mode
   }
 
   it(`augmented: ${asks.join(", ")} answer ask and make no vendor request`, () => expectAsks("augmented", asks));
-  it("assisted: vercel.create_deployment and resend.send_mail answer ask (irreversible) and make no vendor request", () => expectAsks("assisted", ["vercel.create_deployment", "resend.send_mail"]));
+  // A send to an outside person runs in assisted mode from the first message (founder, Nov 23, 2026): only the deployment asks.
+  it("assisted: vercel.create_deployment answers ask (irreversible) and makes no vendor request", () => expectAsks("assisted", ["vercel.create_deployment"]));
 
   // A spent credit cannot be taken back: both paid Apollo calls are `irreversible`, so assisted mode asks too.
   it("assisted: apollo.enrich_person and apollo.search_organizations answer ask and make no vendor request", () => expectAsks("assisted", ["apollo.enrich_person", "apollo.search_organizations"]));

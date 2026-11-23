@@ -5,13 +5,13 @@
 import { z } from "zod";
 import type { MockContext } from "./inputs";
 
-export const WebSearchOutput = z.object({ results: z.array(z.object({ url: z.string(), title: z.string(), pageAge: z.string().nullable() })) });
+export const WebSearchOutput = z.object({ results: z.array(z.object({ url: z.string(), title: z.string(), pageAge: z.string().nullable(), snippet: z.string().nullable() })) });
 export type WebSearchOutput = z.infer<typeof WebSearchOutput>;
 
 /** The results a mock search returns for `query`. */
 export function mockSearchResults(query: string, limit: number): WebSearchOutput["results"] {
   const slug = query.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "results";
-  return Array.from({ length: Math.max(0, Math.min(limit, 3)) }, (_, i) => ({ url: `https://example.com/${slug}/${i + 1}`, title: `${query} (result ${i + 1}, mock)`, pageAge: null }));
+  return Array.from({ length: Math.max(0, Math.min(limit, 3)) }, (_, i) => ({ url: `https://example.com/${slug}/${i + 1}`, title: `${query} (result ${i + 1}, mock)`, pageAge: null, snippet: `A page about ${query} (mock).` }));
 }
 
 /** `complete()` on the route: the query is the text after "Search the web for:", or the whole message. */

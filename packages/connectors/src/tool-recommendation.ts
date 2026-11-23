@@ -22,7 +22,8 @@ export const RecommendToolArgs = z.object({
   pick: z.object({
     name: Line(80),
     /** How it comes in, for a vendor that is not in the catalog (a catalog entry's own route wins). */
-    route: z.enum(TOOL_ROUTES).exclude(["foundmill"]).default("link"),
+    // The browser route comes only from a catalog entry whose site is on the site list, never from the agent's words.
+    route: z.enum(TOOL_ROUTES).exclude(["foundmill", "browser"]).default("link"),
     /** Why it fits this project, one or two sentences. */
     why: Line(600),
     /** Why the project needs it now and not later, one sentence. */
@@ -51,6 +52,7 @@ export function founderSteps(route: ToolRoute, name: string): string {
   const signUp = `You sign up with ${name} and accept its terms yourself: that step is always yours.`;
   if (route === "remote_mcp") return `${signUp} Then connect it in Settings › Integrations with ${name}'s own sign-in, and I set it up. ${name} bills you directly.`;
   if (route === "api_key") return `${signUp} Then add your key in Settings › Integrations, and I set it up in its test mode first. ${name} bills you directly.`;
+  if (route === "browser") return `You sign up with ${name} and sign in once inside ${APP_NAME}. Then the team sets it up and works in it for you. You can watch, and it asks before it sends, buys or agrees to anything. The simpler choice is to use ${name} yourself and send me its link.`;
   return `${signUp} Then send me the link, and I put it on your project's page.`;
 }
 

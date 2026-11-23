@@ -98,6 +98,12 @@ describe("Source Watcher answers", () => {
     expect(r.topics).toEqual(["pricing", "annual billing"]);
     expect(r).toMatchObject({ severity: "normal", pricing: "Starter $29 per month, Growth $79 per month", strengths: ["Annual billing saves two months"] });
     expect(r.weaknesses).toBeUndefined();
+    const longPricing = `Starter is $29 per month. ${"Growth adds approvals and more. ".repeat(8)}Annual billing saves two months on every plan.`;
+    const long = finaliseRelevance({ relevant: [], severity: "low", summary: "", topics: [], pricing: longPricing, strengths: [], weaknesses: [] }, { source: SOURCE, candidates: BLOCKS });
+    const kept = long.pricing!.slice(0, -1);
+    expect(long.pricing!.length).toBeLessThanOrEqual(200);
+    expect(long.pricing!.endsWith("…")).toBe(true);
+    expect(longPricing.startsWith(kept) && longPricing[kept.length] === " ").toBe(true);
     expect(blocksToPropose(r, BLOCKS).map((b) => b.id)).toEqual([id(3), id(2)]);
     expect(blocksToPropose({ ...r, blocks: [{ blockId: id(1), score: SOURCE_RELEVANCE_THRESHOLD - 0.01, reason: "" }] }, BLOCKS)).toEqual([]);
   });

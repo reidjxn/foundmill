@@ -146,14 +146,18 @@ describe("what a shared post led to is the services' to write (0106)", () => {
   });
 });
 
-describe("the public views are read-only for the service role too (0080, 0081)", () => {
-  for (const view of ["public_person_profiles", "public_project_pages"]) {
+describe("the public views are read-only for the service role too (0080, 0081, 0168)", () => {
+  for (const view of ["public_person_profiles", "public_project_pages", "public_profiles"]) {
     it(`service_role holds SELECT and nothing else on ${view}`, async () => {
       const held: string[] = [];
       for (const priv of ["select", "insert", "update", "delete", "truncate", "references", "trigger"]) if (await tablePriv("service_role", view, priv)) held.push(priv);
       expect(held).toEqual(["select"]);
     });
   }
+});
+
+describe("public_profiles is the service's (0168, WP-11 T18)", () => {
+  for (const role of CLIENT_ROLES) it(`${role} cannot SELECT public_profiles`, async () => expect(await tablePriv(role, "public_profiles", "select")).toBe(false));
 });
 
 describe("structural: what the client roles may call and create", () => {

@@ -20,10 +20,10 @@
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, releaseFollowUpOf, repos, resolveAgentPrompt, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { AppError, ONE_CLICK_ACTION_TYPES, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, toolPickCategory, type SectionMembership } from "@foundmill/shared";
+import { AppError, ONE_CLICK_ACTION_TYPES, founderActionIdOfDecision, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, toolPickCategory, browserKeepSite, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
-import { assertApprovalAccess, decideReleaseFollowUp, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
+import { assertApprovalAccess, assertMayGrantFromPlan, decideReleaseFollowUp, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
 import { assertMayConfirmAsks } from "./approver";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
 import { startModelRetests } from "./agent-model";
@@ -34,8 +34,9 @@ import { isBookingReadyDecision } from "@foundmill/shared/booking";
 import { decideSiteNote } from "./sites";
 import { isSiteReadyDecision } from "@foundmill/shared/sites";
 import { decidePostalAddressNote } from "./postal-address";
+import { decideFounderActionNote } from "./founder-actions";
 import { decideSignoffItem } from "./signoff";
-import { decideToolPickNote } from "./tool-needs";
+import { decideBrowserKeepNote, decideToolPickNote } from "./tool-needs";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, redispatchPlans, requiresConfirmation, stagedAction, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type DispatchResult, type ModelRetests, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
@@ -91,6 +92,8 @@ export async function oneClickPlanAllowed(ctx: BusinessContext, itemId: string, 
   const item = await ctx.rls((tx) => repos.inbox.get(tx, ctx.businessId, itemId));
   const option = ((item.decision as ItemDecision | null)?.options ?? []).find((o) => o.id === optionId);
   if (!option) return false;
+  // A founder-executed request is pressed in a signed-in session in the console, never from an email (founder, 2026-11-22).
+  if (founderActionIdOfDecision(item.decision)) return false;
   if ((await ctx.rls((tx) => repos.approvals.listForInboxItem(tx, ctx.businessId, item.id))).length > 0) return false;
   if (await ctx.rls((tx) => repos.productSignoffs.forInboxItem(tx, ctx.businessId, item.id))) return false;
   if (await ctx.rls((tx) => repos.goals.forInboxItem(tx, ctx.businessId, item.id))) return true;
@@ -149,6 +152,9 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   if (isPostalAddressDecision(item.decision)) return decidePostalAddressNote(ctx, item, { chosenOption, freeText });
   // The tool scout's recommendation (founder, Nov 22, 2026): Yes, or Not now; decided in-process.
   if (toolPickCategory(item.decision)) return decideToolPickNote(ctx, item, { chosenOption, freeText });
+  // A founder-executed request (founder, 2026-11-22): the founder's one press, in-process, never the plan compiler.
+  if (founderActionIdOfDecision(item.decision)) return decideFounderActionNote(ctx, item, { chosenOption, freeText });
+  if (browserKeepSite(item.decision)) return decideBrowserKeepNote(ctx, item, { chosenOption, freeText });
   if (freeText && !chosenOption && decision.free_text === false) throw new ValidationError("This decision takes one of its options. Pick one, or talk it through with the agent first.", { route: "conversation", itemId: item.id });
   const options = decision.options ?? [];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;
@@ -317,6 +323,7 @@ export async function confirmPlan(ctx: BusinessContext, planId: string) {
     // An action that asked the founder first (a spend above the threshold, a message) is an owner's or admin's to
     // confirm, or the person Team › Responsibilities names for it; any member with Inbox write is not enough (SEC-7).
     await assertMayConfirmAsks(tx, ctx.businessId, { userId: ctx.userId, role: ctx.role }, plan.actions);
+    await assertMayGrantFromPlan(tx, ctx, plan.actions);
     const claimed = await repos.plans.claimConfirmation(tx, ctx.businessId, planId);
     if (!claimed) return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec: NOTHING_RUN, item: null, alreadyConfirmed: true };
     const confirmed = await repos.plans.get(tx, ctx.businessId, planId);

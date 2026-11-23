@@ -74,7 +74,7 @@ describe("prepareMerge", () => {
     expect(offline.calls.map((c) => c.tool)).toEqual(["list_pull_requests", "compare_refs", "open_pr", "run_checks"]);
     expect(offline.calls[2]!.args).toMatchObject({ head: input.branch, base: "HEAD", draft: false, title: "Deploy contract" });
     // Reads and writes on separate tokens: the reads' token can do nothing else, so the gateway answers them as data.
-    expect(offline.minted.slice(-2)).toEqual([expect.objectContaining({ agentId: t.workerId, sessionId: input.sessionId, allowedTools: ["github:compare_refs", "github:list_pull_requests", "github:get_pull_request", "github:get_checks"] }), expect.objectContaining({ allowedTools: ["github:open_pr", "github:run_checks", "github:update_branch", "github:merge_pr"] })]);
+    expect(offline.minted.slice(-2)).toEqual([expect.objectContaining({ agentId: t.workerId, sessionId: input.sessionId, allowedTools: ["github:compare_refs", "github:list_pull_requests", "github:get_pull_request", "github:get_checks", "github:list_deployments"] }), expect.objectContaining({ allowedTools: ["github:open_pr", "github:run_checks", "github:update_branch", "github:merge_pr"] })]);
 
     // The pull request's body says what was tested and that the founder decides; the task waits in review.
     const pr = unwrap<{ body: string; base: { ref: string }; merged: boolean }>(await github.callTool("get_pull_request", { ...REPO, prNumber: prepared.prNumber }, ctx));
@@ -230,6 +230,33 @@ describe("assessMerge and handBack", () => {
     expect((await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 10 })).items.filter((e) => (e.payload as { taskId: string }).taskId === dirty.id)).toHaveLength(1);
     // The sweep leaves a handed-back task alone: it is blocked, not in review.
     expect((await acts.pendingMerges({ businessId: t.businessId })).map((m) => m.taskId)).not.toContain(dirty.id);
+  });
+
+  it("records the preview the branch head already has, once per head commit, and none for a failed deployment (WP-07 T12)", async () => {
+    await connectRepo();
+    const { input } = await reviewTask("Preview");
+    const { input: failInput } = await reviewTask("Failed preview");
+    const { github, ctx, acts } = githubGateway(createGithubMock({ failingBranches: [failInput.branch] }));
+    await commitOn(github, ctx, input.branch);
+    await commitOn(github, ctx, failInput.branch);
+    const prepared = [await acts.prepareMerge(input), await acts.prepareMerge(failInput)];
+    if (prepared[0]!.status !== "ready" || prepared[1]!.status !== "ready") throw new Error("not ready");
+    const previews = async (taskId: string) => (await repos.events.list(t.db, t.businessId, { type: "deploy.succeeded", limit: 50 })).items.filter((e) => (e.payload as { taskId: string }).taskId === taskId);
+
+    await acts.assessMerge({ ...input, prNumber: prepared[0]!.prNumber, prUrl: prepared[0]!.prUrl });
+    await acts.assessMerge({ ...input, prNumber: prepared[0]!.prNumber, prUrl: prepared[0]!.prUrl });
+    const head = unwrap<{ headSha: string }>(await github.callTool("get_checks", { ...REPO, branch: input.branch }, ctx)).headSha;
+    const first = await previews(input.taskId);
+    expect(first).toHaveLength(1);
+    expect(first[0]!.payload).toMatchObject({ environment: "preview", provider: "vercel", commitSha: head, branch: input.branch, url: expect.stringMatching(/^https:\/\/shop-git-agent-.*-mock\.vercel\.app$/) });
+
+    // A new commit on the branch is a new head: its own preview.
+    await commitOn(github, ctx, input.branch, "MORE.md");
+    await acts.assessMerge({ ...input, prNumber: prepared[0]!.prNumber, prUrl: prepared[0]!.prUrl });
+    expect(await previews(input.taskId)).toHaveLength(2);
+
+    await acts.assessMerge({ ...failInput, prNumber: prepared[1]!.prNumber, prUrl: prepared[1]!.prUrl });
+    expect(await previews(failInput.taskId)).toEqual([]);
   });
 
   it("words every hand-back for the founder first and the agent second", () => {

@@ -20,7 +20,13 @@ const PICK = {
   sources: [{ url: "https://www.twilio.com/pricing", title: "Twilio pricing" }],
 };
 
-async function recommend(businessId: string, agentId: string, category: "sms" | "analytics") {
+const WAVE = {
+  pick: { name: "Wave", catalogKey: "wave", route: "browser" as const, why: "Free invoices for a small US business.", whyNow: "The first invoice goes out this week.", cost: "Free to start (Estimate).", founderSteps: "You sign up with Wave and sign in once inside Foundmill." },
+  alternatives: [{ name: "Xero", line: "More complete, a monthly fee." }],
+  sources: [{ url: "https://www.waveapps.com/pricing", title: "Wave pricing" }],
+};
+
+async function recommend(businessId: string, agentId: string, category: "sms" | "analytics" | "invoicing_accounting", pick: typeof PICK | typeof WAVE = PICK) {
   const item = await repos.inbox.createItem(hz.db, businessId, {
     type: "decision",
     from_agent_id: agentId,
@@ -41,7 +47,7 @@ async function recommend(businessId: string, agentId: string, category: "sms" | 
     source_event_ids: [],
     entity_ids: [],
   });
-  await repos.toolNeeds.recommend(hz.db, businessId, category, { ...PICK, inboxItemId: item.id });
+  await repos.toolNeeds.recommend(hz.db, businessId, category, { ...pick, inboxItemId: item.id });
   return item;
 }
 
@@ -100,6 +106,20 @@ describe("the founder's answer to a recommendation", () => {
     expect(await repos.integrations.getByKey(hz.db, businessId, "twilio")).toBeNull();
   });
 
+  it("Yes to a pick by the hosted browser gives the owning department a setup task that states done first and checks by reading back (Part D)", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const finance = await repos.agents.create(hz.db, businessId, { name: "Finance Lead", agentType: "finance_lead", modelKey: "sonnet", initialVersion: { instructions: { role: "finance" }, tools: [] } });
+    const item = await recommend(businessId, agentId, "invoicing_accounting", WAVE);
+    await hz.caller({ userId: ownerId }).inbox.decide({ businessId, itemId: item.id, chosenOption: TOOL_PICK_NOTE.options.yes });
+    const task = (await repos.tasks.list(hz.db, businessId, { limit: 200 })).items.find((t) => t.title === "Set up Wave in its website");
+    expect(task).toMatchObject({ kind: "ops", status: "ready", assigneeAgentId: finance.id });
+    expect(task!.goalMd).toContain("browser_wave");
+    expect(task!.goalMd).toContain("Before the first change, write down in this task what done looks like");
+    expect(task!.goalMd).toContain("reported as not verified");
+    expect(task!.goalMd).toContain("Never sign up, accept terms, pay or enter a password, a card or a code for the founder.");
+    expect(task!.acceptance).toContain("Each setting was checked by reading the page back");
+  });
+
   it("Not now keeps the question away for about a month, and creates no task", async () => {
     const { businessId, ownerId, agentId } = hz.A;
     const item = await recommend(businessId, agentId, "analytics");
@@ -110,5 +130,18 @@ describe("the founder's answer to a recommendation", () => {
     expect(Math.round((need!.askAgainAt!.getTime() - Date.now()) / 86_400_000)).toBe(30);
     expect((await repos.tasks.list(hz.db, businessId, { limit: 200 })).items).toHaveLength(before);
     expect(await repos.toolNeeds.raise(hz.db, businessId, { category: "analytics", reason: "x" })).toMatchObject({ raised: false, why: "not_now" });
+  });
+});
+
+describe("an invention at take charge (founder, Nov 22, 2026)", () => {
+  it("plans the patent step for first customers, with the timing reason, and raises nothing on day one", async () => {
+    const userId = await hz.h.createUser("inventor@test.local");
+    const caller = hz.caller({ userId, email: "inventor@test.local" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Ines", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low", budgetMinor: null });
+    const idea = (await caller.idea.generate({ prompt: "a self-leveling hinge for bike racks" })).ideas[0]!;
+    await hz.db.update(ideaVersions).set({ title: "Levelrack", pitch: "We invented a new method for keeping a bike rack level on a loaded car." }).where(eq(ideaVersions.ideaId, idea.id));
+    const bid = (await caller.idea.commit({ ideaId: idea.id, name: "Levelrack", archetype: "consumer_app", gameMode: "personal" })).business.id;
+    expect((await repos.toolNeeds.list(hz.db, bid)).map((n) => [n.category, n.stage, n.status, n.reason])).toEqual([["patents_ip", "first_customers", "planned", "You are about to show the product in public. Showing an invention before you file can cost the right to patent it."]]);
+    expect((await repos.tasks.list(hz.db, bid, { kind: "tool_need", limit: 10 })).items).toEqual([]);
   });
 });

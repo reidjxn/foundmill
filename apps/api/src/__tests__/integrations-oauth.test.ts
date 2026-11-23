@@ -22,7 +22,7 @@ describe("integrations.connect for OAuth connectors", () => {
   const gateway = inProcessGateway();
   const guarded = guardLiveCalls(createDefaultRegistry({ secrets: {} }));
   beforeAll(async () => {
-    hz = await createApiHarness({ prefix: "oauth", env: { LIVE_CONNECTORS: "notion,gmail,shopify", APP_URL }, connectors: guarded.registry, gateway: gateway.client });
+    hz = await createApiHarness({ prefix: "oauth", env: { LIVE_CONNECTORS: "notion,gmail,google_drive,shopify", APP_URL }, connectors: guarded.registry, gateway: gateway.client });
     const vendorRegistry = createDefaultRegistry({
       secrets: { notionClientId: "notion-client", notionClientSecret: "notion-secret", googleClientId: "google-client", googleClientSecret: "google-secret", shopifyClientId: "shopify-client", shopifyClientSecret: "shopify-secret" },
       fetch: routedFetch({
@@ -31,7 +31,7 @@ describe("integrations.connect for OAuth connectors", () => {
         "GET https://northwind.myshopify.com/admin/api/2025-10/shop.json": () => jsonResponse({ shop: { id: 1, name: "Northwind", domain: "northwind.example", myshopify_domain: "northwind.myshopify.com", currency: "usd" } }),
       }),
     });
-    gateway.bind({ db: hz.db, vault: hz.deps.vault, registry: vendorRegistry, liveConnectors: ["notion", "gmail", "shopify"] });
+    gateway.bind({ db: hz.db, vault: hz.deps.vault, registry: vendorRegistry, liveConnectors: ["notion", "gmail", "google_drive", "shopify"] });
   }, 120_000);
   afterAll(() => hz.close());
   beforeEach(() => {
@@ -67,6 +67,15 @@ describe("integrations.connect for OAuth connectors", () => {
     expect(await scopes({ readMail: "yes" })).not.toContain("gmail.readonly");
     expect(await scopes({})).toContain("gmail.send");
     expect(await scopes({ readMail: true })).toContain("gmail.readonly");
+  });
+
+  it("Drive asks Google for drive.file and documents only; reading the whole Drive is the founder's explicit opt-in", async () => {
+    const { businessId, ownerId } = hz.A;
+    const scopes = async (input: Record<string, unknown>) => (await start(ownerId, businessId, "google_drive", input)).url.searchParams.get("scope")!;
+    expect(await scopes({})).toContain("drive.file");
+    expect(await scopes({})).not.toContain("drive.readonly");
+    expect(await scopes({ readDrive: "yes" })).not.toContain("drive.readonly");
+    expect(await scopes({ readDrive: true })).toContain("drive.readonly");
   });
 
   it("connects with the code only for the founder, business and connector the state was signed for", async () => {

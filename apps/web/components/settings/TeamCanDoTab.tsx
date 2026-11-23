@@ -77,13 +77,13 @@ function SpendLineForm({ businessId, lineMinor, currency, mode }: { businessId: 
       }}
     >
       <RadioGroup value={draft.kind} onValueChange={(v) => setDraft((d) => ({ ...d, kind: v as SpendLineDraft["kind"] }))} aria-label={SPEND_LINE_QUESTION} className="flex flex-col gap-2.5">
-        <RadioOption id="spend-line-amount" value="amount" label="An amount" />
+        <RadioOption id="spend-line-amount" value="amount" label="Small spends run on their own" description="A purchase up to this amount runs without asking you." />
         <div className="flex flex-wrap items-end gap-3 pl-6">
           <Field htmlFor="settings-spend-line" label="Amount per purchase" error={!parsed.ok && draft.kind === "amount" ? parsed.error : undefined} className="w-72">
             <MoneyInput id="settings-spend-line" controlSize="lg" value={draft.amount} currency={currency} onValueChange={(amount) => setDraft({ kind: "amount", amount })} invalid={!parsed.ok && draft.kind === "amount"} placeholder={suggestion > 0 ? amountField(suggestion, currency) : amountField(AGENT_LIMIT_MINOR, currency)} />
           </Field>
         </div>
-        <RadioOption id="spend-line-always" value="always" label="Always ask" description="Every purchase asks you first, whatever it costs." />
+        <RadioOption id="spend-line-always" value="always" label="Ask me every time" description="Every purchase asks you first, whatever it costs." />
         <RadioOption id="spend-line-agent" value="agent" label={eachAgentLimitLabel({ currency, agentLimitMinor: AGENT_LIMIT_MINOR })} description="Each agent asks above its own limit, set on its Autonomy tab." />
       </RadioGroup>
       {mode === "augmented" ? <Hint>With your first answer every purchase asks you anyway. This amount applies on vacation and if you change that answer.</Hint> : null}

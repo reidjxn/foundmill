@@ -68,7 +68,7 @@ describe("resend mock", () => {
     expect(mock.sentFor("biz-b")).toHaveLength(0);
   });
   it("declares the hints and the founder's own key", () => {
-    expect(resendMock.policyHints.send_mail).toEqual({ contactsThirdParty: true, irreversible: true });
+    expect(resendMock.policyHints.send_mail).toEqual({ contactsThirdParty: true });
     expect(resendMock.policyHints.list_domains).toEqual({});
     expect(resendMock.auth).toEqual({ kind: "api_key" });
   });

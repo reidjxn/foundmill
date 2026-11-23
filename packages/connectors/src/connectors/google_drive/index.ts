@@ -6,7 +6,7 @@ import { createHttp, type HttpClient } from "../../http";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { googleAccessToken, googleHeaders, googleOAuthConnect } from "../_shared/google-auth";
 import { googleDriveMock } from "./mock";
-import { docEndIndex, DOCS_BASE_URL, docText, DRIVE_BASE_URL, DRIVE_FIELDS, GOOGLE_DRIVE_KEY, GOOGLE_DRIVE_RATE_LIMITS, GOOGLE_DRIVE_SCOPES, googleDriveTools, mapFile, toDriveQuery, type GDoc, type GFile } from "./tools";
+import { docEndIndex, DOCS_BASE_URL, docText, DRIVE_BASE_URL, DRIVE_FIELDS, GOOGLE_DRIVE_KEY, GOOGLE_DRIVE_RATE_LIMITS, GOOGLE_DRIVE_READ_SCOPE, GOOGLE_DRIVE_SCOPES, driveSearchScope, googleDriveTools, mapFile, toDriveQuery, type GDoc, type GFile } from "./tools";
 
 export function createGoogleDriveConnector(options: LiveConnectorOptions = {}): Connector {
   const { secrets, fetch, now } = resolveLiveOptions(options);
@@ -27,10 +27,11 @@ export function createGoogleDriveConnector(options: LiveConnectorOptions = {}): 
       rateLimits: GOOGLE_DRIVE_RATE_LIMITS,
       now,
       handlers: {
+        // Under drive.file alone Google lists only the files this app can open, so the search is honest by construction.
         search_files: async ({ q, mimeType, pageSize, pageToken }, ctx) => {
           const { drive } = await clients(ctx);
           const res = await drive.json<{ files?: GFile[]; nextPageToken?: string }>("GET", "/files", { query: { q: toDriveQuery(q, mimeType), pageSize, pageToken, fields: `nextPageToken,files(${DRIVE_FIELDS})` } });
-          return { items: (res.files ?? []).map(mapFile), nextPageToken: res.nextPageToken ?? null };
+          return { items: (res.files ?? []).map(mapFile), nextPageToken: res.nextPageToken ?? null, searched: driveSearchScope(ctx.integration.scopes) };
         },
         get_file: async ({ fileId }, ctx) => mapFile(await (await clients(ctx)).drive.json<GFile>("GET", `/files/${fileId}`, { query: { fields: DRIVE_FIELDS } })),
         export_text: async ({ fileId, maxChars }, ctx) => {
@@ -63,7 +64,7 @@ export function createGoogleDriveConnector(options: LiveConnectorOptions = {}): 
           return { permissionId: perm.id, fileId, email, role };
         },
       },
-      connect: (businessId, input) => googleOAuthConnect(input, deps, { businessId, scopes: GOOGLE_DRIVE_SCOPES, label: "Google Drive", newId: uuid }),
+      connect: (businessId, input) => googleOAuthConnect(input, deps, { businessId, scopes: (input as { readDrive?: unknown } | null)?.readDrive === true ? [...GOOGLE_DRIVE_SCOPES, GOOGLE_DRIVE_READ_SCOPE] : GOOGLE_DRIVE_SCOPES, label: "Google Drive", newId: uuid, exactScopes: true }),
       healthcheck: async (integration) => {
         const startedAt = now().getTime();
         if (!secrets.googleClientId || !secrets.googleClientSecret) return healthResult("disconnected", startedAt, { now, message: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not configured" });

@@ -83,14 +83,14 @@ where b.is_demo = false and s.ended_at is null and s.started_at < now() - interv
 
 ## Tasks
 
-### T0: Read why sessions block, once, before building [S] [ships alone; no code]
+### [x] T0: Read why sessions block, once, before building [S] [ships alone; no code]
 Why: A7-01 ("measure before tuning"); the 67%.
 Steps:
 1. A Desktop session runs queries 1 to 3 and pastes the three result tables into `docs/holistic-plan/audits/e0-production-evidence.md` under a new heading "Blocked sessions by reason, <date>". verify: query 1 without the date filter returns 215 / 81 / 23.
 2. If query 3 shows a cause with more than 15% of blocks that no task below addresses, add a task to this file in the same pull request; do not start it.
 Done when: the tables are in e0 and this file's task order is confirmed or amended.
 
-### T1: An account-free mock connector is refused for a real project; search returns something to read [S] [ships alone]
+### [x] T1: An account-free mock connector is refused for a real project; search returns something to read [S] [ships alone]
 Why: AR-01 (code part); WP-00 S6 waits for it.
 Files: modify `apps/gateway/src/pipeline.ts`, `packages/connectors/src/catalogue.ts`, `packages/connectors/src/connectors/web/index.ts`, `web/tools.ts`, `web/mock.ts`; tests `apps/gateway/src/__tests__/web-fetch.test.ts` (or a new `mock-refusal.test.ts`), `packages/connectors/src/connectors/web/web.test.ts`.
 Interfaces, consumes: `allow()` at `pipeline.ts:736`; the refusal at `:757`: `if (mode === "mock" && connector.auth.kind !== "none" && !loaded.integrationRow && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, loaded.business.isDemo))`; `ALWAYS_LIVE_CONNECTORS` (`catalogue.ts:133`). Account-free connectors today: `domains`, `ecb_rates`, `platform`, `platform_notify`, `quarantine`, `platform_mail`, `web`.

@@ -1,7 +1,7 @@
 /** The tool scout, offline: the timing of each need and the shape of the cases. The live run is tool-scout.eval.test.ts. */
 import { describe, expect, it } from "vitest";
 import { ARCHETYPE_SEED_LIST, REGULATED_LICENSE_TASK, toolNeedsAt } from "@foundmill/agents";
-import { RecommendToolArgs } from "@foundmill/connectors";
+import { RecommendToolArgs, toolRecommendationNote } from "@foundmill/connectors";
 import { regulatedAreasOf } from "@foundmill/shared";
 import { TOOL_SCOUT_CASES, toolScoutProblems, toolScoutRequest, type ToolScoutOutput } from "../tool-scout/cases";
 
@@ -86,5 +86,43 @@ describe("the tool scout: the cases", () => {
     expect(toolScoutProblems(c, own)).toEqual([]);
     const vendor: ToolScoutOutput = { ...KYC, recommend: { ...KYC.recommend!, category: "booking", pick: { ...KYC.recommend!.pick, name: "Calendly" } } };
     expect(toolScoutProblems(c, vendor)).not.toEqual([]);
+  });
+
+  it("a tool that has only a website comes in by the hosted browser, whatever route the agent wrote (Part D)", () => {
+    const c = byId("tool_scout.website_only.browser_route");
+    const wave: ToolScoutOutput = {
+      reason: "Wave is free and sends unlimited invoices.",
+      recommend: RecommendToolArgs.parse({
+        category: "invoicing_accounting",
+        pick: { name: "Wave", route: "link", why: "It sends unlimited invoices for free.", whyNow: "Two shops asked for invoices this week.", cost: "$0 a month" },
+        alternatives: [
+          { name: "Xero", line: "$20 a month and only 20 invoices." },
+          { name: "QuickBooks Online", line: "$35 a month." },
+        ],
+        sources: [{ url: "https://www.waveapps.com/pricing", title: "Wave pricing" }],
+      }),
+    };
+    expect(toolScoutProblems(c, wave)).toEqual([]);
+    expect(toolRecommendationNote(wave.recommend!).bodyMd).toContain("sign in once inside");
+    const xero: ToolScoutOutput = { ...wave, recommend: { ...wave.recommend!, pick: { ...wave.recommend!.pick, name: "Xero" }, alternatives: [{ name: "Wave", line: "Free." }, { name: "QuickBooks Online", line: "$35 a month." }] } };
+    expect(toolScoutProblems(c, xero).join(" ")).toMatch(/the pick is Xero/);
+  });
+
+  it("a tool with its own sign-in never comes in by the hosted browser (Part D)", () => {
+    const c = byId("tool_scout.has_mcp.never_by_browser");
+    const hubspot: ToolScoutOutput = {
+      reason: "HubSpot's free shared inbox fits.",
+      recommend: RecommendToolArgs.parse({
+        category: "help_desk",
+        pick: { name: "HubSpot", route: "link", why: "A free shared inbox for customer questions.", whyNow: "Questions are getting lost.", cost: "$0 a month" },
+        alternatives: [
+          { name: "Help Scout", line: "From $20 a month." },
+          { name: "Zendesk", line: "From $19 a month." },
+        ],
+        sources: [{ url: "https://www.hubspot.com/products/service", title: "HubSpot Service Hub" }],
+      }),
+    };
+    expect(toolScoutProblems(c, hubspot)).toEqual([]);
+    expect(toolRecommendationNote(hubspot.recommend!).pick.route).toBe("remote_mcp");
   });
 });

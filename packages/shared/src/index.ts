@@ -59,6 +59,8 @@ export * from "./team-can-do";
 export * from "./starting-team";
 export * from "./team-tiers";
 export * from "./tool-needs";
+export * from "./founder-action";
+export * from "./browser-sign-in";
 export * from "./team-call";
 export * from "./founder-return";
 export * from "./founder-notifications";

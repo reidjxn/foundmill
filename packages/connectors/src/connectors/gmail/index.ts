@@ -7,7 +7,7 @@ import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { googleAccessToken, googleHeaders, googleOAuthConnect } from "../_shared/google-auth";
 import { buildMimeMessage, toBase64Url } from "../_shared/mime";
 import { assertNotSuppressed, gmailMock } from "./mock";
-import { GMAIL_BASE_URL, GMAIL_KEY, GMAIL_RATE_LIMITS, GMAIL_READ_OFF, GMAIL_READ_SCOPE, GMAIL_SCOPES, gmailTools, mapMessage, mapSummary, type GmailMessage } from "./tools";
+import { GMAIL_BASE_URL, GMAIL_COMPOSE_SCOPE, GMAIL_DRAFTS_OFF, GMAIL_KEY, GMAIL_RATE_LIMITS, GMAIL_READ_OFF, GMAIL_READ_SCOPE, GMAIL_SCOPES, gmailTools, mapMessage, mapSummary, type GmailMessage } from "./tools";
 
 export function createGmailConnector(options: LiveConnectorOptions = {}): Connector {
   const { secrets, fetch, now, isSuppressed } = resolveLiveOptions(options);
@@ -16,6 +16,10 @@ export function createGmailConnector(options: LiveConnectorOptions = {}): Connec
   // The token holds gmail.readonly only after the founder turned reading on; without it Google would answer 403 anyway.
   const readable = (ctx: ToolContext): void => {
     if (!ctx.integration.scopes.includes(GMAIL_READ_SCOPE)) throw Object.assign(new Error(GMAIL_READ_OFF), { status: 403, code: "mail_read_off" });
+  };
+  // Drafts need gmail.compose, restricted at Google and not asked for at launch.
+  const draftable = (ctx: ToolContext): void => {
+    if (!ctx.integration.scopes.includes(GMAIL_COMPOSE_SCOPE)) throw Object.assign(new Error(GMAIL_DRAFTS_OFF), { status: 403, code: "mail_drafts_off" });
   };
   const senderOf = (ctx: ToolContext): string => (typeof ctx.integration.config.email === "string" && ctx.integration.config.email) || ctx.integration.accountLabel || "me";
   const raw = (ctx: ToolContext, a: { to: string[]; cc: string[]; bcc: string[]; subject: string; text: string; html?: string | undefined; inReplyToMessageId?: string | undefined }) =>
@@ -45,22 +49,25 @@ export function createGmailConnector(options: LiveConnectorOptions = {}): Connec
           return { id: res.id, threadId: res.threadId, to: args.to };
         },
         create_draft: async (args, ctx) => {
+          draftable(ctx);
           const res = await (await client(ctx)).json<{ id: string; message: { id: string } }>("POST", "/users/me/drafts", { body: { message: { raw: raw(ctx, args), threadId: args.threadId } } });
           return { draftId: res.id, messageId: res.message.id };
         },
         list_drafts: async ({ q, maxResults }, ctx) => {
+          draftable(ctx);
           const http = await client(ctx);
           const list = await http.json<{ drafts?: { id: string; message: { id: string } }[] }>("GET", "/users/me/drafts", { query: { q, maxResults } });
           const items = await Promise.all((list.drafts ?? []).map(async (d) => ({ draftId: d.id, ...mapSummary(await http.json<GmailMessage>("GET", `/users/me/messages/${d.message.id}`, { query: { format: "metadata", metadataHeaders: ["From", "To", "Subject", "Date"] } })) })));
           return { items };
         },
         get_draft: async ({ draftId }, ctx) => {
+          draftable(ctx);
           const d = await (await client(ctx)).json<{ id: string; message: GmailMessage }>("GET", `/users/me/drafts/${encodeURIComponent(draftId)}`, { query: { format: "full" } });
           return { draftId: d.id, ...mapMessage(d.message) };
         },
         list_labels: async (_a, ctx) => ({ items: ((await (await client(ctx)).json<{ labels?: { id: string; name: string; type: string }[] }>("GET", "/users/me/labels")).labels ?? []).map((l) => ({ id: l.id, name: l.name, type: l.type })) }),
       },
-      connect: (businessId, input) => googleOAuthConnect(input, deps, { businessId, scopes: (input as { readMail?: unknown } | null)?.readMail === true ? [...GMAIL_SCOPES, GMAIL_READ_SCOPE] : GMAIL_SCOPES, label: "Gmail", newId: uuid, exactScopes: true }),
+      connect: (businessId, input) => googleOAuthConnect(input, deps, { businessId, scopes: (input as { readMail?: unknown } | null)?.readMail === true ? [...GMAIL_SCOPES, GMAIL_READ_SCOPE, GMAIL_COMPOSE_SCOPE] : GMAIL_SCOPES, label: "Gmail", newId: uuid, exactScopes: true }),
       healthcheck: async (integration) => {
         const startedAt = now().getTime();
         if (!secrets.googleClientId || !secrets.googleClientSecret) return healthResult("disconnected", startedAt, { now, message: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not configured" });

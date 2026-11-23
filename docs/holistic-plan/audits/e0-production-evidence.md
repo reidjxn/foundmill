@@ -48,3 +48,98 @@ The repo's record of what is configured (docs/DEPLOY.md §6) stops on Oct 20. Th
 - DNS: nameservers at Spaceship. `mail.foundmill.com` MX is `mx.sendgrid.net` (inbound parse is pointed). `_dmarc.foundmill.com` is `p=none`; `_dmarc.mail.foundmill.com` is `p=none` with a report address.
 - Search: `https://foundmill.com/robots.txt` and `/sitemap.xml` return 404; the landing page sends `<meta name="robots" content="noindex, nofollow">`.
 - So, against the "pending setup" list in audits/a11-roadmap-status.md §5: A3 (Turnstile) and A4 (idea cookie) look done on both sides; A8's Vercel flag is on (the sign-in page shows "Continue with Google"); A1/A2 (platform mail) have their variables and the inbound MX, with domain authentication and the event webhook not confirmed, and ingest still refusing SendGrid's webhook; A5 (web research), A6 (Stripe), A9 (open sign-up), B1 (push), C1 (wait for CI on api and gateway) and C2 (watch paths) are not done.
+
+## Blocked sessions by reason, Nov 23, 2026
+
+Run by the Desktop session through the Supabase connector, read-only, with queries 1 to 3 of docs/holistic-plan/WP-05-agents-that-finish.md "Measurement". Real projects only (`is_demo = false`).
+
+### Query 1: sessions by outcome
+
+All time. The check value was blocked 215, done 81, failed 23 of 319; five more sessions have blocked since Nov 15, so today's total is 324.
+
+| outcome | sessions | pct | usd |
+| --- | ---: | ---: | ---: |
+| blocked | 220 | 67.9 | 59.49 |
+| done | 81 | 25.0 | 24.13 |
+| failed | 23 | 7.1 | 0.00 |
+
+Last 14 days (since Nov 9, 2026):
+
+| outcome | sessions | pct | usd |
+| --- | ---: | ---: | ---: |
+| blocked | 37 | 80.4 | 3.25 |
+| done | 9 | 19.6 | 1.55 |
+
+### Query 2: why sessions block (blocked or failed sessions, by the block's reason, task kind and writer)
+
+| reason | task_kind | written_by | sessions | usd |
+| --- | --- | --- | ---: | ---: |
+| dependency | ops | agent or merge | 70 | 24.42 |
+| error | code | runtime | 66 | 22.48 |
+| dependency | code | agent or merge | 43 | 15.22 |
+| dependency | research | agent or merge | 29 | 2.20 |
+| error | research | agent or merge | 4 | 0.00 |
+| dependency | legal | agent or merge | 4 | 0.43 |
+| error | code | agent or merge | 4 | 0.00 |
+| error | finance | agent or merge | 4 | 0.00 |
+| error | legal | agent or merge | 4 | 0.00 |
+| error | channel | agent or merge | 4 | 0.00 |
+| dependency | finance | agent or merge | 3 | 0.52 |
+| budget | ops | runtime | 3 | 1.07 |
+| error | ops | agent or merge | 3 | 0.00 |
+| budget | code | runtime | 2 | 0.65 |
+| not_connected | research | runtime | 1 | 0.00 |
+
+### Query 3: the words agents block with (first 80 characters, top 40)
+
+Terminal color codes and line breaks are removed from the text; nothing else is changed. All 304 `task.blocked` events on real projects are counted; the newest is from Nov 17, 2026.
+
+| detail | n |
+| --- | ---: |
+| E2B sandbox creation failed: 400: Timeout cannot be greater than 1 hours | 23 |
+| no changes: the session ended without changing any file in the workspace | 11 |
+| acceptance tests failed (exit 1, 103 passed, 1 failed). Last output: ms | 10 |
+| This change clashes with newer work on the live product, so it could not go live | 9 |
+| acceptance tests failed (exit 1, 62 passed, 5 failed). Last output: ew": "needs | 6 |
+| acceptance tests failed (not run, 0 passed, 1 failed). Last output: Dependency i | 6 |
+| model budget exhausted: the business's own Anthropic key refused the call for bi | 5 |
+| acceptance tests failed (exit 1, 67 passed, 3 failed). Last output: 2macceptance | 4 |
+| acceptance tests failed (exit 1, 63 passed, 4 failed). Last output: ew": "needs | 3 |
+| acceptance tests failed (exit 1, 66 passed, 4 failed). Last output: scripts, a r | 3 |
+| Cannot start CI. (1) No run_checks tool is available to this agent; I only have | 2 |
+| Paused by Engineering Lead (parent 245d4b0e). File scope gateway/connectors/depl | 2 |
+| acceptance tests failed (exit 1, 0 passed, 1 failed). Last output: Error: ERR_PN | 2 |
+| The repository's automatic tests failed on this change, so it could not go live. | 2 |
+| Paused by Engineering Lead (parent 245d4b0e). File scope components/shell/*, app | 2 |
+| acceptance tests failed (exit 1, 0 passed, 11 failed). Last output: n [desk | 2 |
+| acceptance tests failed (exit 124, 0 passed, 1 failed). Last output: [deadline_e | 2 |
+| Missing input: no Eurostat passenger volume for the route is in any record I can | 1 |
+| Cannot compare without inputs. (1) read_product returned no specification conten | 1 |
+| acceptance tests failed (exit 1, 24 passed, 1 failed). Last output: 3730ms | 1 |
+| Phase: Research → blocked. I can't meet the acceptance criteria as written. I ha | 1 |
+| Waiting on Product Lead gap list 9e8d4315-9fb9-442c-a860-f50621250b36 (running, | 1 |
+| Cannot meet the acceptance criteria as written. (1) The carrier inventory this t | 1 |
+| Waiting on Engineering Lead (38b73d27) to rebase agent/a5444581-... (head 2344e4 | 1 |
+| I can't write the product-state record without inventing facts. Both dependency | 1 |
+| I can't meet the acceptance criteria with my tools. I have no tool that creates | 1 |
+| Cannot start CI: (1) no run_checks tool is available to me (only get_checks, rea | 1 |
+| Mapping work is finished: all old -> new scopes were checked with read_tree, and | 1 |
+| Waits on 45f17158 (Infra Engineer: diagnosis of H1 to H5 plus fix PR, Review ver | 1 |
+| No verdict possible: I can't see the diff or the test results. agent/45f17158 (h | 1 |
+| Draft is done but unverified. Waiting on: (1) Researcher task a98e9181 to verify | 1 |
+| I can't register a business source. My tools are the task board, typed messages, | 1 |
+| Can't read the open questions. read_product (twice, up to 50k chars), Notion sea | 1 |
+| I can't do this task with the tools I have. (1) I have no tool that creates or l | 1 |
+| Waiting on the Engineering Lead (38b73d27). Status request sent in message fbe25 | 1 |
+| Phase: fix in progress, waiting on Engineering Lead (38b73d27) under 245d4b0e. R | 1 |
+| Cannot meet the acceptance criteria without inventing facts. (1) The two depende | 1 |
+| Waiting on Engineering Lead (38b73d27) for task 245d4b0e: root cause report (ove | 1 |
+| Waiting on Engineering Lead (38b73d27) under 245d4b0e. Retries are paused. Re-sc | 1 |
+| Phase change: running -> blocked. Four web calls this session (duffel.com/pricin | 1 |
+
+### Reading
+
+- Of the 304 blocks, "acceptance tests failed" is 55 (18%), covered by T9. The E2B "Timeout cannot be greater than 1 hours" error is 23 (7.6%), from Oct 9 to Oct 14 only. "no changes" is 11 (3.6%), covered by T2 and T8. A clash with newer work is 9 (3.0%), covered by T8 and T16.
+- No cause above 15% lacks a WP-05 task, so the task order stands and no task is added.
+- Query 2's largest group, "dependency" written by an agent (149 sessions), is spread over many distinct details: waiting on another agent or task, or a missing tool or input. Each is below 15% in query 3. T5, T12 and T18 cover them.
+- The 14-day rate (37 blocked of 46, 80%) is over sessions that started before T1 to T18 were all live; no block has been recorded since Nov 17.

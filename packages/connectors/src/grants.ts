@@ -56,7 +56,8 @@ import { opensrsTools } from "./connectors/opensrs/tools";
 import { webTools } from "./connectors/web/tools";
 import { e2bTools } from "./connectors/e2b/tools";
 import { platformMailTools } from "./connectors/platform_mail/tools";
-import { HUBSPOT_MCP, NOTION_MCP, SHOPIFY_MCP } from "./remote-mcp/servers";
+import { HUBSPOT_MCP, LIGHTBRINGER_MCP, NOTION_MCP, SHOPIFY_MCP } from "./remote-mcp/servers";
+import { FOUNDER_EXECUTED_TOOLS } from "./remote-mcp";
 import { remoteToolList } from "./remote-mcp/build";
 import { BROWSER_SITES } from "./browser-sites";
 import { BROWSER_TOOL_LIST, browserConnectorKey } from "./connectors/browser/tools";
@@ -115,6 +116,7 @@ const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: Pol
   notion_mcp: remoteToolList(NOTION_MCP),
   hubspot_mcp: remoteToolList(HUBSPOT_MCP),
   shopify_mcp: remoteToolList(SHOPIFY_MCP),
+  lightbringer_mcp: remoteToolList(LIGHTBRINGER_MCP),
   mcp_custom: [
     { name: "list_remote_tools", hints: {} },
     { name: "call_unlisted_tool", hints: { contactsThirdParty: true, irreversible: true } },
@@ -171,7 +173,7 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
   // A redeploy goes live and uses the founder's build minutes: it asks first.
   vercel: { "deployments.list": ["list_deployments"], "deployments.read": ["list_deployments", "get_deployment"], "deployments.create": ["create_deployment"] },
   posthog: { "insights.query": ["query_insights"] },
-  // The founder's own Resend account and verified domain; a message to someone outside the project asks first.
+  // The founder's own Resend account and verified domain; a message to someone outside the project runs in assisted and automated mode.
   resend: { "mail.send": ["send_mail", "list_domains"], "domains.read": ["list_domains"] },
   // Generated video and voiceover on the founder's own Runway and ElevenLabs accounts (founder, 2026-11-13). Starting a clip
   // or a voiceover spends the founder's money and asks first; looking a task up and listing voices are free reads.
@@ -187,6 +189,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     // A pull request reports its merge state (get_pull_request); get_checks reads the check runs of an agent's branch head.
     "checks.read": ["get_pull_request", "get_checks"],
     "actions.read": ["get_checks"],
+    // The previews GitHub records for a commit: read by the platform's merge review (WP-07 T12); no template grants it.
+    "deployments.read": ["list_deployments"],
     // Starts the CI workflow on an agent/ branch (the founder's push settings still apply). Granted to the QA engineer and the engineering lead.
     "checks.run": ["run_checks"],
     "pulls.create": ["create_branch", "commit_files", "open_pr"],
@@ -201,6 +205,14 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
   notion_mcp: { "pages.search": ["notion_search"], "pages.read": ["notion_search", "notion_fetch"], "pages.write": ["notion_create_pages", "notion_update_page"] },
   hubspot_mcp: { "crm.read": ["get_user_details", "search_crm_objects", "get_crm_objects", "discover_hubspot_schema"], "crm.write": ["manage_crm_objects"] },
   shopify_mcp: { "catalog.read": ["search_catalog", "get_product"] },
+  // Patents through Lightbringer (founder, 2026-11-22). `request_patent_preparation` is in no capability: it is the founder's own press.
+  lightbringer_mcp: {
+    "inventions.read": ["whoami", "list_innovations", "get_innovation", "get_innovation_template", "search", "fetch", "show_patent_portfolio", "get_credits", "list_tasks", "get_task_status", "list_reviews", "get_review", "get_company_context"],
+    "patents.search": ["search_public_patents"],
+    "inventions.draft": ["register_innovation", "update_innovation", "start_innovation_feedback"],
+    "reviews.respond": ["respond_to_review", "add_comment", "add_discussion_comment", "reply_to_comment", "comment"],
+    "patents.manage": ["set_validation_countries", "import_patent", "start_journey", "ask_agent", "answer_agent", "update_company_context"],
+  },
   notion: { "pages.search": ["search", "query_data_source"], "pages.read": ["get_page", "get_page_content", "query_data_source"], "pages.write": ["create_page", "append_paragraphs"] },
   opencorporates: { "companies.search": ["search_companies", "get_company"] },
   companies_house: { "companies.search": ["search_companies"], "companies.read": ["get_company"], "officers.list": ["list_officers"] },
@@ -296,6 +308,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     // Foundmill's own booking (founder, Nov 22, 2026): leads draft the setup for the founder to check; they read bookings without addresses or answers.
     "booking.setup": ["booking_setup"],
     "booking.read": ["list_bookings"],
+    // Prepares the founder's one note for a request only their own press can send (founder, 2026-11-22); sends nothing.
+    "founderActions.prepare": ["prepare_founder_action"],
   },
   web: { search: ["search_web"], fetch: ["fetch_page"] },
   quarantine: { read_untrusted: ["read_untrusted"] },
@@ -384,13 +398,22 @@ export function isServiceMediaTool(connectorKey: string, tool: string): boolean 
   return SERVICE_MEDIA_TOOLS.has(`${connectorKey}:${tool}`);
 }
 
-const hasRouteOnlyTools = (connectorKey: string): boolean => [...ROUTE_ONLY_TOOLS].some((ref) => ref.startsWith(`${connectorKey}:`));
+const hasRouteOnlyTools = (connectorKey: string): boolean => [...ROUTE_ONLY_TOOLS, ...FOUNDER_EXECUTED_TOOLS].some((ref) => ref.startsWith(`${connectorKey}:`));
 
 /** Why a grant of a route-only tool resolves to nothing (`ResolvedGrants.unresolved`). */
 export const ROUTE_ONLY_REASON = "the platform calls this tool itself on its own gateway route; agents never do";
 
 export function isRouteOnlyTool(connectorKey: string, tool: string): boolean {
-  return ROUTE_ONLY_TOOLS.has(`${connectorKey}:${tool}`);
+  return ROUTE_ONLY_TOOLS.has(`${connectorKey}:${tool}`) || isFounderExecutedTool(connectorKey, tool);
+}
+
+/**
+ * A tool only the founder's own press runs (`hints.founderExecuted`, founder 2026-11-22). Like a route-only tool it is in
+ * no agent's token or tool list; unlike one, no token outside a session runs it either: only the gateway's
+ * `POST /v1/founder-actions/execute` does, from a single-use token bound to the exact payload the founder saw.
+ */
+export function isFounderExecutedTool(connectorKey: string, tool: string): boolean {
+  return FOUNDER_EXECUTED_TOOLS.has(`${connectorKey}:${tool}`);
 }
 
 export interface ToolGrantLike {

@@ -22,6 +22,7 @@
 import { codeReviewHandBack } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { isUntrusted } from "@foundmill/connectors";
+import { previewProvider } from "@foundmill/connectors/connectors/github/tools";
 import { founderReworkDetail, repos } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
@@ -38,7 +39,7 @@ const MERGE_CALL_TIMEOUT_MS = 120_000;
  * quarantined reader and handed back as a summary (BUILD §9.8), which the merge cannot parse (Nov 1, 2026: every merge
  * failed there).
  */
-const MERGE_READ_TOOLS = ["github:compare_refs", "github:list_pull_requests", "github:get_pull_request", "github:get_checks"];
+const MERGE_READ_TOOLS = ["github:compare_refs", "github:list_pull_requests", "github:get_pull_request", "github:get_checks", "github:list_deployments"];
 const MERGE_WRITE_TOOLS = ["github:open_pr", "github:run_checks", "github:update_branch", "github:merge_pr"];
 /** Audit actions of the merge step; `approvalId` in their details ties them to the founder's decision. */
 export const MERGE_AUDIT = { prepared: "merge.prepared", updated: "merge.updated", asked: "merge.asked", waiting: "merge.waiting", merged: "merge.merged", notMerged: "merge.not_merged", reopened: "merge.reopened", handedBack: "merge.handed_back" } as const;
@@ -207,6 +208,27 @@ export function createMergeActivities(deps: OrchestratorDeps) {
     }
   }
 
+  /**
+   * The preview a repository's own deploy left on the branch head (WP-07 T12): the first successful deployment whose
+   * address is https on a known preview host becomes `deploy.succeeded` (preview), once per head commit, which the
+   * Development tab's "See it" column opens. Best effort: a repository with no previews, or an App without deployments
+   * access, records nothing and the merge goes on.
+   */
+  async function recordPreview(input: MergeInput, tok: string, repo: { owner: string; repo: string }, sha: string): Promise<void> {
+    const listed = await call<{ items?: unknown }>(tok, "list_deployments", { ...repo, sha }).catch(() => null);
+    if (!listed?.result.ok || !Array.isArray(listed.result.data.items)) return;
+    // The deployer's answer is untrusted: only a success with an address on a preview host is kept, checked again here.
+    const preview = (listed.result.data.items as { state?: unknown; url?: unknown }[]).find((d) => d?.state === "success" && typeof d.url === "string" && previewProvider(d.url));
+    if (!preview) return;
+    const url = preview.url as string;
+    await emitEvent(db, {
+      businessId: input.businessId,
+      type: "deploy.succeeded",
+      actor: systemActor,
+      payload: { taskId: input.taskId, environment: "preview", provider: previewProvider(url)!, url, commitSha: sha, branch: input.branch, durationMs: null },
+    }, { idempotencyKey: `deploy:${input.taskId}:${sha}` });
+  }
+
   return {
     /**
      * Code tasks whose work passed its tests on the task's own branch and never reached the default branch: in review with
@@ -348,6 +370,8 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       const state = checks.result.ok && typeof checks.result.data.state === "string" ? checks.result.data.state : "unknown";
       const checksState: MergeAssessment["checks"] = state === "pending" || state === "success" || state === "failure" ? state : "unknown";
       const behindBy = compared.result.ok && typeof compared.result.data.behindBy === "number" ? compared.result.data.behindBy : null;
+      const headSha = checks.result.ok ? (checks.result.data as { headSha?: unknown }).headSha : undefined;
+      if (typeof headSha === "string") await recordPreview(input, read, found.repo, headSha);
       const detail = pr.result.ok ? (pr.result.data.mergeableState ? `GitHub reports the pull request as ${pr.result.data.mergeableState}${behindBy ? `, ${behindBy} commit${behindBy === 1 ? "" : "s"} behind the default branch` : ""}` : null) : pr.result.message.slice(0, 300);
       return { mergeable, checks: checksState, detail, behindBy };
     },

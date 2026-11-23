@@ -13,7 +13,7 @@ export { AcceptanceResult, type AcceptanceResultT };
  * Platform tool names an agent may cite bare for an outside call of the same name (gmail's send_message and
  * list_messages): a bare citation of one of these is judged by the session, which knows which connector ran.
  */
-export const SHARED_WITH_OUTSIDE: ReadonlySet<string> = new Set(["list_messages", "send_message"]);
+export const SHARED_WITH_OUTSIDE: ReadonlySet<string> = new Set(["list_messages", "list_tasks", "send_message"]);
 /** Tools that never stand behind a line (`unmetAcceptanceLines` sees outside tools only): cited, they are refused. */
 const INSIDE_CONNECTORS = new Set(["platform", "quarantine"]);
 const PLATFORM_TOOL_NAMES = new Set<string>(platformTools.map((t) => t.name).filter((n) => !SHARED_WITH_OUTSIDE.has(n)));
