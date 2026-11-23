@@ -251,6 +251,20 @@ describe("#250 a spend that asked the founder is confirmed by an owner or admin"
   });
 });
 
+describe("approve_spend naming an agent's approval is confirmed only by someone who may answer that approval (Nov 23, 2026)", () => {
+  it("a member cannot confirm a plan that grants an approval they were not named for, even when the action itself is allowed; another project's approval is refused", async () => {
+    const { businessId, memberId, ownerId, agent2Id } = hz.A;
+    const spend = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "e2b", tool: "create_sandbox", args: { plan: true }, reasons: ["Above the threshold"], decisionType: "spend_above_threshold" });
+    const other = await repos.approvals.create(hz.db, hz.B.businessId, { agentId: hz.B.agentId, connectorKey: "e2b", tool: "create_sandbox", args: {}, reasons: ["Above the threshold"], decisionType: "spend_above_threshold" });
+    const stage = (approvalId: string) => repos.plans.create(hz.db, businessId, { origin: "free_text", actions: [{ type: "approve_spend", params: { approval_id: approvalId, amount_minor: 0 }, agentId: agent2Id, policyOutcome: "allow" }] });
+    const plan = await stage(spend.id);
+    expect(await code(as(memberId).plan.confirm({ businessId, planId: plan.id }))).toBe("FORBIDDEN");
+    expect((await repos.plans.get(hz.db, businessId, plan.id)).status).toBe("pending_confirmation");
+    expect(await code(as(ownerId).plan.confirm({ businessId, planId: (await stage(other.id)).id }))).toBe("BAD_REQUEST");
+    expect(await code(as(ownerId).plan.confirm({ businessId, planId: plan.id }))).toBe("OK");
+  });
+});
+
 describe("#100 journey data follows the section walls", () => {
   it("a member walled from Distribution gets no Customer Updates and a Ribbon without the conversion list", async () => {
     const { businessId, memberId, conversionIds } = hz.A;

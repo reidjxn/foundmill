@@ -167,12 +167,13 @@ describe("runAgentSession (mock replay)", () => {
       }, { timeout: 10_000, interval: 50 });
       const requested = await repos.events.list(local.db, local.businessId, { type: "approval.requested", limit: 5 });
       expect(requested.items.some((e) => (e.payload as { approvalId: string }).approvalId === approvalId)).toBe(true);
+      // As inbox.decide does: the founder's answer is stored, then signalled.
+      await repos.approvals.resolve(local.db, local.businessId, approvalId!, { outcome: "approved", byKind: "user", byId: local.fixture.ownerId });
       await local.control.post(sessionId, { kind: "decision", approvalId: approvalId!, outcome: "approved", by: local.fixture.ownerId });
       const result = await run;
       expect(["done", "blocked"]).toContain(result.outcome);
-      expect((await repos.approvals.get(local.db, local.businessId, approvalId!)).outcome).toBe("approved");
-      const resolved = await repos.events.list(local.db, local.businessId, { type: "approval.resolved", limit: 5 });
-      expect(resolved.items.length).toBeGreaterThan(0);
+      // The answer the api stored (and announced) stands: the run does not resolve it again.
+      expect(await repos.approvals.get(local.db, local.businessId, approvalId!)).toMatchObject({ outcome: "approved", byKind: "user", byId: local.fixture.ownerId });
     } finally {
       await local.close();
     }
@@ -191,12 +192,12 @@ describe("runAgentSession (mock replay)", () => {
     expect(mine).toEqual([]);
     const rows = (await repos.approvals.list(t.db, t.businessId, { limit: 50 })).items.filter((a) => a.sessionId === sessionId);
     expect(rows.length).toBeGreaterThan(0);
-    expect(rows.every((a) => a.resolvedAt !== null && a.outcome === "approved")).toBe(true);
+    // A Stripe call is the founder's (Nov 23, 2026): a hold that moved on by itself is closed as expired, never approved.
+    expect(rows.every((a) => a.resolvedAt !== null && a.outcome === "expired")).toBe(true);
     await acts.finishSession(input, launch, result);
   });
 
-  it("a hold whose decision type Team › Responsibilities delegates to an agent is approved by it and the replay goes on (TPD-04)", async () => {
-    // The coupon hold waits for a decision ("wait"): only the delegated agent's approval can release it.
+  it("a Stripe hold is never decided by the agent Team › Responsibilities names for spending: it waits for the founder (TPD-04, Nov 23, 2026)", async () => {
     const provider = new MockSandboxProvider({ speed: Infinity, autoplay: false, holds: "wait", recordings: RECORDINGS });
     const local = await setupOrchestratorHarness({ prefix: "delegated" });
     try {
@@ -206,16 +207,20 @@ describe("runAgentSession (mock replay)", () => {
       const sessionId = await openSessionRow(local, local.workerId, local.codeTaskId);
       const input = { businessId: local.businessId, agentId: local.workerId, taskId: local.codeTaskId, sessionId };
       const launch = { ...(await localActs.prepareSession(input)), recordingKey: "ledgerly-annual-plan-discount" };
-      const result = await localActs.runAgentSession(input, launch);
-      // It ran past the coupon to the hard gate (accepting terms is never delegated), never waiting for the founder.
+      const run = localActs.runAgentSession(input, launch);
+      let approvalId: string | null = null;
+      await vi.waitFor(async () => {
+        const mine = (await repos.approvals.pending(local.db, local.businessId)).find((a) => a.sessionId === sessionId);
+        if (!mine) throw new Error("no approval yet");
+        expect(mine).toMatchObject({ tool: "create_coupon", handlerKind: null, handlerId: null, outcome: null });
+        approvalId = mine.id;
+      }, { timeout: 10_000, interval: 50 });
+      await expect(repos.approvals.resolve(local.db, local.businessId, approvalId!, { outcome: "approved", byKind: "chief_of_staff", byId: local.chiefId })).rejects.toThrow(/owner or admin/);
+      await repos.approvals.resolve(local.db, local.businessId, approvalId!, { outcome: "approved", byKind: "user", byId: local.fixture.ownerId });
+      await local.control.post(sessionId, { kind: "decision", approvalId: approvalId!, outcome: "approved", by: local.fixture.ownerId });
+      const result = await run;
       expect(result.blockedReason).not.toBe("awaiting_approval");
-      const mine = (await repos.approvals.list(local.db, local.businessId, { agentId: local.workerId, limit: 10 })).items.filter((a) => a.sessionId === sessionId);
-      expect(mine).toHaveLength(1);
-      expect(mine[0]).toMatchObject({ tool: "create_coupon", decisionType: "spend_above_threshold", handlerKind: "agent", handlerId: local.chiefId, outcome: "approved", byKind: "agent", byId: local.chiefId });
-      const requested = await repos.events.list(local.db, local.businessId, { type: "approval.requested", limit: 20 });
-      expect(requested.items.some((e) => (e.payload as { approvalId: string }).approvalId === mine[0]!.id)).toBe(false);
-      const resolved = await repos.events.list(local.db, local.businessId, { type: "approval.resolved", limit: 20 });
-      expect(resolved.items.find((e) => (e.payload as { approvalId: string }).approvalId === mine[0]!.id)?.payload).toMatchObject({ outcome: "approved", resolvedBy: { kind: "agent", id: local.chiefId } });
+      expect((await repos.approvals.get(local.db, local.businessId, approvalId!)).byId).toBe(local.fixture.ownerId);
     } finally {
       await local.close();
     }

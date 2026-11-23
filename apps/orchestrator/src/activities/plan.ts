@@ -314,7 +314,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
       // allow (or approved ask): run the typed handler.
       await repos.plans.startAction(db, businessId, action.id);
       try {
-        const handled = await handle(action, params, { businessId, business, agents, workflowId: input.workflowId, approvalId: input.approvalId ?? null });
+        const handled = await handle(action, params, { businessId, business, agents, workflowId: input.workflowId, approvalId: input.approvalId ?? null, planId: input.planId });
         const { action: finished } = await repos.plans.finishAction(db, businessId, action.id, { status: "done", result: handled.result, policyOutcome: approved ? "ask" : "allow" });
         await repos.audit.append(db, businessId, { actorKind: "system", action: `plan.action.${action.type}`, target: { kind: "plan_action", id: action.id }, details: { result: handled.result, approved } });
         return { actionId: finished.id, status: "done", outcome: approved ? "ask" : "allow", approvalId: input.approvalId ?? null, result: handled.result, spawn: handled.spawn, ...(handled.stop?.length ? { stop: handled.stop } : {}) };
@@ -343,7 +343,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
 
   // ---- handlers --------------------------------------------------------------------------------------------------
 
-  async function handle(action: PlanActionRow, p: Record<string, unknown>, ctx: { businessId: string; business: Business; agents: Agent[]; workflowId: string; approvalId: string | null }): Promise<{ result: Record<string, unknown>; spawn: PlanActionResult["spawn"]; stop?: string[] }> {
+  async function handle(action: PlanActionRow, p: Record<string, unknown>, ctx: { businessId: string; business: Business; agents: Agent[]; workflowId: string; approvalId: string | null; planId: string }): Promise<{ result: Record<string, unknown>; spawn: PlanActionResult["spawn"]; stop?: string[] }> {
     const { db } = deps;
     const { businessId } = ctx;
     // An amount the plan did not price in a currency is in the business's own (0025).
@@ -427,6 +427,11 @@ export function createPlanActivities(deps: OrchestratorDeps) {
           const target = await repos.approvals.find(db, businessId, approvalId);
           if (!target) throw new Error("approval_id names no approval of this business");
           if (target.decisionType === null || founderOnlyCall(target.connectorKey, target.tool)) throw new Error("only an owner or admin can approve this, in Needs you");
+          // Only a plan a person confirmed (plan.confirm checked that they may answer this approval): never one that ran
+          // without a press (automated mode, vacation, a playbook, an option's plan), whose params a model wrote.
+          if (!(await repos.plans.get(db, businessId, ctx.planId)).confirmedAt) throw new Error("answer this approval in Needs you");
+          // What the confirmer saw is what is granted: never a larger amount, or another currency, than the action states.
+          if (target.amountMinor && (amountOf(p) < target.amountMinor || str(p.currency, ctx.business.currency).toUpperCase() !== (target.currency ?? "").toUpperCase())) throw new Error("the approval is for a larger amount than this plan states; answer it in Needs you");
           // Answered like the Inbox answers it: the item closes and a session waiting on the call carries on.
           await grantApproval(deps, businessId, approvalId, null);
           return { result: { approvalId, amountMinor: amountOf(p) }, spawn: [] };

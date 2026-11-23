@@ -12,7 +12,7 @@
 import { DECISION_TYPES, ForbiddenError, ValidationError, isAdminRole, type DecisionType } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, isNotNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { agentSessions, agents, APPROVAL_BY_KINDS, APPROVAL_OUTCOMES, approvals, departments, memberships, tasks, type Approval, type APPROVAL_HANDLER_KINDS } from "../schema";
+import { agentSessions, agents, APPROVAL_BY_KINDS, APPROVAL_OUTCOMES, approvals, departments, integrations, memberships, tasks, type Approval, type APPROVAL_HANDLER_KINDS } from "../schema";
 import { Currency, DateRange, Id, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
 import { membershipNotEnded } from "./memberships";
 
@@ -168,16 +168,27 @@ export const FOUNDER_ONLY_TOOLS: ReadonlySet<string> = new Set([
   ...["manage_crm_objects", "manage_marketing_email", "manage_social_posts", "manage_blog_post", "manage_landing_page", "manage_website_page"].map((t) => `hubspot_mcp:${t}`),
 ]);
 
+/**
+ * Connectors that act in the founder's own accounts (Nov 23, 2026): every call of theirs that asks is the founder's to
+ * approve, whatever tool it is, so a tool added later, `call_unlisted_tool` and a custom MCP server are covered too.
+ * Sends through the project's own sending channels (SendGrid, Resend, Buffer, the platform's mail) stay delegable.
+ */
+export const FOUNDER_ACCOUNT_CONNECTORS: ReadonlySet<string> = new Set(["gmail", "google_calendar", "google_drive", "notion_mcp", "hubspot_mcp", "shopify_mcp", "mcp_custom", "shopify", "stripe", "github", "cloudflare_dns", "vercel"]);
+
+/** The person's own Google account: only the person who connected it approves a call in it (as `setContextReads`). */
+const OWN_GOOGLE_ACCOUNT: ReadonlySet<string> = new Set(["gmail", "google_calendar", "google_drive"]);
+
 export function founderOnlyCall(connectorKey: string | null | undefined, tool: string | null | undefined): boolean {
   if (!connectorKey || !tool) return false;
-  return FOUNDER_ONLY_TOOLS.has(`${connectorKey}:${tool}`) || connectorKey.startsWith("browser_");
+  return FOUNDER_ONLY_TOOLS.has(`${connectorKey}:${tool}`) || FOUNDER_ACCOUNT_CONNECTORS.has(connectorKey) || connectorKey.startsWith("browser_") || connectorKey.startsWith("cli_");
 }
 
 /**
  * Whether a yes from this decider stands for this approval. A founder-only call needs a person who is an owner or admin
  * of the project now. A stored null decision type is the founder's too (a hard gate, a payment record, a call no type
  * fits, or a row from before 0054 added the column: fail closed): a person who gives it must be an owner or admin, and
- * only such a person's yes runs a call (`use`). The system's own bookkeeping of a recorded hold may still close one as
+ * only such a person's yes runs a call (`use`). In Gmail, Google Calendar or Google Drive that person must also be the one who
+ * connected the account (another cofounder never approves mail from someone else's mailbox). The system's own bookkeeping of a recorded hold may still close one as
  * approved, but that never runs anything.
  */
 async function yesStands(db: Executor, businessId: string, approval: Pick<Approval, "connectorKey" | "tool" | "decisionType">, by: { byKind: string | null; byId: string | null }, use = false): Promise<boolean> {
@@ -185,7 +196,10 @@ async function yesStands(db: Executor, businessId: string, approval: Pick<Approv
   if (!listed && !(approval.decisionType === null && (use || by.byKind === "user"))) return true;
   if (by.byKind !== "user" || !by.byId) return false;
   const rows = await db.select({ role: memberships.role }).from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, by.byId), membershipNotEnded)).limit(1);
-  return rows.length > 0 && isAdminRole(rows[0]!.role);
+  if (!(rows.length > 0 && isAdminRole(rows[0]!.role))) return false;
+  if (!approval.connectorKey || !OWN_GOOGLE_ACCOUNT.has(approval.connectorKey)) return true;
+  const own = await db.select({ connectedBy: integrations.connectedBy }).from(integrations).where(and(eq(integrations.businessId, businessId), eq(integrations.connectorKey, approval.connectorKey))).limit(1);
+  return !own[0]?.connectedBy || own[0].connectedBy === by.byId;
 }
 
 export async function routeApproval(db: Executor, businessId: string, input: { agentId?: string | null; decisionType: DecisionType | null; founderOnly?: boolean; founderAccount?: boolean }): Promise<ApprovalRouting> {
@@ -338,7 +352,7 @@ export const approvalsRepo = {
     const v = parseInput(ResolveApprovalInput, input, "approval resolution");
     if (v.outcome === "approved") {
       const current = await approvalsRepo.get(db, businessId, approvalId);
-      if (current.resolvedAt === null && !(await yesStands(db, businessId, current, { byKind: v.byKind, byId: v.byId ?? null }))) throw new ForbiddenError("Only an owner or admin can approve this");
+      if (current.resolvedAt === null && !(await yesStands(db, businessId, current, { byKind: v.byKind, byId: v.byId ?? null }))) throw new ForbiddenError("Only an owner or admin can approve this. In a Google account, only the person who connected it can.");
     }
     const rows = await db
       .update(approvals)

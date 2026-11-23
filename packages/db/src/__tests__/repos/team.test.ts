@@ -131,7 +131,8 @@ describe("approvals routed by Responsibilities (TPD-04)", () => {
     // A merge to the default branch is the founder's even when an agent is delegated it: the agent never decides it.
     const merge = await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "github", tool: "merge_pr" });
     expect(merge).toMatchObject({ decisionType: "merge_to_main", handlerKind: null, outcome: null, resolvedAt: null });
-    const message = await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "gmail", tool: "send_email" });
+    // A send through the project's own sending channel (not the founder's own Gmail, Nov 23, 2026) is delegable.
+    const message = await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "sendgrid", tool: "send_email" });
     expect(message).toMatchObject({ decisionType: "message_customers", handlerKind: "user", handlerId: memberId, outcome: null, resolvedAt: null });
     // An agent never decides a signature, and an explicit null (a hard gate) is not routed.
     expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "dropbox_sign", tool: "send_envelope" })).toMatchObject({ decisionType: "sign_contracts", handlerKind: null, outcome: null });
