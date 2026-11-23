@@ -263,7 +263,7 @@ export const CONTRACT_TOOLS: ReadonlySet<string> = new Set(["dropbox_sign:send_s
  * every mode, and in automated mode and on vacation unless the business gave agents the inbound payment power.
  * Paying out, refunding and transferring are hard gates and never on this list.
  */
-export const PAYMENT_RECORD_TOOLS: ReadonlySet<string> = new Set(["stripe:create_invoice", "stripe:create_checkout_session", "stripe:create_payment_link"]);
+export const PAYMENT_RECORD_TOOLS: ReadonlySet<string> = new Set(["stripe:create_invoice", "stripe:create_checkout_session"]);
 
 /** `Tool.finance` / `Tool.contract` come from the gateway, not from `policyHints` (DECISIONS "Tool attributes beyond connector policyHints"). */
 export function toolAttributes(connector: string, tool: string): { finance: boolean; contract: boolean; paymentRecord: boolean } {

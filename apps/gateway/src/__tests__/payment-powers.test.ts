@@ -28,8 +28,6 @@ describe("payment powers at the gateway", () => {
   it("names the payment-record tools; no outbound tool is one", () => {
     expect(toolAttributes("stripe", "create_invoice").paymentRecord).toBe(true);
     expect(toolAttributes("stripe", "create_checkout_session").paymentRecord).toBe(true);
-    // A payment link is a payment page too (Nov 23, 2026): it asks in automated mode unless the inbound payment power is on.
-    expect(toolAttributes("stripe", "create_payment_link").paymentRecord).toBe(true);
     for (const t of ["create_payout", "create_transfer", "refund_payment"]) expect(PAYMENT_RECORD_TOOLS.has(`stripe:${t}`)).toBe(false);
   });
 

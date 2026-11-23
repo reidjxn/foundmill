@@ -29,17 +29,18 @@ It started from main after #369 and also covered #379 once it merged. The securi
   - The orchestrator (`plan.ts`) now grants only for a plan a person confirmed (`confirmedAt`).
   - `plan.confirm` (`assertMayGrantFromPlan`, api `services/approvals.ts`) runs the checks Needs you runs on that approval: section write, the handler named when it opened, and Team › Responsibilities. It refuses an `approval_id` from another project.
   - The orchestrator also refuses a grant when the action states a smaller amount, or another currency, than the approval it names, so the confirm screen cannot understate what is granted (reviewer, second pass).
-- **A smaller fix: the payment link.** `stripe:create_payment_link` is now in `PAYMENT_RECORD_TOOLS` (gateway). A payment link therefore asks in automated mode and on vacation unless the inbound payment power is on, like an invoice or a checkout page. The Nov 19 log left this open.
 - **Tests that fail before the fix and pass after:**
   - `approvals-founder-only.test.ts`: the new connectors, and a cross-account Gmail case where the owner cannot approve a send from the admin's mailbox.
   - `staff-authority.test.ts`: a member cannot confirm such a plan, and another project's approval is refused.
   - `plan.test.ts`: an unconfirmed plan grants nothing.
-  - `payment-powers.test.ts`: the payment link is a payment record.
 - **Tests changed because they used Gmail or Stripe as the example of a delegable call:**
   - `team.test.ts` and `team-roster.test.ts` now use SendGrid.
   - The replay tests in `session.test.ts` and `approvals.test.ts` now expect the Stripe coupon hold to close as expired, and expect the founder, not the delegated agent, to answer it.
 
 ## Decisions
+### No new asks (founder, Nov 23, 2026)
+Midway the founder said that users must not be burdened with per-step approvals (#382 removes several). This change adds no ask: it only narrows who may answer one that already exists, and refuses plan grants that had no press. `stripe:create_payment_link` running unasked in automated mode, outside `PAYMENT_RECORD_TOOLS`, was reported to the coordinating session instead of fixed.
+
 ### Founder-account means the connector, not a tool list
 A list of tools missed every tool added later and every unlisted remote call. Naming the connectors is shorter and fails closed. A read on these connectors never asks, so the change only affects calls that already asked the founder.
 
