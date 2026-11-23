@@ -17,7 +17,7 @@ import { recordExpiredApprovals } from "@foundmill/events";
 import { LIMITS } from "@foundmill/config";
 import { channelRefusal } from "@foundmill/connectors";
 import { getTemplate, getTemplateByAgentType, type AgentTemplate } from "@foundmill/agents";
-import { changeAgentModels, hireFromTemplate, repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
+import { changeAgentModels, founderOnlyCall, hireFromTemplate, repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
 import { PRICING_CURRENCY, resolveRoadmapItem, roadmapPatchFrom, SetAgentModelParams, UpdateRoadmapParams } from "@foundmill/models";
 import { agentPrincipal, evaluate, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, CHOOSABLE_MODEL_KEYS, CreatePlaybookParams, TASK_KINDS, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
@@ -421,8 +421,14 @@ export function createPlanActivities(deps: OrchestratorDeps) {
       case "approve_spend": {
         const approvalId = typeof p.approval_id === "string" ? p.approval_id : null;
         if (approvalId) {
+          // A plan is never the founder's own press: a founder-only approval (a made file's release, a listed remote
+          // change, a hosted-browser step, a stored null type) is answered in Needs you, never here. The params are
+          // written by a model, so the grant is the plan's (system), never the user a `by` param names.
+          const target = await repos.approvals.find(db, businessId, approvalId);
+          if (!target) throw new Error("approval_id names no approval of this business");
+          if (target.decisionType === null || founderOnlyCall(target.connectorKey, target.tool)) throw new Error("only an owner or admin can approve this, in Needs you");
           // Answered like the Inbox answers it: the item closes and a session waiting on the call carries on.
-          await grantApproval(deps, businessId, approvalId, typeof p.by === "string" ? p.by : null);
+          await grantApproval(deps, businessId, approvalId, null);
           return { result: { approvalId, amountMinor: amountOf(p) }, spawn: [] };
         }
         return { result: { amountMinor: amountOf(p), currency, note: "spend approved within caps; the next matching tool call runs without asking" }, spawn: [] };

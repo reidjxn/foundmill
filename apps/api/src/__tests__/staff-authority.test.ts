@@ -189,13 +189,28 @@ describe("#107 a member cannot widen what an agent does on its own", () => {
     expect(await code(as(adminId).team.approvals.resolve({ businessId, approvalId: spend.id, outcome: "rejected" }))).toBe("OK");
   });
 
-  it("approvalDecisionType and mayDecide follow the connector's hints and the matrix", () => {
-    const connectors = hz.deps.connectors;
-    expect(approvalDecisionType({ connectorKey: "sendgrid", tool: "send_mail" }, connectors)).toBe("message_customers");
-    expect(approvalDecisionType({ connectorKey: "e2b", tool: "create_sandbox" }, connectors)).toBe("spend_above_threshold");
-    expect(approvalDecisionType({ connectorKey: "github", tool: "merge_pr" }, connectors)).toBe("merge_to_main");
-    expect(approvalDecisionType({ connectorKey: "dropbox_sign", tool: "send_signature_request" }, connectors)).toBe("sign_contracts");
-    expect(approvalDecisionType({ connectorKey: "nope", tool: "x" }, connectors)).toBeNull();
+  it("a made file's release, a listed remote change and a hosted-browser step are an owner's or admin's, never the member named for them", async () => {
+    const { businessId, memberId, adminId, ownerId, agent2Id } = hz.A;
+    // The member is named for messaging customers in agent2's department (the test above), which is how the gateway
+    // routed these calls before Nov 22, 2026.
+    for (const [connectorKey, tool] of [["cli_inkscape", "release_output"], ["hubspot_mcp", "manage_crm_objects"], ["notion_mcp", "notion_update_page"], ["browser_canva", "click"]] as const) {
+      for (const decider of [ownerId, adminId]) {
+        const a = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey, tool, args: { decider }, reasons: ["asks"], decisionType: "message_customers" });
+        expect(a.handlerKind, `${connectorKey}:${tool}`).toBeNull();
+        expect(await code(as(memberId).team.approvals.resolve({ businessId, approvalId: a.id, outcome: "approved" })), `${connectorKey}:${tool}`).toBe("FORBIDDEN");
+        expect(await code(as(decider).team.approvals.resolve({ businessId, approvalId: a.id, outcome: "approved" })), `${connectorKey}:${tool}`).toBe("OK");
+      }
+    }
+    // A stored null (a payment record, a hard gate, a row from before the column) is the founder's: never recomputed from hints.
+    const unrouted = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "sendgrid", tool: "send_mail", args: { unrouted: true }, reasons: ["asks"], decisionType: null });
+    expect(await code(as(memberId).team.approvals.resolve({ businessId, approvalId: unrouted.id, outcome: "approved" }))).toBe("FORBIDDEN");
+  });
+
+  it("approvalDecisionType is the stored type, null for founder-only calls; mayDecide follows the matrix", () => {
+    expect(approvalDecisionType({ connectorKey: "sendgrid", tool: "send_mail", decisionType: "message_customers" })).toBe("message_customers");
+    expect(approvalDecisionType({ connectorKey: "sendgrid", tool: "send_mail", decisionType: null })).toBeNull();
+    expect(approvalDecisionType({ connectorKey: "cli_gimp", tool: "release_output", decisionType: "message_customers" })).toBeNull();
+    expect(approvalDecisionType({ connectorKey: "browser_canva", tool: "fill", decisionType: "publish_content" })).toBeNull();
     const d1 = { id: "d1", approvers: [{ decisionType: "spend_above_threshold", handler: { kind: "user", id: "u1" } }] };
     const d2 = { id: "d2", approvers: [] };
     const member = { userId: "u1", role: "member" as const };
