@@ -14,9 +14,8 @@
  * - `businesses`: how many projects an owner may hold, archived ones not counted (A14): Try 1, Founder up to 5, Studio
  *   any number. Checked when a new one is committed (packages/db `assertBusinessAllowance`); an owner over the limit
  *   keeps what they have.
- * - `includedCreditsMinor`: the month's team budget (A15): $5.00, $10.00, $50.00, granted to as many projects a month as
- *   `includedCreditBusinesses` says (1, 3, any number: unchanged, so an owner keeps what they have today). One budget
- *   shared across an owner's projects (A15 read strictly) needs a per-owner balance, which is not built.
+ * - `includedCreditsMinor`: the month's team budget (A15): $5.00, $10.00, $50.00, the owner's, shared by all their
+ *   projects (founder, Nov 19, 2026; packages/db `owner_credits`).
  * - `claudeModels`: Founder and Studio reach Opus and Sonnet on Foundmill's key without a credit pack; Try reaches them
  *   by a credit pack of `CREDIT_PACK_UNLOCK_MIN_MINOR` or more (from `open`), or on the founder's own Anthropic key,
  *   which works on every plan and is always offered (A3, A16).
@@ -36,9 +35,9 @@ export type EarlyAccessStage = (typeof EARLY_ACCESS_STAGES)[number];
 export const EARLY_ACCESS_STAGE: EarlyAccessStage = "invite_only";
 
 export const TIERS = {
-  free: { name: "Try", modelBilling: "credits_or_byok", businesses: 1, includedCreditBusinesses: 1, maxConcurrentAgents: 4, channels: "all", seats: "unlimited", includedCreditsMinor: 500, claudeModels: false },
-  pro: { name: "Founder", modelBilling: "credits_or_byok", businesses: 5, includedCreditBusinesses: 3, maxConcurrentAgents: 4, channels: "all", seats: "unlimited", includedCreditsMinor: 1000, claudeModels: true },
-  scale: { name: "Studio", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: "unlimited", maxConcurrentAgents: 64, channels: "all", seats: "unlimited", includedCreditsMinor: 5000, claudeModels: true, prioritySupport: true },
+  free: { name: "Try", modelBilling: "credits_or_byok", businesses: 1, maxConcurrentAgents: 4, channels: "all", seats: "unlimited", includedCreditsMinor: 500, claudeModels: false },
+  pro: { name: "Founder", modelBilling: "credits_or_byok", businesses: 5, maxConcurrentAgents: 4, channels: "all", seats: "unlimited", includedCreditsMinor: 1000, claudeModels: true },
+  scale: { name: "Studio", modelBilling: "credits_or_byok", businesses: "unlimited", maxConcurrentAgents: 64, channels: "all", seats: "unlimited", includedCreditsMinor: 5000, claudeModels: true, prioritySupport: true },
 } as const;
 export type TierKey = keyof typeof TIERS;
 /** Lowest to highest: an owner's allowance follows the highest tier any business they own is on. */
@@ -338,11 +337,11 @@ export function initialModelBilling(tier: TierKey): "credits" | "byok" {
 
 /**
  * How many projects an owner on `tier` may hold, archived ones not counted (null = any number). Try 1, Founder up to 5,
- * Studio any number (founder, Nov 17, 2026, A14; this replaces "unlimited on every plan", 2026-10-16). The limit applies
- * from the day sign-up opens: while invite-only it is null for everyone.
+ * Studio any number (founder, Nov 17, 2026, A14). It applies at every stage (founder, Nov 19, 2026): committing one more
+ * past it is refused with a plain way on (change plan), and an owner over it keeps what they have.
  */
-export function tierBusinessLimit(tier: TierKey, stage: EarlyAccessStage = EARLY_ACCESS_STAGE): number | null {
-  return stage === "open" ? planBusinesses(tier) : null;
+export function tierBusinessLimit(tier: TierKey): number | null {
+  return planBusinesses(tier);
 }
 
 /** The plan's own number of projects, whatever the stage (null = any number). */
@@ -360,15 +359,6 @@ export function planWithRoomFor(tier: TierKey, owned: number): TierKey | null {
 export function tierSeatLimit(tier: TierKey): number | null {
   const limit: number | string = TIERS[tier].seats;
   return typeof limit === "number" ? limit : null;
-}
-
-/**
- * How many of a founder's businesses get the tier's included credits each month (null = every one): the founder's
- * monthly pool (SEC2 S6), its own number so it never grows with the business limit.
- */
-export function tierIncludedCreditPlaces(tier: TierKey): number | null {
-  const places: number | string = TIERS[tier].includedCreditBusinesses;
-  return typeof places === "number" ? places : null;
 }
 
 /**

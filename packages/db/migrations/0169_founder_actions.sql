@@ -1,4 +1,4 @@
--- 0163 — founder-executed actions (founder, Nov 22, 2026: "the agent never decides or calls submit and pay; the founder's
+-- 0169 — founder-executed actions (founder, Nov 22, 2026: "the agent never decides or calls submit and pay; the founder's
 -- press does, so this is the founder filing, not agent code acting in their name"). One row per request an agent prepared
 -- for the founder to press: the exact payload (the arguments the vendor tool will get), its hash, what the Needs you note
 -- showed, and what became of the press. The gateway runs the vendor tool only from a fresh single-use token bound to

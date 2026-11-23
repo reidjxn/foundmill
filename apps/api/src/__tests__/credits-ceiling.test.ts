@@ -12,7 +12,7 @@ import { CreditsExhaustedError } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { silentLog } from "../services/log";
 import { createApiModelClient } from "../services/models";
-import { createApiHarness, type ApiHarness } from "./harness";
+import { createApiHarness, spendAllCredits, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
 beforeAll(async () => {
@@ -23,11 +23,8 @@ afterAll(() => hz.close());
 const period = () => periodOf(new Date());
 const ledger = async (businessId: string) => (await repos.usage.list(hz.db, businessId, { limit: 500 })).items.length;
 const ask = { route: "planCompiler" as const, schema: PlanOutput, messages: [{ role: "user" as const, content: "```json\n" + JSON.stringify({ reply: "Pause the ads until Monday", agents: [], action_types: [] }) + "\n```" }] };
-/** Uses up this month's credits of a business on credits (the included credits first, as the first charge would). */
-const useUp = async (businessId: string) => {
-  const { balance } = await repos.usage.ensurePeriodCredits(hz.db, businessId, period(), includedCreditsMinor("free"));
-  await repos.usage.chargeCredits(hz.db, businessId, period(), Number(balance.balanceMinor));
-};
+/** Uses up this month's credits of a business on credits: the owner's shared budget first, then its own balance. */
+const useUp = (businessId: string) => spendAllCredits(hz.db, businessId, period());
 
 describe("the API's platform-key calls stop when the credits do", () => {
   it("a business with credits left runs; once they are used up the call is refused before it is sent, and nothing is booked", async () => {

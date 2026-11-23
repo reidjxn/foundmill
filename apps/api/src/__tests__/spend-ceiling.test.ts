@@ -20,7 +20,7 @@ import { createComposerClient } from "../services/composer";
 import { noteModelCall, withModelCallScope } from "../services/model-calls";
 import { MODEL_LIMITS } from "../services/model-limits";
 import { apiCreditsGate } from "../services/models";
-import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
+import { createApiHarness, spendAllCredits as spendAllOfCredits, fakeTemporalClient, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
 const temporal = fakeTemporalClient();
@@ -41,8 +41,8 @@ const refusal = async (p: Promise<unknown>) => {
   }
 };
 /** Uses up the business's credits for this month (the balance row, at zero). */
-async function useUpCredits(businessId: string) {
-  await repos.usage.chargeCredits(hz.db, businessId, period(), 10_000_000, { includedMinor: 500 });
+async function spendAllCredits(businessId: string) {
+  await spendAllOfCredits(hz.db, businessId, period());
 }
 const ledgerRows = async (businessId: string) => (await repos.usage.list(hz.db, businessId, { limit: 200 })).items.length;
 const decisionItem = (businessId: string, agentId: string) =>
@@ -74,7 +74,7 @@ describe("the credits gate on the api's model calls (S2)", () => {
     await owner.plan.preview({ businessId: B, text: "Pause the ads for a week" });
     expect(await ledgerRows(B)).toBeGreaterThan(0);
 
-    await useUpCredits(B);
+    await spendAllCredits(B);
     const before = await ledgerRows(B);
     const item = await decisionItem(B, hz.B.agentId);
     const refusals = await Promise.all([
@@ -100,7 +100,7 @@ describe("the credits gate on the api's model calls (S2)", () => {
       const charged = await repos.usage.creditBalance(hz.db, A, period());
       // A free business's call runs on Haiku 5.5 (WP-13) and costs a fraction of a cent: whole cents plus the carry.
       expect(Number(charged?.spentMinor) * 1_000_000 + Number(charged?.carryMicroMinor ?? 0)).toBeGreaterThan(0);
-      await useUpCredits(A);
+      await spendAllCredits(A);
       expect(await refusal(owner.plan.preview({ businessId: A, text: "Pause the ads for a week" }))).toMatchObject({ code: "PAYMENT_REQUIRED", message: expect.stringMatching(/Your agents keep working on your own Anthropic key\. To keep going, wait for next month's credits on [A-Z][a-z]{2} 1, \d{4}\.$/) });
       // The plan shows those credits for a business on its own key as well.
       expect((await owner.billing.plan({ businessId: A })).credits).toMatchObject({ balanceMinor: 0, exhausted: true });

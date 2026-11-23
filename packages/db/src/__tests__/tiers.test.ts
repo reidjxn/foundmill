@@ -1,13 +1,13 @@
 /**
  * Plan tier limits are enforced (BUILD §10.5 `TIERS`): businesses per owner (the highest tier among the businesses they
- * own; Try 1, Founder up to 5, Studio any number from the day sign-up opens, none before), seats per business, and concurrent
+ * own; Try 1, Founder up to 5, Studio any number, at every stage), seats per business, and concurrent
  * agent sessions per business, each refused with a typed `tier_limit` error.
  */
-import { tierBusinessLimit, TIERS, type TierKey } from "@foundmill/config";
+import { TIERS } from "@foundmill/config";
 import { TierLimitError } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../repos";
-import { assertBusinessAllowance, assertConcurrencyRoom, assertSeatAvailable, businessAllowance, concurrencyAllowance, includedCreditPool, OPEN_SESSION_WINDOW_HOURS, seatAllowance } from "../tiers";
+import { assertBusinessAllowance, assertConcurrencyRoom, assertSeatAvailable, businessAllowance, concurrencyAllowance, OPEN_SESSION_WINDOW_HOURS, seatAllowance } from "../tiers";
 import { setupRepoHarness, type RepoHarness } from "./repos/helpers";
 
 let r: RepoHarness;
@@ -17,31 +17,29 @@ beforeAll(async () => {
 afterAll(() => r?.close());
 
 describe("businesses per owner", () => {
-  it("while sign-up is invite-only nobody has a project limit, so no invited tester loses one", async () => {
+  it("an owner with no project yet has room, and Try holds 1 (A14)", async () => {
     const fresh = await r.h.createUser("tier-fresh@test.local");
-    expect(await businessAllowance(r.db, fresh)).toEqual({ tier: "free", allowed: null, owned: 0, planBusinessId: null });
+    expect(await businessAllowance(r.db, fresh)).toEqual({ tier: "free", allowed: 1, owned: 0, planBusinessId: null });
     await expect(assertBusinessAllowance(r.db, fresh)).resolves.toMatchObject({ owned: 0 });
 
     const owner = r.A.ownerId;
-    expect(await businessAllowance(r.db, owner)).toEqual({ tier: "free", allowed: null, owned: 1, planBusinessId: r.A.businessId });
-    await expect(assertBusinessAllowance(r.db, owner)).resolves.toMatchObject({ tier: "free", allowed: null, owned: 1 });
+    expect(await businessAllowance(r.db, owner)).toEqual({ tier: "free", allowed: 1, owned: 1, planBusinessId: r.A.businessId });
     // Staff of a business (not its owner) hold no allowance there.
     expect((await businessAllowance(r.db, r.A.adminId)).owned).toBe(0);
   });
 
-  it("from the day sign-up opens Try holds 1 project: the owner keeps it and is told which plan allows another (A14)", async () => {
+  it("Try holds 1 project: the owner keeps it and is told which plan allows another (A14)", async () => {
     const owner = r.A.ownerId;
-    const open = { limitFor: (tier: TierKey) => tierBusinessLimit(tier, "open") };
-    const refused = await assertBusinessAllowance(r.db, owner, open).catch((e: unknown) => e);
+    const refused = await assertBusinessAllowance(r.db, owner).catch((e: unknown) => e);
     expect(refused).toBeInstanceOf(TierLimitError);
     expect(refused).toMatchObject({ code: "tier_limit", status: 403, details: { limit: "businesses", tier: "free", allowed: 1, used: 1, planBusinessId: r.A.businessId } });
     expect((refused as Error).message).toBe("Try holds 1 project and you have 1. You keep it. Founder holds up to 5: change plan in Settings › Billing to take charge of another, or archive one.");
     expect((refused as Error).message).not.toMatch(/free|seat/i);
     // Founder has room for four more; Studio for any number.
     await repos.businesses.update(r.db, r.A.businessId, { planTier: "pro" });
-    await expect(assertBusinessAllowance(r.db, owner, open)).resolves.toMatchObject({ tier: "pro", allowed: 5, owned: 1 });
+    await expect(assertBusinessAllowance(r.db, owner)).resolves.toMatchObject({ tier: "pro", allowed: 5, owned: 1 });
     await repos.businesses.update(r.db, r.A.businessId, { planTier: "scale" });
-    await expect(assertBusinessAllowance(r.db, owner, open)).resolves.toMatchObject({ tier: "scale", allowed: null });
+    await expect(assertBusinessAllowance(r.db, owner)).resolves.toMatchObject({ tier: "scale", allowed: null });
     await repos.businesses.update(r.db, r.A.businessId, { planTier: "free" });
   });
 
@@ -58,25 +56,10 @@ describe("businesses per owner", () => {
     await repos.memberships.add(r.db, second.id, { userId: r.B.ownerId, role: "owner" });
     expect((await businessAllowance(r.db, r.B.ownerId)).owned).toBe(2);
     // Over Try's limit of 1 with 2: nothing is taken away, a third is refused, and Studio is not named while Founder has room.
-    const open = { limitFor: (tier: TierKey) => tierBusinessLimit(tier, "open") };
-    await expect(assertBusinessAllowance(r.db, r.B.ownerId, open)).rejects.toThrow(/Try holds 1 project and you have 2\. You keep them all\. Founder holds up to 5/);
+    await expect(assertBusinessAllowance(r.db, r.B.ownerId)).rejects.toThrow(/Try holds 1 project and you have 2\. You keep them all\. Founder holds up to 5/);
     // A deleted (archived) project does not count toward the limit.
     await repos.businesses.archive(r.db, second.id);
     expect((await businessAllowance(r.db, r.B.ownerId)).owned).toBe(1);
-  });
-
-  it("the included-credit pool keeps its own size (SEC2 S6) and counts only the founder's own grants", async () => {
-    const period = "2027-03";
-    const founder = await r.h.createUser("tier-pool@test.local");
-    expect(await includedCreditPool(r.db, founder, period)).toEqual({ tier: "free", period, places: TIERS.free.includedCreditBusinesses, taken: 0 });
-    const first = await repos.businesses.create(r.db, { name: "Pool One", createdBy: founder });
-    await repos.memberships.add(r.db, first.id, { userId: founder, role: "owner" });
-    await repos.usage.chargeCredits(r.db, first.id, period, 1, { includedMinor: 500 });
-    expect(await includedCreditPool(r.db, founder, period)).toMatchObject({ places: 1, taken: 1 });
-    // Another founder's grants are theirs alone.
-    expect(await includedCreditPool(r.db, r.B.ownerId, period)).toMatchObject({ taken: 0 });
-    await repos.businesses.update(r.db, first.id, { planTier: "scale" });
-    expect(await includedCreditPool(r.db, founder, period)).toMatchObject({ tier: "scale", places: null, taken: 1 });
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CREDIT_PACK_UNLOCK_MIN_MINOR, CREDITS_CURRENCY, EARLY_ACCESS_PRICE_LABEL, EARLY_ACCESS_STAGE, ENTRY_PLAN, indicativePricesFor, INVITED_FOUNDERS_LINE, listPriceMinor, PARTNER_PLAN, PLAN_FEATURE_FROM, PLAN_FEATURES, planAdds, planFor, planIncludes, planName, planPriceLabel, planWithRoomFor, PRICE_SETS, PRICE_TEST, subscriptionChargeMinor, subscriptionChargingOpen, tierForInvited, FIRST_CYCLE_SESSION_CAP_MINOR, firstCycleInput, higherTier, includedCreditsMinor, initialModelBilling, sandboxCostMicroMinor, SANDBOX_MICRO_MINOR_PER_SECOND, TIER_ORDER, TIERS, tierBusinessLimit, tierShowsBuiltOnMark, tierSeatLimit, tierIncludedCreditPlaces } from "../pricing";
+import { CREDIT_PACK_UNLOCK_MIN_MINOR, CREDITS_CURRENCY, EARLY_ACCESS_PRICE_LABEL, EARLY_ACCESS_STAGE, ENTRY_PLAN, indicativePricesFor, INVITED_FOUNDERS_LINE, listPriceMinor, PARTNER_PLAN, PLAN_FEATURE_FROM, PLAN_FEATURES, planAdds, planFor, planIncludes, planName, planPriceLabel, planWithRoomFor, PRICE_SETS, PRICE_TEST, subscriptionChargeMinor, subscriptionChargingOpen, tierForInvited, FIRST_CYCLE_SESSION_CAP_MINOR, firstCycleInput, higherTier, includedCreditsMinor, initialModelBilling, sandboxCostMicroMinor, SANDBOX_MICRO_MINOR_PER_SECOND, TIER_ORDER, TIERS, tierBusinessLimit, tierShowsBuiltOnMark, tierSeatLimit } from "../pricing";
 
 describe("pricing tiers (BUILD §10.5)", () => {
   it("keeps credits in US dollars and includes a bounded platform credit on every tier", () => {
@@ -12,19 +12,13 @@ describe("pricing tiers (BUILD §10.5)", () => {
     for (const tier of TIER_ORDER) expect(initialModelBilling(tier)).toBe("credits");
   });
 
-  it("a plan limits projects, not people: Try 1, Founder up to 5, Studio any number, from the day sign-up opens (A14)", () => {
-    expect(TIER_ORDER.map((t) => tierBusinessLimit(t, "open"))).toEqual([1, 5, null]);
-    // While sign-up is invite-only nobody has a limit, so no invited tester loses a project.
-    for (const tier of TIER_ORDER) expect(tierBusinessLimit(tier, "invite_only")).toBeNull();
-    expect(EARLY_ACCESS_STAGE).toBe("invite_only");
-    for (const tier of TIER_ORDER) expect(tierBusinessLimit(tier)).toBeNull();
+  it("a plan limits projects, not people: Try 1, Founder up to 5, Studio any number, at every stage (A14; founder, Nov 19, 2026)", () => {
+    expect(TIER_ORDER.map(tierBusinessLimit)).toEqual([1, 5, null]);
     // The plan a refusal names: the lowest one with room for another.
     expect(planWithRoomFor("free", 1)).toBe("pro");
     expect(planWithRoomFor("free", 5)).toBe("scale");
     expect(planWithRoomFor("pro", 5)).toBe("scale");
     expect(planWithRoomFor("scale", 40)).toBeNull();
-    // How many projects a month's budget is granted to is unchanged from before the plans (1, 3, any number).
-    expect(TIER_ORDER.map(tierIncludedCreditPlaces)).toEqual([1, 3, null]);
   });
 
   it("Studio adds more agents at once; Try and Founder run four; people are free on every plan", () => {

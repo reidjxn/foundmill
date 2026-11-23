@@ -107,7 +107,7 @@ Founder, Nov 22, 2026: connect the Lightbringer MCP so a founder links their own
 - **The real tool list was read before building** (server `lightbringer-mcp-server` 4.27.0, 51 tools, Nov 22, 2026; `tools/list` answers without sign-in). `lightbringer_mcp` is a `RemoteServer` with Foundmill's own policy for each listed tool, a recorded mock, scopes `mcp:read mcp:write` (never `mcp:trade-secrets`), and `live: false` until `LIGHTBRINGER_MCP_CLIENT_ID` is set.
 - **Policy**: reading the portfolio and drafting or checking a disclosure run; anything that reaches Lightbringer's people or changes what others see asks first in every mode (a new `askAlways` hint and policy, because the existing hints did not force an ask in automated mode); permanent deletes and inviting members are hard gates; `request_patent_preparation` is founder-executed.
 - **Founder-executed tools**: a `founderExecuted` hint. Such a tool is in no agent's tool list, and every session-token call to it is refused before scope. The gateway runs it only at `POST /v1/founder-actions/execute`, from a press token minted by the api for one call, valid for at most five minutes, bound to a hash of the exact payload the founder saw.
-- **`founder_actions`** (migration 0163): the prepared request, its payload and hash, what the note showed, who pressed and when, and the result.
+- **`founder_actions`** (migration 0169): the prepared request, its payload and hash, what the note showed, who pressed and when, and the result.
 - **The press**: an agent prepares (`prepare_founder_action`, typed facts only) and one Needs you note shows exactly what the press does. Only a founder of the project can press it, in the console. Vacation auto-decide, the email one-click answer, Today's one tap and delegation can never answer it. If the invention changed after the note was shown, the request is voided and a new note is written.
 - **When it is offered**: hardware already needs `patents_ip` before its first public showing; any project whose idea describes an invention (`describesInvention`) gets the same need planned at take charge.
 - **Skill** `patent_preparation` for the Legal Lead (defaults release 4; release 3 is the CLI-Anything skills). **Evals**: a patent offer before the launch post, no agent reaching the request tool even when a document says to, and injections inside portfolio documents; each with an offline twin.
@@ -118,7 +118,7 @@ The brief describes one press, "File this patent for $X", that submits and pays.
 
 So the founder-executed tool is `request_patent_preparation`: the press tells Lightbringer, in the founder's name and from the founder's own account, to prepare this invention for filing. The note says what the press does and does not do, and shows no dollar figure because none exists to show. Filing and payment then happen between the founder and Lightbringer.
 
-This is the founder's to confirm; the pull request is a draft until then.
+The founder chose this on Nov 23, 2026 ("merge #368 when green and ready", relayed by the coordinating session; the founder marked the pull request ready and turned auto-merge on): merge as is, with filing and payment staying between the founder and Lightbringer.
 
 ### Inviting members is a hard gate, not ask-first
 Its name matches a hard-gate stem and it changes who can see the founder's inventions. The rule was kept rather than excepted.

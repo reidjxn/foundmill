@@ -19,7 +19,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ConnectionsPanel, InvitationsPanel, RequestsPanel, SentRequestsPanel, type ConnectionRow, type InvitationRow } from "./ConnectionPanels";
 import { MessagesPanel, type Selection } from "./MessagesPanel";
-import { AdultNotice, PersonalNotice, usePeople } from "./shared";
+import { AdultNotice, PersonalNotice, useCanReadPeople, usePeople } from "./shared";
 import { userChannel } from "./signals";
 import { PeopleSearchPanel } from "./PeopleSearchPanel";
 import { useNarrow } from "./useNarrow";
@@ -48,6 +48,8 @@ export function NetworkScreen() {
   );
   const unreadQ = useQuery(trpc.live.messages.unread.queryOptions(undefined, { staleTime: 10_000, refetchInterval: 30_000 }));
   const invitationsQ = useQuery(trpc.live.communities.invitations.queryOptions(undefined, { staleTime: 15_000, refetchInterval: poll }));
+  // Reading other people waits for the 18+ confirmation (the api refuses it before); AdultNotice above asks for it.
+  const canReadPeople = useCanReadPeople() === true;
 
   const rows = useMemo<ConnectionRow[]>(() => connectionsQ.data ?? [], [connectionsQ.data]);
   const threads = useMemo(() => {
@@ -144,12 +146,12 @@ export function NetworkScreen() {
           loadingMoreThreads={threadsQ.isFetchingNextPage}
           narrow={narrow}
         />
-        <FindPeoplePanel />
+        {canReadPeople ? <FindPeoplePanel /> : null}
         <ConnectionsPanel rows={[...groups.accepted, ...groups.blocked]} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} onBlock={handlers.onBlock} onRemove={handlers.onRemove} onMessage={handlers.onMessage} onFind={findFounders} narrow={narrow} />
       </div>
       {/* One way on from an empty network, not three: only Connections offers "Browse communities". */}
       <div className="flex min-w-0 flex-col gap-gutter @page-wide:order-1 @page-wide:col-span-4">
-        <PeopleSearchPanel />
+        {canReadPeople ? <PeopleSearchPanel /> : null}
         <RequestsPanel rows={groups.incoming} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onAccept={handlers.onAccept} onRemove={handlers.onRemove} onBlock={handlers.onBlock} />
         <SentRequestsPanel rows={groups.outgoing} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onRemove={handlers.onRemove} />
         <InvitationsPanel rows={invitations} people={people} loading={invitationsQ.isLoading} error={invitationsQ.error ? errorMessage(invitationsQ.error) : undefined} onRetry={() => void invitationsQ.refetch()} busyId={invitationBusy} onJoin={onJoin} onDecline={onDecline} />

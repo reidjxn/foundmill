@@ -6,10 +6,9 @@
  * writes the ledger row and, when the platform paid for it, charges the business's credit balance for the row's period.
  * Credits are always enforced (DECISIONS 2026-10-12): every tier includes a monthly platform credit
  * (`includedCreditsMinor`, packages/config), granted on the first charge of the period when no top-up came first, so no
- * business runs on the platform's key without a ceiling. The included credit is a per-founder monthly pool: the
- * businesses one founder took charge of (archived ones included) share as many included credits a month as their plan's
- * `includedCreditBusinesses` (`includedCreditsFor`), so archiving and taking charge again never yields a second free
- * grant, and lifting the business limit (founder, 2026-10-16) never widens the pool.
+ * business runs on the platform's key without a ceiling. The included budget is the owner's, one a month shared by all
+ * their projects (`owner_credits`, 0164; founder, Nov 19, 2026): a charge draws on it first, then on the project's own
+ * balance (what it bought). Archiving and taking charge again never yields a second budget.
  *
  * What is charged: every platform cost in the credits currency (USD), whatever the business's model billing. A business
  * on its own key runs its agents on that key (billed `byok`, never charged), but the api's and the composer's calls
@@ -34,7 +33,7 @@
  * `assertPlatformCredits` refuses a call while the month's credits are used up (or stopped for it), and where calls are
  * live, credits granted by a simulated payment never count (`ALLOW_MOCK_PAYMENTS`, docs/DEPLOY.md §4).
  */
-import { APP_NAME, chargedMinor, creditsAreLow, EARLY_ACCESS_STAGE, planName, subscriptionChargingOpen, tierShowsBuiltOnMark, type TierKey, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, ownPlanFunds, tierIncludedCreditPlaces } from "@foundmill/config";
+import { APP_NAME, chargedMinor, creditsAreLow, EARLY_ACCESS_STAGE, planName, subscriptionChargingOpen, tierShowsBuiltOnMark, type TierKey, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, ownPlanFunds } from "@foundmill/config";
 import { CreditsExhaustedError, platformBillingMode, type Env, type FundingSource } from "@foundmill/shared";
 import { stopBusinessAgents } from "./controls";
 import { repos } from "./repos";
@@ -142,20 +141,43 @@ async function fundingFor(db: Executor, businessId: string, input: BookUsageInpu
 type CreditsBusiness = Pick<Business, "id" | "planTier" | "createdBy">;
 
 /**
- * What `business`'s tier includes for `period`, after the founder's monthly pool: the businesses one founder took charge
- * of (`created_by`, archived ones included) are granted included credits for at most as many businesses a month as the
- * founder's plan covers (`tierIncludedCreditPlaces` of the founder's tier, `businessAllowance`; every one on Scale).
- * It is its own number, not the business limit (there is none for now). Past that, a business starts the month with nothing
- * included (a top-up or the founder's own key keeps it working). `lock` serializes grants of one founder's businesses
- * (inside the transaction that creates the balance row). A business with no recorded founder (old seeds) is not pooled.
+ * What a project's own balance opens a month with. The month's included team budget is the owner's, shared by all
+ * their projects (0164; founder, Nov 19, 2026), so a project with a recorded owner (`created_by`) opens with nothing
+ * included: only what it bought carries over. A business with no recorded owner (old seeds) keeps its own tier's amount.
  */
-export async function includedCreditsFor(db: Executor, business: CreditsBusiness, period: string, options: { lock?: boolean } = {}): Promise<number> {
-  const included = includedCreditsMinor(business.planTier);
-  if (included <= 0 || !business.createdBy) return included;
-  if (options.lock) await repos.usage.lockIncludedCredits(db, business.createdBy);
-  const [{ tier }, taken] = await Promise.all([businessAllowance(db, business.createdBy), repos.usage.includedCreditPlacesTaken(db, business.createdBy, period, { exceptBusinessId: business.id })]);
-  const places = tierIncludedCreditPlaces(tier);
-  return places !== null && taken >= places ? 0 : included;
+export async function includedCreditsFor(_db: Executor, business: CreditsBusiness, _period: string, _options: { lock?: boolean } = {}): Promise<number> {
+  return business.createdBy ? 0 : includedCreditsMinor(business.planTier);
+}
+
+/**
+ * The month's included budget of the owner of `business` in US cents: what their plan includes (`businessAllowance`
+ * follows the highest plan among the projects they own). A business with no recorded owner uses its own plan's.
+ */
+export async function monthlyBudgetMinor(db: Executor, business: CreditsBusiness): Promise<number> {
+  if (!business.createdBy) return includedCreditsMinor(business.planTier);
+  return includedCreditsMinor((await businessAllowance(db, business.createdBy)).tier);
+}
+
+/** What is left of the owner's shared budget for `period` (0164): their row, or the whole budget before their first charge. */
+export interface OwnerShare {
+  grantedMinor: number;
+  balanceMinor: number;
+  /** What the owner's plan includes a month (the whole budget). */
+  monthlyMinor: number;
+}
+export async function ownerShare(db: Executor, business: CreditsBusiness, period: string): Promise<OwnerShare> {
+  if (!business.createdBy) return { grantedMinor: 0, balanceMinor: 0, monthlyMinor: includedCreditsMinor(business.planTier) };
+  return ownerBudget(db, business.createdBy, period, business.planTier);
+}
+
+/** A person's month: what their plan includes, and the shared budget's row (or the whole budget before their first charge). */
+export async function ownerBudget(db: Executor, userId: string, period: string, tier?: TierKey): Promise<OwnerShare> {
+  const row = await repos.usage.ownerCredits(db, userId, period);
+  // Once the month's row is open its granted amount is the plan's budget then: no second look at the owner's projects.
+  if (row) return { monthlyMinor: Number(row.grantedMinor), grantedMinor: Number(row.grantedMinor), balanceMinor: Number(row.balanceMinor) };
+  // Before their first charge of the month: the plan of the project asking when it is known (no second query), else the owner's highest.
+  const monthlyMinor = includedCreditsMinor(tier ?? (await businessAllowance(db, userId)).tier);
+  return { monthlyMinor, grantedMinor: monthlyMinor, balanceMinor: monthlyMinor };
 }
 
 /**
@@ -180,7 +202,7 @@ export async function bookUsage(db: Executor, businessId: string, input: BookUsa
     const trueMicro = Number(entry.costMicroMinor ?? Number(entry.costMinor) * MICRO_PER_MINOR);
     // `markup` is for the tests of the charge's own mechanics (balances, carries, the pause), which state amounts at cost.
     const chargeMicro = options.markup === undefined ? chargedMinor(trueMicro) : Math.round(trueMicro * (1 + options.markup));
-    const charged = await repos.usage.chargeCreditsMicro(tx, businessId, period, chargeMicro, { includedMinor: (t) => includedCreditsFor(t, business, period, { lock: true }) });
+    const charged = await repos.usage.chargeCreditsMicro(tx, businessId, period, chargeMicro, business.createdBy ? { owner: { userId: business.createdBy, budgetMinor: (t) => monthlyBudgetMinor(t, business) } } : { includedMinor: async () => includedCreditsMinor(business.planTier) });
     if (!charged) return { entry, credits: { enforced: false, balance: null, exhausted: null, pausedAgents: 0, noteId: null } };
     if (charged.exhausted === null) {
       const lowNoteId = await creditsLowNotice(tx, business, period, charged.balance, options.topUps ?? false);
@@ -224,7 +246,7 @@ export interface PlatformCredits {
   balanceMinor: number;
   grantedMinor: number;
   spentMinor: number;
-  /** What the tier includes this month for this business, after the founder's pool (`includedCreditsFor`). */
+  /** The month's included budget of the project's owner (`monthlyBudgetMinor`), shared by all their projects. */
   includedMinor: number;
   /** Credits granted this month by a simulated payment (labeled; they never pay for live model calls). */
   mockMinor: number;
@@ -236,10 +258,20 @@ export interface PlatformCredits {
  * when the period has no row yet (it is created on the first charge). Every business has them, on its own key too:
  * they pay for the api's and the composer's calls on the platform key.
  */
-export async function platformCredits(db: Executor, business: CreditsBusiness, period: string): Promise<PlatformCredits> {
-  const [row, includedMinor, mockMinor] = await Promise.all([repos.usage.creditBalance(db, business.id, period), includedCreditsFor(db, business, period), repos.checkouts.mockGrantedMinor(db, business.id, period)]);
-  const balanceMinor = row ? Number(row.balanceMinor) : includedMinor;
-  return { currency: CREDITS_CURRENCY, balanceMinor, grantedMinor: row ? Number(row.grantedMinor) : includedMinor, spentMinor: row ? Number(row.spentMinor) : 0, includedMinor, mockMinor, exhausted: balanceMinor <= 0 };
+export async function platformCredits(db: Executor, business: CreditsBusiness, period: string, options: { share?: OwnerShare } = {}): Promise<PlatformCredits> {
+  const [row, share, mockMinor] = await Promise.all([repos.usage.creditBalance(db, business.id, period), options.share ?? ownerShare(db, business, period), repos.checkouts.mockGrantedMinor(db, business.id, period)]);
+  // The project's own balance (what it bought, or its own tier's credits when it has no recorded owner) and what is left of the owner's shared budget.
+  const ownMinor = row ? Number(row.balanceMinor) : business.createdBy ? 0 : includedCreditsMinor(business.planTier);
+  const balanceMinor = ownMinor + share.balanceMinor;
+  return {
+    currency: CREDITS_CURRENCY,
+    balanceMinor,
+    grantedMinor: (row ? Number(row.grantedMinor) : ownMinor) + share.grantedMinor,
+    spentMinor: row ? Number(row.spentMinor) : 0,
+    includedMinor: share.monthlyMinor,
+    mockMinor,
+    exhausted: balanceMinor <= 0,
+  };
 }
 
 /**
@@ -327,28 +359,29 @@ export async function checkPlatformCredits(db: Executor, businessId: string, opt
   // is. Every call on the platform key (no `routedTo`) keeps the stop and the zero check, whatever the business's funding.
   const plan = agentWorkFunding(business, options.ownPlan);
   if (options.routedTo !== undefined && plan.source === "own_plan" && plan.provider === options.routedTo) {
-    const balanceMinor = row ? Number(row.balanceMinor) : 0;
+    const balanceMinor = (row ? Number(row.balanceMinor) : 0) + (await ownerShare(db, business, period)).balanceMinor;
     return { ok: true, reason: null, period, balanceMinor, spendableMinor: balanceMinor, low: false, modelBilling: business.modelBilling, fundedBy: "own_plan" };
   }
-  const included = row ? null : await includedCreditsFor(db, business, period);
-  const balanceMinor = row ? Number(row.balanceMinor) : (included ?? 0);
+  const share = await ownerShare(db, business, period);
+  const ownMinor = row ? Number(row.balanceMinor) : business.createdBy ? 0 : includedCreditsMinor(business.planTier);
+  const balanceMinor = ownMinor + share.balanceMinor;
   const mockMinor = options.live && balanceMinor > 0 ? await repos.checkouts.mockGrantedMinor(db, business.id, period) : 0;
   const spendableMinor = Math.max(0, balanceMinor - mockMinor);
   // A credits stop from an earlier month is lifted by the new month's credits (resuming the agents stays with an admin).
   const stopped = business.agentsStoppedReason === "credits_exhausted" && business.agentsStoppedAt !== null && periodOf(business.agentsStoppedAt) === period;
   const reason = stopped || balanceMinor <= 0 ? "exhausted" : spendableMinor <= 0 ? "mock_only" : null;
-  const low = reason === null && (await belowLowLine(db, business, period, spendableMinor, included));
+  const low = reason === null && (await belowLowLine(db, business, spendableMinor));
   return { ok: reason === null, reason, period, balanceMinor, spendableMinor, low, modelBilling: business.modelBilling, fundedBy: "foundmill_credits" };
 }
 
 /**
- * Whether `amountMinor` is below this month's low line. The line is a share of what the month includes for this business
- * (after the founder's pool, `includedCreditsFor`), so the pool is read only when the amount is under the highest line
- * the tier could have: almost every call answers without a query. `included` is passed when the caller already has it.
+ * Whether `amountMinor` is below this month's low line. The line is a share of the owner's monthly budget
+ * (`monthlyBudgetMinor`), read only when the amount is under the highest line a plan could have: almost every call
+ * answers without a query.
  */
-async function belowLowLine(db: Executor, business: CreditsBusiness, period: string, amountMinor: number, included: number | null = null): Promise<boolean> {
+async function belowLowLine(db: Executor, business: CreditsBusiness, amountMinor: number): Promise<boolean> {
   if (amountMinor <= 0 || amountMinor >= lowCreditsThresholdMinor(includedCreditsMinor(business.planTier))) return false;
-  return creditsAreLow(amountMinor, included ?? (await includedCreditsFor(db, business, period)));
+  return creditsAreLow(amountMinor, await monthlyBudgetMinor(db, business));
 }
 
 /** Throws `CreditsExhaustedError` (402, a sentence the founder can act on) when `checkPlatformCredits` says no. */
@@ -369,14 +402,6 @@ export async function assertPlatformCredits(db: Executor, businessId: string, op
 const usd = (minor: number) => `$${(minor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 /** "Nov 1, 2026" (US dates). */
 const shortDate = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-/** Why a month started with nothing included: another business of the same founder took the pool's place. */
-function poolSentence(business: Business, balance: Pick<CreditBalance, "grantedMinor">): string {
-  if (Number(balance.grantedMinor) > 0 || includedCreditsMinor(business.planTier) <= 0) return "";
-  const n = tierIncludedCreditPlaces(business.planTier);
-  const places = n !== null ? `${n} project${n === 1 ? "" : "s"}` : "every project";
-  return ` ${planName(business.planTier)}'s budget goes to ${places} a month, and this month's already went to another project you took charge of.`;
-}
-
 /**
  * The one sentence of ways to continue once this month's credits are gone (WP-09 T13): credits first where they can be
  * bought here (`topUps`), the founder's own Anthropic key unless the business already runs on one (`ownKey`), and the
@@ -419,7 +444,7 @@ async function finishedAndNext(db: Executor, businessId: string, period: string)
 }
 
 /** The resting note's body: the brief's sentence, the two lists from real records, the plan by its name, and the ways on. */
-export function restingNoteBody(input: { planTier: Business["planTier"]; finished: readonly string[]; next: readonly string[]; leftMinor: number; nextOn: Date; pool?: string; topUps?: boolean; plans?: boolean }): string {
+export function restingNoteBody(input: { planTier: Business["planTier"]; finished: readonly string[]; next: readonly string[]; leftMinor: number; nextOn: Date; topUps?: boolean; plans?: boolean }): string {
   const lists = input.finished.length > 0 || input.next.length > 0;
   const ways = waysToContinue({ topUps: input.topUps ?? false, ...(input.plans === undefined ? {} : { plans: input.plans }), nextCreditsOn: input.nextOn, voice: "rest" });
   const parts = [`We've used this month's team budget.${lists ? " Here's what we finished, and here's what we'd do next." : ""} ${ways}`];
@@ -427,7 +452,7 @@ export function restingNoteBody(input: { planTier: Business["planTier"]; finishe
   if (input.next.length > 0) parts.push(`**What we'd do next**\n${input.next.map((t) => `- ${t}`).join("\n")}`);
   const left = input.leftMinor > 0 ? ` ${usd(input.leftMinor)} is left: too little to finish another task, so it stays in your balance.` : "";
   parts.push(
-    `You're on ${planName(input.planTier)}, which includes ${usd(includedCreditsMinor(input.planTier))} of team budget a month.${input.pool ?? ""}${left} Nothing was stopped part-way: the task that was running finished. ${input.topUps ? "With a top-up or your own key" : "With your own key"} the team picks up by itself, and tasks carry on where they stopped; on ${shortDate(input.nextOn)}, press Resume agents. Conversations, Refresh and planning run on ${APP_NAME}'s key, so they rest too. Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
+    `You're on ${planName(input.planTier)}, which includes ${usd(includedCreditsMinor(input.planTier))} of team budget a month.${left} Nothing was stopped part-way: the task that was running finished. ${input.topUps ? "With a top-up or your own key" : "With your own key"} the team picks up by itself, and tasks carry on where they stopped; on ${shortDate(input.nextOn)}, press Resume agents. Conversations, Refresh and planning run on ${APP_NAME}'s key, so they rest too. Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
   );
   return parts.join("\n\n");
 }
@@ -461,7 +486,7 @@ async function restTeam(db: Executor, business: Business, period: string, balanc
       type: "warning",
       from_agent_id: chief.id,
       subject: RESTING_SUBJECT,
-      body_md: restingNoteBody({ planTier: business.planTier, finished, next, leftMinor, nextOn: periodRange(period).to, pool: poolSentence(business, balance), topUps }),
+      body_md: restingNoteBody({ planTier: business.planTier, finished, next, leftMinor, nextOn: periodRange(period).to, topUps }),
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
       decision: null,
@@ -490,7 +515,7 @@ async function restTeam(db: Executor, business: Business, period: string, balanc
  */
 async function creditsLowNotice(db: Executor, business: Business, period: string, balance: CreditBalance, topUps: boolean): Promise<string | null> {
   const balanceMinor = Number(balance.balanceMinor);
-  if (!(await belowLowLine(db, business, period, balanceMinor))) return null;
+  if (!(await belowLowLine(db, business, balanceMinor))) return null;
   // Matched on the period it is about, not on when it was written: a late-booked charge belongs to its own month.
   if (await repos.audit.latestMatching(db, business.id, CREDITS_LOW_AUDIT_ACTION, { period }, new Date(0))) return null;
   const { to } = periodRange(period);
@@ -548,7 +573,7 @@ async function noteForOwnKey(db: Executor, business: Business, period: string, b
       type: "warning",
       from_agent_id: chief.id,
       subject: PLATFORM_CREDITS_EXHAUSTED_SUBJECT,
-      body_md: `Your agents run on your own Anthropic key and keep working. Conversations, Refresh and planning run on ${APP_NAME}'s key and use this month's budget, which is used, so they are resting.${poolSentence(business, balance)} ${waysToContinue({ topUps, nextCreditsOn: periodRange(period).to, ownKey: true })} Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
+      body_md: `Your agents run on your own Anthropic key and keep working. Conversations, Refresh and planning run on ${APP_NAME}'s key and use this month's budget, which is used, so they are resting.${waysToContinue({ topUps, nextCreditsOn: periodRange(period).to, ownKey: true })} Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
       decision: null,

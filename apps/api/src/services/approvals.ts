@@ -86,7 +86,7 @@ export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, appro
   // Owners and admins, or the member Team › Responsibilities names for this kind of decision (SEC-7).
   // The handler Responsibilities named when the approval opened answers it (owners and admins can step in).
   assertCanResolveApproval(approval, { userId: ctx.userId, role: ctx.role });
-  await assertMayResolveApproval(tx, ctx.businessId, { userId: ctx.userId, role: ctx.role }, approval, ctx.connectors);
+  await assertMayResolveApproval(tx, ctx.businessId, { userId: ctx.userId, role: ctx.role }, approval);
   const resolved = await repos.approvals.resolve(tx, ctx.businessId, approval.id, { outcome, byKind: "user", byId: ctx.userId });
   const [agent, session, stop] = await Promise.all([
     approval.agentId ? repos.agents.get(tx, ctx.businessId, approval.agentId).catch(() => null) : Promise.resolve(null),
