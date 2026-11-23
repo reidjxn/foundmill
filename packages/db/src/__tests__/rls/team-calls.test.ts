@@ -297,3 +297,15 @@ describe("agents.speech_accent (0082)", () => {
     expect((await h.service().run((tx) => repos.agents.setSpeechAccent(tx, A.businessId, A.agent2Id, "eldrin"))).speechAccent).toBe("eldrin");
   });
 });
+
+describe("team_call_presence (0170): service role only", () => {
+  it("no member of any role reads or writes it; the service does", async () => {
+    await h.service().run((tx) => repos.teamCalls.markPresent(tx, B.businessId, bCallId, B.ownerId));
+    for (const userId of [A.ownerId, A.adminId, A.memberId, A.viewerId, B.ownerId]) {
+      await expect(raw(h.asUser(userId).run((tx) => tx.select().from(s.teamCallPresence)))).rejects.toThrow();
+      await expect(raw(h.asUser(userId).run((tx) => tx.insert(s.teamCallPresence).values({ businessId: B.businessId, callId: bCallId, userId }).returning()))).rejects.toThrow();
+    }
+    const rows = await h.service().run((tx) => tx.select().from(s.teamCallPresence).where(eq(s.teamCallPresence.callId, bCallId)));
+    expect(rows.map((r) => r.userId)).toEqual([B.ownerId]);
+  });
+});

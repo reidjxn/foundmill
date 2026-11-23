@@ -27,7 +27,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 /** A wrap-up older than this whose call is still `wrapping_up` was lost with its request: it may be claimed again. */
 export const WRAP_UP_STALE_MS = 10 * 60_000;
 import { z } from "zod";
-import { planActions, plans, realBusinesses, TEAM_CALL_TURN_VIA, teamCallActions, teamCalls, teamCallTurns, type NewTeamCallAction, type TeamCall, type TeamCallAction, type TeamCallTurn } from "../schema";
+import { planActions, plans, realBusinesses, TEAM_CALL_TURN_VIA, teamCallActions, teamCallPresence, teamCalls, teamCallTurns, type NewTeamCallAction, type TeamCall, type TeamCallAction, type TeamCallTurn } from "../schema";
 import { assertAgentsOwned, assertDepartmentsOwned } from "./_refs";
 import { Id, one, parseInput, type Executor } from "./_shared";
 
@@ -367,20 +367,45 @@ export const teamCallsRepo = {
     return false;
   },
 
+  /** Service connection, after the person's own read of the call: they are on its page now (the room's heartbeat). */
+  async markPresent(db: Executor, businessId: string, callId: string, userId: string, at = new Date()): Promise<void> {
+    const id = parseInput(Id, callId, "team call id");
+    await db
+      .insert(teamCallPresence)
+      .values({ businessId, callId: id, userId, seenAt: at })
+      .onConflictDoUpdate({ target: [teamCallPresence.callId, teamCallPresence.userId], set: { seenAt: at } });
+  },
+
+  /** Service connection: the person left the call's page. Answers how many others were seen on it within `presenceMs`. */
+  async leave(db: Executor, businessId: string, callId: string, userId: string, options: { presenceMs: number; now?: Date }): Promise<{ othersPresent: number }> {
+    const id = parseInput(Id, callId, "team call id");
+    const since = new Date((options.now ?? new Date()).getTime() - options.presenceMs);
+    await db.delete(teamCallPresence).where(and(eq(teamCallPresence.businessId, businessId), eq(teamCallPresence.callId, id), eq(teamCallPresence.userId, userId)));
+    const [row] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(teamCallPresence)
+      .where(and(eq(teamCallPresence.businessId, businessId), eq(teamCallPresence.callId, id), sql`${teamCallPresence.seenAt} >= ${since.toISOString()}::timestamptz`));
+    return { othersPresent: Number(row?.n ?? 0) };
+  },
+
   /**
    * Service connection, every real project: calls left open, for the api's sweep. A `live` call whose last change (its
-   * last turn, or its start) is older than `idleMs`, and a `wrapping_up` call whose request was lost (`WRAP_UP_STALE_MS`).
+   * last turn, or its start) is older than `idleMs`; a `live` call whose page everyone left (it had people on it, and
+   * nobody was seen within `presenceMs`); and a `wrapping_up` call whose request was lost (`WRAP_UP_STALE_MS`).
    * Oldest first, at most `limit`.
    */
-  async idle(db: Executor, options: { idleMs: number; limit?: number; now?: Date }): Promise<{ id: string; businessId: string; startedBy: string | null; status: TeamCall["status"] }[]> {
+  async idle(db: Executor, options: { idleMs: number; presenceMs?: number; limit?: number; now?: Date }): Promise<{ id: string; businessId: string; startedBy: string | null; status: TeamCall["status"] }[]> {
     const now = options.now ?? new Date();
     const liveBefore = new Date(now.getTime() - options.idleMs);
     const wrapBefore = new Date(now.getTime() - WRAP_UP_STALE_MS);
+    const seenSince = new Date(now.getTime() - (options.presenceMs ?? options.idleMs));
+    const presence = (cond: ReturnType<typeof sql>) => sql`exists (select 1 from ${teamCallPresence} p where p.call_id = ${teamCalls.id} and p.business_id = ${teamCalls.businessId}${cond})`;
+    const abandoned = sql`(${teamCalls.status} = 'live' and ${presence(sql``)} and not ${presence(sql` and p.seen_at >= ${seenSince.toISOString()}::timestamptz`)})`;
     return db
       .select({ id: teamCalls.id, businessId: teamCalls.businessId, startedBy: teamCalls.startedBy, status: teamCalls.status })
       .from(teamCalls)
       .innerJoin(realBusinesses, eq(realBusinesses.id, teamCalls.businessId))
-      .where(sql`(${teamCalls.status} = 'live' and ${teamCalls.updatedAt} < ${liveBefore.toISOString()}::timestamptz) or (${teamCalls.status} = 'wrapping_up' and ${teamCalls.updatedAt} < ${wrapBefore.toISOString()}::timestamptz)`)
+      .where(sql`(${teamCalls.status} = 'live' and ${teamCalls.updatedAt} < ${liveBefore.toISOString()}::timestamptz) or ${abandoned} or (${teamCalls.status} = 'wrapping_up' and ${teamCalls.updatedAt} < ${wrapBefore.toISOString()}::timestamptz)`)
       .orderBy(asc(teamCalls.updatedAt))
       .limit(options.limit ?? 50);
   },

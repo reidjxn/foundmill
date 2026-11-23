@@ -541,7 +541,23 @@ export type TeamCallEndVia = "button" | "left" | "idle";
  * Ends the call and writes it up. A wrap-up that fails is tried once more; a second failure ends the call as
  * `wrap_up_failed` ("Ended, couldn't write up", with Try again), never back to live, and every turn is kept.
  */
+/**
+ * The room's heartbeat: this person is on the call's page now. Written on the service connection (presence is service
+ * only, 0170) after their own RLS read of the call. Answers the call's status so a page left open can follow it.
+ */
+export async function markHereOnCall(ctx: BusinessContext, callId: string): Promise<{ status: TeamCallView["status"] }> {
+  const call = await ctx.rls((tx) => repos.teamCalls.get(tx, ctx.businessId, callId));
+  if (call.status === "live") await repos.teamCalls.markPresent(ctx.db, ctx.businessId, callId, ctx.userId);
+  return { status: call.status };
+}
+
 export async function endTeamCall(ctx: BusinessContext, callId: string, via: TeamCallEndVia = "button"): Promise<TeamCallView> {
+  if (via === "left") {
+    // Leaving ends the call only for the last person on its page (founder, Nov 23, 2026); the others carry on.
+    const call = await ctx.rls((tx) => repos.teamCalls.get(tx, ctx.businessId, callId));
+    const { othersPresent } = await repos.teamCalls.leave(ctx.db, ctx.businessId, callId, ctx.userId, { presenceMs: TEAM_CALL_LIMITS.presenceMs });
+    if (call.status === "live" && othersPresent > 0) return getTeamCall(ctx, callId);
+  }
   const claimed = await ctx.rls((tx) => repos.teamCalls.claimWrapUp(tx, ctx.businessId, callId));
   if (!claimed) {
     const call = await ctx.rls((tx) => repos.teamCalls.get(tx, ctx.businessId, callId));

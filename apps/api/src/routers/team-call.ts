@@ -15,6 +15,7 @@ import {
   endTeamCall,
   getTeamCall,
   listTeamCalls,
+  markHereOnCall,
   oneToOneSharing,
   previewSpeechAccent,
   setOneToOneSharing,
@@ -72,6 +73,9 @@ export const teamCallRouter = router({
     .input(z.object({ callId: Id, mime: z.enum(TEAM_CALL_AUDIO_MIMES), base64: Base64 }))
     .use(modelLimited("teamCallSpeech"))
     .mutation(({ ctx, input }) => transcribeOnCall(ctx, input)),
+
+  /** The room's heartbeat (every `TEAM_CALL_LIMITS.heartbeatMs`): who is on the call's page. No model call; viewers count too. */
+  here: sectionRead("team").input(z.object({ callId: Id })).mutation(({ ctx, input }) => markHereOnCall(ctx, input.callId)),
 
   /** `via`: End pressed (default), the founder left the room (the page's keepalive request), or the api's sweep. */
   end: sectionWrite("team")

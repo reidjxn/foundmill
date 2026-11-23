@@ -51,3 +51,34 @@ describe("sweepIdleTeamCalls", () => {
     expect(view.turns.some((t) => t.text === "Let's plan the launch week.")).toBe(true);
   });
 });
+
+describe("leaving a call with two people on it", () => {
+  it("stays live for the one still on the page, and ends when the last person leaves", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const cofounder = hz.caller({ userId: hz.A.adminId });
+    const call = await owner.teamCall.start({ businessId: hz.A.businessId, kind: "team" });
+    await owner.teamCall.say({ businessId: hz.A.businessId, callId: call.id, text: "Let's build the signup page.", via: "typed", clientTurnId: turnId() });
+    await owner.teamCall.here({ businessId: hz.A.businessId, callId: call.id });
+    await cofounder.teamCall.here({ businessId: hz.A.businessId, callId: call.id });
+
+    const afterOwner = await owner.teamCall.end({ businessId: hz.A.businessId, callId: call.id, via: "left" });
+    expect(afterOwner.status).toBe("live");
+    await cofounder.teamCall.say({ businessId: hz.A.businessId, callId: call.id, text: "And the pricing page.", via: "typed", clientTurnId: turnId() });
+
+    const afterCofounder = await cofounder.teamCall.end({ businessId: hz.A.businessId, callId: call.id, via: "left" });
+    expect(afterCofounder.status).toBe("ended");
+  });
+
+  it("is ended by the sweep when everyone left without the leave arriving", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const call = await owner.teamCall.start({ businessId: hz.A.businessId, kind: "team" });
+    await owner.teamCall.say({ businessId: hz.A.businessId, callId: call.id, text: "Let's write the launch post.", via: "typed", clientTurnId: turnId() });
+    await owner.teamCall.here({ businessId: hz.A.businessId, callId: call.id });
+    // Still on the page: the sweep leaves it.
+    await sweepIdleTeamCalls(hz.deps);
+    expect((await owner.teamCall.get({ businessId: hz.A.businessId, callId: call.id })).status).toBe("live");
+    // Nobody seen for longer than presenceMs, though well inside the 15 idle minutes.
+    await sweepIdleTeamCalls(hz.deps, new Date(Date.now() + TEAM_CALL_LIMITS.presenceMs + 5_000));
+    expect((await owner.teamCall.get({ businessId: hz.A.businessId, callId: call.id })).status).toBe("ended");
+  });
+});

@@ -280,7 +280,8 @@ function LiveCall({ call }: { call: TeamCallView }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mutateAsync is stable
   }, [discussReady, rounds, run, businessId, callId]);
 
-  // Leaving the room ends the call (Back, the sidebar, a closed tab): `left` is set once End or a leave has been sent.
+  // Leaving the room (Back, the sidebar, a closed tab) ends the call when nobody else is on it (the api checks the
+  // heartbeats): `left` is set once End or a leave has been sent.
   const left = useRef(false);
   const bearer = useRef<string | null>(null);
   useEffect(() => {
@@ -294,6 +295,15 @@ function LiveCall({ call }: { call: TeamCallView }) {
       clearInterval(t);
     };
   }, []);
+  // On the call's page: a heartbeat, so leaving ends the call only when nobody else is still here.
+  const hereM = useMutation(trpc.teamCall.here.mutationOptions());
+  useEffect(() => {
+    const beat = () => hereM.mutate({ businessId, callId });
+    beat();
+    const t = setInterval(beat, TEAM_CALL_LIMITS.heartbeatMs);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mutate is stable
+  }, [businessId, callId]);
   const leave = useRef(() => {});
   leave.current = () => {
     if (left.current || !call.canSpeak) return;

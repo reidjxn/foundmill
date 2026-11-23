@@ -1,7 +1,8 @@
 /**
  * A team call always ends (founder, Nov 23, 2026: four test calls stayed "In progress" for good, none written up).
- * Every minute the sweep ends each call left open: live with no turn for `TEAM_CALL_LIMITS.idleEndMs` (15 minutes), or
- * a wrap-up whose request was lost. It ends it as the person who started the call, through the same `teamCall.end` they
+ * Every minute the sweep ends each call left open: live with no turn for `TEAM_CALL_LIMITS.idleEndMs` (15 minutes),
+ * live with everyone gone from its page (nobody seen within `presenceMs`, when the leave request never arrived), or a
+ * wrap-up whose request was lost. It ends it as the person who started the call, through the same `teamCall.end` they
  * would press (membership, the Team section wall, the plan and model allowances, the wrap-up's filing under their
  * permissions), with `via: "idle"` in the audit entry. When that person can no longer end it (they left the project, or a
  * gate refuses), the call is marked `wrap_up_failed`: over, every turn kept, and Try again writes it up.
@@ -17,7 +18,7 @@ export const TEAM_CALL_SWEEP_MS = 60_000;
 export async function sweepIdleTeamCalls(deps: ApiDeps, now = new Date()): Promise<{ ended: number; failed: number }> {
   let ended = 0;
   let failed = 0;
-  for (const call of await repos.teamCalls.idle(deps.db, { idleMs: TEAM_CALL_LIMITS.idleEndMs, now })) {
+  for (const call of await repos.teamCalls.idle(deps.db, { idleMs: TEAM_CALL_LIMITS.idleEndMs, presenceMs: TEAM_CALL_LIMITS.presenceMs, now })) {
     try {
       if (!call.startedBy) throw new Error("the call has no starter any more");
       const email = await repos.founders.emailOf(deps.db, call.startedBy);

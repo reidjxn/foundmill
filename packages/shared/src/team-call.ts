@@ -76,6 +76,14 @@ export const TEAM_CALL_LIMITS = {
   maxActionsPerCall: 20,
   /** A live call with no turn for this long was left open: the api's sweep ends it and writes it up. */
   idleEndMs: 15 * 60_000,
+  /** How often an open call page says it is there (`teamCall.here`). */
+  heartbeatMs: 20_000,
+  /**
+   * A person seen on a call's page within this long is still on it: leaving ends the call only when nobody else is, and
+   * the sweep ends a call whose last person left without a word once this has passed. Above a background tab's
+   * once-a-minute timers.
+   */
+  presenceMs: 90_000,
   /**
    * One recording sent for transcription: 1.4 MB, so its base64 stays inside the api's 2 MB request body (about a
    * minute and a half of speech in opus). A longer turn is cut there by the call's own 60-second cap first.

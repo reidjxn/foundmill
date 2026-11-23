@@ -193,3 +193,22 @@ describe("teamCalls.idle", () => {
     expect(now).not.toContain(lost.id);
   });
 });
+
+describe("teamCalls presence", () => {
+  it("counts the others still on the page when one leaves, and lists a call everyone left for the sweep", async () => {
+    const call = await start();
+    await repos.teamCalls.markPresent(r.db, r.A.businessId, call.id, r.A.ownerId);
+    await repos.teamCalls.markPresent(r.db, r.A.businessId, call.id, r.A.memberId);
+    await repos.teamCalls.markPresent(r.db, r.A.businessId, call.id, r.A.memberId);
+    expect(await repos.teamCalls.leave(r.db, r.A.businessId, call.id, r.A.ownerId, { presenceMs: TEAM_CALL_LIMITS.presenceMs })).toEqual({ othersPresent: 1 });
+    const soon = new Date(Date.now() + 10_000);
+    const gone = new Date(Date.now() + TEAM_CALL_LIMITS.presenceMs + 10_000);
+    const listed = async (now: Date) => (await repos.teamCalls.idle(r.db, { idleMs: TEAM_CALL_LIMITS.idleEndMs, presenceMs: TEAM_CALL_LIMITS.presenceMs, limit: 500, now })).map((c) => c.id);
+    expect(await listed(soon)).not.toContain(call.id);
+    expect(await listed(gone)).toContain(call.id);
+    expect(await repos.teamCalls.leave(r.db, r.A.businessId, call.id, r.A.memberId, { presenceMs: TEAM_CALL_LIMITS.presenceMs })).toEqual({ othersPresent: 0 });
+    // A call nobody ever opened is left to the 15 idle minutes.
+    const unopened = await start();
+    expect(await listed(gone)).not.toContain(unopened.id);
+  });
+});
