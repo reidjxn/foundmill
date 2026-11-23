@@ -122,3 +122,26 @@ export const teamCallActions = pgTable(
 );
 export type TeamCallAction = typeof teamCallActions.$inferSelect;
 export type NewTeamCallAction = typeof teamCallActions.$inferInsert;
+
+/** 0170 — who is on a call's page now (the room's heartbeat). Service only; leaving ends the call only for the last person. */
+export const teamCallPresence = pgTable(
+  "team_call_presence",
+  {
+    id: id(),
+    businessId: businessId(),
+    callId: uuid("call_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    seenAt: tstz("seen_at").notNull().defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [
+    unique("team_call_presence_person_key").on(t.callId, t.userId),
+    foreignKey({ name: "team_call_presence_call_fkey", columns: [t.callId, t.businessId], foreignColumns: [teamCalls.id, teamCalls.businessId] }).onDelete("cascade"),
+    index("team_call_presence_business_id_idx").on(t.businessId),
+    index("team_call_presence_call_business_idx").on(t.callId, t.businessId),
+    index("team_call_presence_user_id_idx").on(t.userId),
+  ],
+);
+export type TeamCallPresence = typeof teamCallPresence.$inferSelect;

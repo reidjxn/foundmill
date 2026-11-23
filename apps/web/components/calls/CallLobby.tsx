@@ -17,7 +17,7 @@ import { useTableViews } from "@/lib/table-views";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
-import { callRowActionsLine, defaultCallSelection } from "./lobby-logic";
+import { callRowActionsLine, callRowState, defaultCallSelection } from "./lobby-logic";
 import { useStartCall } from "./use-start-call";
 
 export const CALL_VIEWS: SavedView[] = [
@@ -87,7 +87,7 @@ export function CallLobby() {
         },
       },
       { id: "topic", accessorFn: (c) => c.topic ?? "", header: "Topic", size: 180, cell: ({ getValue }) => ((getValue() as string) ? <span className="truncate">{getValue() as string}</span> : <span className="text-tertiary">None</span>) },
-      { id: "summaryLine", accessorFn: (c) => c.summaryLine ?? "", header: "What was discussed", size: 320, meta: { grow: 1 }, cell: ({ row }) => (row.original.summaryLine ? <span className="truncate">{row.original.summaryLine}</span> : <span className="text-tertiary">{row.original.status === "ended" ? "No summary" : row.original.status === "live" ? "In progress" : "Writing up"}</span>) },
+      { id: "summaryLine", accessorFn: (c) => c.summaryLine ?? "", header: "What was discussed", size: 320, meta: { grow: 1 }, cell: ({ row }) => (row.original.summaryLine ? <span className="truncate">{row.original.summaryLine}</span> : <span className={row.original.status === "wrap_up_failed" ? "text-status-warn" : "text-tertiary"} data-testid="call-row-state">{callRowState(row.original.status)}</span>) },
       { id: "actions", accessorFn: (c) => callRowActionsLine(c), header: "Actions", size: 220, cell: ({ row }) => (row.original.status === "ended" ? <span data-testid="call-row-actions">{callRowActionsLine(row.original)}</span> : <span className="text-tertiary">None yet</span>) },
       { id: "turnCount", accessorKey: "turnCount", header: "Turns", size: 72, meta: { numeric: true } },
     ],

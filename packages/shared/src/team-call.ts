@@ -30,8 +30,11 @@ import type { PlanActionType } from "./constants";
 export const TEAM_CALL_KINDS = ["team", "one_to_one"] as const;
 export type TeamCallKind = (typeof TEAM_CALL_KINDS)[number];
 
-/** `live` while people speak; `wrapping_up` while the summary and actions are written; `ended` after. */
-export const TEAM_CALL_STATUSES = ["live", "wrapping_up", "ended"] as const;
+/**
+ * `live` while people speak; `wrapping_up` while the summary and actions are written; `ended` after. `wrap_up_failed`
+ * (0170): the call is over but its write-up failed twice; every turn is kept and Try again writes it up.
+ */
+export const TEAM_CALL_STATUSES = ["live", "wrapping_up", "wrap_up_failed", "ended"] as const;
 export type TeamCallStatus = (typeof TEAM_CALL_STATUSES)[number];
 
 export const TEAM_CALL_SPEAKERS = ["founder", "agent"] as const;
@@ -71,6 +74,16 @@ export const TEAM_CALL_LIMITS = {
   maxTopicChars: 200,
   /** Action items written when a call ends. */
   maxActionsPerCall: 20,
+  /** A live call with no turn for this long was left open: the api's sweep ends it and writes it up. */
+  idleEndMs: 15 * 60_000,
+  /** How often an open call page says it is there (`teamCall.here`). */
+  heartbeatMs: 20_000,
+  /**
+   * A person seen on a call's page within this long is still on it: leaving ends the call only when nobody else is, and
+   * the sweep ends a call whose last person left without a word once this has passed. Above a background tab's
+   * once-a-minute timers.
+   */
+  presenceMs: 90_000,
   /**
    * One recording sent for transcription: 1.4 MB, so its base64 stays inside the api's 2 MB request body (about a
    * minute and a half of speech in opus). A longer turn is cut there by the call's own 60-second cap first.
@@ -375,6 +388,8 @@ export const TEAM_CALL_WORDS = {
   listening: "Listening",
   muted: "Mic off",
   wrappingUp: "Writing up what you agreed",
+  wrapUpFailed: "Ended, couldn't write up",
+  wrapUpFailedLine: "The call ended, but the team could not write it up. Everything that was said is kept. Try again to file what you agreed.",
   simulatedNotice: "Your team is speaking with your browser's built-in speech, and your browser is recognizing what you say: their own accents are not switched on here.",
   emptyHistory: "No calls yet. Your first one takes a minute: say what is on your mind and the team picks it up.",
   actionsHeading: "What the team will do",

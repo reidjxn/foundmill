@@ -4,7 +4,7 @@
  *
  * The api runs every call inside `withRls` as the signed-in member (members write, viewers and example viewers read
  * only; the Team section wall is the api's). Turns and action items are only ever inserted; a call's row changes only
- * through `appendTurns` (its counters), `claimWrapUp`, `finish` and `reopenAfterFailedWrapUp` (its status), which is all
+ * through `appendTurns` (its counters), `claimWrapUp`, `finish` and `markWrapUpFailed` (its status), which is all
  * the column grants let an app role change.
  *
  * - **Order.** `appendTurns` locks the call's row (`for update`) and numbers the new turns after the call's highest
@@ -16,9 +16,10 @@
  *   last spoke, checked under the same lock, so two "Let the team discuss" rounds at once cannot both pass.
  * - **Counters.** `turn_count` grows by the turns written; `agent_rounds_since_founder` is 0 again when a founder turn is
  *   written and grows by one per agent-only round.
- * - **Ending.** `claimWrapUp` is one conditional update (`live → wrapping_up`), so only one request writes the wrap-up;
- *   `finish` (`wrapping_up → ended`) writes the summary and the action items together; a wrap-up that failed goes back
- *   to `live` with `reopenAfterFailedWrapUp`, so nothing said is lost.
+ * - **Ending.** `claimWrapUp` is one conditional update (`live` or `wrap_up_failed` → `wrapping_up`), so only one
+ *   request writes the wrap-up; `finish` (`wrapping_up → ended`) writes the summary and the action items together; a
+ *   wrap-up that failed ends the call as `wrap_up_failed` (`markWrapUpFailed`, 0170): over, every turn kept, and claimable
+ *   again by Try again. `idle` lists the calls left open, for the api's sweep.
  */
 import { PLAN_ACTION_TYPES, TEAM_CALL_ACTION_STATUSES, TEAM_CALL_KINDS, TEAM_CALL_LIMITS, TEAM_CALL_TARGET_KINDS, uuid, ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
@@ -26,7 +27,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 /** A wrap-up older than this whose call is still `wrapping_up` was lost with its request: it may be claimed again. */
 export const WRAP_UP_STALE_MS = 10 * 60_000;
 import { z } from "zod";
-import { planActions, plans, TEAM_CALL_TURN_VIA, teamCallActions, teamCalls, teamCallTurns, type NewTeamCallAction, type TeamCall, type TeamCallAction, type TeamCallTurn } from "../schema";
+import { planActions, plans, realBusinesses, TEAM_CALL_TURN_VIA, teamCallActions, teamCallPresence, teamCalls, teamCallTurns, type NewTeamCallAction, type TeamCall, type TeamCallAction, type TeamCallTurn } from "../schema";
 import { assertAgentsOwned, assertDepartmentsOwned } from "./_refs";
 import { Id, one, parseInput, type Executor } from "./_shared";
 
@@ -284,7 +285,7 @@ export const teamCallsRepo = {
     });
   },
 
-  /** `live → wrapping_up` in one conditional update: true for the one request that claimed it, false when not live. */
+  /** `live` or `wrap_up_failed` → `wrapping_up` in one conditional update: true for the one request that claimed it. */
   async claimWrapUp(db: Executor, businessId: string, callId: string): Promise<boolean> {
     const id = parseInput(Id, callId, "team call id");
     const rows = await db
@@ -292,7 +293,7 @@ export const teamCallsRepo = {
       .set({ status: "wrapping_up", updatedAt: new Date() })
       // A wrap-up whose request died (its process gone between the claim and `finish`) may be claimed again after
       // `WRAP_UP_STALE_MS`, so a call is never stuck "being written up".
-      .where(and(scoped(businessId, id), sql`(${teamCalls.status} = 'live' or (${teamCalls.status} = 'wrapping_up' and ${teamCalls.updatedAt} < now() - make_interval(secs => ${WRAP_UP_STALE_MS / 1000})))`))
+      .where(and(scoped(businessId, id), sql`(${teamCalls.status} in ('live', 'wrap_up_failed') or (${teamCalls.status} = 'wrapping_up' and ${teamCalls.updatedAt} < now() - make_interval(secs => ${WRAP_UP_STALE_MS / 1000})))`))
       .returning({ id: teamCalls.id });
     if (rows.length > 0) return true;
     await teamCallsRepo.get(db, businessId, id);
@@ -350,17 +351,63 @@ export const teamCallsRepo = {
     });
   },
 
-  /** `wrapping_up → live` after a wrap-up that failed, so the call goes on and nothing said is lost. False when not wrapping up. */
-  async reopenAfterFailedWrapUp(db: Executor, businessId: string, callId: string): Promise<boolean> {
+  /**
+   * `live` or `wrapping_up` → `wrap_up_failed`: the call is over but has no write-up (0170). Its turns stay; Try again
+   * claims it. False when the call is neither (ended already, or failed already).
+   */
+  async markWrapUpFailed(db: Executor, businessId: string, callId: string): Promise<boolean> {
     const id = parseInput(Id, callId, "team call id");
     const rows = await db
       .update(teamCalls)
-      .set({ status: "live", updatedAt: new Date() })
-      .where(and(scoped(businessId, id), eq(teamCalls.status, "wrapping_up")))
+      .set({ status: "wrap_up_failed", updatedAt: new Date() })
+      .where(and(scoped(businessId, id), inArray(teamCalls.status, ["live", "wrapping_up"])))
       .returning({ id: teamCalls.id });
     if (rows.length > 0) return true;
     await teamCallsRepo.get(db, businessId, id);
     return false;
+  },
+
+  /** Service connection, after the person's own read of the call: they are on its page now (the room's heartbeat). */
+  async markPresent(db: Executor, businessId: string, callId: string, userId: string, at = new Date()): Promise<void> {
+    const id = parseInput(Id, callId, "team call id");
+    await db
+      .insert(teamCallPresence)
+      .values({ businessId, callId: id, userId, seenAt: at })
+      .onConflictDoUpdate({ target: [teamCallPresence.callId, teamCallPresence.userId], set: { seenAt: at } });
+  },
+
+  /** Service connection: the person left the call's page. Answers how many others were seen on it within `presenceMs`. */
+  async leave(db: Executor, businessId: string, callId: string, userId: string, options: { presenceMs: number; now?: Date }): Promise<{ othersPresent: number }> {
+    const id = parseInput(Id, callId, "team call id");
+    const since = new Date((options.now ?? new Date()).getTime() - options.presenceMs);
+    await db.delete(teamCallPresence).where(and(eq(teamCallPresence.businessId, businessId), eq(teamCallPresence.callId, id), eq(teamCallPresence.userId, userId)));
+    const [row] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(teamCallPresence)
+      .where(and(eq(teamCallPresence.businessId, businessId), eq(teamCallPresence.callId, id), sql`${teamCallPresence.seenAt} >= ${since.toISOString()}::timestamptz`));
+    return { othersPresent: Number(row?.n ?? 0) };
+  },
+
+  /**
+   * Service connection, every real project: calls left open, for the api's sweep. A `live` call whose last change (its
+   * last turn, or its start) is older than `idleMs`; a `live` call whose page everyone left (it had people on it, and
+   * nobody was seen within `presenceMs`); and a `wrapping_up` call whose request was lost (`WRAP_UP_STALE_MS`).
+   * Oldest first, at most `limit`.
+   */
+  async idle(db: Executor, options: { idleMs: number; presenceMs?: number; limit?: number; now?: Date }): Promise<{ id: string; businessId: string; startedBy: string | null; status: TeamCall["status"] }[]> {
+    const now = options.now ?? new Date();
+    const liveBefore = new Date(now.getTime() - options.idleMs);
+    const wrapBefore = new Date(now.getTime() - WRAP_UP_STALE_MS);
+    const seenSince = new Date(now.getTime() - (options.presenceMs ?? options.idleMs));
+    const presence = (cond: ReturnType<typeof sql>) => sql`exists (select 1 from ${teamCallPresence} p where p.call_id = ${teamCalls.id} and p.business_id = ${teamCalls.businessId}${cond})`;
+    const abandoned = sql`(${teamCalls.status} = 'live' and ${presence(sql``)} and not ${presence(sql` and p.seen_at >= ${seenSince.toISOString()}::timestamptz`)})`;
+    return db
+      .select({ id: teamCalls.id, businessId: teamCalls.businessId, startedBy: teamCalls.startedBy, status: teamCalls.status })
+      .from(teamCalls)
+      .innerJoin(realBusinesses, eq(realBusinesses.id, teamCalls.businessId))
+      .where(sql`(${teamCalls.status} = 'live' and ${teamCalls.updatedAt} < ${liveBefore.toISOString()}::timestamptz) or ${abandoned} or (${teamCalls.status} = 'wrapping_up' and ${teamCalls.updatedAt} < ${wrapBefore.toISOString()}::timestamptz)`)
+      .orderBy(asc(teamCalls.updatedAt))
+      .limit(options.limit ?? 50);
   },
 
   /** The call's action items in wrap-up order. */

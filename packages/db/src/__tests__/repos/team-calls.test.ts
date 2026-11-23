@@ -147,7 +147,7 @@ describe("teamCalls wrap-up", () => {
     expect(actions[3]!.detail).toBeNull();
     expect((await r.as(r.A.viewerId, (tx) => repos.teamCalls.actions(tx, r.A.businessId, call.id))).map((a) => a.id)).toEqual(actions.map((a) => a.id));
     await expect(r.as(r.A.ownerId, (tx) => repos.teamCalls.finish(tx, r.A.businessId, call.id, { summary: "Again", actions: [] }))).rejects.toThrow(/being wrapped up/);
-    expect(await r.as(r.A.ownerId, (tx) => repos.teamCalls.reopenAfterFailedWrapUp(tx, r.A.businessId, call.id))).toBe(false);
+    expect(await r.as(r.A.ownerId, (tx) => repos.teamCalls.markWrapUpFailed(tx, r.A.businessId, call.id))).toBe(false);
 
     const listed = await r.as(r.A.viewerId, (tx) => repos.teamCalls.list(tx, r.A.businessId, { limit: 100 }));
     expect(listed.find((c) => c.id === call.id)).toMatchObject({ status: "ended", turnCount: 2, actionCount: 4, filedCount: 2, awaitingCount: 1 });
@@ -157,19 +157,58 @@ describe("teamCalls wrap-up", () => {
     expect(await r.as(r.B.ownerId, (tx) => repos.teamCalls.list(tx, r.B.businessId))).toHaveLength(1);
   });
 
-  it("a failed wrap-up reopens the call, which goes on and can be wrapped up again", async () => {
+  it("a failed wrap-up ends the call with its turns kept, takes no more turns, and can be written up again", async () => {
     const call = await start();
-    expect(await r.as(r.A.ownerId, (tx) => repos.teamCalls.reopenAfterFailedWrapUp(tx, r.A.businessId, call.id))).toBe(false);
+    await r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "Still here")]));
     expect(await r.as(r.A.ownerId, (tx) => repos.teamCalls.claimWrapUp(tx, r.A.businessId, call.id))).toBe(true);
-    expect(await r.as(r.A.ownerId, (tx) => repos.teamCalls.reopenAfterFailedWrapUp(tx, r.A.businessId, call.id))).toBe(true);
-    const after = await r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "Still here")]));
-    expect(after.call).toMatchObject({ status: "live", endedAt: null, turnCount: 1 });
+    expect(await r.as(r.A.ownerId, (tx) => repos.teamCalls.markWrapUpFailed(tx, r.A.businessId, call.id))).toBe(true);
+    expect(await r.as(r.A.ownerId, (tx) => repos.teamCalls.markWrapUpFailed(tx, r.A.businessId, call.id))).toBe(false);
+    const failed = await r.as(r.A.ownerId, (tx) => repos.teamCalls.get(tx, r.A.businessId, call.id));
+    expect(failed).toMatchObject({ status: "wrap_up_failed", endedAt: null, turnCount: 1 });
+    await expect(r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "One more")]))).rejects.toThrow(/not live/);
     expect(await r.as(r.A.ownerId, (tx) => repos.teamCalls.claimWrapUp(tx, r.A.businessId, call.id))).toBe(true);
     const { call: ended, actions } = await r.as(r.A.ownerId, (tx) => repos.teamCalls.finish(tx, r.A.businessId, call.id, { summary: null, actions: [] }));
-    expect(ended).toMatchObject({ status: "ended", summary: null });
+    expect(ended).toMatchObject({ status: "ended", summary: null, turnCount: 1 });
     expect(actions).toEqual([]);
     await expect(
       r.as(r.A.ownerId, (tx) => repos.teamCalls.finish(tx, r.A.businessId, call.id, { summary: "x", actions: Array.from({ length: TEAM_CALL_LIMITS.maxActionsPerCall + 1 }, () => ({ actionType: "reply_only" as const, title: "x", status: "not_filed" as const })) })),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+describe("teamCalls.idle", () => {
+  it("lists a live call with no turn for the idle time and a lost wrap-up, never a fresh, failed or ended call", async () => {
+    const left = await start();
+    const lost = await start();
+    const failed = await start();
+    // `updated_at` is set by its trigger on every change: the calls are aged by reading from later instead.
+    await r.db.update(s.teamCalls).set({ status: "wrapping_up" }).where(eq(s.teamCalls.id, lost.id));
+    await r.db.update(s.teamCalls).set({ status: "wrap_up_failed" }).where(eq(s.teamCalls.id, failed.id));
+    const later = new Date(Date.now() + TEAM_CALL_LIMITS.idleEndMs + 60_000);
+    const ids = (await repos.teamCalls.idle(r.db, { idleMs: TEAM_CALL_LIMITS.idleEndMs, limit: 500, now: later })).map((c) => c.id);
+    expect(ids).toEqual(expect.arrayContaining([left.id, lost.id]));
+    expect(ids).not.toContain(failed.id);
+    const now = (await repos.teamCalls.idle(r.db, { idleMs: TEAM_CALL_LIMITS.idleEndMs, limit: 500 })).map((c) => c.id);
+    expect(now).not.toContain(left.id);
+    expect(now).not.toContain(lost.id);
+  });
+});
+
+describe("teamCalls presence", () => {
+  it("counts the others still on the page when one leaves, and lists a call everyone left for the sweep", async () => {
+    const call = await start();
+    await repos.teamCalls.markPresent(r.db, r.A.businessId, call.id, r.A.ownerId);
+    await repos.teamCalls.markPresent(r.db, r.A.businessId, call.id, r.A.memberId);
+    await repos.teamCalls.markPresent(r.db, r.A.businessId, call.id, r.A.memberId);
+    expect(await repos.teamCalls.leave(r.db, r.A.businessId, call.id, r.A.ownerId, { presenceMs: TEAM_CALL_LIMITS.presenceMs })).toEqual({ othersPresent: 1 });
+    const soon = new Date(Date.now() + 10_000);
+    const gone = new Date(Date.now() + TEAM_CALL_LIMITS.presenceMs + 10_000);
+    const listed = async (now: Date) => (await repos.teamCalls.idle(r.db, { idleMs: TEAM_CALL_LIMITS.idleEndMs, presenceMs: TEAM_CALL_LIMITS.presenceMs, limit: 500, now })).map((c) => c.id);
+    expect(await listed(soon)).not.toContain(call.id);
+    expect(await listed(gone)).toContain(call.id);
+    expect(await repos.teamCalls.leave(r.db, r.A.businessId, call.id, r.A.memberId, { presenceMs: TEAM_CALL_LIMITS.presenceMs })).toEqual({ othersPresent: 0 });
+    // A call nobody ever opened is left to the 15 idle minutes.
+    const unopened = await start();
+    expect(await listed(gone)).not.toContain(unopened.id);
   });
 });
