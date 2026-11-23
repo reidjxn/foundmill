@@ -165,10 +165,11 @@ describe("executePlanAction on PGlite", () => {
     }
   });
 
-  it("approve_spend naming a founder-only approval fails and leaves it open; an ordinary one is granted as the plan's, never as the user its params name", async () => {
+  it("approve_spend naming a founder-only approval fails and leaves it open; an ordinary one is granted as the plan's, never as the user its params name, and only by a plan a person confirmed", async () => {
     const owner = (await repos.memberships.list(t.db, t.businessId, { role: "owner" }))[0]!.userId;
-    const run = async (approvalId: string) => {
-      const plan = await repos.plans.create(t.db, t.businessId, { origin: "option", actions: [{ type: "approve_spend", params: { approval_id: approvalId, by: owner }, agentId: t.workerId }] });
+    const run = async (approvalId: string, confirmed = true) => {
+      const plan = await repos.plans.create(t.db, t.businessId, { origin: confirmed ? "free_text" : "option", actions: [{ type: "approve_spend", params: { approval_id: approvalId, by: owner }, agentId: t.workerId }] });
+      if (confirmed) await repos.plans.claimConfirmation(t.db, t.businessId, plan.id);
       return acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: plan.actions[0]!.id, workflowId: "plan:test", approved: true });
     };
     for (const [connectorKey, tool, decisionType] of [["cli_inkscape", "release_output", "message_customers"], ["hubspot_mcp", "manage_crm_objects", "message_customers"], ["browser_canva", "click", null], ["stripe", "finalize_invoice", null]] as const) {
@@ -178,11 +179,18 @@ describe("executePlanAction on PGlite", () => {
       expect((await repos.approvals.get(t.db, t.businessId, release.id)).outcome).toBeNull();
     }
     const spend = await repos.approvals.create(t.db, t.businessId, { agentId: t.workerId, connectorKey: "e2b", tool: "create_sandbox", args: {}, reasons: ["asks"], decisionType: "spend_above_threshold" });
+    // A plan nobody confirmed (an option's, automated mode, vacation, a playbook): its params are a model's, so it grants nothing.
+    expect((await run(spend.id, false)).status).toBe("failed");
+    expect((await repos.approvals.get(t.db, t.businessId, spend.id)).outcome).toBeNull();
     expect((await run(spend.id)).status).toBe("done");
     const granted = await repos.approvals.get(t.db, t.businessId, spend.id);
     expect(granted.outcome).toBe("approved");
     expect(granted.byKind).toBe("system");
     expect(granted.byId).toBeNull();
+    // A plan that states less than the approval would grant (a $0 "approve" hiding a large spend) grants nothing.
+    const large = await repos.approvals.create(t.db, t.businessId, { agentId: t.workerId, connectorKey: "e2b", tool: "create_sandbox", args: { large: true }, reasons: ["asks"], amountMinor: 500_000, currency: "USD", decisionType: "spend_above_threshold" });
+    expect((await run(large.id)).status).toBe("failed");
+    expect((await repos.approvals.get(t.db, t.businessId, large.id)).outcome).toBeNull();
   });
 
   it("rejected approval records the action as denied without executing", async () => {

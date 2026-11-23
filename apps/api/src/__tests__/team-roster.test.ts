@@ -238,7 +238,7 @@ describe("team.humans and team.responsibilities (W19)", () => {
     const { businessId, ownerId, memberId, departmentId, agent2Id } = hz.A;
     await repos.agents.update(hz.db, businessId, agent2Id, { departmentIds: [departmentId] });
     // message_customers in Product goes to the member (set in the test above).
-    const approval = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "gmail", tool: "send_email" });
+    const approval = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "sendgrid", tool: "send_email" });
     expect(approval).toMatchObject({ decisionType: "message_customers", handlerKind: "user", handlerId: memberId });
     const mine = await hz.caller({ userId: memberId }).team.approvals.pending({ businessId, forMe: true });
     expect(mine.map((a) => a.id)).toEqual([approval.id]);
@@ -258,7 +258,7 @@ describe("team.humans and team.responsibilities (W19)", () => {
     const { businessId, ownerId, departmentId, agent2Id } = hz.A;
     const decider = await repos.agents.create(hz.db, businessId, { name: "Merge decider", agentType: "review_agent", departmentIds: [departmentId] });
     await hz.caller({ userId: ownerId }).team.responsibilities.set({ businessId, decisionType: "message_customers", handler: { kind: "agent", id: decider.id }, departmentId });
-    const message = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "gmail", tool: "send_email", decisionType: "message_customers" });
+    const message = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "sendgrid", tool: "send_email", decisionType: "message_customers" });
     expect(message).toMatchObject({ outcome: "approved", byKind: "agent", byId: decider.id });
     expect((await hz.caller({ userId: ownerId }).team.approvals.pending({ businessId })).map((a) => a.id)).not.toContain(message.id);
     // Merges cannot be delegated: the API refuses, and the founder answers every merge.

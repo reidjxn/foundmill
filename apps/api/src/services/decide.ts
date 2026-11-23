@@ -23,7 +23,7 @@ import { approvalOutcomeOf, closeApprovalItem, releaseFollowUpOf, repos, resolve
 import { AppError, ONE_CLICK_ACTION_TYPES, founderActionIdOfDecision, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, toolPickCategory, browserKeepSite, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
-import { assertApprovalAccess, decideReleaseFollowUp, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
+import { assertApprovalAccess, assertMayGrantFromPlan, decideReleaseFollowUp, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
 import { assertMayConfirmAsks } from "./approver";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
 import { startModelRetests } from "./agent-model";
@@ -323,6 +323,7 @@ export async function confirmPlan(ctx: BusinessContext, planId: string) {
     // An action that asked the founder first (a spend above the threshold, a message) is an owner's or admin's to
     // confirm, or the person Team › Responsibilities names for it; any member with Inbox write is not enough (SEC-7).
     await assertMayConfirmAsks(tx, ctx.businessId, { userId: ctx.userId, role: ctx.role }, plan.actions);
+    await assertMayGrantFromPlan(tx, ctx, plan.actions);
     const claimed = await repos.plans.claimConfirmation(tx, ctx.businessId, planId);
     if (!claimed) return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec: NOTHING_RUN, item: null, alreadyConfirmed: true };
     const confirmed = await repos.plans.get(tx, ctx.businessId, planId);

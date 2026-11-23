@@ -35,6 +35,10 @@ const FOUNDER_ONLY = [
   { connectorKey: "notion_mcp", tool: "notion_update_page" },
   { connectorKey: "hubspot_mcp", tool: "manage_crm_objects" },
   { connectorKey: "browser_canva", tool: "click" },
+  { connectorKey: "hubspot_mcp", tool: "call_unlisted_tool" },
+  { connectorKey: "mcp_custom", tool: "call_unlisted_tool" },
+  { connectorKey: "google_drive", tool: "share_file" },
+  { connectorKey: "stripe", tool: "send_invoice" },
 ];
 
 async function open(call: { connectorKey: string; tool: string }, decisionType: "message_customers" | "publish_content" | null = "message_customers") {
@@ -46,7 +50,10 @@ describe("founder-only calls", () => {
     for (const c of FOUNDER_ONLY) expect(founderOnlyCall(c.connectorKey, c.tool), `${c.connectorKey}:${c.tool}`).toBe(true);
     expect(founderOnlyCall("gmail", "send_message")).toBe(true);
     expect(founderOnlyCall("sendgrid", "send_mail")).toBe(false);
-    expect(founderOnlyCall("notion_mcp", "notion_search")).toBe(false);
+    // Every call of a connector in the founder's own accounts (Nov 23, 2026), unlisted remote tools and custom MCP included.
+    for (const [k, t] of [["notion_mcp", "call_unlisted_tool"], ["hubspot_mcp", "call_unlisted_tool"], ["mcp_custom", "call_unlisted_tool"], ["notion_mcp", "notion_create_comment"], ["google_drive", "share_file"], ["cloudflare_dns", "create_record"], ["stripe", "send_invoice"], ["shopify", "cancel_order"], ["github", "merge_pr"], ["vercel", "create_deployment"], ["cli_gimp", "release_output"]]) expect(founderOnlyCall(k, t), `${k}:${t}`).toBe(true);
+    expect(founderOnlyCall("resend", "send_email")).toBe(false);
+    expect(founderOnlyCall("buffer", "queue_post")).toBe(false);
     expect(founderOnlyCall(null, null)).toBe(false);
   });
 
@@ -103,12 +110,27 @@ describe("founder-only calls", () => {
       expect(await repos.approvals.useDecided(r.db, businessId, a.id, null), by.byKind).toBeNull();
     }
     // A stored null type (a payment record) closed as approved by the system's bookkeeping never runs a call either.
-    const payment = await open({ connectorKey: "stripe", tool: "finalize_invoice" }, null);
+    const payment = await open({ connectorKey: "resend", tool: "finalize_invoice" }, null);
     await repos.approvals.resolve(r.db, businessId, payment.id, { outcome: "approved", byKind: "system" });
-    expect(await repos.approvals.useGranted(r.db, businessId, { sessionId: null, agentId: agent2Id, connectorKey: "stripe", tool: "finalize_invoice", args: payment.args as Record<string, unknown> })).toBeNull();
+    expect(await repos.approvals.useGranted(r.db, businessId, { sessionId: null, agentId: agent2Id, connectorKey: "resend", tool: "finalize_invoice", args: payment.args as Record<string, unknown> })).toBeNull();
     // The owner's own grant runs it once.
     const own = await open(FOUNDER_ONLY[0]!);
     await repos.approvals.resolve(r.db, businessId, own.id, { outcome: "approved", byKind: "user", byId: r.A.ownerId });
     expect((await repos.approvals.useGranted(r.db, businessId, { sessionId: null, agentId: agent2Id, connectorKey: own.connectorKey!, tool: own.tool!, args: own.args as Record<string, unknown> }))?.id).toBe(own.id);
+  });
+
+  it("a call in someone's own Google account is approved only by the person who connected it", async () => {
+    const { businessId, agent2Id, ownerId, adminId } = r.A;
+    await repos.integrations.upsert(r.db, businessId, { connectorKey: "gmail", status: "connected", authKind: "oauth", connectedBy: adminId });
+    const a = await open({ connectorKey: "gmail", tool: "send_message" });
+    // The project's owner, another founder, is not the mailbox's owner.
+    await expect(repos.approvals.resolve(r.db, businessId, a.id, { outcome: "approved", byKind: "user", byId: ownerId })).rejects.toThrow(/person who connected it/);
+    // A yes written by the owner before this rule never sends from someone else's mailbox.
+    await r.db.update(approvals).set({ outcome: "approved", byKind: "user", byId: ownerId, resolvedAt: new Date() }).where(eq(approvals.id, a.id));
+    const gated = { sessionId: null, agentId: agent2Id, connectorKey: "gmail", tool: "send_message", args: a.args as Record<string, unknown> };
+    expect(await repos.approvals.useGranted(r.db, businessId, gated)).toBeNull();
+    const b = await open({ connectorKey: "gmail", tool: "send_message" });
+    expect((await repos.approvals.resolve(r.db, businessId, b.id, { outcome: "approved", byKind: "user", byId: adminId })).outcome).toBe("approved");
+    expect((await repos.approvals.useGranted(r.db, businessId, { ...gated, args: b.args as Record<string, unknown> }))?.id).toBe(b.id);
   });
 });
