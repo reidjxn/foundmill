@@ -389,8 +389,7 @@ export const platformTools = [
   // ---- the hosted page (WP-08 T8) ---------------------------------------------------------------------------------
   defineTool({
     name: "read_public_page",
-    description:
-      "The project's hosted public page as its founders have it: the words (the one-line headline, about, who it is for, stage), whether it is live and listed for search engines and why not, when it went live and last changed, the length limits, and the milestones it shows. Read it before you propose a change to it.",
+    description: "The hosted public page: its words, whether it is live and listed, dates, limits and milestones.",
     input: z.object({}),
     output: z.object({
       published: z.boolean(),
@@ -413,9 +412,8 @@ export const platformTools = [
   }),
   defineTool({
     name: "propose_page_edit",
-    description:
-      "Propose new words for the project's public page (any of the one-line headline, the about text and who it is for) and why. It waits for the founders: nothing on the page or in its draft changes until a founder uses it. A new proposal replaces the one waiting. Never propose a price, a button, the stage or a claim the positioning notes do not support.",
-    input: z.object({ fields: z.object({ pitch: Text(140).optional(), about: Text(1500).optional(), forWhom: Text(300).optional() }), reason: Text(1000) }),
+    description: "Propose new words for the public page and why. They wait for the founders; nothing changes until one uses them. Never a price, button or unsupported claim.",
+    input: z.object({ fields: z.object({ pitch: z.string().max(140).optional(), about: z.string().max(1500).optional(), forWhom: z.string().max(300).optional() }), reason: z.string().max(1000) }),
     output: z.object({ proposed: z.literal(true) }),
     hints: {},
   }),

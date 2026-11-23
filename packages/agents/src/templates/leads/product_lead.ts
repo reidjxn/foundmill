@@ -45,7 +45,7 @@ export const productLead = defineTemplate({
     ],
   },
   tools: [
-    grant("platform", [...PLATFORM_LEAD_TOOLS, "spec.read", "spec.propose", "roadmap.read", "sources.list", "sources.read", "positioning.read", "positioning.propose", "page.read", "page.propose", "booking.setup", "booking.read"]),
+    grant("platform", [...PLATFORM_LEAD_TOOLS, "spec.read", "spec.propose", "roadmap.read", "sources.list", "sources.read", "positioning.read", "positioning.propose", "booking.setup", "booking.read"]),
     grant("web", WEB_TOOLS),
     grant("quarantine", QUARANTINE_TOOLS),
     grant("notion", ["pages.search", "pages.read"]),

@@ -7,7 +7,7 @@ supersedes: []
 ---
 ## What changed
 Two platform tools, `read_public_page` and `propose_page_edit` (capabilities `page.read` and `page.propose`), granted to
-the SEO, GEO and content channel agents and the Product lead. An agent reads the hosted page (words, stage, live, listed
+the SEO, GEO and content channel agents. An agent reads the hosted page (words, stage, live, listed
 and why not, dates, limits, shown milestones) and proposes new words for the pitch, about or who it is for, with a reason.
 A proposal never touches the draft or the published copy: it waits in four new columns on `project_pages` (migration 0165,
 no new table), one at a time, and a new one replaces it. The event `page.change_proposed` names the agent and the fields.
@@ -24,6 +24,13 @@ with a page and no repository. I built it and backed it out: it makes both chann
 eight existing tests of first-day Distribution (the empty Board "email opens first", the starting note, the strategist's
 "no channel can run"), and the availability rule has no fact for "the page is live". The agents have the tools in a task or
 session either way. Changing the Board needs a page-live fact in `ChannelAvailabilityFacts` and a decision about those first-day words.
+
+### The tools are short, and the Product lead does not get them
+The orchestrator's tool-budget test caps a template's tool definitions at 6,500 tokens (Estimate). The two tools first came
+to 287 tokens and put the Product lead (6,732) and the content channel (6,610) over. Shortened to 171 tokens, the content
+channel fits (about 6,494); the Product lead, 55 under the cap before, cannot hold even the shortened pair, so it keeps
+drafting the page through its own flow and the SEO, GEO and content agents get the tools. The detail that left the
+descriptions belongs in a skill (WP-06).
 
 ### The hold check runs when a founder uses the words, not in the tool
 `pageHoldReason` lives in the api and uses `communityScreenLocalFlags` from packages/agents, which the gateway does not depend
