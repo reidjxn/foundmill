@@ -2919,7 +2919,9 @@ async function adoptPushedBranch(deps: OrchestratorDeps, recorder: SessionRecord
 
 /** Why a code session that changed no file is not done. */
 /** The one turn a task that is not code gets when its agent ended without reporting (WP-05 T2). */
-export const REPORT_TURN = "You ended without reporting. Call complete_task with what you found or made, or block_task with what stopped you.";
+// It names save_report (T22: a saved report is what ends the task done). The launch gate's revision session answered the
+// old line, which named only complete_task and block_task, with prose and no tool call (run 45408711835).
+export const REPORT_TURN = "You ended without reporting. Save what you found or made with save_report, even if it is short, and put anything only the founder can give under \"## Needs you\"; then call complete_task. Call block_task only when another task must finish first.";
 /** Why a task that is not code is blocked when its agent never reported a result. */
 export const NO_RESULT_REASON = "no result: the session ended without complete_task or block_task";
 /** What a task that is not code with acceptance lines tells its agent, under the numbered lines. */

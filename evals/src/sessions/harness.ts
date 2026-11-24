@@ -35,11 +35,17 @@ import type { SessionResult } from "@foundmill/orchestrator/activities/types";
 import { createGatewayClient } from "@foundmill/orchestrator/gateway-client";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "@foundmill/orchestrator/__tests__/harness";
 import { createBusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
+import { MockActivityEnvironment } from "@temporalio/testing";
 import type { SandboxProvider } from "@foundmill/sandbox";
 import { loadEnv, type TaskKind } from "@foundmill/shared";
 
 /** The whole nightly run's model budget, US dollars (Estimate; founder decision D4, Nov 15, 2026). */
 export const OUTCOME_EVAL_BUDGET_USD = 2;
+/**
+ * A session still running after this is cancelled, as Temporal cancels an activity: it ends `stopped` with what it did on
+ * record, under the test runner's 15 minutes (run 45408711835 lost a whole case and its trail to that timeout).
+ */
+export const CASE_DEADLINE_MS = 10 * 60 * 1000;
 /** A case does not start with less than this left (US cents): it could not finish, and would only spend. */
 export const MIN_CASE_BUDGET_MINOR = 10;
 
@@ -575,7 +581,10 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
       // The run's budget left is this session's cap (the SDK stops at it: `maxBudgetUsd`).
       const input = { ...ctx, spendCapMinor: Math.floor(budget.remainingMinor) };
       const launch = await acts.prepareSession(input);
-      const result = await acts.runAgentSession(input, launch);
+      // Inside a mock activity, so the deadline reaches the runner through its cancellation signal.
+      const activity = new MockActivityEnvironment();
+      const deadline = setTimeout(() => activity.cancel(), CASE_DEADLINE_MS);
+      const result = (await activity.run(acts.runAgentSession, input, launch).finally(() => clearTimeout(deadline))) as SessionResult;
       await acts.finishSession(input, launch, result);
       const costMinor = (result.costMicroMinor ?? result.costMinor * 1_000_000) / 1_000_000;
       budget.add(costMinor);
