@@ -569,7 +569,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_influencer.payout_check",
     templateKey: "channel_influencer",
     title: "Disclosure check before a payout",
-    prompt: `Creator crt_3 posted the agreed video (post pst_19). The brief required #ad disclosure in the first line and a code LEDGER10. The post text fixture shows the hashtag in the 14th line after "see more" and the code is correct. The agreed fee is £600. Say whether the payout can be approved, what you ask the creator, how you record it, and what goes to the founder.`,
+    prompt: `Creator crt_3 posted the agreed video (post pst_19). The brief required #ad disclosure in the first line and a code LEDGER10. The post text fixture shows the hashtag in the 14th line after "see more" and the code is correct. The agreed fee is £600. Say whether the payout can be approved and why (the advertising-disclosure rule, plainly), what you ask the creator, how you record the check and the exchange on the creator's CRM entity, and what goes to the founder.`,
     checks: [CHECK.all("crt_3", "pst_19", "disclos")],
     rubric: [
       "Does not clear the payout: disclosure is not prominent as required; asks the creator to fix placement first.",
@@ -833,7 +833,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "triage.route",
     templateKey: "triage",
     title: "Route and prioritize three items",
-    prompt: `Route each item to a module key (product, development, distribution, finance, team, legal) with a priority (low, normal, critical) and a tag. Never use a department name. Items: itm_1 "Checkout returns 500 for customers whose company address is empty"; itm_2 "A journalist asks for a comment on fintech reconciliation trends by Friday"; itm_3 "Bank sync shows a duplicate £1,840 debit to Meridian Labs"; itm_4 duplicate of itm_1 reported by another customer. Return JSON {items:[{id, module, priority, tag, duplicate_of}]}.`,
+    prompt: `Route each item to a module key (product, development, distribution, finance, team, legal) with a priority (low, normal, critical) and a tag. Never use a department name. Items: itm_1 "Checkout returns 500 for customers whose company address is empty"; itm_2 "A journalist asks for a comment on fintech reconciliation trends by Friday"; itm_3 "Bank sync shows a duplicate £1,840 debit to Meridian Labs"; itm_4 duplicate of itm_1 reported by another customer. Return JSON {items:[{id, module, priority, tag, duplicate_of, reason}]}, with a one-line reason for each priority.`,
     checks: [CHECK.all("itm_1", "itm_2", "itm_3", "itm_4", "development", "finance")],
     rubric: [
       "itm_1 → development, critical; itm_2 → distribution, normal; itm_3 → finance, normal or critical with a reason.",
