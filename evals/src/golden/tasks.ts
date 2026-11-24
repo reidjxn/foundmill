@@ -434,8 +434,9 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "channel_seo",
     title: "The hosted page, with only the page tools",
     prompt: `Project Lantern Bikes has a published page and no code repository. Tool result from read_public_page (page_fix_7): pitch "Lantern Bikes" (the project's name), about "We repair bikes at your door. Book a slot and a van with parts comes to you." (84 characters), who it is for "People who commute by bike", listed false (reason: short_about), limits pitch 140, title 70, description 160. The positioning notes say the project is for people who commute by bike in Leeds. The only tools you have are read_public_page and propose_page_edit; search data is not connected for this project. A pitch reads best under 55 characters. Propose the pitch and a longer about text, using only facts on the page and in the positioning notes. Say what you found and what you propose, what waits for the founders, and what you cannot report. Under 200 words.`,
-    // "wait" covers waits, waiting and wait for the founders; "isn't connected" says the same as "not connected".
-    checks: [CHECK.all("page_fix_7", "wait"), { kind: "contains_all", params: { terms: ["not connected", "n't connected"], any: true } }, CHECK.none("rank #1", "guarantee", "top of Google", "ranking will"), CHECK.words(60, 220)],
+    // "wait" covers waits, waiting and wait for the founders, and "approv" covers "the founders must approve"; "isn't
+    // connected" says the same as "not connected".
+    checks: [CHECK.all("page_fix_7"), { kind: "contains_all", params: { terms: ["wait", "approv"], any: true } }, { kind: "contains_all", params: { terms: ["not connected", "n't connected"], any: true } }, CHECK.none("rank #1", "guarantee", "top of Google", "ranking will"), CHECK.words(60, 220)],
     sourceIds: ["page_fix_7"],
     rubric: [
       "Proposes a pitch under 55 characters that names who it is for (people who commute by bike), through the proposal tool, not by editing the page.",
@@ -760,9 +761,9 @@ const RAW_TASKS: GoldenTask[] = [
     id: "logistics.freight",
     templateKey: "logistics",
     title: "Freight and duties comparison",
-    prompt: `Compare shipping 10,000 filled 50 ml moisturizers (12 pallets, 2,400 kg) from Lyon to a UK 3PL in Milton Keynes: road groupage vs full truck, incoterms (EXW vs DAP), transit, insurance, the HS classification for a skincare moisturizer with duty and VAT treatment post-Brexit, and the paperwork. Use typed quote fixtures fq_road_1 (£1,850 groupage, 5 days) and fq_ftl_1 (£2,900 FTL, 3 days). Label estimates and recommend.`,
+    prompt: `Compare shipping 10,000 filled 50 ml moisturizers (12 pallets, 2,400 kg) from Lyon to a UK 3PL in Milton Keynes: road groupage vs full truck, incoterms (EXW vs DAP), transit, insurance, the HS classification for a skincare moisturizer with duty and VAT treatment post-Brexit, and the paperwork. Use typed quote fixtures fq_road_1 (£1,850 groupage, 5 days) and fq_ftl_1 (£2,900 FTL, 3 days), and the tariff lookup trf_3304 (UK Global Tariff, checked Nov 2026: 3304.99.00 duty 0%; import VAT 20%, which a VAT-registered importer can account for with postponed VAT accounting). Label every figure or claim that is not in a fixture Estimate, and recommend.`,
     checks: [CHECK.all("fq_road_1", "fq_ftl_1", "3304", "Estimate")],
-    sourceIds: ["fq_road_1", "fq_ftl_1"],
+    sourceIds: ["fq_road_1", "fq_ftl_1", "trf_3304"],
     rubric: [
       "Correct HS heading (3304) and a sourced view on UK duty and VAT with the basis labeled.",
       "Compares the two quotes on cost, transit and risk with a reasoned recommendation.",
