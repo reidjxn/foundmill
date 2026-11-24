@@ -10,6 +10,7 @@ import { catalogLines } from "../../tool-catalog";
 import { FOUNDER_EXECUTED_TOOLS } from "../../remote-mcp";
 import { recommendationProblems, toolRecommendationNote } from "../../tool-recommendation";
 import { acceptanceLines, acceptanceRefusal } from "./acceptance";
+import { reportLengthRefusal } from "./report-length";
 import { PLATFORM_KEY, PLATFORM_RATE_LIMITS, READ_SKILL_NOTICE, platformTools, PlatformToolError, type AgentMessageT, type PlatformCaller, type PlatformHost, type PlatformResult, type TaskDetailT } from "./tools";
 
 /** A report in the in-memory world: what read_report answers, plus the session that saved it. */
@@ -72,6 +73,8 @@ const MOCK_SUPPRESSED = new Set(["unsubscribed@example.com"]);
 
 /** A deterministic in-memory host: three tasks on each business's board, no messages yet, a fixed business view. */
 export function createMemoryPlatformHost(): PlatformHost {
+  /** Sessions already sent back once for a report over its task's word limit (`session:task`). */
+  const refusedLength = new Set<string>();
   const world = perBusiness((businessId) => {
     const task = (n: number, title: string, kind: TaskDetailT["kind"], status: TaskDetailT["status"]): TaskDetailT => ({ id: uuidFromSeed("mock-platform", businessId, "task", n), title, kind, status, priority: 10 * n, progress: 0, assigneeAgentId: null, updatedAt: MOCK_NOW.toISOString(), goalMd: `${title}.`, acceptance: [], fileScope: [], dependsOn: [], lastReport: null, lastBlock: null });
     const tasks = new Map<string, TaskDetailT>([task(1, "Draft the pricing page", "code", "ready"), task(2, "Research three competitors", "research", "ready"), task(3, "Reconcile last month's bank feed", "finance", "planned")].map((t) => [t.id, t]));
@@ -140,6 +143,13 @@ export function createMemoryPlatformHost(): PlatformHost {
       const lines = acceptanceLines(t);
       const refusal = acceptanceRefusal(lines, acceptance, own ? own.bodyMd : null);
       if (refusal) throw new PlatformToolError("invalid_state", refusal);
+      // A summary that becomes the report is held to the task's word limit as a saved report is.
+      const key = `${caller.sessionId ?? ""}:${t.id}`;
+      const tooLong = own ? null : reportLengthRefusal(t, text, refusedLength.has(key));
+      if (tooLong) {
+        refusedLength.add(key);
+        throw new PlatformToolError("invalid_state", tooLong);
+      }
       if (!own) report(caller, t, { title: t.title, bodyMd: text, sources: [] });
       // Its session sets the status when it ends (the mock host has no sessions to judge by).
       if (lines.length > 0) return summary(t);
@@ -148,6 +158,12 @@ export function createMemoryPlatformHost(): PlatformHost {
     async saveReport(caller, { taskId, title, bodyMd, sources }) {
       const t = mustTask(caller, taskId);
       if (t.assigneeAgentId !== caller.agentId) throw new PlatformToolError("not_yours", "only the agent working on a task can report on it");
+      const key = `${caller.sessionId ?? ""}:${t.id}`;
+      const tooLong = reportLengthRefusal(t, bodyMd, refusedLength.has(key));
+      if (tooLong) {
+        refusedLength.add(key);
+        throw new PlatformToolError("invalid_state", tooLong);
+      }
       const r = report(caller, t, { title, bodyMd, sources });
       return { reportId: r.reportId, taskId: t.id, title: r.title };
     },

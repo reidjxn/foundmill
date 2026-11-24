@@ -13,7 +13,7 @@ import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { BOOKING_READY_NOTE, DEFAULT_WEEKLY_HOURS, durationLabel, isBookingReadyDecision, minutesLabel, type WeeklyHours } from "@foundmill/shared/booking";
 import { AppError, businessTimeZone, ConflictError, formatMoney, NotFoundError, TOOL_CATEGORY_LABELS, filingWindow, PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, pageDescription, pageIsListed, pagePath, pageProposalProblems, pageTitle, positioningFromInput, readPageContent, renderPositioning, updateProblems, uuid, type TaskStatus } from "@foundmill/shared";
 import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type BookingService, type BookingSettings, type Db, type Executor, type ResolvedSkill, type Task, type ToolNeed, type ToolNeedHeld } from "@foundmill/db";
-import { acceptanceLines, acceptanceRefusal, catalogLines, connectorKeysFor, PlatformToolError, recommendationProblems, toolRecommendationNote, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
+import { AUDIT_ACTION_REPORT_TOO_LONG, acceptanceLines, acceptanceRefusal, catalogLines, connectorKeysFor, PlatformToolError, recommendationProblems, reportLengthRefusal, toolRecommendationNote, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { FounderActionError, type FounderActionPreparer } from "./founder-action";
 import { hashRecipient } from "./recipients";
@@ -110,6 +110,15 @@ const SIMULATED_NOTICE = "Simulated: this session's sources were simulated, so t
 
 export function createDbPlatformHost({ db, log, now = () => new Date(), repository = () => null, founderActions = () => null }: DbPlatformHostOptions): PlatformHost {
   const notFound = (what: string, id: string) => new PlatformToolError("not_found", `${what} ${id} is not part of this business`);
+  /** Over the task's stated word limit: sent back once for a rewrite (audited), never cut; the session's second save is kept. */
+  const refuseLongReport = async (caller: PlatformCaller, t: Task, bodyMd: string): Promise<void> => {
+    const earlier = await repos.audit.list(db, caller.businessId, { action: AUDIT_ACTION_REPORT_TOO_LONG, limit: 50 });
+    const refusedBefore = earlier.items.some((a) => (a.target as { id?: unknown } | null)?.id === t.id && (a.details as { sessionId?: unknown } | null)?.sessionId === caller.sessionId);
+    const tooLong = reportLengthRefusal(t, bodyMd, refusedBefore);
+    if (!tooLong) return;
+    await repos.audit.append(db, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: AUDIT_ACTION_REPORT_TOO_LONG, target: { kind: "task", id: t.id }, details: { sessionId: caller.sessionId } });
+    throw new PlatformToolError("invalid_state", tooLong);
+  };
   const taskOf = async (caller: PlatformCaller, taskId: string): Promise<Task> => {
     try {
       const t = await repos.tasks.get(db, caller.businessId, taskId);
@@ -279,6 +288,8 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       }
       const refusal = acceptanceRefusal(lines, acceptance, needsReport ? null : saved!.bodyMd);
       if (refusal) throw new PlatformToolError("invalid_state", refusal);
+      // A summary that becomes the report is held to the task's word limit as a saved report is.
+      if (needsReport) await refuseLongReport(caller, t, report);
       const unmet = lines.length > 0 ? lines.map((_, i) => i + 1).filter((i) => !acceptance!.find((r) => r.line === i)!.met) : [];
       const simulated = needsReport ? await sessionSimulated(caller) : false;
       // One transaction: the report and the status change land together or not at all.
@@ -297,6 +308,7 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       mine(caller, t, "report on");
       // A finished task's report stays as it was (a blocked task or one in review may still report).
       open(t);
+      await refuseLongReport(caller, t, bodyMd);
       const saved = await saveReport(caller, t, { title, bodyMd, sources }, await sessionSimulated(caller));
       return { reportId: saved.id, taskId: t.id, title: saved.title };
     },

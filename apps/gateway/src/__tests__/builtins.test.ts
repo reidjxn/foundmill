@@ -346,6 +346,22 @@ describe("task reports (WP-05 T3): the result of a task is saved, read by the ne
     expect(notMine.result).toMatchObject({ ok: false, error: { code: "not_yours", status: 403 } });
   });
 
+  it("a report over its task's stated word limit is sent back once to be rewritten, never cut; the second save is kept", async () => {
+    const analyst = await desk(worker.businessId, "Ola", "researcher");
+    const taskId = (await repos.tasks.create(db, analyst.businessId, { kind: "research", title: "Plan the mail test", goalMd: "Plan a 500-piece mail test. Under 30 words.", status: "running", assigneeAgentId: analyst.agentId })).id;
+    const token = await tokenFor(analyst, ["platform:save_report"]);
+    const save = (bodyMd: string) => client.call(token, { connector: "platform", tool: "save_report", args: { taskId, title: "Mail test", bodyMd } });
+    const long = Array.from({ length: 40 }, (_, i) => `w${i}`).join(" ");
+    const first = asAllow(await save(long));
+    expect(first.result).toMatchObject({ ok: false, error: { code: "invalid_state" } });
+    expect(first.result.error?.message).toMatch(/^Your reply has 40 words; the task allows at most 30\. .*Save the rewritten report with save_report/);
+    expect(await repos.taskReports.latestForTask(db, analyst.businessId, taskId)).toBeNull();
+    // The rewrite is kept even if it still runs long: one rewrite at most, and nothing is ever cut.
+    const second = data<{ reportId: string }>(await save(`${long} still long`));
+    expect((await repos.taskReports.latestForTask(db, analyst.businessId, taskId))?.id).toBe(second.reportId);
+    expect((await repos.taskReports.latestForTask(db, analyst.businessId, taskId))?.bodyMd).toBe(`${long} still long`);
+  });
+
   it("read_report gives the next agent the report as untrusted content; a token of another business cannot read it", async () => {
     const analyst = await desk(worker.businessId, "Pia", "researcher");
     const taskId = await researchTask(analyst, "Size the market");
