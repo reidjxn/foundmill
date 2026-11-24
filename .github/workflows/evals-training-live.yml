@@ -1,0 +1,42 @@
+# WP-09 T10 step 4: one live check of three skills run now, then through the half-price batch path, on PGlite with no
+# production data. It calls the Anthropic API on the repository secret ANTHROPIC_API_KEY and costs real money (Estimate:
+# about $1.50 a run), so it runs only by hand. It is its own workflow because a batch can take hours and must not hold up
+# the other live evals. A hosted runner stops a job at six hours, so the batch is polled for up to 340 minutes.
+name: Training evals (live)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: evals-training-live
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  training-live-evals:
+    name: Training now and on the batch path (live model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      CI: true
+      APP_ENV: test
+      INTEGRATIONS_MODE: mock
+      MODEL_MODE: live
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TRAINING_BATCH_DEADLINE_MINUTES: 340
+      TURBO_TELEMETRY_DISABLED: 1
+      DO_NOT_TRACK: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fail if the model key is missing (the suite would otherwise skip and look green)
+        run: test -n "$ANTHROPIC_API_KEY" || { echo "ANTHROPIC_API_KEY is not set for this repository"; exit 1; }
+      - name: Training now and on the batch path (WP-09 T10)
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/training-batch.eval.test.ts --reporter=verbose
