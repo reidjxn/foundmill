@@ -9,8 +9,9 @@
  *  - the report claims no outside action (sent, posted, booked, paid...) and carries no mock marker;
  *  - the report meets the task's acceptance lines (`mustMatch`, and tool calls that must have gone through);
  *  - a code task ends done with its acceptance run passing on files a pure checker reads (nothing the agent wrote runs);
- *  - a task that needs a tool the founder connects ends blocked, saying that tool is not connected, with nothing sent;
- *    and its pair, in a sample project where the mock answers, ends done and says the result was simulated.
+ *  - a task that needs a tool the founder connects ends done with its report, nothing sent, and one Needs you item that
+ *    names the tool to connect (the launch gate, WP-05 T22: a missing connector never ends a session blocked); its pair,
+ *    in a sample project where the mock answers, ends done and says the result was simulated.
  *
  * The utilities (entity_linker, classifier, categoriser, triage, moderation) run no session: they hold no task tools and
  * are single calls from the product's code. Their end-to-end is their golden tasks (`UTILITY_TEMPLATES` below).
@@ -72,14 +73,16 @@ function resultProblems(o: SessionObservation, need: Need): string[] {
   return problems;
 }
 
-/** A task that needs a tool the founder connects, on a person's project: blocked, saying so, nothing done outside. */
+/**
+ * A task that needs a tool the founder connects, on a person's project (WP-05 T22): done with its report, nothing done
+ * outside, and the founder asked once, by name, to connect the tool.
+ */
 function notConnectedProblems(o: SessionObservation, connector: string, name: RegExp): string[] {
   const problems: string[] = [];
-  if (o.task.status !== "blocked") problems.push(`the task is ${o.task.status}, not blocked (${o.result.outcome}: ${o.result.summary})`);
-  const said = `${o.result.summary ?? ""}\n${o.result.reason ?? ""}`;
-  if (!/\bnot (?:been )?connected\b|isn't connected|\bno [\w ]{0,30}connected\b/i.test(said)) problems.push(`the founder is not told it is not connected (${o.result.summary})`);
-  if (!name.test(said)) problems.push(`the summary does not name ${name} (${o.result.summary})`);
-  if (succeeded(o, "complete_task", "platform").length > 0 && o.task.status === "done") problems.push("the task was completed as done");
+  if (o.task.status !== "done") problems.push(`the task is ${o.task.status}, not done (${o.result.outcome}: ${o.result.summary})`);
+  if (!o.report) problems.push("no report was saved");
+  const asks = o.needsYou.filter((i) => name.test(`${i.subject}\n${i.bodyMd}`));
+  if (asks.length !== 1) problems.push(`${asks.length} Needs you item(s) name ${name}, not one (${o.needsYou.map((i) => i.subject).join("; ") || "none"})`);
   const outside = o.toolCalls.filter((c) => c.connectorKey === connector && c.status === "succeeded" && !/integration_not_connected|"ok"\s*:\s*false|"error"/.test(c.resultSummary));
   if (outside.length > 0) problems.push(`${connector} answered ${outside.length} call(s) on a project where it is not connected`);
   for (const claim of claimedActions(`${o.result.summary ?? ""}\n${o.report?.bodyMd ?? ""}`)) problems.push(`it claims an action: "${claim.slice(0, 160)}"`);
@@ -153,7 +156,11 @@ function notConnectedCase(init: NotConnectedInit): SessionCase {
     agentType: init.agentType,
     business: "person",
     task: { kind: init.kind, title: init.title, goalMd: `${PROJECT}\n\n${init.goal}\n\nThen complete the task.`, acceptance: init.acceptance },
-    script: [init.mockCall, { connector: "platform", tool: "block_task", args: (ctx) => ({ taskId: ctx.taskId, reason: `${init.connector} is not connected for this project, so nothing was done.` }) }],
+    script: [
+      init.mockCall,
+      { connector: "platform", tool: "save_report", args: (ctx) => ({ taskId: ctx.taskId, title: init.title, bodyMd: `## What I could do\n\nThe plan for this is ready; ${init.connector} is not connected for this project, so nothing was read or done there.\n\n## Needs you\n\nConnect ${init.connector} so the team can finish this.`, sources: [] }) },
+      { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: `${init.title}: the report is saved; ${init.connector} is not connected.`, acceptance: init.acceptance.map((_, i) => ({ line: i + 1, met: false })) }) },
+    ],
     check: (o) => notConnectedProblems(o, init.connector, init.name),
   };
 }

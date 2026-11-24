@@ -33,7 +33,7 @@ import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, attachedSkills, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, NO_TOOL_LOOP_PRELOAD_BODIES, restoredWorkspaceNote, selectSkills, SESSION_PRELOAD_BODIES, skillsPreloadFor, ToolGrant, type AgentTemplate, type AttachedSkill } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, modelFundingFor, sandboxCostMicroMinor } from "@foundmill/config";
-import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, withBrowserSites, BROWSER_WORK_SKILL, browserSiteOfConnector, withContextReads, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
+import { AcceptanceResult, acceptanceLines, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, withBrowserSites, BROWSER_WORK_SKILL, browserSiteOfConnector, withContextReads, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
 import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, founderOnlyCall, freeCapCheck, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, readSessionEvents, type SessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_ENDPOINTS, MODEL_PRICING, MODEL_PROVIDER, MODELS, resolveModel, type ModelId, type ModelKey as RoutedModelKey, type RouteKey } from "@foundmill/models";
@@ -48,6 +48,7 @@ import { ApplicationFailure } from "@temporalio/common";
 import { z } from "zod";
 import type { SessionCommand } from "../control-bus";
 import type { OrchestratorDeps } from "../deps";
+import { connectSubject, handOffSubject, handToFounder, needsYouSection } from "./hand-off";
 import { agentActor, emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
 import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, type RunUsage } from "../session-contract";
@@ -493,7 +494,7 @@ class SessionRecorder {
    * Tool results from connectors that reach outside the business (not `platform` or `quarantine`), read from the full
    * result text: how many came back simulated or not connected, and which connectors they were (WP-05 T2).
    */
-  readonly outside = { total: 0, simulated: 0, notConnected: 0, connectors: new Set<string>() };
+  readonly outside = { total: 0, simulated: 0, notConnected: 0, connectors: new Set<string>(), notConnectedKeys: new Set<string>() };
   /**
    * What the agent pushed to its own branch (`agent/<taskId>`) with GitHub's `commit_files` during this session: the
    * count of pushes that went through and the last branch head one answered. The end-of-session push goes on top of
@@ -653,7 +654,10 @@ class SessionRecorder {
     this.outside.total += 1;
     this.outside.connectors.add(key);
     if (/"simulated"\s*:\s*true/.test(text)) this.outside.simulated += 1;
-    else if (/integration_not_connected/.test(text) || (call.policyOutcome === "deny" && notSwitchedOnDeny(text))) this.outside.notConnected += 1;
+    else if (/integration_not_connected/.test(text) || (call.policyOutcome === "deny" && notSwitchedOnDeny(text))) {
+      this.outside.notConnected += 1;
+      this.outside.notConnectedKeys.add(key);
+    }
   }
 
   /**
@@ -1650,17 +1654,11 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // The founder's mail and calendar are read only where the founder said yes (packages/connectors google-context).
   const grants = withContextReads(await sessionGrantsFor(deps.db, input.businessId, task.id, withBrowserSites(resolveGrants(parseGrants(live.version, live.template)), await browserSitesFor(deps.db, input.businessId, agent))), await repos.integrations.contextReads(deps.db, input.businessId));
   if (grants.unresolved.length > 0) deps.log.info({ sessionId: input.sessionId, unresolved: grants.unresolved.map((u) => `${u.connectorKey}.${u.capability}`).slice(0, 50) }, "granted capabilities no tool serves yet");
-  // What the gateway would refuse as not connected (WP-05 T12, the gateway's own rule): the agent is told, and a research
-  // task that cannot read the web, with every outside connector refused, does not start, before any workspace, token or
-  // SDK exists. A channel task, or research without web search (a planner on GitHub), starts: drafting needs no outside
-  // tool, and the agent blocks itself when the task does (Launch S28: content, SEO and the planner never started on a new
-  // project). A sample business, development and test keep their simulated answers, as after the session (T2).
+  // What the gateway would refuse as not connected (WP-05 T12, the gateway's own rule): the agent is told. Every task
+  // still starts (the launch gate, founder, Nov 24, 2026; WP-05 T22): a new project has nothing connected, and its draft
+  // tasks need only the web and writing. A sample business, development and test keep their simulated answers (T2).
   const unusable = mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo) ? [] : unusableConnectors(grants.servers, channelAvailabilityFacts(deps.env, live.business, await repos.integrations.list(deps.db, input.businessId)));
-  const outsideServers = grants.servers.filter((key) => !ALWAYS_LIVE_CONNECTORS.has(key));
-  if (task.kind === "research" && unusable.includes("web") && outsideServers.every((key) => unusable.includes(key))) {
-    return { outcome: "blocked", reason: `not connected: ${unusable.join(", ")}`, blockedReason: "not_connected", approvalId: null, summary: `Blocked: ${namesList(unusable.map(connectorName))} not connected for this project, so nothing real was read or sent.`.slice(0, 1800), providerSessionId: null };
-  }
-  const notConnectedNote = unusable.length > 0 ? `Not connected for this project: ${namesList(unusable.map(connectorName))}. Calls to them are refused. If the task cannot be done without one, call block_task now and name it.` : "";
+  const notConnectedNote = unusable.length > 0 ? notConnectedLine(namesList(unusable.map(connectorName)), task.kind === "code") : "";
   // What the session may spend (./session-budget): the task's budget less its earlier sessions, the credits left when the
   // platform key pays, and what is left of the agent's wage cap and the business's monthly model budget (either key).
   // A task with nothing left does not start.
@@ -1783,7 +1781,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "could not read the session's earlier tool calls");
     }
   }
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", acceptanceLines(task).length ? `## Acceptance criteria\n${acceptanceLines(task).map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n${ACCEPTANCE_BRIEF}` : Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? (siteProject ? siteTaskNote() : codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId)))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, call block_task in your first turn and name it; do not explore. When the work is finished, call complete_task with what you found or made. A session that ends without complete_task or block_task is not counted as done."].filter(Boolean).join("\n\n");
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", acceptanceLines(task).length ? `## Acceptance criteria\n${acceptanceLines(task).map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n${ACCEPTANCE_BRIEF}` : Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? (siteProject ? siteTaskNote() : codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId)))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, policy.fileTools ? CODE_CLOSING_LINE : TASK_CLOSING_LINE].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
   /**
@@ -1823,6 +1821,37 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const usageNow = () => {
     const u = recorder.usage.totals();
     return { tokensIn: u.tokensIn, tokensOut: u.tokensOut, costMinor: Math.round(u.costMinor), costMicroMinor: Math.round(u.costMinor * MICRO_PER_MINOR), ...(switchedTo ? { modelKey: switchedTo } : {}) };
+  };
+  /**
+   * The end of a task that is not code with a reported result (the launch gate, founder, Nov 24, 2026; WP-05 T22, T26):
+   * done, and what only the founder can do (connections that were refused, acceptance lines not met, the report's
+   * "Needs you" section, the reason of a block after the report) reaches them as one Needs you item per kind.
+   */
+  const finishWithHandOff = async (end: { blockReason: string | null }): Promise<RunOutcome> => {
+    const realOnly = !mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo);
+    const own = await repos.taskReports.latestForTask(deps.db, input.businessId, task.id);
+    const lines = acceptanceLines(task);
+    const reportSimulated = own?.sessionId === input.sessionId && own.simulated;
+    // Done needs a real result: a report this session saved (a task with lines; the gateway refuses complete_task without
+    // one), and on a real project never a simulated one.
+    if (lines.length > 0 && !recorder.savedOwnReport) return { outcome: "blocked", reason: `${NO_REPORT_REASON}`, blockedReason: "no_result", approvalId: null, summary: `Blocked: ${agent.name} ended "${task.title}" without saving a report, so its result is not counted as done.`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+    if (realOnly && reportSimulated) return { outcome: "blocked", reason: "the report rests on simulated reads", blockedReason: "not_connected", approvalId: null, summary: `Blocked: ${agent.name}'s report on "${task.title}" rests on simulated reads, so it is not counted as done.`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+    const unmet = lines.length > 0 ? unmetAcceptanceLines(lines, recorder.acceptanceClaims, recorder.toolsUsed, { realOnly, reportSimulated }).map((n) => lines[n - 1]!) : [];
+    const missing = realOnly ? [...recorder.outside.notConnectedKeys] : [];
+    const names = namesList(missing.map(connectorName));
+    const connect = missing.length > 0 ? `Connect ${names} in Settings › Integrations and the team uses ${missing.length === 1 ? "it" : "them"} from the next round of work; nothing was read or sent through ${missing.length === 1 ? "it" : "them"} this time.` : "";
+    const asks = [
+      ...unmet.map((l) => `- Not met: ${l}`),
+      ...(end.blockReason ? [`- ${end.blockReason}`] : []),
+      ...(own && own.sessionId === input.sessionId ? [needsYouSection(own.bodyMd)].filter(Boolean) : []),
+    ];
+    // One item per task: what it could not do, with the connection it lacked; a task that lacked only a connection
+    // adds to the one "Connect" item every such task shares.
+    if (asks.length > 0) await handToFounder(deps, input.businessId, { fromAgentId: agent.id, subject: handOffSubject(task.title), body: [`${agent.name} finished "${task.title}" and saved its report. This part needs you:`, asks.join("\n"), connect].filter(Boolean).join("\n\n") });
+    else if (missing.length > 0) await handToFounder(deps, input.businessId, { fromAgentId: agent.id, subject: connectSubject(names), body: `${agent.name} finished "${task.title}" without ${names}; the report says what ${missing.length === 1 ? "it" : "they"} would add. ${connect}` });
+    recorder.progress = { ...recorder.progress, progress: 1 };
+    const handed = unmet.length > 0 ? `; ${unmet.length === 1 ? "one acceptance line" : `${unmet.length} acceptance lines`} went to you` : asks.length > 0 ? "; one part went to you" : "";
+    return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls${handed}.`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
   };
   /**
    * "Upgrade to Opus" on a running task: the SDK query moves to that model for the rest of the session and later usage is
@@ -2318,6 +2347,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       return { outcome: "stopped", reason: stoppedLate.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stoppedLate.reason}.`, providerSessionId: sdkSessionId, ...usageNow() };
     }
     if (recorder.pendingApprovalId) return { outcome: "blocked", reason: "waiting for the founder's approval", blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
+    // An agent that blocked after saving its report has a result (the launch gate, WP-05 T26): the task ends done, and
+    // what stopped it goes to the founder as one Needs you item. A block with no report stays a block.
+    if (agentBlock && task.kind !== "code" && recorder.savedOwnReport) return finishWithHandOff({ blockReason: agentBlock.reason });
     if (agentBlock) return { outcome: "blocked", reason: agentBlock.reason, blockedReason: "dependency", approvalId: null, summary: agentBlockSummary(agent.name, agentBlock.reason, acceptanceLines(task), recorder.acceptanceClaims), providerSessionId: sdkSessionId, ...usageNow() };
     if (nothingWritten) {
       await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `${agent.name} ended the session without changing any file, so the task is not done. It is blocked until it runs again.` });
@@ -2344,26 +2376,17 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       }
     }
     if (task.kind !== "code") {
-      // A task that is not code is done only on a result the agent reported, and never on outside calls that were all
-      // simulated or not connected on a real project (WP-05 T2). `finishSession` sets the task's status from this.
+      // A task that is not code is done only on a result the agent reported (WP-05 T2). Under the launch gate (founder,
+      // Nov 24, 2026; T22, T26) a reported result ends done even when nothing outside was connected or a line was not
+      // met: those go to the founder as one Needs you item, and nothing simulated is ever called done.
+      // A simulated answer on a real project is never the basis of done (T1 refuses them; this stays the backstop).
       const { outside } = recorder;
-      if (!mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo) && outside.total > 0 && outside.simulated + outside.notConnected === outside.total) {
+      if (!mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo) && outside.simulated > 0 && outside.simulated + outside.notConnected === outside.total) {
         const keys = [...outside.connectors];
         return { outcome: "blocked", reason: `not connected: ${keys.join(", ")}`, blockedReason: "not_connected", approvalId: null, summary: `Blocked: ${namesList(keys.map(connectorName))} not connected for this project, so nothing real was read or sent.`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
       }
       if (!recorder.completedOwnTask) return { outcome: "blocked", reason: NO_RESULT_REASON, blockedReason: "no_result", approvalId: null, summary: `Blocked: ${agent.name} ended the session without reporting a result on "${task.title}".`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
-      // Its acceptance lines (founder, Nov 16, 2026): done only with a report saved and every line met on real results.
-      const lines = acceptanceLines(task);
-      if (lines.length > 0) {
-        const own = await repos.taskReports.latestForTask(deps.db, input.businessId, task.id);
-        const reportSimulated = own?.sessionId === input.sessionId && own.simulated;
-        const which = unmetAcceptanceLines(lines, recorder.acceptanceClaims, recorder.toolsUsed, { realOnly: !mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo), reportSimulated });
-        if (which.length > 0 || !recorder.savedOwnReport) {
-          const unmet = which.map((n) => lines[n - 1]!);
-          return { outcome: "blocked", reason: `${ACCEPTANCE_UNMET_REASON}: ${recorder.savedOwnReport ? "" : "no report saved; "}${which.length ? `line${which.length === 1 ? "" : "s"} ${which.join(", ")}` : "every line marked met"}`, blockedReason: "no_result", approvalId: null, summary: acceptanceUnmetSummary(agent.name, task.title, lines.length, unmet, recorder.savedOwnReport), providerSessionId: sdkSessionId, ...usageNow() };
-        }
-      }
-      recorder.progress = { ...recorder.progress, progress: 1 };
+      return finishWithHandOff({ blockReason: null });
     }
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usageNow() };
   } finally {
@@ -2900,16 +2923,20 @@ export const REPORT_TURN = "You ended without reporting. Call complete_task with
 /** Why a task that is not code is blocked when its agent never reported a result. */
 export const NO_RESULT_REASON = "no result: the session ended without complete_task or block_task";
 /** What a task that is not code with acceptance lines tells its agent, under the numbered lines. */
-export const ACCEPTANCE_BRIEF = "Save your result with save_report, then call complete_task with one acceptance result per line, by its number: met or not, and for a met line where it shows (reportSection: a heading of your report, or tool: the outside tool call that did it). The task is done only when every line is met on a real result; a line that rests only on simulated or not-connected calls is not met, so say so. If you block the task instead, name in the reason each line that is not met.";
-/** Why a task that is not code is blocked when its report is missing or one of its acceptance lines is not met. */
-export const ACCEPTANCE_UNMET_REASON = "acceptance not met";
-/** The founder's one sentence on what was not met, each line named once; never a to-do. */
-export function acceptanceUnmetSummary(agentName: string, title: string, total: number, unmet: readonly string[], reportSaved: boolean): string {
-  const quoted = unmet.map((l) => `“${l.length > 160 ? `${l.slice(0, 159)}…` : l}”`).join("; ");
-  if (unmet.length === 0) return `Blocked: ${agentName} ended "${title}" without saving a report, so its result is not counted as done.`.slice(0, 1800);
-  const count = unmet.length === total ? (total === 1 ? "its one line" : `all ${total} of its lines`) : `${unmet.length} of its ${total} lines`;
-  return `Blocked: ${agentName} ended "${title}" with ${count} not met${reportSaved ? "" : " and no report saved"}: ${quoted}.`.slice(0, 1800);
+export const ACCEPTANCE_BRIEF = "Save your result with save_report, then call complete_task with one acceptance result per line, by its number: met or not, and for a met line where it shows (reportSection: a heading of your report, or tool: the outside tool call that did it). A line that rests only on simulated or not-connected calls is not met, so say so. Mark a line you cannot meet as not met and say why in the report: it goes to the founder as a Needs you item, and your report still finishes the task.";
+/**
+ * The last line of the prompt of a task that is not code (the launch gate, founder, Nov 24, 2026; WP-05 T22): the
+ * agent finishes with what it has, and what only the founder can do is handed over, never a block.
+ */
+export const TASK_CLOSING_LINE = "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, or an input is missing, do not stop: do everything you can with what you have, save your report with save_report, and put what only the founder can give or do under a heading \"## Needs you\" in it; the founder gets it as one item. Then call complete_task with what you found or made. Call block_task only when another task must finish first. A session that ends without complete_task is not counted as done.";
+/** The last line of a code task's prompt. */
+export const CODE_CLOSING_LINE = "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, call block_task in your first turn and name it; do not explore. When the work is finished, call complete_task with what you found or made. A session that ends without complete_task or block_task is not counted as done.";
+/** What the agent is told about the connections this project does not have (WP-05 T12, T22). */
+export function notConnectedLine(names: string, code: boolean): string {
+  return code ? `Not connected for this project: ${names}. Calls to them are refused. If the task cannot be done without one, call block_task now and name it.` : `Not connected for this project: ${names}. Calls to them are refused. Do the task with the tools you have and say in your report what ${names} would add; do not stop for it.`;
 }
+/** Why a task with acceptance lines is not done when its agent saved no report. */
+export const NO_REPORT_REASON = "no report saved";
 /**
  * The founder's sentence on a task its agent blocked: the agent's reason, then each acceptance line the session could not
  * count as met, quoted once (a line the reason already quotes is not repeated), so the founder sees which line waits.

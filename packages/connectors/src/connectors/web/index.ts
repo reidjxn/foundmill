@@ -19,7 +19,7 @@ import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { webMock } from "./mock";
 import { lookupGuardedFetch, publicOnlyLookup, refused, systemResolveHost, WEB_PAGE_USER_AGENT, type PageFetch, type ResolveHost } from "./page-fetch";
 import { createPageReader, defaultLookup, type HostLookup } from "./reader";
-import { htmlToText, isPrivateAddress, WEB_KEY, WEB_MAX_BYTES, WEB_MAX_REDIRECTS, WEB_RATE_LIMITS, WEB_TIMEOUT_MS, webTools } from "./tools";
+import { htmlToText, isPrivateAddress, WEB_KEY, WEB_SEARCH_OFF, WEB_MAX_BYTES, WEB_MAX_REDIRECTS, WEB_RATE_LIMITS, WEB_TIMEOUT_MS, webTools } from "./tools";
 
 export interface WebConnectorOptions extends LiveConnectorOptions {
   /** DNS lookup used for the Source Watcher reader's address checks (tests inject one). */
@@ -104,7 +104,8 @@ export function createWebConnector(options: WebConnectorOptions = {}): Connector
           }
         },
         search_web: async ({ query, limit }, ctx) => {
-          if (!searchWeb) throw new ConfigError(WEB_KEY, "ANTHROPIC_API_KEY", "web search runs on the platform's Anthropic key");
+          // The deployment's own setting, said as it is (WP-05 T21): never a missing key the agent reports as an outage.
+          if (!searchWeb) throw Object.assign(new ConfigError(WEB_KEY, "MODEL_MODE"), { message: WEB_SEARCH_OFF });
           const results = await searchWeb({ businessId: ctx.businessId, agentId: ctx.agentId, ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}), query, limit }).catch((e: unknown) => {
             // The search itself failed (an error result, or the API unavailable): a vendor failure the agent can read. A
             // refusal before the request (the credits gate) keeps its own code.
@@ -119,7 +120,7 @@ export function createWebConnector(options: WebConnectorOptions = {}): Connector
         return { id: uuid(), businessId, connectorKey: WEB_KEY, status: "connected", scopes: [], accountLabel: "Built in", externalAccountId: null, config: {}, credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt };
       },
       // Page reads need no account and report their own failures; search needs the gateway's platform model client.
-      healthcheck: async () => healthResult(searchWeb ? "connected" : "degraded", now().getTime(), { now, ...(searchWeb ? {} : { message: "web search needs the platform's Anthropic key; page reads work" }) }),
+      healthcheck: async () => healthResult(searchWeb ? "connected" : "degraded", now().getTime(), { now, ...(searchWeb ? {} : { message: WEB_SEARCH_OFF }) }),
     },
     webMock,
   );
@@ -127,5 +128,5 @@ export function createWebConnector(options: WebConnectorOptions = {}): Connector
 
 export { webMock, createWebMock, mockPage } from "./mock";
 export { lookupGuardedFetch, publicOnlyLookup, WEB_PAGE_USER_AGENT, type PageFetch, type ResolveHost } from "./page-fetch";
-export { webTools, WEB_KEY, WEB_MAX_BYTES, WEB_MAX_REDIRECTS, WEB_USER_AGENT, WEB_ROBOTS_TOKEN, isPrivateAddress } from "./tools";
+export { webTools, WEB_KEY, WEB_SEARCH_OFF, WEB_MAX_BYTES, WEB_MAX_REDIRECTS, WEB_USER_AGENT, WEB_ROBOTS_TOKEN, isPrivateAddress } from "./tools";
 export { htmlToText, isPublicAddress, robotsAllows } from "./reader";

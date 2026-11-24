@@ -39,6 +39,7 @@
 | T16 | A founder's "no" has a next step | M | beside |
 | T17 | "Request changes" goes back once | S | needs D2; patched |
 | T18 | A task the team cannot do is said once | S | needs D1 |
+| T21 to T26 | The launch gate's six causes (test round, Nov 24, 2026) | S each | one branch, after T20 |
 
 Rules for every task: migrations take the next free number when the branch is cut (0108, journal idx 96, at `04a0a509`); renumber on rebase. No change below alters a workflow's recorded commands unless the task says "patched". A change to a template or to `PLATFORM_BASE_TOOLS` reaches every agent still on the version written at hiring at its next session (`followsTemplate`, `session.ts:184`).
 
@@ -337,6 +338,47 @@ Why: "dependency" written by an agent is the largest group of query 2 (ops 70, c
 Steps: run queries 2 and 3 for sessions created after Nov 17, 2026, read-only; group the "dependency" details by cause (waiting on another agent, missing input, missing tool, not connected). verify: the tables are in e0-production-evidence.md.
 Done when: any single cause over 15% of the new blocks has its own task here, or the reading says none does.
 First reading (Nov 23, 2026, the coordinating session, the last 60 agent-written dependency blocks, newest Nov 17): read_product empty (about 12; fixed, the gateway delivers it first-party without source titles), no web tools (about 8; web live since Nov 17 08:36 UTC), missing tools (about 15; covered by T3, WP-07 T1 and T18, one matcher phrase added), cascades behind a blocked task or a peer agent (open), missing public data (open; web now live). Log: docs/log/2026-11/2026-11-23-claude-wp05-t20-dependency-fixes.md. Every block in that reading predates these fixes, so the re-measure needs sessions started after they land.
+
+**The launch gate (founder, Nov 24, 2026):** "nothing can be blocked. 100% of our agents have to work end to end for our users when we launch, otherwise we're not launching." A missing connector, a missing input or a missing tool never ends a session `blocked`: the agent finishes everything it can, the task ends `done` with its report, and what needs the founder becomes one Needs you item (a `decision` note from that agent, said once per subject). The only task left unfinished is one waiting on an approval nobody has given yet. This amends "Done when" 2: a session whose outside calls were all not connected may end `done` when it saved a report, because the report says what was not read and the Needs you item names the connection; nothing simulated is ever reported as done. T21 to T26 come from the test round of Nov 24, 2026 (`audits/e0-production-evidence.md`, "Test round, Nov 24, 2026"); T19 and T20 were taken, so the six causes are T21 to T26.
+
+### [x] T21: Web search and page reads work on a new free-plan project, and the message is true [S] [gateway]
+Why: test round cause 1. The gateway's platform model client is the mock client in production (its MODEL_MODE is not `live`), so `platformSearchWeb` offers no search and the quarantined reader digests every page as mock. The free plan is not the cause: search runs on Haiku 5.5 for it.
+Files: modify `packages/connectors/src/connectors/web/index.ts`, `apps/gateway/src/index.ts`, `apps/gateway/src/reader-models.ts` (stale comment); tests `packages/connectors/src/connectors/web/web.test.ts`.
+Produces: `search_web` with no platform search answers "web search is not switched on in this deployment: the gateway's model client is not live (set MODEL_MODE=live on the gateway). Page reads still work." (still `connector_unconfigured`); the gateway's "listening" line carries `modelMode` and `webSearch: on|off`, and logs an error at boot when the model client is mock outside development and test.
+Steps: 1. Test first: the error text names the deployment, not a missing key. verify: `pnpm --filter @foundmill/connectors test web`. 2. Boot log. verify: gateway tests. 3. Founder: set `MODEL_MODE=live` on the Railway gateway service (config, not code). verify: the next listening line reads `modelMode: "live"`, `webSearch: "on"`.
+Done when: a research session on a free-plan project gets search results and page text; until the variable is set, the agent reads why, truthfully.
+
+### [x] T22: A task with nothing connected runs with what it has [S] [session.ts]
+Why: test round cause 2; T12's pre-flight stopped five draft tasks that needed only the web and writing. Launch S28 (#398, merged the same morning) narrowed it to a research task with no usable web; this removes the stop entirely.
+Files: modify `apps/orchestrator/src/activities/session.ts` (the pre-flight in `runLiveSession`, the not-connected rule at the end of a session, the task prompt), create `apps/orchestrator/src/activities/hand-off.ts`; tests `session-live.test.ts`.
+Produces: no pre-flight stop. The prompt line "Not connected for this project: <names>. Calls to them are refused. Do the task with the tools you have and say in your report what <names> would add; do not stop for it." The closing line for a task that is not code: do everything you can, save the report, put what only the founder can do under `## Needs you`, then `complete_task`; `block_task` only when another task must finish first. At the end, a task whose outside calls were all refused as not connected, with a report and `complete_task`, ends `done`, and `handToFounder` writes one decision "Connect <names> for the team" (once per subject while it is open).
+Steps: 1. Tests first: a research task holding only an unusable `github` starts and ends `done` with a report; the not-connected-only session ends `done` with one Needs you item; a second task with the same gap adds no second item. verify: fail on `main`. 2. Build. verify: `pnpm --filter @foundmill/orchestrator test session-live`.
+Done when: no session on a new project ends `blocked` / `not_connected`.
+
+### [x] T23: Every task kind comes with the tools its completion rule needs [S] [second read; test]
+Why: test round cause 3: a revision session had `read_product, get_task, block_task, complete_task` and no `save_report`.
+Files: modify `packages/agents/src/second-read.ts` (`SECOND_READ_REVISION_TOOLS`); create `apps/orchestrator/src/__tests__/completion-tools.test.ts`.
+Produces: the revision keeps `save_report` and `read_report` (inside the project, nothing outward); a change no tool can make is written in the report under `## Needs you`. The test asserts, for every template and every task kind, that the session's tools hold what the kind's completion rule requires: `complete_task` and `save_report` for every kind but code, the file tools for code, and the same after the second-read narrowing.
+Steps: tests first (fails on `main` for the revision); build. verify: `pnpm --filter @foundmill/orchestrator test completion-tools`.
+Done when: the test passes for 48 templates × 8 kinds.
+
+### [x] T24: The Planner asks only for what the team can meet [S] [planner]
+Why: test round cause 4.
+Files: modify `packages/agents/src/prompts/planner.ts` (`PLANNER_ACCEPTANCE_RULE`, `buildPlannerRequest` gains `connected`), its two callers `apps/api/src/services/task-graph.ts` and `apps/orchestrator/src/activities/roadmap-plan.ts`; tests the planner prompt test, `roadmap-plan.test.ts`.
+Produces: the rule "Acceptance criteria may only ask for what the team can do with its tools and what the project already knows: research, writing, drafts, Foundmill's own records, and what a connected tool does (connected lists them). Never require a record in a tool that is not connected, an outside send, a fact the founder has not given (a sender name, a price, an address) or a list of tools nobody named; write what only the founder can give or do in the goal, as 'For the founder: …', and the agent hands it over as a Needs you item." The request carries `connected: string[]` (the project's connected connector keys).
+Done when: the request and prompt tests pass; an unmet line that slips through is handed over by T26.
+
+### [x] T25: Nothing that reads the specification starts before it lands [S] [dispatch]
+Why: test round cause 5.
+Files: modify `apps/orchestrator/src/activities/brief.ts` (`loadDispatchFacts`); tests `retry-deferral.test.ts` (or `dispatch.test.ts`).
+Produces: while the business's foundations are `drafting`, a task whose title or goal names the specification, the vision or the roadmap is offered as `blocked` (waiting on a dependency), like an unfinished dependency; `ready` or `failed` releases it. `pending` is not held: a business whose foundations never start (a seed, an import) would wait for good.
+Done when: "Answer the specification's open questions" waits while the foundations draft and runs after.
+
+### [x] T26: An unmet acceptance line goes to the founder, not to `blocked` [S] [session.ts]
+Why: test round cause 6. The block was written by the acceptance check at the end of `runLiveSession`: a line marked not met, or met on an outside tool whose calls never ran for real (search was down, T21), ended the session `blocked` / `no_result` ("acceptance not met: line 4") even with a report saved.
+Files: modify `apps/orchestrator/src/activities/session.ts`, `evals/src/sessions/cases.ts` (`researcher.unmet_line_is_not_done` becomes `researcher.unmet_line_goes_to_founder`; `channel_email_automation.not_connected_is_not_sent`), `evals/src/sessions/agents.ts` (Launch S28's four not-connected cases), `evals/src/__tests__/sessions.test.ts`; tests `session-live.test.ts`. New outcome cases for causes 1 to 3 on a free-plan project with nothing connected: `researcher.free_plan_searches_and_reads`, `product_researcher.nothing_connected_still_finishes`, `product_lead.revision_saves_report`.
+Produces: a task that is not code, with a saved report and `complete_task`, ends `done`; its unmet lines, its report's `## Needs you` section and a `block_task` reason after a saved report become one Needs you item naming each once. The session summary says how many lines went to the founder. A task with no report keeps T2's `no_result`. Nothing outward is done for an unmet line, so no hard gate moves.
+Done when: the eval cases assert `done` with a saved report and the Needs you item, and nothing sent.
 
 ## Corrections to the audits
 1. AR-08: no `run_log` column is needed; the session's Redis stream already holds every run's tool calls and survives a deploy (`readSessionEvents`).

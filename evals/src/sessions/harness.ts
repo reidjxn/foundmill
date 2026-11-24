@@ -27,7 +27,7 @@ import { initialVersionFromTemplate, listTemplates } from "@foundmill/agents";
 import { repos, type Task, type TaskReport } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { buildGateway, createGatewayBuiltins, createUntrustedReader, listenGateway, platformSearchWeb, type RunningGateway } from "@foundmill/gateway";
-import { MemoryRateLimitStore } from "@foundmill/gateway/rate-limit";
+import { MemoryRateLimitStore, type RateLimitStore } from "@foundmill/gateway/rate-limit";
 import type { GatewayLogger } from "@foundmill/gateway/pipeline";
 import { createModelClient, type ModelClient } from "@foundmill/models";
 import { ACCEPTANCE_RUN_LOG, createSessionActivities } from "@foundmill/orchestrator/activities/session";
@@ -347,6 +347,8 @@ export interface SessionObservation {
   tests: { passed: number; failed: number }[];
   /** The workspace as the last acceptance run saw it (path → text); empty without one. */
   testedFiles: ReadonlyMap<string, string>;
+  /** The Needs you items this case's agent left for the founder (WP-05 T22, T26), newest first. */
+  needsYou: { subject: string; bodyMd: string }[];
 }
 
 /** What the case's own check of the copied workspace found: a test runner's summary line and output. */
@@ -369,6 +371,10 @@ export interface SessionCase {
    */
   business?: "person" | "sample";
   task: { kind: TaskKind; title: string; goalMd: string; acceptance?: unknown[] };
+  /** `free`: the project is on the free plan for this case (WP-13), as a new project made in the Ideation Studio is. */
+  plan?: "free";
+  /** The task is a second read's revision (WP-05 T23): its session keeps only the revision's tools. */
+  revision?: boolean;
   /** Files saved on the task before the session starts (a code task's codebase): restored into its workspace. */
   workspace?: Readonly<Record<string, string>>;
   /**
@@ -490,7 +496,16 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
   // The reader runs on `gatewayModels` as well: given a registry, `buildGateway` builds its own from the env otherwise,
   // and its calls were off the run budget.
   const reader = createUntrustedReader(gatewayModels);
-  const built = buildGateway({ env: gatewayEnv, db: t.db, registry, models: gatewayModels, reader, vault: null, rateLimits: new MemoryRateLimitStore(), log: silentLog });
+  // Each case counts its own calls (the web's 30 a minute is per business, and every case runs on one business).
+  let caseLimits = new MemoryRateLimitStore();
+  const caseRateLimits: RateLimitStore = {
+    hit: (...a) => caseLimits.hit(...a),
+    release: (...a) => caseLimits.release(...a),
+    count: (...a) => caseLimits.count(...a),
+    claim: (...a) => caseLimits.claim(...a),
+    unclaim: (...a) => caseLimits.unclaim(...a),
+  };
+  const built = buildGateway({ env: gatewayEnv, db: t.db, registry, models: gatewayModels, reader, vault: null, rateLimits: caseRateLimits, log: silentLog });
   const server: RunningGateway = await listenGateway(built.app, { port: 0, host: "127.0.0.1" });
   const gateway = createGatewayClient({ baseUrl: server.url, serviceSecret: GATEWAY_SECRET, serviceName: "orchestrator" });
 
@@ -531,11 +546,17 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
       const files = Object.entries(c.workspace).map(([p, text]) => ({ path: p, content: new TextEncoder().encode(text) }));
       await t.db.transaction((tx) => repos.workspaces.save(tx as never, businessId, { taskId: task.id, files, carryOver: true }));
     }
+    caseLimits = new MemoryRateLimitStore();
+    // Each case starts with no Needs you item, so one said once in an earlier case does not hide this case's.
+    for (const i of (await repos.inbox.list(t.db, businessId, { tab: "respond", limit: 200 })).items) await repos.inbox.archive(t.db, businessId, i.id, { force: true });
+    if (c.revision) await repos.audit.append(t.db, businessId, { actorKind: "system", action: "second_read.completed", target: { kind: "task", id: task.id }, details: { revisionTaskId: task.id } });
+    if (c.plan === "free") await repos.businesses.update(t.db, businessId, { planTier: "free", modelBilling: "credits" });
     const sessionId = await openSessionRow({ ...t, businessId }, agent.id, task.id);
     const ctx: CaseContext = { businessId, agentId: agent.id, taskId: task.id, sessionId };
     const servedFrom = web.served.length;
     const mailFrom = inbox.mail.length;
     const fixture = c.acceptanceRun ? createFixtureSandbox(c.acceptanceRun) : null;
+    const planBefore = (await repos.businesses.get(t.db, businessId)).planTier;
     const run: ActiveCase = { live, ctx, script: c.codeScript ?? c.script, options: null, probe: null, turns: [], sandbox: fixture?.provider ?? null };
     active = run;
     try {
@@ -555,13 +576,15 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
         .map((e) => ({ connectorKey: e.connectorKey ?? null, tool: e.tool, status: e.status, policyOutcome: e.policyOutcome ?? null, resultSummary: e.resultSummary ?? "" }));
       const builtinsSeen = run.probe ? await run.probe : {};
       const tests = events.map((r) => r.event).flatMap((e) => (e.kind === "test_result" && e.acceptance ? [{ passed: e.passed, failed: e.failed }] : []));
-      const observation: SessionObservation = { task: after, result, report, toolCalls, served: web.served.slice(servedFrom), mail: inbox.mail.slice(mailFrom), options: run.options, builtins: builtinsSeen, turns: run.turns, tests, testedFiles: fixture?.lastFiles() ?? new Map() };
+      const needsYou = (await repos.inbox.list(t.db, businessId, { tab: "respond", limit: 50 })).items.filter((i) => i.fromAgentId === agent.id).map((i) => ({ subject: i.subject, bodyMd: i.bodyMd }));
+      const observation: SessionObservation = { task: after, result, report, toolCalls, served: web.served.slice(servedFrom), mail: inbox.mail.slice(mailFrom), options: run.options, builtins: builtinsSeen, turns: run.turns, tests, testedFiles: fixture?.lastFiles() ?? new Map(), needsYou };
       const problems = run.options ? c.check(observation) : ["the session never reached the SDK", ...c.check(observation)];
       return { caseId: c.id, passed: problems.length === 0, problems, costMinor, outcome: result.outcome, taskStatus: after.status, summary: result.summary };
     } catch (err) {
       return { ...base, passed: false, problems: [`the session threw: ${(err as Error).message}`], error: (err as Error).message };
     } finally {
       active = null;
+      if (c.plan === "free") await repos.businesses.update(t.db, businessId, { planTier: planBefore });
     }
   }
 

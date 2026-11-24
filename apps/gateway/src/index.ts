@@ -107,6 +107,11 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   const onUsage = gatewayUsageSink(db, log, topUps);
   const ungated = options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) });
   const models = gatePlatformModels(ungated, db, env.FREE_PLAN_MONTHLY_CAP_CENTS, topUps);
+  // Said at boot (WP-05 T21): on Nov 24, 2026 a mock client here meant no web search and empty page digests on every
+  // real project, and nothing in the logs said why.
+  const webSearch = models.mode === "live" && models.searchWeb ? "on" : "off";
+  if (models.mode === "mock" && config.appEnv !== "development" && config.appEnv !== "test") log.error({ modelMode: models.mode, webSearch }, "the gateway's model client is mock: web search is off and the quarantined reader answers with mock digests; set MODEL_MODE=live on the gateway");
+  else log.info({ modelMode: models.mode, webSearch }, "gateway model client");
   const readerDeps: QuarantinedReaderDeps = { db, vault, models, ...(ungated.mode === "mock" ? { ungatedMock: ungated } : {}), mode: models.mode, log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) };
   let registry = options.registry;
   // The skill tools read the business's repository through this gateway's own pipeline, built further down.

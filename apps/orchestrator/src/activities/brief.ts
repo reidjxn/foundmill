@@ -98,17 +98,27 @@ export interface DispatchFacts {
   agentsStopped: boolean;
 }
 
+/** A task whose title or goal names the specification, the vision or the roadmap: it needs them written first. */
+export function readsSpecification(task: { title: string; goalMd?: string | null }): boolean {
+  return /\b(spec|specification|vision|roadmap)\b/i.test(`${task.title}\n${task.goalMd ?? ""}`);
+}
+
 export async function loadDispatchFacts(deps: Pick<OrchestratorDeps, "db" | "clock" | "env">, businessId: string): Promise<DispatchFacts> {
   const { db, clock } = deps;
   const now = clock.now();
-  const [business, departmentsRaw, agentsPage, candidates, wages, product] = await Promise.all([
+  const [business, departmentsRaw, agentsPage, candidates, wages, product, foundations] = await Promise.all([
     repos.businesses.get(db, businessId),
     repos.departments.list(db, businessId),
     repos.agents.list(db, businessId, { limit: 200 }),
     repos.tasks.planningCandidates(db, businessId, { limit: PLANNING_CANDIDATE_LIMIT }),
     repos.usage.wages(db, businessId, periodOf(now)),
     loadProductStage(db, businessId),
+    repos.foundations.get(db, businessId),
   ]);
+  // A task that reads the specification waits while it is still drafted (WP-05 T25; Nov 24, 2026: Continue during the
+  // drafting ran "Answer the specification's open questions" on an empty specification). Ready or failed releases it;
+  // pending is not held, since a business whose foundations never start (a seed, an import) would wait for good.
+  const specDrafting = foundations?.status === "drafting";
   const retriedIds = candidates.items.filter((t) => t.status === "failed" || t.status === "blocked").map((t) => t.id);
   const anyBlocked = candidates.items.some((t) => t.status === "blocked");
   const [recent, holds, blocks] = await Promise.all([
@@ -159,7 +169,7 @@ export async function loadDispatchFacts(deps: Pick<OrchestratorDeps, "db" | "clo
     dependsOn: t.dependsOn,
     budgetMinor: t.budgetMinor === null ? null : Number(t.budgetMinor),
     // Any unfinished dependency blocks dispatch, however old (computed in SQL over every task).
-    blocked: t.blocked,
+    blocked: t.blocked || (specDrafting && readsSpecification(t)),
     awaitingApproval: t.awaitingApproval,
     approvalHold: holds.get(t.id) ?? null,
     retry: t.status === "failed" ? taskRetry(failureStreak(recent.filter((s) => s.taskId === t.id)), now) : t.status === "blocked" ? blockedRetry(t.id) : null,

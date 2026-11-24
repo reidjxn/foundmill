@@ -6,7 +6,7 @@
  */
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loadDispatchFacts } from "../activities/brief";
+import { loadDispatchFacts, readsSpecification } from "../activities/brief";
 import { retryDeferral } from "../activities/cycle";
 import type { BriefTask } from "../activities/types";
 import { emitEvent } from "../events";
@@ -81,5 +81,35 @@ describe("loadDispatchFacts: a task blocked not_connected waits for the founder 
     const offered = facts.openTasks.find((x) => x.id === task.id)!;
     expect(offered.retry).toMatchObject({ due: true, exhausted: false, nextAttemptAt: null });
     expect(retryDeferral(offered, "schedule")).toBeNull();
+  });
+});
+
+describe("loadDispatchFacts: nothing that reads the specification starts while it is drafted (WP-05 T25)", () => {
+  let t: OrchestratorTestHarness;
+  beforeAll(async () => {
+    t = await setupOrchestratorHarness({ prefix: "specwait" });
+  });
+  afterAll(async () => {
+    await t?.close();
+  });
+
+  it("holds a spec task while the foundations draft, never another task, and releases it once they are ready", async () => {
+    const spec = await repos.tasks.create(t.db, t.businessId, { kind: "research", title: "Answer the specification's open questions", goalMd: "Answer each open question.", assigneeAgentId: t.workerId, status: "ready" });
+    const other = await repos.tasks.create(t.db, t.businessId, { kind: "research", title: "Run the competitor check", goalMd: "Compare three tools.", assigneeAgentId: t.workerId, status: "ready" });
+    await repos.foundations.create(t.db, t.businessId, { door: "ideation" });
+    const blockedOf = async () => new Map((await loadDispatchFacts(t.deps, t.businessId)).openTasks.map((x) => [x.id, x.blocked]));
+    expect((await blockedOf()).get(spec.id)).toBe(false);
+    expect(await repos.foundations.claim(t.db, t.businessId)).not.toBeNull();
+    const drafting = await blockedOf();
+    expect(drafting.get(spec.id)).toBe(true);
+    expect(drafting.get(other.id)).toBe(false);
+    await t.h.pg.query("update business_foundations set status = 'ready' where business_id = $1", [t.businessId]);
+    expect((await blockedOf()).get(spec.id)).toBe(false);
+  });
+
+  it("reads the words of the title and the goal", () => {
+    expect(readsSpecification({ title: "Revise the vision, specification and roadmap", goalMd: null })).toBe(true);
+    expect(readsSpecification({ title: "Draft the survey", goalMd: "Use the spec's customer section." })).toBe(true);
+    expect(readsSpecification({ title: "Draft the survey", goalMd: "Ask five tutors." })).toBe(false);
   });
 });

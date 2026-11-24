@@ -9,7 +9,7 @@
  * founder's own "Plan something sooner" meanwhile) is skipped, under the same per-business planning lock the api takes.
  */
 import { isSiteProject } from "./site-workspace";
-import { buildPlannerRequest, dropPlatformDuties, PLANNER_SYSTEM_PROMPT, plannerDestination, plannerSpecSections, plannerWorkerTypes } from "@foundmill/agents";
+import { buildPlannerRequest, dropPlatformDuties, PLANNER_SYSTEM_PROMPT, plannerConnected, plannerDestination, plannerSpecSections, plannerWorkerTypes } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { repos, roadmapItemDepartmentId } from "@foundmill/db";
 import { TaskGraphOutput } from "@foundmill/models";
@@ -56,6 +56,7 @@ export function createRoadmapPlanActivities(deps: OrchestratorDeps) {
       const sections = plannerSpecSections(await repos.product.listBlocks(deps.db, businessId));
       const destination = plannerDestination(await repos.integrations.codeRepository(deps.db, businessId), { sites: await isSiteProject(deps.db, deps.env, businessId) });
       const workerTypes = plannerWorkerTypes((await repos.agents.list(deps.db, businessId, { limit: 500 })).items);
+      const connected = plannerConnected(await repos.integrations.list(deps.db, businessId));
       for (const r of items) {
         try {
           const item = await repos.product.getRoadmapItem(deps.db, businessId, r.id);
@@ -66,7 +67,7 @@ export function createRoadmapPlanActivities(deps: OrchestratorDeps) {
             route: "planner",
             schema: TaskGraphOutput,
             system: PLANNER_SYSTEM_PROMPT,
-            messages: [{ role: "user", content: buildPlannerRequest({ goal, roadmapItem: item, sections, destination, workerTypes }) }],
+            messages: [{ role: "user", content: buildPlannerRequest({ goal, roadmapItem: item, sections, destination, workerTypes, connected }) }],
             scope: `cycle:${businessId}`,
             attribution: { businessId, kind: "planner" },
           });
