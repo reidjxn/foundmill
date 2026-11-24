@@ -28,6 +28,8 @@ export interface SourceWatchCaseResult {
   problems: string[];
   relevance: SourceRelevance | null;
   proposal: DraftedProposal | null;
+  /** What the drafter returned before `finaliseProposal` (block id and text length per hunk), for the live log. */
+  drafted: { blockId: string; chars: number }[] | null;
   costMinor: number;
   grader: { score: number; lines: { criterion: string; score: number; reason: string }[] } | null;
   error?: string;
@@ -77,10 +79,12 @@ export async function runSourceWatchCase(c: SourceWatchCase, opts: { client: Mod
     const relevance = finaliseRelevance(scored.json, { source: c.source, candidates });
     const toPropose = blocksToPropose(relevance, c.blocks);
     let proposal: DraftedProposal | null = null;
+    let raw: SourceWatchCaseResult["drafted"] = null;
     if (toPropose.length) {
       const drafted = await opts.client.complete({ ...buildSourceProposalRequest({ businessName: c.businessName, source: c.source, content: c.content, relevance, blocks: toPropose }), scope: `eval:${c.id}:draft` });
       costMinor += drafted.cost.costMinorInt;
       proposal = finaliseProposal(drafted.json, { source: c.source, blocks: toPropose, relevance });
+      raw = drafted.json.hunks.map((h) => ({ blockId: h.block_id, chars: h.proposed_text.length }));
     }
     const problems = checkSourceWatch(c, relevance, proposal);
     let grader: SourceWatchCaseResult["grader"] = null;
@@ -91,8 +95,8 @@ export async function runSourceWatchCase(c: SourceWatchCase, opts: { client: Mod
       grader = graded.json;
       score = problems.length ? 0 : Math.min(graded.json.score, weightedScore(graded.json.lines, graded.json.score));
     }
-    return { caseId: c.id, passed: problems.length === 0 && score >= SOURCE_WATCH_PASS_THRESHOLD, score, problems, relevance, proposal, costMinor, grader };
+    return { caseId: c.id, passed: problems.length === 0 && score >= SOURCE_WATCH_PASS_THRESHOLD, score, problems, relevance, proposal, drafted: raw, costMinor, grader };
   } catch (err) {
-    return { caseId: c.id, passed: false, score: 0, problems: [], relevance: null, proposal: null, costMinor: 0, grader: null, error: err instanceof Error ? err.message : String(err) };
+    return { caseId: c.id, passed: false, score: 0, problems: [], relevance: null, proposal: null, drafted: null, costMinor: 0, grader: null, error: err instanceof Error ? err.message : String(err) };
   }
 }

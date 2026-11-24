@@ -986,6 +986,13 @@
       "idx": 140,
       "version": "7",
       "when": 1796591360000,
+      "tag": "0171_training_run_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1796591420000,
       "tag": "0172_page_proposals",
       "breakpoints": true
     }

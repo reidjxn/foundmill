@@ -155,3 +155,7 @@ Reported by the coordinating session. These are pre-launch items for Session 11 
 2. The spending backstops (Anthropic Console about $750 a month, E2B about $100 a month) are set before launch.
 3. The OpenSRS reseller account ($95 up front) is opened before launch. Session 14's live domain calls wait for it. This replaces "Sunday, Nov 22".
 4. #368 (patents through Lightbringer) merges as it is (option 1).
+
+### The launch gate (founder, Nov 24, 2026)
+
+In the founder's words: "100% of our agents have to work end to end for our users when we launch, otherwise we're not launching." The gate, for Session 11 (Wave 4): every one of the 49 agent templates passes a live end-to-end session eval (Launch S28 builds them in `evals-agents-e2e.yml`), the golden suite is at 59 of 59, and both Source Watcher cases pass (Launch S22), each in two consecutive live runs. `SIGNUP_OPEN` waits on this gate.

@@ -1,0 +1,61 @@
+# The launch gate (Launch S28; founder, Nov 24, 2026: "100% of our agents have to work end to end for our users when
+# we launch, otherwise we're not launching"). Every agent template's most common real task runs as one whole session
+# with its real tools (evals/src/sessions/agents.ts and the T6 cases in evals/src/sessions/cases.ts), through the
+# orchestrator's live runner and an in-process gateway on a test database, connectors in mock mode; the utilities, which
+# run no session, run their golden tasks. Nothing outside the job is reached but the Anthropic API.
+# Cost (Estimate): about $5 a pass (47 sessions at 5 to 12 cents, five golden tasks), capped at $10 a pass
+# (AGENTS_E2E_BUDGET_USD); a full run is two passes, so at most $20. It runs only by hand (workflow_dispatch), never on a
+# pull request or a schedule, and is not a required check. The gate passes when both passes are green: the second runs
+# only after the first passed, so a green run is two consecutive green passes.
+name: Launch gate - agents end to end (live, by hand)
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Comma-separated case ids or template prefixes to rerun (empty: the whole set)"
+        required: false
+        default: ""
+      passes:
+        description: "How many consecutive passes (2 for the gate)"
+        required: false
+        default: "2"
+
+concurrency:
+  group: evals-agents-e2e
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  agents-e2e:
+    name: Agents end to end (live model, $10 a pass)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      CI: true
+      APP_ENV: test
+      INTEGRATIONS_MODE: mock
+      MODEL_MODE: live
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      AGENTS_E2E_ONLY: ${{ inputs.only }}
+      TURBO_TELEMETRY_DISABLED: 1
+      DO_NOT_TRACK: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fail if the model key is missing (the suite would otherwise skip and look green)
+        run: test -n "$ANTHROPIC_API_KEY" || { echo "ANTHROPIC_API_KEY is not set for this repository"; exit 1; }
+      - name: The cases with scripted agents (no model calls)
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/agents-e2e.test.ts
+      - name: Pass 1 against the live model
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/agents-e2e.eval.test.ts --reporter=verbose
+      - name: Pass 2 against the live model (only after pass 1 passed)
+        if: ${{ inputs.passes != '1' }}
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/agents-e2e.eval.test.ts --reporter=verbose
