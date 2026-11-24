@@ -469,7 +469,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_lead_generation.own_apollo_account",
     templateKey: "channel_lead_generation",
     title: "Leads from the founder's own Apollo account, a credit only with the founder's OK",
-    prompt: `Lead run lr_apollo_3 for Ledgerly (target: operations managers at UK fintechs with 20 to 200 people; weekly target 15 qualified leads). Tool results: apollo search_people returned 25 people (first name, role and company only; no email addresses; 14 flagged as having an email on file). apollo enrich_person for the first of them came back "waiting for the founder's approval" (it spends one of the founder's Apollo credits; Estimate 5 cents each). apollo search_organizations was not called. The founder's CRM has 6 of the 25 already. Write the report for the founder: what was found, what is waiting for them and what it would cost (Estimate), what happens if they say no (what you will do without the lookups), and the lawful basis you will record. Cite lr_apollo_3. Under 220 words.`,
+    prompt: `Lead run lr_apollo_3 for Ledgerly (target: operations managers at UK fintechs with 20 to 200 people; weekly target 15 qualified leads). Tool results: apollo search_people returned 25 people (first name, role and company only; no email addresses; 14 flagged as having an email on file). apollo enrich_person for the first of them came back "waiting for the founder's approval" (it spends one of the founder's Apollo credits; Estimate 5 cents each). apollo search_organizations was not called. The founder's CRM has 6 of the 25 already. Write the report for the founder: what was found, what is waiting for them and what it would cost (Estimate), what has not happened yet (nothing looked up, emailed or added to a sequence), what happens if they say no (what you will do without the lookups, from role and company), and the lawful basis you will record. Cite lr_apollo_3. Under 220 words.`,
     checks: [CHECK.all("lr_apollo_3", "Estimate"), noClaim("emailed", "sent the sequence", "verified email"), CHECK.words(70, 250)],
     sourceIds: ["lr_apollo_3"],
     rubric: [
@@ -742,8 +742,9 @@ const RAW_TASKS: GoldenTask[] = [
     id: "packaging_design.dieline",
     templateKey: "packaging_design",
     title: "Packaging spec with mandatory label content",
-    prompt: `Specify the secondary carton for a 50 ml airless bottle sold in the EU (drawing dwg_air50: 40 mm diameter, 112 mm tall with the pump; PP body, PP and steel pump): structure and board, dieline dimensions with tolerances, closure, materials chosen on compatibility, recyclability and cost, and the mandatory label content for an EU cosmetic (responsible person, nominal content, durability or PAO, precautions, batch, function, ingredients). Give the artwork handoff checklist, including minimum text size and the barcode.`,
+    prompt: `Specify the secondary carton for a 50 ml airless bottle sold in the EU (drawing dwg_air50: 40 mm diameter, 112 mm tall with the pump; PP body, PP and steel pump; it touches only the carton through its outer wall). Board quote qte_box_1 at 10,000 cartons: folding boxboard 350 gsm £0.11 each, white-lined chipboard 400 gsm £0.08 each, both FSC and curbside-recyclable; the printer's spec sheet sets a minimum text height of 0.9 mm and EAN-13 at 80% or larger. Cover: structure and board, dieline dimensions with tolerances, closure, materials chosen on compatibility, recyclability and cost, and the mandatory label content for an EU cosmetic (responsible person, nominal content, durability or PAO, precautions, batch, function, ingredients). Give the artwork handoff checklist, including minimum text size and the barcode.`,
     checks: [CHECK.all("responsible person", "batch")],
+    sourceIds: ["dwg_air50", "qte_box_1"],
     rubric: [
       "Dieline dimensions and tolerances fit the stated bottle.",
       "Mandatory EU label items are complete and correct.",
