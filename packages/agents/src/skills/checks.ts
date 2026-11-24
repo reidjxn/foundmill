@@ -58,7 +58,9 @@ const QUOTE_CLOSE = `"'”’`;
  * that holds more than the term ("SSO is coming soon") is still a claim.
  */
 function claimsTerm(haystack: string, term: string): boolean {
-  const h = haystack.toLowerCase();
+  // A comma inside a short list ("nothing was looked up, emailed or added") keeps the clause going: it becomes a space,
+  // so positions do not move. Only a comma followed by one or two words and "or"/"and" counts as a list comma.
+  const h = haystack.toLowerCase().replace(/,(?=\s+(?:[\w'’-]+\s+)?[\w'’-]+\s+(?:or|and)\s)/g, " ");
   const t = term.toLowerCase();
   const quoted = (i: number): boolean => QUOTE_OPEN.includes(h[i - 1] ?? "") && QUOTE_CLOSE.includes(h[i + t.length] ?? "");
   // A parenthetical between the negation and the term ("Nothing from pr_buf_4 (milestone mil_12, the launch) has been
