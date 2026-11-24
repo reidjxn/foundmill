@@ -21,11 +21,13 @@
  */
 import { PublicAppPrompt } from "@/components/shell/PublicAppPrompt";
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
 import { BookingBlock, ProjectPage } from "@foundmill/dugout";
 import { projectPageJsonLd } from "@foundmill/shared/page-structured-data";
 import { builtOnWords, pageDescription, pagePath, pageTitle } from "@foundmill/shared/project-page";
+import { VIA_POST_COOKIE, isPostCode } from "@foundmill/shared/via";
 import { FollowProjectForm } from "@/components/public/FollowProjectForm";
 import { JsonLd } from "@/components/public/JsonLd";
 import { PostVisitBeacon } from "@/components/public/PostVisitBeacon";
@@ -62,6 +64,17 @@ export default async function PublicProjectPageRoute({ params }: Props) {
   // Who is looking decides how the mark is drawn (lib/public-mark.server.ts).
   const { mark, markHref } = await pageMarkFor(page, page.mark);
   const words = builtOnWords(APP_NAME);
+  // A visitor who arrived through a shared post pays through a Stripe link with that post's code, so the payment can be
+  // credited to it (WP-08 T6; the credit itself waits on the payment webhook of WP-07). Stripe's own links only.
+  const code = (await cookies()).get(VIA_POST_COOKIE)?.value;
+  let cta = page.cta;
+  if (cta && isPostCode(code)) {
+    const u = new URL(cta.url);
+    if (u.hostname === "buy.stripe.com") {
+      u.searchParams.set("client_reference_id", `s.${code}`);
+      cta = { ...cta, url: u.toString() };
+    }
+  }
   return (
     <>
       <JsonLd data={projectPageJsonLd(page, { origin: new URL(page.url).origin, appName: APP_NAME })} />
@@ -79,6 +92,10 @@ export default async function PublicProjectPageRoute({ params }: Props) {
         founderNames={page.founderNames}
         mark={mark}
         markHref={markHref}
+        offer={page.offer}
+        price={page.price}
+        cta={cta}
+        askAddress={page.askAddress}
         booking={booking ? <BookingBlock services={booking.services} href={`${pagePath(page.slug)}/book`} /> : null}
         quiz={quiz ? <PageQuizForm quiz={quiz} followForm={page.followForm && quiz.followForm} /> : null}
         follow={

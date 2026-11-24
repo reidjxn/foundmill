@@ -17,6 +17,35 @@ const props: ProjectPageProps = {
   founderNames: ["Maya", "Sam"],
 };
 
+describe("ProjectPage: offer, price, button and ask (WP-08 T6)", () => {
+  it("draws nothing for a page that sets none of them", () => {
+    render(<ProjectPage {...props} />);
+    expect(document.querySelector("[data-project-offer]")).toBeNull();
+  });
+
+  it("shows what you get, the price as typed, one button with the three rel values, and a mail link to the project's address", () => {
+    render(<ProjectPage {...props} offer="A visit and a fix." price="From $25" cta={{ label: "Book a visit", url: "https://cal.com/maya/30min" }} askAddress="maya-bikes@mail.example.com" />);
+    expect(screen.getByRole("heading", { level: 2, name: PROJECT_PAGE_WORDS.offer })).toBeTruthy();
+    expect(screen.getByText("A visit and a fix.")).toBeTruthy();
+    expect(document.querySelector("[data-project-price]")!.textContent).toBe("From $25");
+    const button = document.querySelector("a[data-project-cta]") as HTMLAnchorElement;
+    expect(button.textContent).toBe("Book a visit");
+    expect(button.getAttribute("href")).toBe("https://cal.com/maya/30min");
+    expect(button.getAttribute("rel")!.split(" ").sort()).toEqual(["nofollow", "noopener", "noreferrer"]);
+    expect(button.getAttribute("target")).toBe("_blank");
+    const ask = document.querySelector("a[data-project-ask]") as HTMLAnchorElement;
+    expect(ask.textContent).toBe("Ask a question");
+    expect(ask.getAttribute("href")).toBe(`mailto:maya-bikes@mail.example.com?subject=${encodeURIComponent("Question about Northwind Skincare")}`);
+  });
+
+  it("is plain text: markup in the offer or the price is never read as markup", () => {
+    render(<ProjectPage {...props} offer="<b>bold</b> [x](http://evil.example)" price="<i>$5</i>" />);
+    expect(document.querySelector("[data-project-offer] b")).toBeNull();
+    expect(document.querySelector("[data-project-offer] a")).toBeNull();
+    expect(document.querySelector("[data-project-price]")!.textContent).toBe("<i>$5</i>");
+  });
+});
+
 describe("ProjectPage", () => {
   it("shows the name, the pitch as the headline, the paragraphs, who it is for, the stage, the builders and the date", () => {
     render(<ProjectPage {...props} />);

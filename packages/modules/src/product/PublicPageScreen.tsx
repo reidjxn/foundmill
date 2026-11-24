@@ -48,7 +48,10 @@ import {
 } from "@foundmill/dugout";
 import {
   PAGE_ABOUT_MAX,
+  PAGE_CTA_LABEL_MAX,
   PAGE_FOR_WHOM_MAX,
+  PAGE_OFFER_MAX,
+  PAGE_PRICE_MAX,
   PAGE_PITCH_MAX,
   PAGE_SLUG_MAX,
   PAGE_SLUG_RULE,
@@ -128,6 +131,16 @@ export const PUBLIC_PAGE_WORDS = {
   aboutHint: "Plain text. Leave a blank line between paragraphs.",
   forWhom: "Who it is for",
   forWhomHint: "Optional. Left off the page when empty.",
+  offer: "What you get",
+  offerHint: "Optional. What a person gets from you, in a sentence or two.",
+  price: "Price (as you want it shown)",
+  priceHint: "Optional. Shown as you type it, for example From $25.",
+  button: "Button",
+  buttonLabel: "Label",
+  buttonLink: "Link to where people pay or book",
+  buttonHint: "Paste a link from Stripe, Gumroad, Ko-fi, Buy Me a Coffee, PayPal.Me, Cal.com, Calendly or Tally. Optional.",
+  askForm: "Let people email the project a question",
+  askFormHint: "Adds an Ask a question link that opens a message to your project's own address, once email is on.",
   stage: "Stage",
   showFounders: "Name the people building it",
   showFoundersHint: "Adds “Built by …” with the names of the project's owners.",
@@ -170,6 +183,10 @@ export function publishConsequence(content: ProjectPageContent, names: readonly 
   if (content.forWhom.trim()) parts.push("who it is for");
   parts.push("the stage");
   if (content.showFounders && names.length) parts.push("the names of the people building it");
+  if ((content.offer ?? "").trim()) parts.push("what you get");
+  if ((content.price ?? "").trim()) parts.push("the price");
+  if (content.cta?.url) parts.push("a button to your link");
+  if (content.askForm) parts.push("a link to ask a question");
   if (content.followForm) parts.push("a form to follow it");
   const list = `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
   return `Anyone with the link can read ${list}. You can take it down any time.`;
@@ -225,7 +242,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
     }
     // Only a new server draft matters here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.draft.pitch, data?.draft.about, data?.draft.forWhom, data?.draft.stage, data?.draft.showFounders, data?.draft.followForm]);
+  }, [data?.draft.pitch, data?.draft.about, data?.draft.forWhom, data?.draft.stage, data?.draft.showFounders, data?.draft.followForm, data?.draft.offer, data?.draft.price, data?.draft.cta?.label, data?.draft.cta?.url, data?.draft.askForm]);
 
   const [touched, setTouched] = useState(false);
   const [pending, setPending] = useState<null | "save" | "publish" | "unpublish" | "slug" | "explore" | "proposal">(null);
@@ -397,6 +414,25 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
             <Counted id={`${id}-for-whom`} label={PUBLIC_PAGE_WORDS.forWhom} hint={PUBLIC_PAGE_WORDS.forWhomHint} error={showErrors ? problems.forWhom : undefined} used={content.forWhom.length} max={PAGE_FOR_WHOM_MAX}>
               <Textarea id={`${id}-for-whom`} value={content.forWhom} readOnly={!canEdit} rows={2} onChange={(e) => set("forWhom", e.target.value)} onBlur={() => setTouched(true)} />
             </Counted>
+            <Counted id={`${id}-offer`} label={PUBLIC_PAGE_WORDS.offer} hint={PUBLIC_PAGE_WORDS.offerHint} error={showErrors ? problems.offer : undefined} used={(content.offer ?? "").length} max={PAGE_OFFER_MAX}>
+              <Textarea id={`${id}-offer`} value={content.offer ?? ""} readOnly={!canEdit} rows={2} onChange={(e) => set("offer", e.target.value)} onBlur={() => setTouched(true)} />
+            </Counted>
+            <Counted id={`${id}-price`} label={PUBLIC_PAGE_WORDS.price} hint={PUBLIC_PAGE_WORDS.priceHint} error={showErrors ? problems.price : undefined} used={(content.price ?? "").length} max={PAGE_PRICE_MAX}>
+              <Input id={`${id}-price`} value={content.price ?? ""} readOnly={!canEdit} onChange={(e) => set("price", e.target.value)} onBlur={() => setTouched(true)} />
+            </Counted>
+            <Field htmlFor={`${id}-button-label`} label={PUBLIC_PAGE_WORDS.button} hint={PUBLIC_PAGE_WORDS.buttonHint} error={showErrors ? problems.cta : undefined}>
+              <div className="flex flex-col gap-2">
+                <Input id={`${id}-button-label`} aria-label={PUBLIC_PAGE_WORDS.buttonLabel} placeholder={PUBLIC_PAGE_WORDS.buttonLabel} value={content.cta?.label ?? ""} readOnly={!canEdit} maxLength={PAGE_CTA_LABEL_MAX + 10} onChange={(e) => set("cta", { label: e.target.value, url: content.cta?.url ?? "" })} onBlur={() => setTouched(true)} />
+                <Input id={`${id}-button-link`} aria-label={PUBLIC_PAGE_WORDS.buttonLink} placeholder={PUBLIC_PAGE_WORDS.buttonLink} value={content.cta?.url ?? ""} readOnly={!canEdit} onChange={(e) => set("cta", { label: content.cta?.label ?? "", url: e.target.value })} onBlur={() => setTouched(true)} />
+              </div>
+            </Field>
+            <label className="flex items-start gap-3" htmlFor={`${id}-ask`}>
+              <Switch id={`${id}-ask`} checked={content.askForm === true} disabled={!canEdit} onCheckedChange={(on) => set("askForm", on === true)} className="mt-0.5" />
+              <span className="flex flex-col gap-0.5">
+                <span className="t-body text-primary">{PUBLIC_PAGE_WORDS.askForm}</span>
+                <span className="t-small text-secondary">{PUBLIC_PAGE_WORDS.askFormHint}</span>
+              </span>
+            </label>
             <div className="flex flex-col gap-1.5">
               <span className="t-label text-secondary" id={`${id}-stage`}>
                 {PUBLIC_PAGE_WORDS.stage}
@@ -551,6 +587,10 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
               brandSecondary={data.preview.brandSecondary}
               logo={data.preview.logo ?? null}
               founderNames={founderNames}
+              offer={content.offer}
+              price={content.price}
+              cta={content.cta && content.cta.label && content.cta.url && !problems.cta ? content.cta : null}
+              askAddress={content.askForm ? "preview@example.com" : null}
               mark={data.mark ? "visitor" : "none"}
               follow={followOpen && content.followForm ? <ProjectFollowForm name={data.preview.name} preview /> : null}
             />

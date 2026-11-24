@@ -308,6 +308,51 @@ test.describe("public page", () => {
     await expect(line.getByRole("link")).toHaveText(/Your project's public page is ready to check/);
   });
 
+  test("a price, one button and a way to ask: a link off the list is refused in the console; a listed one shows signed out with the three rel values", async ({ page, browser }) => {
+    test.setTimeout(300_000);
+    const bid = await commitThrowaway(page, `Priced Bikes ${Date.now().toString(36)}`);
+    await page.goto(`/b/${bid}/today`);
+    const check = page.getByTestId("needs-you").getByRole("button", { name: "Check it and publish" });
+    await expect(async () => {
+      await page.reload();
+      await expect(check).toBeVisible({ timeout: 10_000 });
+    }).toPass({ timeout: LONG });
+    await dismissCoachmarks(page);
+    await check.click();
+    await page.waitForURL(new RegExp(`/b/${bid}/d/[^/]+/public-page$`), { timeout: LONG });
+    await settled(page);
+    await dismissCoachmarks(page);
+    const editor = page.getByTestId("public-page-editor");
+    await expect(editor).toBeVisible({ timeout: LONG });
+    await editor.getByLabel(/One-line pitch/).fill(PITCH);
+    await editor.getByRole("textbox", { name: /^About/ }).fill(ABOUT);
+    await editor.getByLabel(/^Price/).fill("From $25");
+    await editor.getByLabel("Label", { exact: true }).fill("Book a visit");
+    // A link that is not from a payment or booking site is refused, in words, and Publish waits.
+    await editor.getByLabel("Link to where people pay or book").fill("https://example.com/pay");
+    await expect(editor).toContainText("That link is not from a payment or booking site we can show yet.");
+    await expect(editor.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
+    await editor.getByLabel("Link to where people pay or book").fill("https://cal.com/maya/30min");
+    await expect(editor.getByRole("button", { name: "Publish", exact: true })).toBeEnabled();
+    await editor.getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByRole("dialog").getByTestId("page-confirm-publish").click();
+    await expect(page.getByTestId("page-state")).toHaveText(/Live since/, { timeout: LONG });
+    const url = (await page.getByTestId("page-url").innerText()).trim();
+    const v = await visitor(browser, 390, 844);
+    try {
+      await v.page.goto(new URL(url).pathname);
+      const article = v.page.locator("[data-project-page]");
+      await expect(article.locator("[data-project-price]")).toHaveText("From $25", { timeout: LONG });
+      const button = article.locator("a[data-project-cta]");
+      await expect(button).toHaveText("Book a visit");
+      await expect(button).toHaveAttribute("href", "https://cal.com/maya/30min");
+      expect(((await button.getAttribute("rel")) ?? "").split(" ").sort()).toEqual(["nofollow", "noopener", "noreferrer"]);
+      await expectTapTarget(button, "page button tap target");
+    } finally {
+      await v.close();
+    }
+  });
+
   test("an unknown address is a not-found page, signed out, at phone width", async ({ browser }) => {
     const v = await visitor(browser, 390, 844);
     try {

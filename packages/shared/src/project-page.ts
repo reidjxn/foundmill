@@ -20,6 +20,30 @@ export const PAGE_STAGE_LABELS: Readonly<Record<PageStage, string>> = { idea: "I
 export const PAGE_PITCH_MAX = 140;
 export const PAGE_ABOUT_MAX = 1500;
 export const PAGE_FOR_WHOM_MAX = 300;
+export const PAGE_OFFER_MAX = 300;
+export const PAGE_PRICE_MAX = 60;
+export const PAGE_CTA_LABEL_MAX = 30;
+export const PAGE_CTA_URL_MAX = 500;
+/**
+ * The sites a page's one button may go to (WP-08 T6): where a stranger pays or books. An exact host or a dot-suffix of
+ * one (`pay.example.gumroad.com` is `gumroad.com`'s; `buy.stripe.com.evil.example` is nobody's). WP-07 adds its own host.
+ */
+export const PAGE_CTA_HOSTS: readonly string[] = ["buy.stripe.com", "checkout.stripe.com", "gumroad.com", "ko-fi.com", "buymeacoffee.com", "paypal.me", "cal.com", "calendly.com", "tally.so"];
+
+/** Why a button's link cannot go on the page, in the founder's words, or null: https only, no user info or port, a listed host. */
+export function pageCtaProblem(cta: { url: string }): string | null {
+  const refusal = "That link is not from a payment or booking site we can show yet.";
+  if (cta.url.length > PAGE_CTA_URL_MAX) return refusal;
+  let u: URL;
+  try {
+    u = new URL(cta.url);
+  } catch {
+    return "Paste the whole link, starting with https://.";
+  }
+  if (u.protocol !== "https:" || u.username || u.password || u.port) return refusal;
+  const host = u.hostname.toLowerCase();
+  return PAGE_CTA_HOSTS.some((h) => host === h || host.endsWith(`.${h}`)) ? null : refusal;
+}
 export const PAGE_SLUG_MIN = 3;
 export const PAGE_SLUG_MAX = 40;
 
@@ -53,9 +77,22 @@ export interface ProjectPageContent {
    * form goes out the next time the founder publishes (`readPageContent`).
    */
   followForm: boolean;
+  /** "What you get", 0 to 300 characters (WP-08 T6); left out of the page when empty. A copy stored before it existed reads as none. */
+  offer?: string;
+  /** The price as the founder wants it shown, 0 to 60 characters, free text and shown as typed; left out when empty. */
+  price?: string;
+  /** One button to a place that takes payment or a booking: its label and an https link on `PAGE_CTA_HOSTS`. Null for none. */
+  cta?: PageCta | null;
+  /** Whether the page offers "Ask a question": a mail link to the project's own Foundmill address (never a web form). Off unless set. */
+  askForm?: boolean;
 }
 
-export type PageField = "pitch" | "about" | "forWhom" | "stage";
+export interface PageCta {
+  label: string;
+  url: string;
+}
+
+export type PageField = "pitch" | "about" | "forWhom" | "stage" | "offer" | "price" | "cta";
 export type PageFieldErrors = Partial<Record<PageField, string>>;
 
 /** The slug rule in one plain sentence (the console shows it under "Change address"). */
@@ -138,7 +175,22 @@ export function normalizePageText(text: string): string {
 
 /** What the fields hold once tidied: the pitch on one line, the texts normalized. What is saved and what is validated. */
 export function normalizePageContent(content: ProjectPageContent): ProjectPageContent {
-  return { pitch: oneLine(content.pitch), about: normalizePageText(content.about), forWhom: normalizePageText(content.forWhom), stage: content.stage, showFounders: content.showFounders === true, followForm: content.followForm !== false };
+  // The optional fields are left out when empty, so a page that does not use them reads exactly as before.
+  const offer = normalizePageText(content.offer ?? "");
+  const price = oneLine(content.price ?? "");
+  const cta = content.cta ? { label: oneLine(content.cta.label), url: content.cta.url.trim() } : null;
+  return {
+    pitch: oneLine(content.pitch),
+    about: normalizePageText(content.about),
+    forWhom: normalizePageText(content.forWhom),
+    stage: content.stage,
+    showFounders: content.showFounders === true,
+    followForm: content.followForm !== false,
+    ...(offer ? { offer } : {}),
+    ...(price ? { price } : {}),
+    ...(cta && (cta.label || cta.url) ? { cta } : {}),
+    ...(content.askForm === true ? { askForm: true } : {}),
+  };
 }
 
 /** The paragraphs of a plain text: split on blank lines; a single line break stays inside its paragraph. */
@@ -159,6 +211,14 @@ export function pageContentProblems(content: ProjectPageContent): PageFieldError
   else if (c.about.length > PAGE_ABOUT_MAX) errors.about = `Keep this to ${PAGE_ABOUT_MAX.toLocaleString("en-US")} characters.`;
   if (c.forWhom.length > PAGE_FOR_WHOM_MAX) errors.forWhom = `Keep this to ${PAGE_FOR_WHOM_MAX} characters.`;
   if (!(PAGE_STAGES as readonly string[]).includes(c.stage)) errors.stage = "Pick a stage.";
+  if ((c.offer ?? "").length > PAGE_OFFER_MAX) errors.offer = `Keep this to ${PAGE_OFFER_MAX} characters.`;
+  if ((c.price ?? "").length > PAGE_PRICE_MAX) errors.price = `Keep this to ${PAGE_PRICE_MAX} characters.`;
+  if (c.cta) {
+    if (!c.cta.label) errors.cta = "Give the button a label.";
+    else if (c.cta.label.length > PAGE_CTA_LABEL_MAX) errors.cta = `Keep the label to ${PAGE_CTA_LABEL_MAX} characters.`;
+    else errors.cta = pageCtaProblem(c.cta) ?? undefined;
+    if (!errors.cta) delete errors.cta;
+  }
   return errors;
 }
 
@@ -168,7 +228,7 @@ export const isPublishablePage = (content: ProjectPageContent): boolean => Objec
 export function samePageContent(a: ProjectPageContent, b: ProjectPageContent): boolean {
   const x = normalizePageContent(a);
   const y = normalizePageContent(b);
-  return x.pitch === y.pitch && x.about === y.about && x.forWhom === y.forWhom && x.stage === y.stage && x.showFounders === y.showFounders && x.followForm === y.followForm;
+  return x.pitch === y.pitch && x.about === y.about && x.forWhom === y.forWhom && x.stage === y.stage && x.showFounders === y.showFounders && x.followForm === y.followForm && (x.offer ?? "") === (y.offer ?? "") && (x.price ?? "") === (y.price ?? "") && x.cta?.label === y.cta?.label && x.cta?.url === y.cta?.url && (x.askForm ?? false) === (y.askForm ?? false);
 }
 
 /**
@@ -183,7 +243,19 @@ export function readPageContent(value: unknown, absentFollowForm = false): Proje
   if (typeof v.pitch !== "string" || typeof v.about !== "string") return null;
   const stage = (PAGE_STAGES as readonly string[]).includes(v.stage as string) ? (v.stage as PageStage) : "idea";
   const followForm = typeof v.followForm === "boolean" ? v.followForm : absentFollowForm;
-  return { pitch: v.pitch, about: v.about, forWhom: typeof v.forWhom === "string" ? v.forWhom : "", stage, showFounders: v.showFounders === true, followForm };
+  const cta = v.cta && typeof v.cta === "object" && typeof (v.cta as PageCta).label === "string" && typeof (v.cta as PageCta).url === "string" ? { label: (v.cta as PageCta).label, url: (v.cta as PageCta).url } : null;
+  return {
+    pitch: v.pitch,
+    about: v.about,
+    forWhom: typeof v.forWhom === "string" ? v.forWhom : "",
+    stage,
+    showFounders: v.showFounders === true,
+    followForm,
+    ...(typeof v.offer === "string" && v.offer ? { offer: v.offer } : {}),
+    ...(typeof v.price === "string" && v.price ? { price: v.price } : {}),
+    ...(cta ? { cta } : {}),
+    ...(v.askForm === true ? { askForm: true } : {}),
+  };
 }
 
 export interface StarterPageInputs {

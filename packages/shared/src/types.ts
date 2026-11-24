@@ -75,7 +75,7 @@ import {
   TIME_FORMAT_PREFERENCES,
 } from "./constants";
 import type * as C from "./constants";
-import { PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PAGE_STAGES, normalizePageContent, pageSlugProblem } from "./project-page";
+import { PAGE_ABOUT_MAX, PAGE_CTA_LABEL_MAX, PAGE_CTA_URL_MAX, PAGE_FOR_WHOM_MAX, PAGE_OFFER_MAX, PAGE_PITCH_MAX, PAGE_PRICE_MAX, PAGE_STAGES, normalizePageContent, pageContentProblems, pageSlugProblem } from "./project-page";
 import type * as P from "./project-page";
 import { PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX, normalizePersonProfile, personHandleProblem } from "./person-profile";
 import type * as PP from "./person-profile";
@@ -278,6 +278,11 @@ const PageFields = z.object({
   showFounders: z.boolean().default(false),
   // The "Follow" form (package 1.6): on for every new page.
   followForm: z.boolean().default(true),
+  // The price, the one button and "Ask a question" (WP-08 T6); each absent from an older client.
+  offer: z.string().max(PAGE_OFFER_MAX * 4).optional(),
+  price: z.string().max(PAGE_PRICE_MAX * 4).optional(),
+  cta: z.object({ label: z.string().max(PAGE_CTA_LABEL_MAX * 4), url: z.string().max(PAGE_CTA_URL_MAX * 2) }).nullish(),
+  askForm: z.boolean().optional(),
 });
 const withinPageLimits = (v: P.ProjectPageContent, ctx: z.RefinementCtx, least: number): void => {
   const check = (field: "pitch" | "about" | "forWhom", min: number, max: number) => {
@@ -288,6 +293,9 @@ const withinPageLimits = (v: P.ProjectPageContent, ctx: z.RefinementCtx, least: 
   check("pitch", least, PAGE_PITCH_MAX);
   check("about", least, PAGE_ABOUT_MAX);
   check("forWhom", 0, PAGE_FOR_WHOM_MAX);
+  // The offer, the price and the button, in the founder's own words about each (the host rule is `pageCtaProblem`).
+  const problems = pageContentProblems(v);
+  for (const field of ["offer", "price", "cta"] as const) if (problems[field]) ctx.addIssue({ code: "custom", path: [field], message: problems[field]! });
 };
 export const ProjectPageContent = PageFields.transform((v) => normalizePageContent(v)).superRefine((v, ctx) => withinPageLimits(v, ctx, 1));
 export type ProjectPageContent = P.ProjectPageContent;

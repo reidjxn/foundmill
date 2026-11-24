@@ -108,3 +108,8 @@ export const WithFollowPreview1280: Story = {
   decorators: [Desktop],
   args: { follow: <ProjectFollowForm name="Northwind Skincare" preview /> },
 };
+export const WithOfferPriceAndButton390: Story = {
+  name: "390 px · what you get, a price, one button and a way to ask",
+  decorators: [Phone],
+  args: { offer: "A visit to your door and a fix on the spot.", price: "From $25", cta: { label: "Book a visit", url: "https://cal.com/maya/30min" }, askAddress: "maya-bikes@mail.example.com" },
+};

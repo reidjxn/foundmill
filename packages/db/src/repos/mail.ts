@@ -92,6 +92,15 @@ export const mailRepo = {
     return maybeOne(await db.update(projectMail).set({ status, updatedAt: new Date() }).where(eq(projectMail.businessId, businessId)).returning());
   },
 
+  /**
+   * The local part of the project whose public page is at `slug`, while it can receive mail (the page's "Ask a question"
+   * link, WP-08 T6). Null for an unknown address, a project with no mail row yet or a paused one. Service connection.
+   */
+  async activeLocalPartForSlug(db: Executor, slug: string): Promise<string | null> {
+    const row = maybeOne(await db.select({ localPart: projectMail.localPart, status: projectMail.status }).from(projectPages).innerJoin(projectMail, eq(projectMail.businessId, projectPages.businessId)).where(eq(projectPages.slug, slug)).limit(1));
+    return row && row.status === "active" ? row.localPart : null;
+  },
+
   resolve: {
     /** The project a local part at the sending domain belongs to (ingest; service connection), or null. */
     async byLocalPart(db: Executor, localPart: string): Promise<Pick<ProjectMail, "businessId" | "localPart" | "status"> | null> {

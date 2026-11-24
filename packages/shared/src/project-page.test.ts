@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   PAGE_ABOUT_MAX,
+  PAGE_CTA_LABEL_MAX,
+  PAGE_OFFER_MAX,
+  PAGE_PRICE_MAX,
+  normalizePageContent,
+  pageCtaProblem,
   PAGE_FOR_WHOM_MAX,
   pageProposalProblems,
   PAGE_HOLD_MESSAGES,
@@ -286,5 +291,30 @@ describe("pageProposalProblems (WP-08 T8)", () => {
     expect(pageProposalProblems({ pitch: "A short pitch that names who it is for" })).toEqual([]);
     expect(pageProposalProblems({ pitch: "x".repeat(PAGE_PITCH_MAX + 1) })).toHaveLength(1);
     expect(pageProposalProblems({ forWhom: "y".repeat(PAGE_FOR_WHOM_MAX + 1), about: "Fine." })).toHaveLength(1);
+  });
+});
+
+describe("price, button and ask (WP-08 T6)", () => {
+  const base = { pitch: "Bike repairs at your door", about: "A van full of parts.", forWhom: "", stage: "idea" as const, showFounders: false, followForm: true };
+  it("a page that does not use them reads as before: the fields are left out", () => {
+    expect(normalizePageContent(base)).toEqual(base);
+    expect(normalizePageContent({ ...base, offer: "  ", price: "", cta: null, askForm: false })).toEqual(base);
+    expect(readPageContent(base)).toEqual(base);
+  });
+  it("keeps what is set, tidied, and reads it back", () => {
+    const c = normalizePageContent({ ...base, offer: "A visit\\n\\n\\n\\nand a fix", price: "  From $25 ", cta: { label: " Book ", url: " https://cal.com/maya " }, askForm: true });
+    expect(c).toMatchObject({ price: "From $25", cta: { label: "Book", url: "https://cal.com/maya" }, askForm: true });
+    expect(readPageContent(c)).toEqual(c);
+    expect(samePageContent(c, { ...c, price: "From $30" })).toBe(false);
+  });
+  it("accepts only a listed host over https, and refuses look-alikes, user info, a port and another scheme", () => {
+    for (const ok of ["https://buy.stripe.com/test_abc", "https://cal.com/maya/30min", "https://maya.gumroad.com/l/kit", "https://ko-fi.com/maya", "https://tally.so/r/abc"]) expect(pageCtaProblem({ url: ok }), ok).toBeNull();
+    for (const bad of ["http://cal.com/maya", "https://buy.stripe.com.evil.example/x", "https://evilcal.com/x", "https://me:pw@cal.com/x", "https://cal.com:8443/x", "javascript:alert(1)", "https://example.com/pay", `https://cal.com/${"a".repeat(500)}`]) expect(pageCtaProblem({ url: bad }), bad).not.toBeNull();
+    expect(pageCtaProblem({ url: "not a link" })).toMatch(/whole link/);
+  });
+  it("names the field that breaks a limit", () => {
+    expect(Object.keys(pageContentProblems({ ...base, offer: "x".repeat(PAGE_OFFER_MAX + 1), price: "y".repeat(PAGE_PRICE_MAX + 1), cta: { label: "z".repeat(PAGE_CTA_LABEL_MAX + 1), url: "https://cal.com/x" } })).sort()).toEqual(["cta", "offer", "price"]);
+    expect(pageContentProblems({ ...base, cta: { label: "Book", url: "https://example.com" } }).cta).toMatch(/not from a payment or booking site/);
+    expect(pageContentProblems({ ...base, cta: { label: "", url: "https://cal.com/x" } }).cta).toBe("Give the button a label.");
   });
 });
