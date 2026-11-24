@@ -89,7 +89,7 @@ export const SOURCE_WATCH_CASES: SourceWatchCase[] = [
       "The summary names the two asks (receipt chasing by text, a second bank feed) and nothing invented.",
       // The spec covers bank feeds in both Features (matching) and Integrations (the aggregator), so either block may take the second feed.
       "Features gains receipt chasing by text message as a feature line, and a second bank feed is added to Features or Integrations; the existing lines stay word for word.",
-      "The rationale quotes the interview at most once, under 25 words.",
+      "The rationale quotes the interview at most once, under 25 words; a quote that meets this is what is asked, and the rest is paraphrase.",
       "No new prices or numbers are invented; any figure of the drafter's own is labeled Estimate.",
     ],
   },
