@@ -6,9 +6,9 @@
  * at its exact cost. A business on its own Anthropic key runs the reader on that key, ungated (builtins.ts
  * `readerClientFor`); web search stays on the platform key and is charged to credits for every business (SEC2).
  *
- * Who pays decides the model (WP-13): on the platform client, a business not on a paid plan reads on Haiku 5.5, and its
- * web search is refused until the free plan has its own search (WP-13 T5). An own-key business's reader never reaches
- * this client; its web search follows its plan.
+ * Who pays decides the model (WP-13): on the platform client, a business not on a paid plan reads and searches on Haiku
+ * 5.5 (packages/models free-plan.ts; founder, Nov 16, 2026: live web search on every plan). An own-key business's reader
+ * never reaches this client; its web search follows its plan.
  */
 import { assertPlatformCredits, cachedModelFundingOf, freeCapCheck, type Db } from "@foundmill/db";
 import { enforceModelFunding, gateModelClient, type ModelCallGate, type ModelClient } from "@foundmill/models";

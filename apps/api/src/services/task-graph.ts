@@ -9,7 +9,7 @@
  * per-business planning lock so a plan written on another instance meanwhile is seen, not written twice.
  */
 import { sitesEnabled } from "@foundmill/shared/sites";
-import { buildPlannerRequest, dropPlatformDuties, PLANNER_SYSTEM_PROMPT, plannerDestination, plannerSpecSections, plannerWorkerTypes } from "@foundmill/agents";
+import { buildPlannerRequest, dropPlatformDuties, PLANNER_SYSTEM_PROMPT, plannerConnected, plannerDestination, plannerSpecSections, plannerWorkerTypes } from "@foundmill/agents";
 import { repos, roadmapItemDepartmentId, type DbTx, type Task } from "@foundmill/db";
 import { TaskGraphOutput } from "@foundmill/models";
 import { ValidationError } from "@foundmill/shared";
@@ -55,16 +55,17 @@ export async function planTaskGraph(ctx: BusinessContext, input: PlanInput, key:
   const goal = input.goal ?? roadmapItem?.descriptionMd ?? roadmapItem?.title;
   if (!goal) throw new ValidationError("Give a goal or a roadmap item to plan");
   // What the Planner reads (WP-05 T5): the specification's text, the team it plans for and whether code can land.
-  const { blocks, repository, agents } = await ctx.rls(async (tx) => ({
+  const { blocks, repository, agents, integrations } = await ctx.rls(async (tx) => ({
     blocks: await repos.product.listBlocks(tx, ctx.businessId),
     repository: await repos.integrations.codeRepository(tx, ctx.businessId),
     agents: (await repos.agents.list(tx, ctx.businessId, { limit: 500 })).items,
+    integrations: await repos.integrations.list(tx, ctx.businessId),
   }));
   const result = await ctx.models.complete({
     route: "planner",
     schema: TaskGraphOutput,
     system: PLANNER_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: buildPlannerRequest({ goal, roadmapItem, sections: plannerSpecSections(blocks), destination: plannerDestination(repository, { sites: sitesEnabled(ctx.env) && !ctx.business.isDemo }), workerTypes: plannerWorkerTypes(agents) }) }],
+    messages: [{ role: "user", content: buildPlannerRequest({ goal, roadmapItem, sections: plannerSpecSections(blocks), destination: plannerDestination(repository, { sites: sitesEnabled(ctx.env) && !ctx.business.isDemo }), workerTypes: plannerWorkerTypes(agents), connected: plannerConnected(integrations) }) }],
     attribution: { businessId: ctx.businessId, kind: "planner" },
   });
   return ctx.rls(async (tx) => {

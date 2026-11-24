@@ -482,9 +482,11 @@ export function secondReadNote(result: SecondReadResult, authorName: string): { 
 /**
  * The tools a revision session keeps (security review, Nov 13, 2026): it reads the product and proposes changes to it,
  * and reports on its task; nothing outward (no message, no email, no post, no other connector). Intersected with the
- * author's own grants, never added to them.
+ * author's own grants, never added to them. `save_report` and `read_report` (every agent's base tools, inside the
+ * project) are kept since Nov 24, 2026 (WP-05 T23): a revision whose author cannot propose spec changes, or one of
+ * the vision or roadmap that no tool edits, writes its proposed changes in its report and finishes.
  */
-export const SECOND_READ_REVISION_TOOLS: readonly string[] = Object.freeze(["platform:read_product", "platform:propose_spec_change", "platform:get_task", "platform:complete_task", "platform:block_task"]);
+export const SECOND_READ_REVISION_TOOLS: readonly string[] = Object.freeze(["platform:read_product", "platform:propose_spec_change", "platform:get_task", "platform:save_report", "platform:read_report", "platform:complete_task", "platform:block_task"]);
 
 /** A session's resolved grants narrowed to `SECOND_READ_REVISION_TOOLS` (the session token, the MCP servers, the SDK built-ins). */
 export function narrowToRevision<G extends { toolRefs: string[]; servers: string[]; mcpTools: string[]; builtinTools: string[] }>(grants: G): G {

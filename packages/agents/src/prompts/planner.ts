@@ -27,11 +27,19 @@ export const PLANNER_SITE_RULE =
   'When destination is "site" the project has a static site the platform hosts. Plan code tasks only for pages of that site: HTML and CSS, a sign-up form, pay buttons. Worker types: frontend_engineer, docs_writer. Anything that needs a server, a database or sign-in is not possible yet: plan no task for it, and say once, in the goal of the task closest to it, that it is not possible on the site yet.';
 
 /**
+ * The Planner's rule about acceptance (WP-05 T24; the test round of Nov 24, 2026 planned "tutors as CRM records with
+ * lawful basis and source" with no CRM connected, and an invitation that needed a sender name nobody had set). A line
+ * the team cannot meet ends handed to the founder anyway (the session's hand-off), so this keeps the plan honest first.
+ */
+export const PLANNER_ACCEPTANCE_RULE =
+  "Acceptance criteria may only ask for what the team can do with its tools and what the project already knows: research with sources, writing, drafts, Foundmill's own records (tasks, reports, Customers) and what a connected tool does (connected lists them). Never require a record in a tool that is not connected, a message sent outside, a fact the founder has not given (a sender name, a price, an address) or a list of tools nobody named; write what only the founder can give or do in the goal, as \"For the founder: ...\", and the agent hands it over.";
+
+/**
  * The system prompt of every Planner call that writes tasks (`TaskGraphOutput`): the api's `planTaskGraph` (the Plan
  * screen's "Plan something sooner", the sign-off's first build) and the business cycle's roadmap planning share it, so
  * a task planned by the cycle reads like one planned on request.
  */
-export const PLANNER_SYSTEM_PROMPT = `You are the Planner. Break the work into tasks with goals, acceptance criteria, test expectations, file-scope hints and the dependencies between them. ${PLANNER_TOOL_RULE} ${PLANNER_NO_DESTINATION_RULE} ${PLANNER_SITE_RULE} ${HOUSE_STYLE}`;
+export const PLANNER_SYSTEM_PROMPT = `You are the Planner. Break the work into tasks with goals, acceptance criteria, test expectations, file-scope hints and the dependencies between them. ${PLANNER_TOOL_RULE} ${PLANNER_ACCEPTANCE_RULE} ${PLANNER_NO_DESTINATION_RULE} ${PLANNER_SITE_RULE} ${HOUSE_STYLE}`;
 
 /**
  * Where a planned code task can land: `github` with a chosen repository that pushing is on for; `site` for a project with
@@ -59,6 +67,11 @@ export function plannerSpecSections(blocks: readonly { section: string; content:
   return [...bySection].map(([section, lines]) => ({ section, text: lines.join("\n") }));
 }
 
+/** The connectors this project has connected, for the acceptance rule (an archived or disconnected one is not). */
+export function plannerConnected(integrations: readonly { connectorKey: string; status: string; archivedAt: Date | string | null }[]): string[] {
+  return [...new Set(integrations.filter((i) => i.archivedAt === null && (i.status === "connected" || i.status === "degraded")).map((i) => i.connectorKey))];
+}
+
 /** The agent types on the team that tasks can go to, once each in the order given; background helpers take no tasks. */
 export function plannerWorkerTypes(agents: readonly { agentType: string; layer: string }[]): string[] {
   return [...new Set(agents.filter((a) => !isBackgroundHelper(a)).map((a) => a.agentType))];
@@ -69,14 +82,14 @@ export function plannerWorkerTypes(agents: readonly { agentType: string; layer: 
  * the goal, the roadmap item, the specification's text cut to `PLANNER_SPEC_TEXT_BUDGET` in total (earlier sections
  * first; every section keeps its name), where code can land and the agent types on the team, as JSON.
  */
-export function buildPlannerRequest(input: { goal: string; roadmapItem: unknown; sections: { section: string; text: string }[]; destination: PlannerDestination; workerTypes: string[] }): string {
+export function buildPlannerRequest(input: { goal: string; roadmapItem: unknown; sections: { section: string; text: string }[]; destination: PlannerDestination; workerTypes: string[]; connected: string[] }): string {
   let left = PLANNER_SPEC_TEXT_BUDGET;
   const specSections = input.sections.map((s) => {
     const text = s.text.slice(0, left);
     left -= text.length;
     return { section: s.section, text };
   });
-  return "```json\n" + JSON.stringify({ goal: input.goal, roadmap_item: input.roadmapItem, spec_sections: specSections, destination: input.destination, worker_types: input.workerTypes }) + "\n```";
+  return "```json\n" + JSON.stringify({ goal: input.goal, roadmap_item: input.roadmapItem, spec_sections: specSections, destination: input.destination, worker_types: input.workerTypes, connected: input.connected }) + "\n```";
 }
 
 export const PlannerVariables = z.object({

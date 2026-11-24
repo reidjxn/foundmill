@@ -51,7 +51,7 @@ const researcherScript: SessionCase["script"] = [
   { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "Compared three compostable cup suppliers; the report is saved." }) },
 ];
 
-/** `researcher.unmet_line_is_not_done`: the second line needs a send, and a researcher has no mail tool. */
+/** `researcher.unmet_line_goes_to_founder`: the second line needs a send, and a researcher has no mail tool. */
 export const SAMPLE_LINES = ["Two suppliers compared on price, minimum order and shipping time", "A sample request sent to the cheapest supplier"] as const;
 
 const SAMPLE_REPORT = "## Suppliers compared\n\n| Supplier | 12 oz price | Minimum order | Ships in |\n| --- | --- | --- | --- |\n| GreenCup Supply | $0.11 | 1,000 | 5 business days |\n| Leafware | $0.16 | 500 | 10 business days |\n\n## Sample request\n\nA draft asking GreenCup Supply for ten sample cups.";
@@ -61,6 +61,17 @@ export const SUPPLIER_LINES = ["At least two suppliers recorded in Customers, ea
 const SUPPLIER_REPORT = "## Suppliers recorded\n\nTwo suppliers are in Customers, each with its page.\n\n## RFQ pack draft\n\nIdentical questions for every supplier: price at 10,000 and 50,000 units, minimum order, lead time. Nothing has been sent.";
 
 const notDone = (o: SessionObservation): string[] => (o.task.status === "done" ? [`the task is done (${o.result.summary})`] : []);
+/** The launch gate (founder, Nov 24, 2026): the task ends done with a saved report, never blocked. */
+const doneWithReport = (o: SessionObservation): string[] => [
+  ...(o.task.status === "done" ? [] : [`the task is ${o.task.status}, not done (${o.result.outcome}: ${o.result.summary})`]),
+  ...(o.report ? [] : ["no task_reports row was saved"]),
+];
+
+const INTERVIEW_GOAL = "We run a weekly recap service for private tutors. Write an interview guide for our first five conversations with tutors: ten open questions about how they report progress to parents today, in the order we should ask them. Save it as your report, then complete the task.";
+const interviewScript: SessionCase["script"] = [
+  { connector: "platform", tool: "save_report", args: (ctx) => ({ taskId: ctx.taskId, title: "Tutor interview guide", bodyMd: "## Questions\n\n1. How do you tell parents how a student is doing today?\n2. What takes the longest?" }) },
+  { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "The interview guide is saved." }) },
+];
 
 /** The codebase of `backend_engineer.fixes_failing_test`: a sales tax setting of 80% where the test expects 8%. */
 export const PRICING_TEST = [
@@ -138,8 +149,8 @@ export const SESSION_CASES: readonly SessionCase[] = Object.freeze([
     },
   },
   {
-    id: "researcher.unmet_line_is_not_done",
-    title: "An agent that calls a task done with an acceptance line unmet does not end it done, and the line is named",
+    id: "researcher.unmet_line_goes_to_founder",
+    title: "An acceptance line the team cannot meet ends the task done with its report, and the line goes to the founder once (WP-05 T26)",
     agentType: "researcher",
     task: { kind: "research", title: "Compare cup suppliers and ask for samples", goalMd: RESEARCH_GOAL, acceptance: [...SAMPLE_LINES] },
     // The mock agent claims every line, the second on a send it never made: the runner must not take its word.
@@ -148,9 +159,65 @@ export const SESSION_CASES: readonly SessionCase[] = Object.freeze([
       { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "Compared suppliers and asked the cheapest for samples.", acceptance: [{ line: 1, met: true, reportSection: "Suppliers compared" }, { line: 2, met: true, tool: "send_mail" }] }) },
     ],
     check(o) {
-      const problems = notDone(o);
-      if (!o.result.summary?.includes(`“${SAMPLE_LINES[1]}”`)) problems.push(`the summary does not name the unmet line (${o.result.summary})`);
-      else if (o.result.summary.split(SAMPLE_LINES[1]).length - 1 !== 1) problems.push("the unmet line is named more than once");
+      const problems = doneWithReport(o);
+      const named = o.needsYou.filter((i) => i.bodyMd.includes(SAMPLE_LINES[1]));
+      if (named.length !== 1) problems.push(`the unmet line is in ${named.length} Needs you item(s), not one`);
+      else if (named[0]!.bodyMd.split(SAMPLE_LINES[1]).length - 1 !== 1) problems.push("the unmet line is named more than once");
+      if (o.needsYou.some((i) => i.bodyMd.includes(SAMPLE_LINES[0]))) problems.push("a met line was handed to the founder");
+      if (o.mail.length > 0) problems.push(`${o.mail.length} message(s) were sent`);
+      return problems;
+    },
+  },
+  {
+    id: "researcher.free_plan_searches_and_reads",
+    title: "On a new free-plan project with nothing connected, research searches the web, reads pages and saves a report with sources (WP-05 T21)",
+    agentType: "researcher",
+    plan: "free",
+    task: { kind: "research", title: "Run the competitor check (free plan)", goalMd: RESEARCH_GOAL },
+    script: researcherScript,
+    check(o) {
+      const problems = doneWithReport(o);
+      if (o.served.length === 0) problems.push("no page was read");
+      if (!o.toolCalls.some((c) => c.tool === "search_web" && c.status === "succeeded" && !/connector_unconfigured|not switched on/.test(c.resultSummary))) problems.push("no web search went through");
+      if (o.report && o.report.sources.length < 1) problems.push("the report has no source");
+      return problems;
+    },
+  },
+  {
+    id: "product_researcher.nothing_connected_still_finishes",
+    title: "A draft task whose agent's only outside tool (Google Drive) is not connected starts and ends done with its report (WP-05 T22)",
+    agentType: "product_researcher",
+    plan: "free",
+    task: { kind: "research", title: "Draft the tutor interview guide", goalMd: INTERVIEW_GOAL },
+    script: interviewScript,
+    check(o) {
+      const problems = doneWithReport(o);
+      if (o.result.blockedReason === "not_connected") problems.push("blocked as not connected");
+      if (o.toolCalls.some((c) => c.tool === "block_task")) problems.push("the session blocked the task");
+      return problems;
+    },
+  },
+  {
+    id: "product_lead.revision_saves_report",
+    title: "A second read's revision holds save_report and complete_task and ends done with its report (WP-05 T23)",
+    agentType: "product_lead",
+    plan: "free",
+    revision: true,
+    task: {
+      kind: "research",
+      title: "Revise the vision, specification and roadmap after its second read",
+      goalMd: "The second read found that the specification never says who pays: tutors or parents. Read the product notes, write the change you propose for the specification and the roadmap in your report, save it, then complete the task.",
+    },
+    script: [
+      { connector: "platform", tool: "read_product", args: () => ({}) },
+      { connector: "platform", tool: "save_report", args: (ctx) => ({ taskId: ctx.taskId, title: "Proposed revision", bodyMd: "## Specification\n\nTutors pay; parents read the recap for free.\n\n## Needs you\n\nConfirm that tutors, not parents, pay." }) },
+      { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "The proposed revision is in the report." }) },
+    ],
+    check(o) {
+      const problems = doneWithReport(o);
+      const allowed = (o.options?.allowedTools ?? []) as string[];
+      for (const tool of ["mcp__platform__save_report", "mcp__platform__complete_task"]) if (!allowed.includes(tool)) problems.push(`${tool} is not offered to the revision`);
+      if (allowed.some((t) => !t.startsWith("mcp__platform__"))) problems.push("the revision holds a tool outside the project");
       return problems;
     },
   },
@@ -180,7 +247,7 @@ export const SESSION_CASES: readonly SessionCase[] = Object.freeze([
   },
   {
     id: "channel_email_automation.not_connected_is_not_sent",
-    title: "With no mail connected, an email task is blocked and nothing is sent",
+    title: "With no mail connected, an email task sends nothing, ends done with its draft, and the founder is asked to switch mail on (WP-05 T22)",
     agentType: "channel_email_automation",
     task: {
       kind: "channel",
@@ -190,15 +257,15 @@ export const SESSION_CASES: readonly SessionCase[] = Object.freeze([
     script: [
       { connector: "sendgrid", tool: "send_mail", args: () => ({ kind: "transactional", from: "hello@project.example", to: ["dana.reyes@customer.example"], subject: "Welcome", text: "Thanks for joining the waitlist." }) },
       { connector: "platform_mail", tool: "send_mail", args: () => ({ to: { email: "dana.reyes@customer.example", name: "Dana Reyes" }, subject: "Welcome", text: "Thanks for joining the waitlist." }) },
-      { connector: "platform", tool: "block_task", args: (ctx) => ({ taskId: ctx.taskId, reason: "No mail is connected for this project, so nothing was sent." }) },
+      { connector: "platform", tool: "save_report", args: (ctx) => ({ taskId: ctx.taskId, title: "Welcome email draft", bodyMd: "## Draft\n\nSubject: Welcome\n\nThanks for joining the waitlist.\n\n## Needs you\n\nNo mail is connected, so nothing was sent." }) },
+      { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "Drafted the welcome email; nothing was sent because no mail is connected." }) },
     ],
     check(o) {
-      const problems = notDone(o);
-      if (o.task.status !== "blocked") problems.push(`the task is ${o.task.status}, not blocked`);
-      if (o.result.blockedReason !== "not_connected" && o.result.blockedReason !== "dependency") problems.push(`blocked for ${o.result.blockedReason}, not for the missing connection`);
+      const problems = doneWithReport(o);
       if (o.mail.length > 0) problems.push(`${o.mail.length} message(s) reached the capture inbox`);
       const sent = o.toolCalls.filter((c) => c.tool === "send_mail" && c.status === "succeeded" && c.policyOutcome === null && !/"ok"\s*:\s*false|integration_not_connected|"error"/.test(c.resultSummary));
       if (sent.length > 0) problems.push(`a send_mail call went through (${sent.map((c) => c.connectorKey).join(", ")})`);
+      if (o.needsYou.length === 0) problems.push("the founder was not asked for anything");
       return problems;
     },
   },

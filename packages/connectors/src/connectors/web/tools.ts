@@ -11,6 +11,11 @@ import { APP_NAME } from "@foundmill/config";
 import { defineTool } from "../../define";
 import { fact } from "../../facts";
 
+/**
+ * What `search_web` answers when this deployment offers no search (WP-05 T21): the gateway's platform model client is
+ * not live. Seen on Nov 24, 2026 as "the platform's Anthropic key is not configured" while the key was set.
+ */
+export const WEB_SEARCH_OFF = "Web search is not switched on in this deployment: the gateway's model client is not live (MODEL_MODE on the gateway). Page reads with fetch_page still work.";
 export const WEB_KEY = "web";
 
 /** Identifies the reader to the sites it visits; robots.txt groups for this token (or `*`) apply. */

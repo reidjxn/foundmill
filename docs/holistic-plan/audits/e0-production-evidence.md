@@ -143,3 +143,18 @@ Terminal color codes and line breaks are removed from the text; nothing else is 
 - No cause above 15% lacks a WP-05 task, so the task order stands and no task is added.
 - Query 2's largest group, "dependency" written by an agent (149 sessions), is spread over many distinct details: waiting on another agent or task, or a missing tool or input. Each is below 15% in query 3. T5, T12 and T18 cover them.
 - The 14-day rate (37 blocked of 46, 80%) is over sessions that started before T1 to T18 were all live; no block has been recorded since Nov 17.
+
+## Test round, Nov 24, 2026
+
+A new project made through the Ideation Studio from the "tutors weekly recap" example (business `7b30b35f-875c-4d2c-8f05-6aedae7b9156`, `plan_tier` free, `model_billing` credits), the day WP-05 T1 to T18 went live. 12 sessions: 2 done, 10 blocked. Read by the coordinating desktop session; the cause column is from the code (WP-05 T21 to T26).
+
+| # | Task (agent) | Ended | What the block says | Cause in the code | Task |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Run the competitor check (Research) | blocked | "Web search is down (the platform's Anthropic key is not configured). The page fetcher returned no text for Capterra, TutorBird and Teachworks" | The gateway's platform model client runs on the mock client: its boot log has no model mode, and at 10:01 UTC it answered `web: ANTHROPIC_API_KEY is not configured — web search runs on the platform's Anthropic key` (`connector_unconfigured`). `platformSearchWeb` returns nothing for a client that is not live, and the same mock client is the quarantined reader, so a page read reached the agent as an empty digest. The free plan is not the cause: search runs on Haiku 5.5 for it (`FREE_PLAN_HAIKU_ROUTES`). | T21 |
+| 2 to 6 | Survey draft, smoke test page draft, interview guide, candidate list, competitor check | blocked before starting | `not connected: github`; `github, notion, google_drive`; `github, posthog` | The T12 pre-flight (`session.ts`, `outsideServers.every(...)`) stops a research or channel task when none of its template's outside connectors is connected; a new project never has one. | T22 |
+| 7 | Revise the vision, specification and roadmap after its second read | blocked | no tool to propose spec or roadmap changes and no `save_report` | `SECOND_READ_REVISION_TOOLS` held `read_product`, `propose_spec_change`, `get_task`, `complete_task`, `block_task`, intersected with the author's grants; the author held no `propose_spec_change`, and `save_report` was never on the list. | T23 |
+| 8 | Tasks whose acceptance asked for CRM records "with lawful basis and source", an invitation with a sender name the founder never set, a competitor check naming no tool list | blocked | acceptance lines the team cannot meet | The Planner is told the agent types, never what is connected or what the founder has given, and no rule keeps acceptance to what the team can meet. | T24 |
+| 9 | Answer the specification's open questions (Product lead) | blocked | ran on an empty specification | Continue was pressed while the foundations were still drafting; dispatch does not wait for them. | T25 |
+| 10 | Research GDPR obligations for child-related data in Sweden (Legal) | blocked | "acceptance not met: line 4" (its sibling GDPR task finished) | `unmetAcceptanceLines` leaves a line unmet when the agent marks it not met or cites an outside tool whose calls did not run for real (web search was down, cause 1); the session then ends `blocked` / `no_result` whatever the report holds. | T26 |
+
+Also seen, not fixed here: the free-plan project's sessions ran on `opus` and `sonnet`, not Haiku 5.5 or GLM-5.3 Flash.

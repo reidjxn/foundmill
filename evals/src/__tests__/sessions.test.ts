@@ -33,7 +33,7 @@ describe("outcome evals with scripted agents (mock)", () => {
 
   it("names the cases of the spec and runs mock (no key)", () => {
     expect(env.live).toBe(false);
-    expect(SESSION_CASES.map((c) => c.id)).toEqual(["researcher.report_saved", "researcher.real_citations", "researcher.unmet_line_is_not_done", "sourcing_manufacturing.records_suppliers", "channel_email_automation.not_connected_is_not_sent", "isolation.refused_tools", "backend_engineer.fixes_failing_test"]);
+    expect(SESSION_CASES.map((c) => c.id)).toEqual(["researcher.report_saved", "researcher.real_citations", "researcher.unmet_line_goes_to_founder", "researcher.free_plan_searches_and_reads", "product_researcher.nothing_connected_still_finishes", "product_lead.revision_saves_report", "sourcing_manufacturing.records_suppliers", "channel_email_automation.not_connected_is_not_sent", "isolation.refused_tools", "backend_engineer.fixes_failing_test"]);
   });
 
   it("backend_engineer.fixes_failing_test: the failing run goes back with its output, and the run after the fix passes", async () => {
@@ -83,8 +83,8 @@ describe("outcome evals with scripted agents (mock)", () => {
     expect(r.problems.join(" ")).toMatch(/no task_reports row/);
   }, 60_000);
 
-  it("researcher.unmet_line_is_not_done fails when every line really holds: the check is not 'never done'", async () => {
-    const c = byId("researcher.unmet_line_is_not_done");
+  it("researcher.unmet_line_goes_to_founder fails when every line really holds: nothing is handed over then", async () => {
+    const c = byId("researcher.unmet_line_goes_to_founder");
     const both = [{ line: 1, met: true, reportSection: "Suppliers compared" }, { line: 2, met: true, reportSection: "Sample request" }];
     const script = c.script.map((s) => (s.tool === "complete_task" ? { ...s, args: (ctx: Parameters<typeof s.args>[0]) => ({ taskId: ctx.taskId, summary: "Compared.", acceptance: both }) } : s));
     const r = await env.runSessionCase({ ...c, script });
@@ -142,28 +142,31 @@ describe("outcome evals with scripted agents (mock)", () => {
     expect(searchedUrls(seen)).toEqual(FIXTURE_PAGES.map((p) => p.url));
   }, 60_000);
 
-  it("channel_email_automation.not_connected_is_not_sent is blocked even when the agent calls the task done", async () => {
-    const c = byId("channel_email_automation.not_connected_is_not_sent");
-    const script = c.script.map((s) => (s.tool === "block_task" ? { connector: "platform", tool: "complete_task", args: (ctx: Parameters<typeof s.args>[0]) => ({ taskId: ctx.taskId, summary: "Sent the welcome email." }) } : s));
-    const r = await env.runSessionCase({ ...c, script });
-    // Both sends answer not connected (the gateway checks the connection before the basis policy's deny), so the runner
-    // blocks the task as not connected even though the agent called it done.
-    expect(r.taskStatus).toBe("blocked");
-    expect(r.passed).toBe(true);
-  }, 60_000);
-
-  it("channel_email_automation.not_connected_is_not_sent: both sends answer not connected, not the basis policy", async () => {
+  it("channel_email_automation.not_connected_is_not_sent: both sends answer not connected, not the basis policy, and the task ends done with nothing sent", async () => {
     const c = byId("channel_email_automation.not_connected_is_not_sent");
     let seen: SessionObservation | undefined;
-    // The Nov 21, 2026 live failure: the agent ended the session without block_task. The runner blocks it as not connected.
-    const r = await env.runSessionCase({ ...c, script: c.script.filter((s) => s.tool !== "block_task"), check: (o) => ((seen = o), c.check(o)) });
+    const r = await env.runSessionCase({ ...c, check: (o) => ((seen = o), c.check(o)) });
     const sends = seen!.toolCalls.filter((t) => t.tool === "send_mail");
     expect(sends.map((t) => t.connectorKey)).toEqual(["sendgrid", "platform_mail"]);
     expect(sends[0]!.resultSummary).toMatch(/integration_not_connected/);
     expect(sends[1]!.resultSummary).toMatch(/platform-mail-off/);
     expect(sends.some((t) => /mail-needs-basis/.test(t.resultSummary))).toBe(false);
-    expect(seen!.result.blockedReason).toBe("not_connected");
+    expect(seen!.result.outcome).toBe("done");
+    expect(seen!.needsYou.map((i) => i.subject).some((x) => x.startsWith("Connect "))).toBe(true);
     expect(r.problems).toEqual([]);
+  }, 60_000);
+
+  it("channel_email_automation.not_connected_is_not_sent fails when the agent saves no draft", async () => {
+    const c = byId("channel_email_automation.not_connected_is_not_sent");
+    const r = await env.runSessionCase({ ...c, script: c.script.filter((s) => s.tool !== "save_report" && s.tool !== "complete_task") });
+    expect(r.passed).toBe(false);
+    expect(r.taskStatus).toBe("blocked");
+  }, 60_000);
+
+  it("product_researcher.nothing_connected_still_finishes fails when the agent blocks instead of finishing", async () => {
+    const c = byId("product_researcher.nothing_connected_still_finishes");
+    const r = await env.runSessionCase({ ...c, script: [{ connector: "platform", tool: "block_task", args: (ctx) => ({ taskId: ctx.taskId, reason: "Google Drive is not connected." }) }] });
+    expect(r.passed).toBe(false);
   }, 60_000);
 });
 

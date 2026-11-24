@@ -64,6 +64,8 @@ export {
   plannerDestination,
   plannerSpecSections,
   plannerWorkerTypes,
+  plannerConnected,
+  PLANNER_ACCEPTANCE_RULE,
   type PlannerDestination,
   platformDutyReason,
   dropPlatformDuties,

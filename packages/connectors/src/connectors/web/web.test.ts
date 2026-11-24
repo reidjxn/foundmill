@@ -11,7 +11,7 @@ import { MOCK_PAGES } from "./fixtures/pages";
 import { createWebConnector, lookupGuardedFetch, publicOnlyLookup, type ResolveHost } from "./index";
 import { webMock } from "./mock";
 import { createPageReader, createPinnedFetch, htmlToText, isPublicAddress, robotsAllows, type HostLookup } from "./reader";
-import { htmlToText as pageHtmlToText, isPrivateAddress, WEB_MAX_BYTES, WEB_ROBOTS_TOKEN, type WebPage } from "./tools";
+import { htmlToText as pageHtmlToText, isPrivateAddress, WEB_MAX_BYTES, WEB_SEARCH_OFF, WEB_ROBOTS_TOKEN, type WebPage } from "./tools";
 
 const page = (r: { data?: unknown }) => readForQuarantine(r.data as never).content as WebPage;
 
@@ -397,6 +397,13 @@ describe("web live: search_web", () => {
   it("needs the host's web search (the gateway's platform model client)", async () => {
     const connector = createWebConnector({ secrets: { anthropicApiKey: "sk-ant-test" } });
     await expect(connector.callTool("search_web", { query: "skincare suppliers" }, makeToolContext(connector, { mode: "live" }))).rejects.toSatisfy(isConfigError);
+  });
+
+  it("says the deployment's search is off, never that a key is missing (WP-05 T21)", async () => {
+    const connector = createWebConnector({ secrets: { anthropicApiKey: "sk-ant-test" } });
+    const err = (await connector.callTool("search_web", { query: "tutoring software" }, makeToolContext(connector, { mode: "live" })).catch((e: unknown) => e)) as Error;
+    expect(err.message).toBe(WEB_SEARCH_OFF);
+    expect(err.message).not.toMatch(/ANTHROPIC_API_KEY|key is not configured/);
   });
 
   it("asks the injected search for the caller (business, agent, session) and returns titles, addresses and the cited snippet", async () => {

@@ -91,7 +91,7 @@ export async function runPlannerCase(client: ModelClient, c: PlannerCase): Promi
       route: "planner",
       schema: TaskGraphOutput,
       system: PLANNER_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildPlannerRequest({ goal: c.goal, roadmapItem: c.roadmapItem, sections: c.sections, destination: c.destination, workerTypes: c.workerTypes }) }],
+      messages: [{ role: "user", content: buildPlannerRequest({ goal: c.goal, roadmapItem: c.roadmapItem, sections: c.sections, destination: c.destination, workerTypes: c.workerTypes, connected: [] }) }],
       scope: `eval:planner:${c.id}`,
     });
     const problems = plannerProblems(c, res.json);
