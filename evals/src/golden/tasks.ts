@@ -433,8 +433,9 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_seo.hosted_page",
     templateKey: "channel_seo",
     title: "The hosted page, with only the page tools",
-    prompt: `Project Lantern Bikes has a published page and no code repository. Tool result from read_public_page (page_fix_7): pitch "Lantern Bikes" (the project's name), about "We repair bikes at your door. Book a slot and a van with parts comes to you." (84 characters), who it is for "People who commute by bike", listed false (reason: short_about), limits pitch 140, title 70, description 160. The positioning notes say the project is for people who commute by bike in Leeds. The only tools you have are read_public_page and propose_page_edit; there is no search data tool. Say what you found and what you propose, and what you cannot report.`,
-    checks: [CHECK.all("page_fix_7", "waits", "not connected"), CHECK.none("rank #1", "guarantee", "top of Google", "ranking will"), CHECK.words(60, 220)],
+    prompt: `Project Lantern Bikes has a published page and no code repository. Tool result from read_public_page (page_fix_7): pitch "Lantern Bikes" (the project's name), about "We repair bikes at your door. Book a slot and a van with parts comes to you." (84 characters), who it is for "People who commute by bike", listed false (reason: short_about), limits pitch 140, title 70, description 160. The positioning notes say the project is for people who commute by bike in Leeds. The only tools you have are read_public_page and propose_page_edit; search data is not connected for this project. A pitch reads best under 55 characters. Say what you found and what you propose, what waits for the founders, and what you cannot report. Under 200 words.`,
+    // "wait" covers waits, waiting and wait for the founders.
+    checks: [CHECK.all("page_fix_7", "wait", "not connected"), CHECK.none("rank #1", "guarantee", "top of Google", "ranking will"), CHECK.words(60, 220)],
     sourceIds: ["page_fix_7"],
     rubric: [
       "Proposes a pitch under 55 characters that names who it is for (people who commute by bike), through the proposal tool, not by editing the page.",
@@ -546,7 +547,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_paid_ads.kill_switch",
     templateKey: "channel_paid_ads",
     title: "Apply the CPA kill switch",
-    prompt: `Campaign cmp_7 (LinkedIn, ops managers UK): CPA cap £180; results for the last 72 hours by day: £240, £265, £255 (report rpt_cmp_7). Campaign cmp_8 (Google search, "reconciliation software"): CPA £95 on 14 conversions. Daily cap £60, lifetime cap £1,500, spent £910. Say what you do with each campaign, how you reallocate within caps, what you report to the Inbox with record ids, and what you would not do without approval.`,
+    prompt: `Campaign cmp_7 (LinkedIn, ops managers UK): CPA cap £180; results for the last 72 hours by day: £240, £265, £255 (report rpt_cmp_7). Campaign cmp_8 (Google search, "reconciliation software"): CPA £95 on 14 conversions. Daily cap £60, lifetime cap £1,500, spent £910, currently spending about £40 a day. Say what you do with each campaign, how you reallocate within caps (with the arithmetic, in the same founder task as any pause), what you report to the Inbox with record ids, and what you would not do without approval.`,
     checks: [CHECK.all("cmp_7", "cmp_8", "rpt_cmp_7"), CHECK.cites()],
     sourceIds: ["rpt_cmp_7"],
     rubric: [
@@ -586,7 +587,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_direct_mail.audience",
     templateKey: "channel_direct_mail",
     title: "Direct mail audience with address hygiene",
-    prompt: `Plan a 500-piece UK direct mail test to finance directors at fintechs: audience source and lawful basis, address verification, suppression and do-not-mail removal, the offer code per piece for attribution, how the run reaches a print and mail provider (you hold no print and mail tool yet), cost labeled Estimate, and the response metric. Any single commitment above £250 is an Inbox decision. Under 300 words.`,
+    prompt: `Plan a 500-piece UK direct mail test to finance directors at fintechs: audience source and lawful basis, address verification, suppression and do-not-mail removal, the offer code per piece for attribution, how the run reaches a print and mail provider (you hold no print and mail tool yet), cost labeled Estimate, and the response metric. Any single commitment above £250 is an Inbox decision. Each part in at most two sentences. Under 300 words.`,
     checks: [CHECK.words(100, 330), CHECK.all("Estimate", "suppression")],
     rubric: [
       "Lawful basis stated; says the addresses are unverified because no verification tool is available yet; suppressed and do-not-mail records removed.",
