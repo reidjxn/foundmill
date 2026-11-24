@@ -30,6 +30,12 @@ describe("deterministic checks (BUILD §11.10, §12.5)", () => {
     expect(runDeterministicCheck({ kind: "contains_none", params: { terms: ["tsk_4"], in: "tasks_to_start" } }, { output }).passed).toBe(false);
   });
 
+  it("contains_all with `any` passes on one of the terms and fails on none", () => {
+    const any = { kind: "contains_all" as const, params: { terms: ["approval", "decision"], any: true } };
+    expect(runDeterministicCheck(any, { output: "Queued a founder decision." }).passed).toBe(true);
+    expect(runDeterministicCheck(any, { output: "Merged it." })).toMatchObject({ passed: false, detail: "missing all of: approval, decision" });
+  });
+
   it("contains_none with `claims` ignores a term that is denied, and still fails on a claim", () => {
     const none = { kind: "contains_none" as const, params: { terms: ["is published", "merged to main"], claims: true } };
     expect(runDeterministicCheck(none, { output: "Nothing is published yet. The branch is not merged to main." }).passed).toBe(true);
