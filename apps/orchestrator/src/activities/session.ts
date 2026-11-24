@@ -792,7 +792,7 @@ class SessionRecorder {
    * Bookkeeping for a decision the run acted on. The founder's answer arrives already stored (`inbox.decide` resolves
    * the row before it signals); a recorded hold that resolved by itself is stored here, as the system's.
    */
-  async markApprovalResolved(approvalId: string, outcome: "approved" | "rejected", by: string | null): Promise<void> {
+  async markApprovalResolved(approvalId: string, outcome: "approved" | "rejected" | "expired", by: string | null): Promise<void> {
     const { deps, ctx } = this;
     try {
       let approval = await repos.approvals.get(deps.db, ctx.input.businessId, approvalId);
@@ -1781,7 +1781,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "could not read the session's earlier tool calls");
     }
   }
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", acceptanceLines(task).length ? `## Acceptance criteria\n${acceptanceLines(task).map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n${mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo) ? ACCEPTANCE_BRIEF_SAMPLE : ACCEPTANCE_BRIEF}` : Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? (siteProject ? siteTaskNote() : codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId)))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, policy.fileTools ? CODE_CLOSING_LINE : TASK_CLOSING_LINE].filter(Boolean).join("\n\n");
+  const taskPrompt = [`# Task: ${task.title}`, `Task id: ${task.id} (save_report, complete_task and block_task take it).`, task.goalMd || "", acceptanceLines(task).length ? `## Acceptance criteria\n${acceptanceLines(task).map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n${mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo) ? ACCEPTANCE_BRIEF_SAMPLE : ACCEPTANCE_BRIEF}` : Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? (siteProject ? siteTaskNote() : codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId)))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, policy.fileTools ? CODE_CLOSING_LINE : TASK_CLOSING_LINE].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
   /**
@@ -2257,6 +2257,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
           apiError = null;
           // More input may come: Resume, the founder's decision, or a nudge already queued. Not once the credits are
           // used up: the session ends `budget` and the task runs again after a top-up.
+          // A task that is not code, finished or blocked by its agent, needs nothing from a call still waiting on the
+          // founder: its hold is closed as expired and the session ends, instead of waiting for a decision that changes
+          // nothing (launch gate run 45429423911: an Apollo search's spend waited after complete_task until the deadline).
+          if (recorder.pendingApprovalId && task.kind !== "code" && !turnOpen && !ending && !paused && (recorder.completedOwnTask || recorder.agentBlock)) await recorder.markApprovalResolved(recorder.pendingApprovalId, "expired", null);
           if (ending || paused || recorder.pendingApprovalId || turnOpen) {
             if (creditsOut) await endForCredits();
             continue;
