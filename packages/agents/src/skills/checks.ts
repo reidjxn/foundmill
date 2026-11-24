@@ -49,13 +49,21 @@ function containsTerm(haystack: string, term: string): boolean {
  */
 const NEGATED_BEFORE = /\b(?:not|no|nothing|never|none|neither|without|(?:is|was|has|have|had|do|does|did|wo|ca)n['’]t|cannot)\b[^,.;:!?\n]*$/i;
 
-/** True when the term appears at least once without a negation just before it. */
+/** Quote marks that, right around a term, make it a mention of the phrase ("never say "coming soon""), not a claim. */
+const QUOTE_OPEN = `"'“‘`;
+const QUOTE_CLOSE = `"'”’`;
+
+/**
+ * True when the term appears at least once without a negation just before it and is not quoted on its own. A quote
+ * that holds more than the term ("SSO is coming soon") is still a claim.
+ */
 function claimsTerm(haystack: string, term: string): boolean {
   const h = haystack.toLowerCase();
   const t = term.toLowerCase();
+  const quoted = (i: number): boolean => QUOTE_OPEN.includes(h[i - 1] ?? "") && QUOTE_CLOSE.includes(h[i + t.length] ?? "");
   // A parenthetical between the negation and the term ("Nothing from pr_buf_4 (milestone mil_12, the launch) has been
   // published") is dropped first, so its own commas and length do not end the clause.
-  for (let i = h.indexOf(t); i >= 0; i = h.indexOf(t, i + 1)) if (!NEGATED_BEFORE.test(h.slice(Math.max(0, i - 200), i).replace(/\([^()]*\)/g, "").slice(-60))) return true;
+  for (let i = h.indexOf(t); i >= 0; i = h.indexOf(t, i + 1)) if (!quoted(i) && !NEGATED_BEFORE.test(h.slice(Math.max(0, i - 200), i).replace(/\([^()]*\)/g, "").slice(-60))) return true;
   return false;
 }
 
@@ -125,7 +133,10 @@ export function runDeterministicCheck(check: DeterministicCheck, ctx: CheckConte
       // `claims: true`: a term only counts where it is said, not denied ("nothing is published" is not a claim).
       const text = checkedText(ctx, params);
       const present = terms(params).filter((t) => (params.claims === true ? claimsTerm(text, t) : containsTerm(text, t)));
-      return { kind: check.kind, passed: present.length === 0, detail: present.length ? `forbidden: ${present.join(", ")}` : undefined };
+      // The detail shows where the first forbidden term sits, so a failed live run can be read without the full output.
+      const at = present.length ? text.toLowerCase().indexOf(present[0]!.toLowerCase()) : -1;
+      const where = at >= 0 ? ` (at "…${text.slice(Math.max(0, at - 80), at + present[0]!.length + 40).replace(/\s+/g, " ")}…")` : "";
+      return { kind: check.kind, passed: present.length === 0, detail: present.length ? `forbidden: ${present.join(", ")}${where}` : undefined };
     }
     case "no_tool_calls": {
       const calls = ctx.toolCalls ?? [];

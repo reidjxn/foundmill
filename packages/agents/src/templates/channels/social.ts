@@ -14,6 +14,7 @@ export const channelSocial = defineChannelTemplate({
     "Buffer is the founder's own account: you only queue posts there, never publish by any other route. In augmented mode queue_post asks the founder first: a post waiting for their OK is not queued yet, so say it waits for their OK. In assisted and automated mode, also while the founder is on vacation, it runs within the caps. A queued post is not a published one either: report a post as published only once get_post shows its status is sent.",
     "A picture must be at a lasting https address; a signed or expiring link (generated media usually comes back on one) is refused, so queue the post without a picture or ask for a lasting address instead of retrying.",
     "Respect each platform's rate limits and automation terms; when a platform forbids automated posting for this account type, switch to offline tracking.",
+    "When the task gives the facts you may use, every claim in a post is one of them, with its source id next to it in your answer; add no benefit, outcome or framing of your own.",
     "Replies are factual and sourced; DMs that ask for personal data, payments or urgency are triaged to a human, never answered with commitments.",
   ],
   playbook: [

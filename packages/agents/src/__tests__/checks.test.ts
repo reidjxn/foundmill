@@ -51,11 +51,15 @@ describe("deterministic checks (BUILD §11.10, §12.5)", () => {
   it("contains_none with `claims` ignores a term that is denied, and still fails on a claim", () => {
     const none = { kind: "contains_none" as const, params: { terms: ["is published", "merged to main"], claims: true } };
     expect(runDeterministicCheck(none, { output: "Nothing is published yet. The branch is not merged to main." }).passed).toBe(true);
-    expect(runDeterministicCheck(none, { output: "It isn't merged to main; the post is published." })).toMatchObject({ passed: false, detail: "forbidden: is published" });
+    expect(runDeterministicCheck(none, { output: "It isn't merged to main; the post is published." })).toMatchObject({ passed: false, detail: expect.stringMatching(/^forbidden: is published \(at "…It isn't merged to main; the post is published\.…"\)$/) });
     expect(runDeterministicCheck(none, { output: "Done: the branch was merged to main." }).passed).toBe(false);
     // Live run 45385411524: a denial with record ids between the negation and the phrase.
     expect(runDeterministicCheck(none, { output: "Nothing from pr_buf_4 (milestone mil_12) is published yet." }).passed).toBe(true);
     expect(runDeterministicCheck(none, { output: "No problem, the post is published." }).passed).toBe(false);
+    // Live run 45422945799: naming the phrase to avoid, in quotes, is a mention; a quote that holds a claim is not.
+    const soon = { kind: "contains_none" as const, params: { terms: ["coming soon"], claims: true } };
+    expect(runDeterministicCheck(soon, { output: 'Write the question down for the founder, without a date, a price or "coming soon".' }).passed).toBe(true);
+    expect(runDeterministicCheck(soon, { output: "Say: “SSO is coming soon.”" }).passed).toBe(false);
     // Live run 45408633306: a parenthetical with a comma between the negation and the phrase.
     const pub = { kind: "contains_none" as const, params: { terms: ["has been published"], claims: true } };
     expect(runDeterministicCheck(pub, { output: "Nothing from pr_buf_4 (milestone mil_12, the approval workflow launch) has been published yet." }).passed).toBe(true);
