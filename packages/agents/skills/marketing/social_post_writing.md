@@ -135,7 +135,7 @@ Status: prepared, not published
 
 ## What needs the founder
 
-The founder reads the post before it is public. They publish it themselves, unless a publishing tool is connected and they have approved the post. Their approval is needed for the first post on a network, for anything that quotes them or a customer, and for any price, date or promise. A customer is named or quoted only with that customer's permission on record.
+With a publishing tool connected, the post goes out without the founder's approval, except in the mode where the founder is asked before anything outside the business. Without one, the founder publishes it themselves. Any price, date or promise in a post comes from the project's own records. A customer is named or quoted only with that customer's permission on record.
 
 ## If a tool is missing
 

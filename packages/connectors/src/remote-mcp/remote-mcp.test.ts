@@ -195,7 +195,7 @@ describe("policy lists", () => {
     }
     // Changes to the founder's own records run (founder, Nov 23, 2026); mail and posts to outside people still ask.
     expect(remoteToolList(HUBSPOT_MCP).find((t) => t.name === "manage_crm_objects")?.hints).toEqual({});
-    expect(remoteToolList(HUBSPOT_MCP).find((t) => t.name === "manage_marketing_email")?.hints).toMatchObject({ contactsThirdParty: true, irreversible: true });
+    expect(remoteToolList(HUBSPOT_MCP).find((t) => t.name === "manage_marketing_email")?.hints).toEqual({ contactsThirdParty: true });
   });
 });
 

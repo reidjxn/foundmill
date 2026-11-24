@@ -74,8 +74,8 @@ afterEach(async () => {
   open = null;
 });
 
-describe("live: queue_post asks first in augmented and assisted mode; the reads run", () => {
-  async function expectAsks(businessMode: "augmented" | "assisted") {
+describe("live: queue_post asks first in augmented mode; the reads run", () => {
+  async function expectAsks(businessMode: "augmented") {
     const vendor = bufferFetch();
     const g = await setupGateway({ mode: "live", businessMode, connectors: live(vendor.fetch) });
     open = g;
@@ -88,7 +88,6 @@ describe("live: queue_post asks first in augmented and assisted mode; the reads 
   }
 
   it("augmented: queue_post answers ask and makes no vendor request", () => expectAsks("augmented"));
-  it("assisted: queue_post answers ask (publishing in public cannot be recalled) and makes no vendor request", () => expectAsks("assisted"));
 
   it("assisted: list_channels and get_post run, with the founder's key and the stored organization", async () => {
     const vendor = bufferFetch();
@@ -108,19 +107,17 @@ describe("live: queue_post asks first in augmented and assisted mode; the reads 
   });
 });
 
-describe("queue_post by business mode: augmented and assisted ask, automated runs within the caps", () => {
-  it("pins the contract: augmented ask, assisted ask, automated allow", async () => {
+describe("queue_post by business mode: augmented asks, assisted and automated run within the caps", () => {
+  // Founder, Nov 24, 2026: "yes, Buffer posts should run without approval too."
+  it("pins the contract: augmented ask, assisted and automated allow", async () => {
     const vendor = bufferFetch();
     const g = await setupGateway({ mode: "live", businessMode: "augmented", connectors: live(vendor.fetch) });
     open = g;
     await connect(g);
     const token = await g.token({ allowedTools: ["buffer:*"] });
-    for (const mode of ["augmented", "assisted"] as const) {
-      await repos.businesses.setBusinessMode(g.db, g.businessId, mode);
-      expect((await g.client.call(token, CALLS.queue_post)).outcome, mode).toBe("ask");
-    }
+    expect((await g.client.call(token, CALLS.queue_post)).outcome, "augmented").toBe("ask");
     expect(vendor.requests).toEqual([]);
-    await repos.businesses.setBusinessMode(g.db, g.businessId, "automated");
+    await repos.businesses.setBusinessMode(g.db, g.businessId, "assisted");
     const r = asAllow(await g.client.call(token, CALLS.queue_post));
     expect(r.result.ok, JSON.stringify(r.result)).toBe(true);
     expect(vendor.requests.map((q) => q.op)).toEqual(["Channel", "CreatePost"]);

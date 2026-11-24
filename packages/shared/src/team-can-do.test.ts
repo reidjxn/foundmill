@@ -97,7 +97,7 @@ describe("what the team can do: the words", () => {
     const line = { lineMinor: 25_000, currency: "GBP", agentLimitMinor: AGENT };
     // Nothing checks whether a recipient is new: the Assisted words never promise it (copy fix, 2026-11-07).
     for (const mode of BUSINESS_MODES) expect(teamCanDoOptionDescription(mode, line)).not.toMatch(/new people|new recipient/i);
-    expect(teamCanDoOptionDescription("assisted", line)).toBe("The team does routine work on its own. It asks you before spending over £250, before anything it can't undo and before any contract. It emails people outside the project on its own.");
+    expect(teamCanDoOptionDescription("assisted", line)).toBe("The team does routine work on its own. It asks you before spending over £250, before anything it can't undo and before any contract. It emails and posts for the project on its own.");
     expect(teamCanDoOptionDescription("automated", { ...line, lineMinor: 0 })).toMatch(/^The team works without asking.*Every spend still asks you, and putting changes live/);
     expect(TEAM_CAN_DO_AGENTS_STATEMENT).toMatch(/^The team suggests it in the Inbox and you decide\./);
     expect(TEAM_CAN_DO_ALWAYS_YOURS).toMatch(/Nothing on this page changes that\.$/);

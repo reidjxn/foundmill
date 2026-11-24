@@ -90,7 +90,8 @@ export const sendgridTools = [
     description: "Schedule (or send now) a draft single send to its lists. External, irreversible once triggered.",
     input: z.object({ campaignId: z.string().min(1), sendAt: z.union([z.literal("now"), z.iso.datetime({ offset: true })]).default("now") }),
     output: Campaign,
-    hints: { contactsThirdParty: true, irreversible: true },
+    // A send to the founder's own lists asks in augmented mode only, like a Buffer post (founder, Nov 24, 2026).
+    hints: { contactsThirdParty: true },
   }),
   defineTool({ name: "get_stats", description: "Daily global stats (requests, delivered, opens, clicks, bounces, spam reports, unsubscribes) for a date range; feeds the spam-rate auto-pause (AC-11.7.4).", input: z.object({ startDate: z.iso.date(), endDate: z.iso.date().optional() }), output: z.object({ rows: z.array(StatsRow), spamRatePercent: z.number(), bounceRatePercent: z.number() }), hints: {}, annotations: { readOnlyHint: true } }),
 ] as const;

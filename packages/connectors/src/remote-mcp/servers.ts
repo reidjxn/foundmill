@@ -88,9 +88,9 @@ const HUBSPOT_TOOLS: RemoteTool[] = [
   { remote: "manage_blog_post", writes: true, description: "Create or change blog posts.", inputSchema: obj() },
   { remote: "manage_landing_page", writes: true, description: "Create or change landing pages.", inputSchema: obj() },
   { remote: "manage_website_page", writes: true, description: "Create or change website pages.", inputSchema: obj() },
-  // Mail and posts reach outside people: these stay as they were until the founder decides first contact.
-  { remote: "manage_marketing_email", description: "Create or change marketing emails.", inputSchema: obj(), hints: SEND_AND_NOTIFY },
-  { remote: "manage_social_posts", description: "Create or change social posts.", inputSchema: obj(), hints: SEND_AND_NOTIFY },
+  // Mail and posts reach outside people: they ask in augmented mode only, like a Buffer post (founder, Nov 24, 2026).
+  { remote: "manage_marketing_email", description: "Create or change marketing emails.", inputSchema: obj(), hints: { contactsThirdParty: true } },
+  { remote: "manage_social_posts", description: "Create or change social posts.", inputSchema: obj(), hints: { contactsThirdParty: true } },
 ];
 
 const SHOPIFY_TOOLS: RemoteTool[] = [

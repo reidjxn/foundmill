@@ -189,13 +189,14 @@ export const bufferTools = [
     name: "queue_post",
     title: "Queue a post in Buffer",
     description:
-      `Queue one drafted post on one of the founder's Buffer channels, for the next free slot or for a time you give. The draft's variant for the channel's network is used, its text shortened to fit the network, with the link after it and the picture attached. Instagram needs a picture; TikTok needs a video, which a draft does not have, so it is refused; services ${APP_NAME} does not draft for are refused. A picture must be at a lasting https address: Buffer fetches it when the post goes out, hours or days later, so a signed or expiring link is refused. This publishes in public and cannot be recalled by us (the founder can remove a queued post in Buffer), so the founder is asked first in augmented and assisted mode (in automated mode, also while the founder is on vacation, it runs within the caps). A result means the post is QUEUED, not published: never say it was posted until get_post says it was sent. There is no share-now. There is a daily cap per project, kept by the gateway process (it resets on restart and is not shared across replicas).`,
+      `Queue one drafted post on one of the founder's Buffer channels, for the next free slot or for a time you give. The draft's variant for the channel's network is used, its text shortened to fit the network, with the link after it and the picture attached. Instagram needs a picture; TikTok needs a video, which a draft does not have, so it is refused; services ${APP_NAME} does not draft for are refused. A picture must be at a lasting https address: Buffer fetches it when the post goes out, hours or days later, so a signed or expiring link is refused. This publishes in public and cannot be recalled by us (the founder can remove a queued post in Buffer), so the founder is asked first only in augmented mode; in assisted and automated mode, also while the founder is on vacation, it runs within the caps (founder, Nov 24, 2026). A result means the post is QUEUED, not published: never say it was posted until get_post says it was sent. There is no share-now. There is a daily cap per project, kept by the gateway process (it resets on restart and is not shared across replicas).`,
     input: QueuePostInput,
     output: QueuePostOutput,
     // Publishing in public: it reaches an audience (contactsThirdParty, so a link or picture address first seen in
-    // untrusted content is refused, like an address in an email) and cannot be called back (irreversible), so it asks in
-    // augmented and in assisted mode alike; automated mode (and vacation) runs it within the caps. Buffer bills the founder's plan, not per post: no cost estimate.
-    hints: { contactsThirdParty: true, irreversible: true },
+    // untrusted content is refused, like an address in an email), so it asks in augmented mode only; assisted and
+    // automated mode (and vacation) run it within the caps (founder, Nov 24, 2026: "yes, Buffer posts should run without
+    // approval too"). Buffer bills the founder's plan, not per post: no cost estimate.
+    hints: { contactsThirdParty: true },
   }),
   defineTool({
     name: "get_post",

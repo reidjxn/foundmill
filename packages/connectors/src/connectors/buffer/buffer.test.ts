@@ -43,8 +43,8 @@ describeConnectorContract("buffer (mock)", {
 });
 
 describe("buffer: declarations", () => {
-  it("queue_post publishes in public and cannot be recalled: it contacts third parties and is irreversible; the reads declare nothing", () => {
-    expect(bufferMock.policyHints.queue_post).toEqual({ contactsThirdParty: true, irreversible: true });
+  it("queue_post publishes in public: it contacts third parties, and asks in augmented mode only (founder, Nov 24, 2026); the reads declare nothing", () => {
+    expect(bufferMock.policyHints.queue_post).toEqual({ contactsThirdParty: true });
     expect(bufferMock.policyHints.list_channels).toEqual({});
     expect(bufferMock.policyHints.get_post).toEqual({});
     expect(bufferMock.auth).toEqual({ kind: "api_key" });
