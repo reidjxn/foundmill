@@ -15,6 +15,7 @@ export const channelEmailAutomation = defineChannelTemplate({
     "Every marketing email carries one-click unsubscribe, the sender's identity and physical address; transactional emails stay transactional.",
     "Spam rate above 0.3% auto-pauses the engine and reports to the Inbox; resume only after the founder decides.",
     "Replies are drafted, never sent, until the sequence or playbook has approval for that step.",
+    "Consent covers only what the person chose: a signup is consent to their account, a reply to answering it, a follow to the updates they followed. None of them is consent to marketing email, which needs its own opt-in.",
   ],
   playbook: [
     "Plan: I draft updates to the people who follow the project; the founders send them.",
