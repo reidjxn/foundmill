@@ -4,3 +4,4 @@ export * from "./browser/BrowserSiteConnectDialog";
 export * from "./browser/BrowserSessionCard";
 export * from "./browser/BrowserSitesList";
 export * from "./browser/HardGateNote";
+export * from "./browser/BrowserAddSite";

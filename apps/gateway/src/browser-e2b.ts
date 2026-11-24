@@ -19,7 +19,7 @@
  * fake sandbox. The first live run is a founder step.
  */
 import { randomBytes } from "node:crypto";
-import { PAGE_FUNCTIONS, VendorError, type BrowserDriver, type BrowserSite, type RawSnapshot } from "@foundmill/connectors";
+import { isOnSharedHostingSuffix, PAGE_FUNCTIONS, VendorError, type BrowserDriver, type BrowserSite, type RawSnapshot } from "@foundmill/connectors";
 
 /** The parts of an E2B desktop sandbox this driver uses (`@e2b/desktop` `Sandbox`). */
 export interface DesktopSandbox {
@@ -45,10 +45,13 @@ const DIR = "/tmp/fm-browser";
 const PORT = 9333;
 const STEP_MS = 45_000;
 
-/** Where the sandbox may connect once the browser runs: the site's hosts and their subdomains, nothing else. */
+/**
+ * Where the sandbox may connect once the browser runs: the site's hosts and their subdomains, and the sign-in hosts
+ * exactly (no wildcard: a sign-in host's subdomains are not the site's). On a shared hosting suffix (`me.github.io`) the
+ * host is exact too.
+ */
 export function browserEgress(site: Pick<BrowserSite, "hosts" | "signInHosts">): string[] {
-  const hosts = [...site.hosts, ...(site.signInHosts ?? [])];
-  return [...new Set(hosts.flatMap((h) => [h, `*.${h}`]))];
+  return [...new Set([...site.hosts.flatMap((h) => (isOnSharedHostingSuffix(h) ? [h] : [h, `*.${h}`])), ...(site.signInHosts ?? [])])];
 }
 
 /** The server that runs inside the sandbox. It reads the saved sign-in from a file it deletes, and serves 127.0.0.1 only. */

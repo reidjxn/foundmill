@@ -15,7 +15,7 @@
 import { Context } from "@temporalio/activity";
 import { buildMarkovModel, conversionPathsFromTouches } from "@foundmill/journey";
 import { catchUpMilestones, repos, stopBusinessAgents, type Executor } from "@foundmill/db";
-import { browserSiteOfConnector, channelAvailability, channelAvailabilityFacts, everyChannelAvailable } from "@foundmill/connectors";
+import { browserSiteOfIntegration, channelAvailability, isBrowserConnector, channelAvailabilityFacts, everyChannelAvailable } from "@foundmill/connectors";
 import { BROWSER_SIGN_IN, channelEngineMayRun, type ChannelKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
@@ -60,8 +60,9 @@ async function eachBusiness(deps: OrchestratorDeps, task: string, businessIds: r
  * date the founder gets one decision note (emailed as a waiting decision), and on the date it is deleted from the vault
  * and the site reads "Sign in again". Using the site, or answering Keep it, moves the date.
  */
-async function quietBrowserSignIn(db: Executor, businessId: string, integration: { id: string; connectorKey: string; accountLabel: string | null }, credentialId: string, daysRemaining: number): Promise<void> {
-  const site = browserSiteOfConnector(integration.connectorKey)!;
+async function quietBrowserSignIn(db: Executor, businessId: string, integration: { id: string; connectorKey: string; accountLabel: string | null; settings: unknown }, credentialId: string, daysRemaining: number): Promise<void> {
+  // A typed website's entry is in its integration's config; one that is no longer allowed still gets its note, under a plain name.
+  const site = browserSiteOfIntegration(integration.connectorKey, (integration.settings as { config?: unknown } | null)?.config) ?? { key: integration.connectorKey.slice("browser_".length), name: "a website" };
   if (daysRemaining <= 0) {
     await repos.credentials.revoke(db, businessId, credentialId);
     await repos.integrations.setStatus(db, businessId, integration.id, "expired", "Sign in again");
@@ -217,7 +218,7 @@ export function createScheduleActivities(deps: OrchestratorDeps) {
           touched += 1;
           if (daysRemaining <= 0 && integration.status !== "expired") await repos.integrations.setStatus(db, businessId, integration.id, "expired", "credential expired");
           // A saved sign-in to a website (the hosted browser) left unused: one note a week before, then it is deleted.
-          if (browserSiteOfConnector(integration.connectorKey)) await quietBrowserSignIn(db, businessId, integration, cred.id, daysRemaining);
+          if (isBrowserConnector(integration.connectorKey)) await quietBrowserSignIn(db, businessId, integration, cred.id, daysRemaining);
         }
       });
       return { businesses: input.businessIds.length, touched, eventIds, notes };

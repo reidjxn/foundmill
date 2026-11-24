@@ -6,7 +6,8 @@
  */
 import { repos, type InboxItem } from "@foundmill/db";
 import { BROWSER_CHECK_NOTE, BROWSER_SIGN_IN, browserCheckSite, browserKeepSite, browserSignInExpiry, ConflictError, ForbiddenError, isAdminRole, TOOL_CATEGORY_LABELS, type ToolCategory, TOOL_NEED_ASK_AGAIN_DAYS, TOOL_PICK_NOTE, ValidationError, toolPickCategory } from "@foundmill/shared";
-import { browserConnectorKey, browserSite, catalogTool } from "@foundmill/connectors";
+import { browserConnectorKey, catalogTool } from "@foundmill/connectors";
+import { browserSiteName } from "./web-sites";
 import type { BusinessContext } from "../trpc";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
@@ -105,7 +106,7 @@ export async function decideBrowserKeepNote(ctx: BusinessContext, item: InboxIte
   if (!siteKey || (option !== BROWSER_SIGN_IN.options.keep && option !== BROWSER_SIGN_IN.options.letGo)) throw new ValidationError("Choose Keep it or Let it go.", { itemId: item.id });
   if (!isAdminRole(ctx.role)) throw new ForbiddenError("Owners, cofounders and admins decide about the project's saved sign-ins.");
   const keep = option === BROWSER_SIGN_IN.options.keep;
-  const name = browserSite(siteKey)?.name ?? siteKey;
+  const name = await ctx.rls((tx) => browserSiteName(tx, ctx.businessId, siteKey));
   const answered = await ctx.rls((tx) => answerNote(tx, ctx, item.id, option, input.freeText, item.fromAgentId, keep ? `Kept the saved sign-in to ${name} for another ${BROWSER_SIGN_IN.quietDays} days.` : `The saved sign-in to ${name} will be deleted on the day.`, { params: { site: siteKey, option }, result: { site: siteKey, option } }));
   if (!answered) throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
   if (keep) {
@@ -126,7 +127,7 @@ export async function decideBrowserCheckNote(ctx: BusinessContext, item: InboxIt
   const done = input.chosenOption === BROWSER_CHECK_NOTE.options.done;
   if (!siteKey || (!done && input.chosenOption !== BROWSER_CHECK_NOTE.options.stop)) throw new ValidationError("Choose I've done it, carry on, or Stop for now.", { itemId: item.id });
   if (!isAdminRole(ctx.role)) throw new ForbiddenError("Owners, cofounders and admins hand a website back to the team.");
-  const name = browserSite(siteKey)?.name ?? siteKey;
+  const name = await ctx.rls((tx) => browserSiteName(tx, ctx.businessId, siteKey));
   const answered = await ctx.rls((tx) => answerNote(tx, ctx, item.id, done ? BROWSER_CHECK_NOTE.options.done : BROWSER_CHECK_NOTE.options.stop, input.freeText, item.fromAgentId, done ? `Handed ${name} back to the team.` : `Stopped the session in ${name}.`, { params: { site: siteKey }, result: { site: siteKey } }));
   if (!answered) throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
   // Best effort: a session that ended meanwhile has nothing to hand back, and the next one starts on the page as it is.

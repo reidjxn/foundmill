@@ -1002,6 +1002,13 @@
       "when": 1796591480000,
       "tag": "0173_customer_update_cards",
       "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1796591540000,
+      "tag": "0174_site_terms_checks",
+      "breakpoints": true
     }
   ]
 }

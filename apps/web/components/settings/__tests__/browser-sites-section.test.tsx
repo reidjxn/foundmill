@@ -14,10 +14,18 @@ const BUSINESS = "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
 const connect = vi.fn(async (vars: { input: Record<string, unknown> }) => ({ integration: null, record: { accountLabel: null }, consentUrl: null, founderConsentRequired: false, signIn: vars.input.done || vars.input.cancel ? null : { liveViewUrl: "https://6080-isample0000000001.e2b.app/vnc.html" } }));
 const disconnect = vi.fn(async () => ({}));
 let catalogue: unknown[] = [];
+const checkSite = vi.fn(async (_vars: { url: string }) => ({ status: "ask_first", name: "quiet.example.com", address: "quiet.example.com", line: "Foundmill has not confirmed that quiet.example.com's terms allow this.", termsUrl: null, simulated: true, slotKey: "browser_web_1" }));
+const refreshStarters = vi.fn(async () => ({ checked: 0 }));
+let starters: { sites: { name: string; address: string }[]; pending: string[] } = { sites: [], pending: [] };
 
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(), useRouter: () => ({ replace: vi.fn() }), usePathname: () => `/b/${BUSINESS}/settings/integrations` }));
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
+    browser: {
+      starters: { queryOptions: () => ({ queryKey: [["browser", "starters"]], queryFn: async () => starters }), queryKey: () => [["browser", "starters"]] },
+      checkSite: { mutationOptions: () => ({ mutationKey: [["browser", "checkSite"]], mutationFn: (vars: never) => checkSite(vars) }) },
+      refreshStarters: { mutationOptions: () => ({ mutationKey: [["browser", "refreshStarters"]], mutationFn: () => refreshStarters() }) },
+    },
     integrations: {
       platformMail: { queryOptions: () => ({ queryKey: [["integrations", "platformMail"]], queryFn: async () => null }) },
       list: { queryOptions: () => ({ queryKey: [["integrations", "list"]], queryFn: async () => ({ mode: "mock", integrations: [], catalogue }) }) },
@@ -49,6 +57,9 @@ const waitForTestId = (id: string) => waitFor(() => expect(byTestId(id)).toBeTru
 
 afterEach(() => {
   connect.mockClear();
+  checkSite.mockClear();
+  refreshStarters.mockClear();
+  starters = { sites: [], pending: [] };
   disconnect.mockClear();
   catalogue = [];
 });
@@ -107,5 +118,63 @@ describe("Add a website the team can work in", () => {
     await waitForTestId("browser-sign-in-again-carrd");
     expect(byTestId("browser-site-list")!.textContent).toContain("Carrd signed you out");
     expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("checks a typed address, shows what the terms say, and connects it only after the founder's own yes", async () => {
+    catalogue = [site("carrd", "Carrd", "open")];
+    starters = { sites: [{ name: "Etsy", address: "www.etsy.com" }], pending: [] };
+    renderTab();
+    const field = (await waitFor(() => { const f = byTestId("browser-add-address"); expect(f).toBeTruthy(); return f!; })) as HTMLInputElement;
+    await waitForTestId("browser-starter-www.etsy.com");
+    fireEvent.change(field, { target: { value: "quiet.example.com" } });
+    fireEvent.click(byTestId("browser-add-check")!);
+    await waitFor(() => expect(checkSite).toHaveBeenCalledWith({ businessId: BUSINESS, url: "quiet.example.com" }));
+    await waitForTestId("browser-add-found");
+    expect(byTestId("browser-add-line")!.textContent).toContain("has not confirmed");
+    expect((byTestId("browser-add-connect") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(byTestId("browser-add-accept")!);
+    fireEvent.click(byTestId("browser-add-connect")!);
+    // The first site shows the plain words, without a second caution: the yes was given above.
+    fireEvent.click(await waitFor(() => { const b = byTestId("browser-connect-start"); expect(b).toBeTruthy(); return b!; }));
+    expect(byTestId("browser-connect-ask-first")).toBeNull();
+    // The sign-in starts in the place the api named, with the address and the founder's yes; nothing else about the site.
+    await waitFor(() => expect(connect).toHaveBeenCalledWith({ businessId: BUSINESS, connectorKey: "browser_web_1", input: { address: "quiet.example.com", acceptUnconfirmed: true } }));
+  });
+
+  it("shows a refusal and starts no sign-in", async () => {
+    checkSite.mockResolvedValueOnce({ status: "refused", name: "Shop", message: "Shop's terms do not allow automated use of an account, so the team cannot work in it.", quote: "No bots.", termsUrl: null } as never);
+    catalogue = [site("carrd", "Carrd", "open")];
+    renderTab();
+    fireEvent.change(await waitFor(() => { const f = byTestId("browser-add-address"); expect(f).toBeTruthy(); return f!; }), { target: { value: "shop.example.com" } });
+    fireEvent.click(byTestId("browser-add-check")!);
+    await waitForTestId("browser-add-refused");
+    expect(byTestId("browser-add-quote")!.textContent).toBe("“No bots.”");
+    expect(byTestId("browser-add-connect")).toBeNull();
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("checks the starter sites that have no check yet, once", async () => {
+    starters = { sites: [], pending: ["www.etsy.com"] };
+    catalogue = [site("carrd", "Carrd", "open")];
+    renderTab();
+    await waitFor(() => expect(refreshStarters).toHaveBeenCalledTimes(1));
+  });
+
+  it("a typed website that was signed out signs in again with its own address", async () => {
+    catalogue = [{ ...site("web_1", "quiet.example.com", "ask_first", { id: "i9", status: "expired", settings: { config: { address: "quiet.example.com" } } }), key: "browser_web_1" }];
+    renderTab();
+    fireEvent.click(await waitFor(() => { const b = byTestId("browser-sign-in-again-web_1"); expect(b).toBeTruthy(); return b!; }));
+    fireEvent.click(await waitFor(() => { const b = byTestId("browser-connect-start"); expect(b).toBeTruthy(); return b!; }));
+    await waitFor(() => expect(connect).toHaveBeenCalledWith({ businessId: BUSINESS, connectorKey: "browser_web_1", input: { address: "quiet.example.com", acceptUnconfirmed: true } }));
+  });
+
+  it("keeps a website that is no longer allowed in the list, with Disconnect and no way to sign in", async () => {
+    catalogue = [{ ...site("web_1", "quiet.example.com", "ask_first", { id: "i9", status: "connected" }), key: "browser_web_1", browser: { siteKey: "web_1", name: "quiet.example.com", state: "no_longer_allowed" } }];
+    renderTab();
+    await waitForTestId("browser-blocked-web_1");
+    expect(byTestId("browser-blocked-web_1")!.textContent).toContain("no longer allowed");
+    expect(byTestId("browser-sign-in-again-web_1")).toBeNull();
+    fireEvent.click(byTestId("browser-disconnect-web_1")!);
+    await waitFor(() => expect(disconnect).toHaveBeenCalled());
   });
 });

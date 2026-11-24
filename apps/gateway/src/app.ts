@@ -6,7 +6,7 @@
  *   GET  /v1/connectors            catalogue: phase, auth kind, tools, policyHints (public within the private network)
  *   POST /v1/session-tokens        service JWT → session JWT for one agent session
  *   POST /v1/integrations/connect  service JWT (api) → connect a business's integration: App installations verified, a vendor's secret sealed here (integrations.ts)
- *   POST /v1/browser/*             service JWT (api) → the hosted browser's sessions for the founder: list, take over, hand back, stop (browser.ts)
+ *   POST /v1/browser/*             service JWT (api) → the hosted browser's sessions for the founder: list, take over, hand back, stop (browser.ts); check-site reads a typed website's terms (site-check.ts)
  *   POST /v1/integrations/health   service JWT (api) → that integration's health check (integrations.ts)
  *   POST /v1/models/anthropic/:businessId/v1/messages  service JWT (api, composer) → the call on the business's own Anthropic key (model-proxy.ts)
  *   POST /v1/integrations/disconnect service JWT (api) → withdraw the vendor-side access before the api disconnects (a Stripe sign-in)
@@ -44,6 +44,7 @@ import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
 import { apiServiceTokenMode, bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifyServiceTokenFor, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { GatewayError, safeError, type GatewayDeps } from "./pipeline";
 import { connectIntegration, integrationHealth, releaseAccount, releaseIntegration } from "./integrations";
+import { CheckSiteRequest, checkSite } from "./site-check";
 import { BrowserProjectRequest, BrowserSiteRequest, BrowserStopRequest, handBackBrowser, listBrowserSessions, stopBrowserSessions, takeOverBrowser } from "./browser";
 import { KEYS_VALIDATE_ROUTE, ValidateKeyRequest, validateFounderKey } from "./keys";
 import { MAX_OWN_KEY_MODELS_BODY_BYTES, OWN_KEY_MODELS_ROUTE, proxyOwnKeyMessage } from "./model-proxy";
@@ -132,6 +133,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/v1/integrations/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/billing/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/domains/*", limit(MAX_SERVICE_BODY_BYTES));
+  app.use("/v1/browser/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/personas/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/push/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use(SPEECH_SYNTHESIZE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
@@ -483,6 +485,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.post("/v1/browser/takeover", async (c) => c.json(await takeOverBrowser(deps, BrowserSiteRequest.parse(await c.req.json()), c.var.service.svc)));
   app.post("/v1/browser/handback", async (c) => c.json(await handBackBrowser(deps, BrowserSiteRequest.parse(await c.req.json()), c.var.service.svc)));
   app.post("/v1/browser/stop", async (c) => c.json(await stopBrowserSessions(deps, BrowserStopRequest.parse(await c.req.json()), c.var.service.svc)));
+  // A typed website's terms, read and classified before its first connect (site-check.ts).
+  app.post("/v1/browser/check-site", async (c) => c.json(await checkSite(deps, CheckSiteRequest.parse(await c.req.json()), c.var.service.svc)));
 
   // --- session auth -------------------------------------------------------------------------------------------
   const requireSession = async (c: { req: { header(name: string): string | undefined }; set(key: "session", value: SessionToken): void }, next: () => Promise<void>) => {

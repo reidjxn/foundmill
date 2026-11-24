@@ -22,7 +22,7 @@ test.describe("websites the team can work in", () => {
     const section = screen.getByTestId("browser-sites-section");
     await expect(section).toBeVisible({ timeout: LONG });
     await expect(section.getByRole("heading", { name: "Add a website the team can work in" })).toBeVisible();
-    await expect(section.getByTestId("browser-never")).toContainText("Banks, brokerages, government and identity sites, health records and password managers are never offered.");
+    await expect(section.getByTestId("browser-never")).toContainText("Banks, brokerages, payment accounts, social networks, government and identity sites, health records and password managers are never offered.");
     // The sites are listed here and nowhere else.
     await expect(screen.getByTestId("connector-list")).not.toContainText("(website)");
 
@@ -59,6 +59,60 @@ test.describe("websites the team can work in", () => {
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
     await expect(row.getByRole("button", { name: "Connect" })).toBeVisible();
+  });
+});
+
+test.describe("add any website", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openBusiness(page);
+  });
+
+  const answers: Record<string, unknown> = {
+    "www.linkedin.com": { status: "refused", name: "www.linkedin.com", message: "www.linkedin.com is a social network. The team does not work in it, and it cannot be added.", quote: null, termsUrl: null },
+    "nobots.example.com": { status: "refused", name: "nobots.example.com", message: "nobots.example.com's terms do not allow automated use of an account, so the team cannot work in it.", quote: "You may not use bots to access your account.", termsUrl: "https://nobots.example.com/terms" },
+    "quiet.example.com": { status: "ask_first", name: "quiet.example.com", address: "quiet.example.com", line: "Foundmill has not confirmed that quiet.example.com's terms allow this. Its terms were read and do not say either way, so you decide.", quote: null, termsUrl: null, simulated: true, slotKey: "browser_web_1" },
+  };
+
+  async function openAdd(page: Page) {
+    const seen: string[] = [];
+    const asked: string[] = [];
+    await page.route(/\/trpc\/[^?]*browser\.checkSite/, async (route) => {
+      const cors = { "access-control-allow-origin": route.request().headers()["origin"] ?? "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-credentials": "true" };
+      if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
+      const url = (JSON.parse(route.request().postData() ?? "{}") as { 0?: { json?: { url?: string } } })[0]?.json?.url ?? "";
+      asked.push(url);
+      await route.fulfill({ json: [{ result: { data: { json: answers[url] } } }], headers: cors });
+    });
+    await stubTrpc(page, { "browser.starters": () => ({ sites: [{ name: "Etsy", address: "www.etsy.com" }], pending: [] }) }, seen);
+    const screen = await openSettings(page, "integrations");
+    const section = screen.getByTestId("browser-sites-section");
+    await expect(section.getByTestId("browser-add-site")).toBeVisible({ timeout: LONG });
+    return { section, asked };
+  }
+
+  test("a social network and a site whose terms forbid it are refused with the reason, and nothing connects", async ({ page }) => {
+    const { section, asked } = await openAdd(page);
+    await expect(section.getByTestId("browser-starter-www.etsy.com")).toBeVisible();
+    await section.getByTestId("browser-add-address").fill("www.linkedin.com");
+    await section.getByTestId("browser-add-check").click();
+    await expect(section.getByTestId("browser-add-refused")).toContainText("is a social network");
+    await expect(section.getByTestId("browser-add-connect")).toHaveCount(0);
+    await section.getByTestId("browser-add-address").fill("nobots.example.com");
+    await section.getByTestId("browser-add-check").click();
+    await expect(section.getByTestId("browser-add-quote")).toHaveText("“You may not use bots to access your account.”");
+    await expect(section.getByTestId("browser-add-connect")).toHaveCount(0);
+    expect(asked).toEqual(["www.linkedin.com", "nobots.example.com"]);
+  });
+
+  test("a site whose terms do not say shows the honest line and connects only after the founder's own yes", async ({ page }) => {
+    const { section } = await openAdd(page);
+    await section.getByTestId("browser-add-address").fill("quiet.example.com");
+    await section.getByTestId("browser-add-check").click();
+    await expect(section.getByTestId("browser-add-line")).toContainText("Foundmill has not confirmed that quiet.example.com's terms allow this.");
+    await expect(section.getByTestId("browser-add-connect")).toBeDisabled();
+    await section.getByTestId("browser-add-accept").click();
+    await expect(section.getByTestId("browser-add-connect")).toBeEnabled();
   });
 });
 
