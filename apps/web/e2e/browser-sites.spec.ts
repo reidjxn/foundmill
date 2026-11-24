@@ -31,7 +31,7 @@ test.describe("websites the team can work in", () => {
     await row.getByRole("button", { name: "Connect" }).click();
 
     const dialog = page.getByTestId("browser-connect-dialog");
-    await expect(dialog.getByTestId("browser-connect-intro")).toHaveText("The team will work in this account as you. You can watch and stop it. It will ask before it sends, posts, buys or agrees to anything. Some sites do not allow this, and those are not offered. You can disconnect at any time, and the saved sign-in is deleted.");
+    await expect(dialog.getByTestId("browser-connect-intro")).toHaveText("The team will work in this account as you. You can watch and stop it. It stops and asks you before it buys, pays, agrees to terms or deletes anything. Some sites do not allow this, and those are not offered. You can disconnect at any time, and the saved sign-in is deleted.");
     await dialog.getByRole("button", { name: "Continue" }).click();
 
     // The mock opens no page: a plain panel says the sign-in is simulated, and Done finishes it.

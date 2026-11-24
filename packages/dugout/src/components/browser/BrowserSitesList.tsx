@@ -36,7 +36,7 @@ export interface BrowserSitesListProps {
 export function BrowserSitesList({ sites, canEdit, pendingKey = null, onConnect, onDisconnect }: BrowserSitesListProps) {
   return (
     <div className="flex flex-col gap-2" data-testid="browser-sites">
-      <p className="text-small text-pretty text-secondary">When a tool has no connection of its own, the team can work in its website, in the account you sign in to. You watch and stop it, and it asks before it sends, posts, buys or agrees to anything.</p>
+      <p className="text-small text-pretty text-secondary">When a tool has no connection of its own, the team can work in its website, in the account you sign in to. You watch and stop it, and it stops and asks you before it buys, pays, agrees to terms or deletes anything.</p>
       <ul className="flex flex-col" data-testid="browser-site-list">
         {sites.map((s) => {
           const connected = s.status !== "not_connected";

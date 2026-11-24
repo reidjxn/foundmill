@@ -119,7 +119,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   let founderActionPreparer: FounderActionPreparer | null = null;
   // The hosted browser's live sessions: one set for the process, shared by the site connectors and the founder's routes.
   // E2B desktop sandboxes (founder, Nov 22, 2026), on the platform's E2B key: one short-lived sandbox per session.
-  const browserSessions = secrets.e2bApiKey ? new BrowserSessions(createE2bBrowserDriver({ apiKey: secrets.e2bApiKey, ...(env.E2B_BROWSER_TEMPLATE ? { template: env.E2B_BROWSER_TEMPLATE } : {}) })) : null;
+  const browserSessions = secrets.e2bApiKey ? new BrowserSessions(createE2bBrowserDriver({ apiKey: secrets.e2bApiKey, log, ...(env.E2B_BROWSER_TEMPLATE ? { template: env.E2B_BROWSER_TEMPLATE } : {}) })) : null;
   if (!registry) {
     registry = createDefaultRegistry({
       secrets,

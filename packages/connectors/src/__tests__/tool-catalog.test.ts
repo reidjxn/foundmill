@@ -30,7 +30,7 @@ describe("the tool catalog (founder, Nov 22, 2026)", () => {
       // No other entry brings the same vendor in by a better route.
       expect(TOOL_CATALOG.filter((o) => o.name === t.name && o.route !== "browser"), t.key).toEqual([]);
     }
-    expect(founderSteps("browser", "Wave")).toBe("You sign up with Wave and sign in once inside Foundmill. Then the team sets it up and works in it for you. You can watch, and it asks before it sends, buys or agrees to anything. The simpler choice is to use Wave yourself and send me its link.");
+    expect(founderSteps("browser", "Wave")).toBe("You sign up with Wave and sign in once inside Foundmill. Then the team sets it up and works in it for you. You can watch, and it stops and asks you before it buys, pays or agrees to anything. The simpler choice is to use Wave yourself and send me its link.");
   });
 
   it("an agent cannot name the browser route for a vendor the catalog does not list", () => {

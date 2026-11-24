@@ -75,7 +75,7 @@ export function BrowserSessionCard({ session, canControl, autoOpen = false, pend
           {heldLine}
         </p>
       ) : (
-        <p className="text-small text-secondary">The team is working in your {session.siteName} account. It asks you before it sends, posts, buys or agrees to anything.</p>
+        <p className="text-small text-secondary">The team is working in your {session.siteName} account. It stops and asks you before it buys, pays, agrees to terms or deletes anything.</p>
       )}
       {session.simulated ? <p className="text-small text-secondary">This session is simulated. Nothing was done in {session.siteName}.</p> : null}
       {error ? (

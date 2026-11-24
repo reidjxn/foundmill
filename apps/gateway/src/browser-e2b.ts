@@ -32,7 +32,10 @@ export interface DesktopSandbox {
 }
 export type DesktopFactory = (input: { template: string; timeoutMs: number; network: { allowOut: string[]; denyOut: string[] }; metadata: Record<string, string> }) => Promise<DesktopSandbox>;
 
-export const E2B_BROWSER_DEFAULT_TEMPLATE = "desktop";
+/** Built from infra/e2b/browser.Dockerfile: E2B's public `desktop` template has no Node and no browser Playwright can drive. */
+export const E2B_BROWSER_DEFAULT_TEMPLATE = "foundmill-browser";
+/** Where that template keeps playwright-core; without it, the session installs it from the registry before egress narrows. */
+export const TEMPLATE_LIB = "/opt/fm-browser";
 export const ALL_TRAFFIC = "0.0.0.0/0";
 export const NPM_REGISTRY = "registry.npmjs.org";
 export const PLAYWRIGHT_CORE = "playwright-core@1.63.0";
@@ -52,12 +55,14 @@ export function browserEgress(site: Pick<BrowserSite, "hosts" | "signInHosts">):
 export const SERVER_SCRIPT = `
 import http from "node:http";
 import { readFile, rm } from "node:fs/promises";
-const { chromium } = await import("${DIR}/node_modules/playwright-core/index.mjs");
+const { chromium } = await import(process.env.FM_LIB + "/node_modules/playwright-core/index.mjs");
 ${PAGE_FUNCTIONS}
 let state;
 try { state = JSON.parse(await readFile("${DIR}/state.json", "utf8")); } catch {}
 await rm("${DIR}/state.json", { force: true });
-const browser = await chromium.launch({ channel: "chrome", headless: false, args: ["--start-maximized", "--no-first-run", "--no-default-browser-check", "--disable-features=Translate"] });
+const launchArgs = { headless: false, args: ["--start-maximized", "--no-first-run", "--no-default-browser-check", "--disable-features=Translate"] };
+// Playwright's own Chromium (the foundmill-browser template), else an installed Google Chrome.
+const browser = await chromium.launch(launchArgs).catch(() => chromium.launch({ ...launchArgs, channel: "chrome" }));
 const context = await browser.newContext({ viewport: null, ...(state ? { storageState: state } : {}) });
 const page = await context.newPage();
 // One page per session: a window the site opens is closed, so a step never continues somewhere unseen.
@@ -125,7 +130,29 @@ async function realFactory(apiKey: string): Promise<DesktopFactory> {
   return async ({ template, timeoutMs, network, metadata }) => (await Sandbox.create(template, { apiKey, timeoutMs, network, metadata })) as unknown as DesktopSandbox;
 }
 
-export function createE2bBrowserDriver(config: { apiKey: string; template?: string; factory?: DesktopFactory }): BrowserDriver {
+/** A command's result whatever its exit code: the SDK throws `CommandExitError` for a non-zero one, which carries the result. */
+async function run(sbx: DesktopSandbox, cmd: string, opts?: Parameters<DesktopSandbox["commands"]["run"]>[1]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  try {
+    return await sbx.commands.run(cmd, opts);
+  } catch (e) {
+    const r = e as { exitCode?: unknown; stdout?: unknown; stderr?: unknown };
+    if (typeof r.exitCode === "number") return { exitCode: r.exitCode, stdout: typeof r.stdout === "string" ? r.stdout : "", stderr: typeof r.stderr === "string" ? r.stderr : "" };
+    throw e;
+  }
+}
+
+/** What went wrong at E2B, in words the founder's operator can act on. E2B's messages carry no key. */
+export function e2bReason(e: unknown, template: string): string {
+  const name = e instanceof Error ? e.name : "";
+  const message = e instanceof Error ? e.message.replace(/\s+/g, " ").slice(0, 240) : String(e).slice(0, 240);
+  if (name === "AuthenticationError") return "E2B refused the key (E2B_API_KEY on the gateway)";
+  if (name === "NotFoundError" || name === "TemplateError" || /template/i.test(message)) return `E2B could not start the template "${template}" (build it from infra/e2b/browser.Dockerfile, or set E2B_BROWSER_TEMPLATE): ${message}`;
+  if (name === "RateLimitError") return "E2B is limiting how many sandboxes start; try again in a minute";
+  if (name === "TimeoutError") return `E2B timed out: ${message}`;
+  return `${name || "Error"}: ${message}`;
+}
+
+export function createE2bBrowserDriver(config: { apiKey: string; template?: string; factory?: DesktopFactory; log?: { warn(o: object, msg: string): void } }): BrowserDriver {
   const live = new Map<string, Live>();
   const template = config.template || E2B_BROWSER_DEFAULT_TEMPLATE;
   let factory: Promise<DesktopFactory> | null = config.factory ? Promise.resolve(config.factory) : null;
@@ -140,7 +167,7 @@ export function createE2bBrowserDriver(config: { apiKey: string; template?: stri
     const l = must(id);
     const file = `${DIR}/req-${++l.calls}.json`;
     await l.sbx.files.write(file, JSON.stringify({ op, ...args }));
-    const r = await l.sbx.commands.run(`node ${DIR}/call.mjs ${shellArg(file)}`, { timeoutMs: STEP_MS });
+    const r = await run(l.sbx, `node ${DIR}/call.mjs ${shellArg(file)}`, { timeoutMs: STEP_MS });
     let out: { ok: boolean; status?: number; message?: string } & Record<string, unknown>;
     try {
       out = JSON.parse(r.stdout);
@@ -163,13 +190,26 @@ export function createE2bBrowserDriver(config: { apiKey: string; template?: stri
     },
     open: async ({ businessId, site, contextId, minutes }) => {
       const timeoutMs = Math.min(MAX_SANDBOX_MINUTES, Math.ceil(minutes) + 1) * 60_000;
-      const sbx = await (await factoryOf())({ template, timeoutMs, network: { allowOut: [NPM_REGISTRY], denyOut: [ALL_TRAFFIC] }, metadata: { kind: "hosted-browser", businessId, site: site.key } });
+      let sbx: DesktopSandbox;
+      try {
+        sbx = await (await factoryOf())({ template, timeoutMs, network: { allowOut: [NPM_REGISTRY], denyOut: [ALL_TRAFFIC] }, metadata: { kind: "hosted-browser", businessId, site: site.key } });
+      } catch (e) {
+        const reason = e2bReason(e, template);
+        config.log?.warn({ template, site: site.key, error: e instanceof Error ? e.name : "unknown", reason }, "hosted browser: the sandbox did not start");
+        throw new VendorError(KEY, 502, reason);
+      }
       const id = sbx.sandboxId;
       try {
-        const node = await sbx.commands.run("node --version", { timeoutMs: 10_000 });
-        if (node.exitCode !== 0) throw new VendorError(KEY, 503, "the browser sandbox has no Node; check E2B_BROWSER_TEMPLATE");
-        const install = await sbx.commands.run(`mkdir -p ${DIR} && cd ${DIR} && npm install --no-save --ignore-scripts --no-audit --no-fund ${PLAYWRIGHT_CORE}`, { timeoutMs: 120_000 });
-        if (install.exitCode !== 0) throw new VendorError(KEY, 503, "the browser could not be prepared in the sandbox");
+        const node = await run(sbx, "node --version", { timeoutMs: 10_000 });
+        if (node.exitCode !== 0) throw new VendorError(KEY, 503, `the template "${template}" has no Node (build infra/e2b/browser.Dockerfile as foundmill-browser)`);
+        await run(sbx, `mkdir -p ${DIR}`, { timeoutMs: 10_000 });
+        // The template's own playwright-core, else one installed now, while the registry is the only host it can reach.
+        let lib = TEMPLATE_LIB;
+        if ((await run(sbx, `test -f ${TEMPLATE_LIB}/node_modules/playwright-core/index.mjs`, { timeoutMs: 10_000 })).exitCode !== 0) {
+          lib = DIR;
+          const install = await run(sbx, `cd ${DIR} && npm install --no-save --ignore-scripts --no-audit --no-fund ${PLAYWRIGHT_CORE}`, { timeoutMs: 120_000 });
+          if (install.exitCode !== 0) throw new VendorError(KEY, 503, `the browser could not be prepared in the sandbox: ${install.stderr.replace(/\s+/g, " ").slice(-200)}`);
+        }
         // From here on the sandbox reaches the site and nothing else, before any page of it opens.
         await sbx.updateNetwork({ allowOut: browserEgress(site), denyOut: [ALL_TRAFFIC] });
         if (contextId !== "new") {
@@ -178,7 +218,7 @@ export function createE2bBrowserDriver(config: { apiKey: string; template?: stri
         }
         await sbx.files.write(`${DIR}/server.mjs`, SERVER_SCRIPT);
         await sbx.files.write(`${DIR}/call.mjs`, CALL_SCRIPT);
-        await sbx.commands.run(`node ${DIR}/server.mjs > ${DIR}/server.log 2>&1`, { background: true, envs: { DISPLAY: ":0" } });
+        await sbx.commands.run(`node ${DIR}/server.mjs > ${DIR}/server.log 2>&1`, { background: true, envs: { DISPLAY: ":0", FM_LIB: lib } });
         live.set(id, { sbx, calls: 0 });
         let ready = false;
         for (let i = 0; i < 30 && !ready; i++) {
@@ -188,13 +228,18 @@ export function createE2bBrowserDriver(config: { apiKey: string; template?: stri
           );
           if (!ready) await new Promise((r) => setTimeout(r, 1_000));
         }
-        if (!ready) throw new VendorError(KEY, 503, "the browser in the sandbox did not start");
+        if (!ready) {
+          const tail = (await run(sbx, `tail -c 400 ${DIR}/server.log`, { timeoutMs: 10_000 }).catch(() => ({ stdout: "" }))).stdout.replace(/\s+/g, " ").trim();
+          throw new VendorError(KEY, 503, `the browser in the sandbox did not start${tail ? `: ${tail}` : ""}`);
+        }
         await sbx.stream.start({ requireAuth: true });
         return { id, liveViewUrl: sbx.stream.getUrl({ authKey: sbx.stream.getAuthKey(), resize: "scale" }) };
       } catch (e) {
         live.delete(id);
         await sbx.kill().catch(() => undefined);
-        throw e;
+        const reason = e instanceof VendorError ? e.message : e2bReason(e, template);
+        config.log?.warn({ template, site: site.key, error: e instanceof Error ? e.name : "unknown", reason }, "hosted browser: the session did not open");
+        throw e instanceof VendorError ? e : new VendorError(KEY, 502, reason);
       }
     },
     goto: async (id, url) => (await call<{ url: string }>(id, "goto", { url })).url,

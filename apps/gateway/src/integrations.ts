@@ -65,7 +65,9 @@ export function connectableConnector(deps: GatewayDeps, key: string, options: { 
   return connector;
 }
 
-const vendorFailure = (e: unknown, connector: string): never => {
+const vendorFailure = (e: unknown, connector: string, log?: GatewayDeps["log"]): never => {
+  // The cause is logged before the founder is told it "could not be reached": a vendor's message carries no secret.
+  log?.warn({ connector, error: e instanceof Error ? e.name : typeof e, message: e instanceof Error ? e.message.slice(0, 300) : undefined }, "integration call failed");
   if (isConfigError(e)) throw new GatewayError("connector_unconfigured", e.message, 503, { connector });
   if (e instanceof AppError) throw e;
   const status = (e as { status?: unknown }).status;
@@ -151,7 +153,7 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
   // input, and sealed below as its own credential row: never echoed, audited by kind only.
   const webhook = takeWebhookSecret(connector.key, connectInput);
   connectInput = webhook.input;
-  const record = await connector.connect(input.businessId, connectInput).catch((e: unknown) => vendorFailure(e, connector.key));
+  const record = await connector.connect(input.businessId, connectInput).catch((e: unknown) => vendorFailure(e, connector.key, deps.log));
   const safe = stripSecret(record);
   if (mode === "live" && record.status === "connected") await replacePreviousConnection(deps, input.businessId, connector, record);
 
@@ -274,7 +276,7 @@ export async function integrationHealth(deps: GatewayDeps, input: HealthInput, s
   } else {
     // An API-key connector checks the business's own key (decrypted for this call only), never a platform key.
     const credential = mode === "live" && deps.vault && connector.auth.kind !== "none" ? await loadCredential(deps.db, deps.vault, input.businessId, row.id).catch(() => null) : null;
-    health = await connector.healthcheck(toIntegrationRecord(row, credential), credential?.credential).catch((e: unknown) => vendorFailure(e, connector.key));
+    health = await connector.healthcheck(toIntegrationRecord(row, credential), credential?.credential).catch((e: unknown) => vendorFailure(e, connector.key, deps.log));
   }
   await auditIntegration(deps, input.businessId, "gateway.integration.health_checked", connector.key, { service, mode, ok: health.ok, status: health.status });
   return { health };
