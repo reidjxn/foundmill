@@ -174,7 +174,10 @@ describe("acceptancePrepareScript", () => {
     const script = acceptancePrepareScript();
     expect(script).not.toContain("node-linux-x64");
     expect(script).toContain(`command -v pnpm >/dev/null 2>&1 || (cd "$HOME" && npm install --global --prefix "$HOME/.fm-tools" --ignore-scripts --no-fund --no-audit --loglevel=error ${SANDBOX_PNPM})`);
-    expect(script).toContain("--reporter=append-only; fi");
+    expect(script).toContain("--reporter=append-only; }; fi");
+    // A failed install is tried once more (a dropped registry connection), the same command both times.
+    expect(script.match(/pnpm install --no-frozen-lockfile/g)).toHaveLength(2);
+    expect(script).toContain('|| { echo "Dependency install failed; trying once more in 5 s"; sleep 5; pnpm install');
     expect(script).not.toContain("--filter");
   });
 

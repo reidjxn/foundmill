@@ -1,5 +1,5 @@
 /**
- * 0172 — a Customer Update shared as a card (WP-14 T9; docs/DESIGN.md §9f). One row per shared Customer Update, a copy
+ * 0173 — a Customer Update shared as a card (WP-14 T9; docs/DESIGN.md §9f). One row per shared Customer Update, a copy
  * of exactly what the public card shows, written by the api's service connection at the founder's press and deleted
  * when they stop sharing. Members read it; no client role writes it. The view is the signed-out read, the service
  * connection's only.

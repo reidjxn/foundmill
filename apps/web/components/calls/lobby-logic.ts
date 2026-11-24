@@ -3,7 +3,7 @@
  * a past call.
  */
 import { isBackgroundAgent } from "@foundmill/shared/team-tiers";
-import { TEAM_CALL_LIMITS, teamCallActionsLine, type TeamCallSummaryView } from "@foundmill/shared/team-call";
+import { TEAM_CALL_LIMITS, TEAM_CALL_WORDS, teamCallActionsLine, type TeamCallSummaryView } from "@foundmill/shared/team-call";
 
 interface LobbyAgent {
   id: string;
@@ -33,4 +33,12 @@ export function callRowActionsLine(c: Pick<TeamCallSummaryView, "actionCount" | 
   if (rest === 0) return base;
   const more = `${rest} more`;
   return c.filedCount + c.awaitingCount === 0 ? more : `${base} · ${more}`;
+}
+
+/** What a past call's row says when it has no summary line: never "In progress" for a call that is over. */
+export function callRowState(status: TeamCallSummaryView["status"]): string {
+  if (status === "live") return "In progress";
+  if (status === "wrapping_up") return "Writing up";
+  if (status === "wrap_up_failed") return TEAM_CALL_WORDS.wrapUpFailed;
+  return "No summary";
 }

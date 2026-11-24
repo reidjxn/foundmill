@@ -314,7 +314,7 @@ describe("buildTeamCallWrapUpRequest", () => {
 
   it("the wrap-up rules carry the compiler's contract and the founder's agreement rule", () => {
     const rules = teamCallWrapUpPrompt.render({ business_name: "Shiftly", max_actions: 20, summary_max: 1200 });
-    for (const needle of ["request_human_action only", "one per step the founder agreed to", "nothing only an agent suggested", "params.kind follows the work of the department", "update_roadmap with create true", "Money is a budget, never a payment", "set_budget", "Never say that anything was done", "Estimate or Forecast", "never add an action item to find a cofounder"]) expect(rules, needle).toContain(needle);
+    for (const needle of ["request_human_action only", "one per step the founder agreed to", "nothing only an agent suggested", "the founder's next line accepts it", "never leave them only in the summary", "params.kind follows the work of the department", "update_roadmap with create true", "Money is a budget, never a payment", "set_budget", "Never say that anything was done", "Estimate or Forecast", "never add an action item to find a cofounder"]) expect(rules, needle).toContain(needle);
   });
 });
 
@@ -336,6 +336,14 @@ describe("finaliseTeamCallWrapUp", () => {
       { title: "Cap paid ads at £200 a month", detail: null, agentId: GROWTH, action: { type: "set_budget", params: { amount_minor: 20000, currency: "GBP", channel: "paid_ads", period: "monthly" }, agent_id: GROWTH } },
     ]);
     expect(out.repairs).toEqual([]);
+  });
+
+  it("keeps an action whose reply left out its detail, params agent or action agent (a live reply in prompt JSON)", () => {
+    const out = finaliseTeamCallWrapUp(
+      { summary: "We agreed the waitlist page.", actions: [{ title: "Build the waitlist page", agent_id: ENGINEER, action: { type: "create_task", params: { kind: "code", title: "Build the waitlist page", goal: "A page that collects emails" } } }, { title: "Something else", action: { type: "make_coffee" } }] },
+      wctx(),
+    );
+    expect(out.actions.map((a) => [a.action.type, a.title, a.agentId])).toEqual([["create_task", "Build the waitlist page", ENGINEER]]);
   });
 
   it("parses each action with its type's params: an invalid one is dropped, a missing task kind read from its words", () => {

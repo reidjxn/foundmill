@@ -17,12 +17,29 @@ const rowsFor = (templateKey: string) =>
   });
 
 describe("default skills per role", () => {
-  it("is the fifth release of defaults: the tool scout (release 2, Nov 22, 2026), the CLI-Anything skills (release 3), working in a website (release 4) and patent preparation for the Legal Lead (release 5)", () => {
-    expect(DEFAULT_SKILLS_VERSION).toBe(5);
-    expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 4).map((s) => s.key)).toEqual(["browser_work"]);
+  it("is the sixth release of defaults: the tool scout (release 2), the CLI-Anything skills (release 3), working in a website (release 4), patent preparation for the Legal Lead (release 5) and T13's two coding skills (release 6)", () => {
+    expect(DEFAULT_SKILLS_VERSION).toBe(6);
     expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 2).map((s) => s.key)).toEqual(["tool_scout"]);
     expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 3).map((s) => s.key).sort()).toEqual(["make_brand_assets", "make_documents_and_decks", "make_media_files"]);
+    expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 4).map((s) => s.key)).toEqual(["browser_work"]);
     expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 5).map((s) => s.key)).toEqual(["patent_preparation"]);
+    expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 6).map((s) => s.key).sort()).toEqual(["smallest_change", "terse_working_notes"]);
+    expect(defaultSkillKeysFor("backend_engineer", 5)).toEqual(["smallest_change", "terse_working_notes"]);
+    expect(defaultSkillKeysFor("chief_of_staff", 5)).toEqual([]);
+  });
+
+  it("gives every role that writes code both coding skills, loaded up front when the preload switch is on", () => {
+    const code = ALL_TEMPLATES.filter((t) => t.taskKinds.includes("code")).map((t) => t.key);
+    expect(code.length).toBeGreaterThan(0);
+    for (const key of code) expect(defaultSkillKeysFor(key), key).toEqual(expect.arrayContaining(["coding_discipline", "smallest_change", "terse_working_notes"]));
+    for (const key of ["smallest_change", "terse_working_notes"]) expect(getLibrarySkill(key)!.loadAlways, key).toBe(true);
+    expect(SKILL_LIBRARY.filter((s) => s.loadAlways).map((s) => s.key)).toEqual(["smallest_change", "terse_working_notes"]);
+  });
+
+  it("keeps everything a person reads in full sentences: the terse skill says so in its first section", () => {
+    const body = getLibrarySkill("terse_working_notes")!.instructionsMd;
+    const first = body.slice(0, body.indexOf("## Before you start"));
+    for (const words of ["never for anything a person reads", "plain full sentences", "pull request text", "commit messages", "email"]) expect(first, words).toContain(words);
   });
 
   it("lists, in catalog order, the skills whose default_for names the template", () => {

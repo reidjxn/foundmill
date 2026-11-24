@@ -6,7 +6,7 @@ areas: [db, api, events, shared, dugout, web, docs]
 supersedes: []
 ---
 ## What changed
-A founder can share one Customer Update as a public card, built the way milestone cards are. Migration 0172 (0136 until it was rebased on Nov 22 and 0166 until Nov 23, 2026) adds
+A founder can share one Customer Update as a public card, built the way milestone cards are. Migration 0173 (0136 until it was rebased on Nov 22, 0166 until Nov 23 and 0172 until Nov 24, 2026) adds
 `customer_update_cards` (members read, only the api's service connection writes) and the view
 `public_customer_update_cards`. `journey.updateCard`, `journey.shareUpdate` and `journey.unshareUpdate` are in apps/api
 (`services/update-cards.ts`), with `publicPage.updateCardById` for the signed-out read. The card is at
@@ -57,7 +57,7 @@ hosted database. It is set in `playwright.config.ts` and on the seed line of `ci
 
 ### Not stacked on #244
 #244 touches the project page, its story page, `routers/page.ts` and migration 0125. This change adds one procedure at
-the end of `publicPageRouter` and one import line there, and took 0136 then (0172 now). `git merge-tree` of the two
+the end of `publicPageRouter` and one import line there, and took 0136 then (0173 now). `git merge-tree` of the two
 branches reports no conflict in `routers/page.ts`; the migration journal and `migrations.test.ts` lists need
 the usual one-line merge with #244 (#285 merged first and this branch is rebased on it).
 

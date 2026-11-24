@@ -1,6 +1,6 @@
 /**
  * A Customer Update shared as a card (docs/holistic-plan/WP-14-behavior-brief.md T9; docs/DESIGN.md §9f; migration
- * 0172): the addresses and the words, shared by the api, the web and the design system so each is written once.
+ * 0173): the addresses and the words, shared by the api, the web and the design system so each is written once.
  *
  * A founder shares one Customer Update at a time, by their own press; nothing is public until then. The card carries
  * the project's name and logo, the day, the lead channel and the standout agent. It never carries the customer's

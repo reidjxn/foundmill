@@ -44,6 +44,11 @@ export interface LibrarySkill {
   defaultFor: readonly string[];
   /** The defaults version that first attached it (WP-06 T6); 1 for every skill moved in by T3. */
   defaultSince: number;
+  /**
+   * `load: always` (WP-06 T13): a code task loads its body up front, outside the usual budget of loaded bodies, when the
+   * skills preload switch is on for that session (`SKILLS_PRELOAD`, half of businesses). Absent: loaded as usual.
+   */
+  loadAlways?: true;
   /** The project stages it fits. */
   stages: readonly ProductStage[];
   /** Connectors that make it better; it works without them. */

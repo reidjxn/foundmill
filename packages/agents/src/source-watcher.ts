@@ -180,15 +180,19 @@ const clipWords = (text: string, max: number) => (text.length <= max ? text : `$
 const plainList = (xs: readonly string[], max: number, chars: number) => [...new Set(xs.map((x) => plainLine(x).slice(0, chars)).filter(Boolean))].slice(0, max);
 
 /** Keeps candidate ids only (each once, the best score), clamps scores and stores every string as plain text. */
+const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
 export function finaliseRelevance(out: SourceRelevanceOutput, ctx: { source: SourceWatchSource; candidates: readonly SourceWatchBlock[] }): SourceRelevance {
   const known = new Set(ctx.candidates.map((b) => b.id));
   const best = new Map<string, { blockId: string; score: number; reason: string }>();
   for (const r of out.relevant) {
-    if (!known.has(r.block_id)) continue;
+    // The prompt lists candidates as "<id> (Section, pinned)": an id copied with its label is still that candidate.
+    const blockId = known.has(r.block_id) ? r.block_id : (UUID_IN_TEXT.exec(r.block_id)?.[0].toLowerCase() ?? "");
+    if (!known.has(blockId)) continue;
     const score = Math.round(Math.min(1, Math.max(0, r.relevance)) * 100) / 100;
     if (score <= 0) continue;
-    const prev = best.get(r.block_id);
-    if (!prev || score > prev.score) best.set(r.block_id, { blockId: r.block_id, score, reason: plainLine(r.reason).slice(0, 200) });
+    const prev = best.get(blockId);
+    if (!prev || score > prev.score) best.set(blockId, { blockId, score, reason: plainLine(r.reason).slice(0, 200) });
   }
   const summary = plainLine(out.summary).slice(0, 400);
   const relevance: SourceRelevance = {

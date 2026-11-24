@@ -57,7 +57,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "chief_of_staff.playbook_compile",
     templateKey: "chief_of_staff",
     title: "Compile a standing rule into one playbook",
-    prompt: `Compile this founder reply into a Plan. Allowed action types: create_task, enable_channel, disable_channel, set_budget, approve_spend, update_spec, update_roadmap, send_message, schedule_meeting, hire_agent, train_agent, set_agent_model, create_playbook, request_human_action, reply_only. A standing rule ("when X happens, do Y") is ONE create_playbook action with params {source_text, name, trigger: {event, where?}, steps: [{action: {type, params}, label}], approvals: [{step, scope: first_run|every_run}], stop: {max_runs?}}; never one-off actions. trigger.event is one of the platform's event types: ${EVENT_TYPES.join(", ")}. ${MANIFEST}\n\nFounder reply: "When a lead replies positively, draft a reply and book a call. I approve the first message."\n\nReturn JSON {summary, actions:[{type, params, agent_id}]}.`,
+    prompt: `Compile this founder reply into a Plan. Allowed action types: create_task, enable_channel, disable_channel, set_budget, approve_spend, update_spec, update_roadmap, send_message, schedule_meeting, hire_agent, train_agent, set_agent_model, create_playbook, request_human_action, reply_only. A standing rule ("when X happens, do Y") is ONE create_playbook action with params {source_text, name, trigger: {event, where?}, steps: [{action: {type, params}, label}], approvals: [{step (the 0-based index into steps), scope: first_run|every_run}], stop: {max_runs?}}; never one-off actions. A new playbook is created switched off: the founder turns it on. trigger.event is one of the platform's event types: ${EVENT_TYPES.join(", ")}. ${MANIFEST}\n\nFounder reply: "When a lead replies positively, draft a reply and book a call. I approve the first message."\n\nReturn JSON {summary, actions:[{type, params, agent_id}]}.`,
     schemaKey: "plan",
     checks: [CHECK.all("create_playbook", "lead.replied", "first_run"), CHECK.none("request_human_action")],
     rubric: [
@@ -71,7 +71,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "chief_of_staff.idle_cycle",
     templateKey: "chief_of_staff",
     title: "Say what is in the way when nothing can start",
-    prompt: `Plan the next cycle. State: concurrency limit 3 agents; budget remaining £120 (Estimate). Open tasks: tsk_8 "Ship the billing page" (code, blocked by tsk_7, which is not done); tsk_9 "Fix the signup email" (code, failed twice; its next automatic retry is in 40 minutes). Roadmap items with no tasks: rm_4 "Pricing experiment". Agents: ag_backend, ag_frontend. Return JSON matching the cycle plan schema. If nothing can start, start nothing and say exactly what is in the way.`,
+    prompt: `Plan the next cycle. State: concurrency limit 3 agents; budget remaining £120 (Estimate). Open tasks: tsk_8 "Ship the billing page" (code, blocked by tsk_7, which is not done); tsk_9 "Fix the signup email" (code, failed twice; its next automatic retry is in 40 minutes). Roadmap items with no tasks: rm_4 "Pricing experiment". Agents: ag_backend, ag_frontend. Return JSON matching the cycle plan schema. If nothing can start, start nothing and say exactly what is in the way. The founder turns a roadmap item into tasks on Development › Plan.`,
     schemaKey: "cycle_plan",
     checks: [CHECK.all("rm_4")],
     rubric: [
@@ -141,7 +141,8 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "legal_lead",
     title: "Jurisdiction comparison",
     prompt: `The founder is a Swedish citizen resident in London, selling B2B software to UK and US customers, expecting to raise from US angels within 12 months. Compare incorporating in the UK (Ltd), Sweden (AB) and Delaware (C-corp) on cost, time, banking, investor familiarity and founder-specific tax notes. Recommend one, state what must be verified with a licensed adviser, and label the whole thing a screen rather than legal advice. Date every source you rely on and mark anything you cannot verify as unverified.`,
-    checks: [CHECK.all("Delaware", "UK", "Sweden"), CHECK.none("legal advice:")],
+    // "Swed" covers the Swedish AB whether the answer says Sweden or Swedish.
+    checks: [CHECK.all("Delaware", "UK", "Swed"), CHECK.none("legal advice:")],
     rubric: [
       "Compares all three on every requested dimension with specific, plausible figures marked as estimates or unverified.",
       "Gives one recommendation with the reason and names the founder-specific tax points (UK residence, Swedish citizenship) to verify.",
@@ -305,7 +306,7 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "product_researcher",
     title: "Write a five-minute demo script that claims only what exists",
     prompt: `The build of Ledgerly today does this and nothing more: imports a Stripe payout file, matches it against bank lines with a one-line explanation per match, and shows unmatched lines in an exception queue (build record bld_7; spec blocks Customers spb_2 and Features spb_3). The close checklist, SSO and the audit export are not built. Write the demo script for an operations manager: what to confirm before the demo, the steps with timings (under five minutes in total), the question that records what the viewer does next, and the rule for questions about SSO, the checklist, prices or dates.`,
-    checks: [CHECK.none("coming soon", "next quarter"), CHECK.words(150, 700)],
+    checks: [{ kind: "contains_none", params: { terms: ["coming soon", "next quarter"], claims: true } }, CHECK.words(150, 700)],
     rubric: [
       "Total timing is under five minutes and every step says how long it takes.",
       "Shows only the import, the matching and the exception queue; SSO, the checklist and the audit export are neither shown nor promised.",
@@ -331,7 +332,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "integration_agent.merge_queue",
     templateKey: "integration_agent",
     title: "Merge queue decision in Augmented mode",
-    prompt: `Branch agent/tsk_22 is green on CI, review approved, rebased cleanly except one trivial conflict in CHANGELOG.md (both sides appended a line). Business mode is Augmented. Return JSON matching the worker schema {summary, steps, artifacts} describing exactly what you do: conflict handling, the PR, and whether you merge.`,
+    prompt: `Branch agent/tsk_22 is green on CI, review approved, rebased cleanly except one trivial conflict in CHANGELOG.md (both sides appended a line). Business mode is Augmented. Return JSON matching the worker schema {summary, steps, artifacts} describing exactly what you do: conflict handling, the PR, and whether you merge or ask for the founder's approval.`,
     schemaKey: "worker",
     checks: [CHECK.all("approval"), { kind: "contains_none", params: { terms: ["merged to main"], claims: true } }],
     rubric: [
@@ -351,7 +352,8 @@ const RAW_TASKS: GoldenTask[] = [
     rubric: [
       "Tasks have testable acceptance criteria and named tests, each under 4 hours.",
       "Dependencies form a DAG (schema/migration before API, API before UI) and parallel tasks do not share file scopes.",
-      "The email step uses the gateway connector and is flagged as needing policy approval, not direct sending.",
+      // Outside contact runs from the first message (#386, Nov 23, 2026): no per-send approval to flag.
+      "The email step goes through the gateway's email connector, never direct sending.",
       "Every task links to rm_3 and the set covers the whole flow without gold-plating.",
     ],
   }),
@@ -609,7 +611,8 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "channel_outdoor",
     title: "DOOH quote needs founder approval",
     prompt: `A DOOH platform quotes 2 weeks on 6 screens around Canary Wharf for £2,400 (quote qt_dooh_4). Prepare the decision for the founder: creative sizing per screen spec, the QR code and landing page for attribution, geo-lift measurement, the expected range of scans labeled Estimate, and the options (book 2 weeks, book 1 week, skip) with one recommended, consequence, cost and reversibility. You never book.`,
-    checks: [CHECK.all("qt_dooh_4", "Estimate", "recommended")],
+    // "recommend" counts a Recommendation heading as well as "recommended" (live run 45277670182).
+    checks: [CHECK.all("qt_dooh_4", "Estimate", "recommend")],
     rubric: [
       "Options are 2-4 with exactly one recommended and consequence, cost and reversibility for each.",
       "Creative sizing, QR attribution and geo-lift plan are concrete.",
@@ -635,7 +638,8 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "channel_events",
     title: "Evaluate a sponsorship within budget",
     prompt: `Fintech Ops Summit London (event evt_9, 2026-11-18) offers a £3,500 sponsorship with a stand and attendee list access (consent-based). Expected 400 attendees, 30% ops managers. Estimate the pipeline needed to break even at £49 per seat per month with an average 8-seat deal, propose how leads are captured with lawful basis, the follow-up sequence, and the decision for the founder (sponsor, attend without sponsoring, skip) with one recommended. Label estimates. The contract is a founder signature.`,
-    checks: [CHECK.all("evt_9", "Estimate", "recommended")],
+    // "recommend" counts a Recommendation heading as well as "recommended" (live run 45277670182).
+    checks: [CHECK.all("evt_9", "Estimate", "recommend")],
     rubric: [
       "Break-even arithmetic is shown and labeled Estimate.",
       "Lead capture records consent and source; follow-up uses approved sequences.",

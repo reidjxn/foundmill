@@ -209,6 +209,21 @@ export { FIRST_PARTY_REPO_TOOLS, firstPartyVerdict, isFirstPartyRef, isFirstPart
  * recipients, and no digest of it means anything, so it is delivered only when it is first-party and withheld otherwise.
  */
 export const REPO_ARCHIVE_TOOLS: ReadonlySet<string> = new Set(["download_archive"]);
+/**
+ * Platform reads of the business's own records (its specification, roadmap and source list): first-party, delivered raw
+ * inside the untrusted envelope and its notice, never as the quarantined reader's digest. Every outbound action stays
+ * gated by policy, and addresses in the content are still remembered as first seen in untrusted content.
+ */
+export const FIRST_PARTY_PLATFORM_TOOLS: ReadonlySet<string> = new Set(["read_product"]);
+/**
+ * A source's title is the outside page's own `<title>`, verbatim (the Source Watcher, research citations): it is never
+ * first-party, so `read_product` delivered raw lists each source by id and address only (security review, Nov 23, 2026).
+ */
+function withoutSourceTitles(content: unknown): unknown {
+  if (!content || typeof content !== "object" || !Array.isArray((content as { sources?: unknown }).sources)) return content;
+  const c = content as { sources: { id?: unknown; uri?: unknown }[] };
+  return { ...c, sources: c.sources.map((src) => ({ id: src.id, uri: src.uri })) };
+}
 /** What an agent gets in place of an archive of any repository but the Code tab's. */
 export const ARCHIVE_WITHHELD = "Repository archives are delivered only for the repository chosen on the Code tab.";
 
@@ -1032,6 +1047,10 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
       const installed = mode === "live" ? appInstalled : loaded.integrationRow !== null && platformKeyConnected(loaded.integrationRow);
       firstParty = await decideFirstParty(deps, { connector, tool: tool.name, args: guarded.args, ctx, installed, log });
     }
+    // The business's own product notes are first-party too, like the Code tab's repository: as a 600-character digest the
+    // specification's sections and their ids were gone, and research, finance and code tasks blocked on "read_product
+    // returned an empty quarantined payload" (about 12 of the last 60 dependency blocks, Nov 23, 2026).
+    if (result.ok && connector.key === "platform" && FIRST_PARTY_PLATFORM_TOOLS.has(tool.name)) firstParty = true;
     const archive = connector.key === "github" && REPO_ARCHIVE_TOOLS.has(tool.name);
     // Recipients first seen here still need the founder's approval, first-party or not. An archive is compressed bytes
     // with no text to scan; it reaches an agent only when it is the Code tab's (withheld below otherwise).
@@ -1045,7 +1064,8 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     data = toAgentEnvelope(result.data);
     if (firstParty) {
       // Still the untrusted envelope with its notice (data, never instructions); only the digest step is skipped.
-      data = { ...toAgentEnvelope(result.data), firstParty: true };
+      const envelope = toAgentEnvelope(result.data);
+      data = { ...envelope, firstParty: true, ...(connector.key === "platform" ? { content: withoutSourceTitles(envelope.content) } : {}) };
     } else if (archive) {
       const { facts: _withheld, ...withoutFacts } = toAgentEnvelope(result.data);
       data = { ...withoutFacts, content: null, quarantined: true, unavailable: ARCHIVE_WITHHELD };

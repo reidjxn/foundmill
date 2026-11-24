@@ -323,6 +323,8 @@ describe("a task no agent has a tool for leaves the loop after one attempt", () 
     await blockedBy({ id: other.id, title: other.title, kind: "ops" }, "Waiting on the supplier's price list; asked by email.");
     expect(lacksTool("none can create or register a business source")).toBe(true);
     expect(lacksTool("I can't do this import with the tools I have")).toBe(true);
+    // Production's own words (Nov 23, 2026 measurement): a list of what the agent has is a missing tool too.
+    expect(lacksTool("I can't register a business source. My tools are the task board, typed messages and founder actions.")).toBe(true);
     expect(lacksTool("acceptance tests failed (exit 1, 62 passed, 5 failed)")).toBe(false);
     expect(lacksTool("Scope mismatch: the branch changes none of the three scoped paths")).toBe(false);
 

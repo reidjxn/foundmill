@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultCallSelection, callRowActionsLine } from "../lobby-logic";
+import { defaultCallSelection, callRowActionsLine, callRowState } from "../lobby-logic";
 
 describe("defaultCallSelection", () => {
   it("ticks the Chief of Staff, then the leads, never specialists, background helpers or released agents", () => {
@@ -25,5 +25,14 @@ describe("callRowActionsLine", () => {
     expect(callRowActionsLine({ actionCount: 0, filedCount: 0, awaitingCount: 0 })).toBe("Nothing to file from this call.");
     expect(callRowActionsLine({ actionCount: 5, filedCount: 2, awaitingCount: 0 })).toBe("2 filed · 3 more");
     expect(callRowActionsLine({ actionCount: 2, filedCount: 0, awaitingCount: 0 })).toBe("2 more");
+  });
+});
+
+describe("callRowState", () => {
+  it("says In progress only for a live call, and a failed write-up says the call ended", () => {
+    expect(callRowState("live")).toBe("In progress");
+    expect(callRowState("wrapping_up")).toBe("Writing up");
+    expect(callRowState("wrap_up_failed")).toBe("Ended, couldn't write up");
+    expect(callRowState("ended")).toBe("No summary");
   });
 });

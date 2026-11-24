@@ -2037,7 +2037,7 @@ const notifyEmailSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
-// A Customer Update a founder shares as a card (0172; WP-14 T9; docs/DESIGN.md §9f)
+// A Customer Update a founder shares as a card (0173; WP-14 T9; docs/DESIGN.md §9f)
 // ---------------------------------------------------------------------------------------------------
 
 /** What both events carry: the card, the Customer Update it was made from, and the addresses. Never the customer. */

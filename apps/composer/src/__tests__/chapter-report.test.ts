@@ -107,7 +107,8 @@ describe("the chapter report", () => {
 
     // Nothing simulated reached the page, and no amount of money is on it.
     expect(note.sourceEventIds).not.toContain(fake.id);
-    expect(body).not.toMatch(/Simulated Co|made-up|simulated result|777|\$/i);
+    // Read without the links' random ids, which can hold "777" by chance (the nightly of Nov 23, 2026).
+    expect(body.replace(/\[\[ent:[0-9a-f-]+\|/g, "[[ent:|")).not.toMatch(/Simulated Co|made-up|simulated result|777|\$/i);
 
     // Once: asking again writes no second page.
     await service.chapterTitle(p.id, QUARTER);
