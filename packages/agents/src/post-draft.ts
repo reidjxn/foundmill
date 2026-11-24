@@ -171,7 +171,7 @@ export function postDraftFacts(input: PostDraftFactsInput): PostDraftFacts {
 }
 
 /** Why an answer was not used. A code for the log and for the retry; the words of the draft are never kept. */
-export const POST_DRAFT_REFUSALS = ["limits", "too_long", "url", "email", "mention", "phone", "markup", "invented_figure", "hashtag", "emoji", "hype", "claim", "banned_phrase", "platform_mention", "media_claim"] as const;
+export const POST_DRAFT_REFUSALS = ["limits", "too_long", "url", "email", "mention", "phone", "markup", "invented_figure", "hashtag", "emoji", "hype", "claim", "banned_phrase", "platform_mention", "media_claim", "too_many_sentences"] as const;
 export type PostDraftRefusal = (typeof POST_DRAFT_REFUSALS)[number];
 
 /** What the retry says about the answer that was refused: the rule it broke, never the answer itself. */
@@ -191,6 +191,7 @@ export const POST_DRAFT_RETRY_NOTES: Readonly<Record<PostDraftRefusal, string>> 
   banned_phrase: "Your last draft was not used: it used a phrase this product never uses. Say what the project is and what happened, in plain words, and nothing about why its founders started it.",
   platform_mention: `Your last draft was not used: it mentioned AI or ${APP_NAME}, which the page is not about. Leave both out.`,
   media_claim: "Your last draft was not used: it mentioned a video, a clip, a voiceover or something to watch or listen to. The post is words and a link; write nothing about any video.",
+  too_many_sentences: "Your last draft was not used: it had more than two sentences. Write it again in one or two sentences.",
 };
 
 export interface PostDraftRequest {
@@ -321,7 +322,7 @@ function notIn(text: string, re: RegExp, allowed: string): string[] {
  * code attaches the only one), address, @mention, markup or phone number; no figure and no quantity the facts do not
  * give; no hashtag the page does not use; no emoji; no praise, no claim of customers or results the page does not
  * make; none of the phrases the product never writes; no mention of AI or the platform unless the page has one; and no
- * mention of a video, a clip or a voiceover unless the page has one.
+ * mention of a video, a clip or a voiceover unless the page has one; and at most two sentences.
  */
 export function checkPostDraft(text: string, facts: PostDraftFacts): PostDraftRefusal | null {
   const all = factsText(facts);
@@ -345,7 +346,21 @@ export function checkPostDraft(text: string, facts: PostDraftFacts): PostDraftRe
   if (POST_VOCAB_PATTERNS.some((re) => notIn(text, re, own).length > 0)) return "banned_phrase";
   if (PLATFORM_PATTERNS.some((re) => notIn(text, re, own).length > 0)) return "platform_mention";
   if (notIn(text, MEDIA_CLAIM_RE, own).length > 0) return "media_claim";
+  if (postSentences(text).length > 2) return "too_many_sentences";
   return null;
+}
+
+/**
+ * A post's sentences, as the prompt counts them ("at most two sentences"): split after . ! ? or …, not after a short
+ * title such as "Dr." or "St.", and not counting a trailing run of hashtags.
+ */
+export function postSentences(text: string): string[] {
+  const out: string[] = [];
+  for (const piece of text.split(/(?<=[.!?…])\s+/)) {
+    if (out.length && /\b[A-Z][a-z]{0,2}\.$/.test(out[out.length - 1]!)) out[out.length - 1] += ` ${piece}`;
+    else out.push(piece);
+  }
+  return out.map((x) => x.replace(/#[\p{L}\p{N}_]+/gu, "").trim()).filter((x) => /\p{L}/u.test(x));
 }
 
 const oneLine = (s: string): string => s.replace(/\s+/g, " ").trim();

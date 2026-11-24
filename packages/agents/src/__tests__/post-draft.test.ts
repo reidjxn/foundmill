@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { hasClubRulesPrefix } from "../club-rules";
 import {
   POST_DRAFT_REFUSALS,
+  postSentences,
   POST_DRAFT_RETRY_NOTES,
   POST_DRAFT_ROUTE,
   POST_DRAFT_SKIPS,
@@ -177,6 +178,10 @@ describe("checkPostDraft", () => {
   const f = facts();
   const ok = "Maple Bakes has a page now. Sourdough, baked each morning in Leeds.";
 
+  it("counts sentences as the prompt does: not after a short title, not a trailing hashtag", () => {
+    expect(postSentences("Dr. Lee fixes bikes in St. Louis. The page is live. #bikes")).toEqual(["Dr. Lee fixes bikes in St. Louis.", "The page is live."]);
+  });
+
   it("passes a plain post made of the facts", () => {
     expect(checkPostDraft(ok, f)).toBeNull();
     expect(checkPostDraft("I put Maple Bakes online on Nov 12. Real bread for people in Leeds, at your door before 8.", f)).toBeNull();
@@ -216,6 +221,7 @@ describe("checkPostDraft", () => {
       [`Maple Bakes has a page now, built on ${APP_NAME}.`, "platform_mention"],
       [`Maple Bakes has a page now. Watch the video to see the bake.`, "media_claim"],
       [`Maple Bakes has a page now, with a short clip of the oven.`, "media_claim"],
+      [`The Maple Bakes page went live on Nov 12, 2026. Sourdough, baked each morning in Leeds. For people who want real bread.`, "too_many_sentences"],
     ];
     for (const [text, reason] of cases) expect(checkPostDraft(text, f), text).toBe(reason);
     // Every reason but the length (which `finalisePostDraft` holds) is reached by a case above.
@@ -250,7 +256,7 @@ describe("finalisePostDraft", () => {
   });
 
   it("takes the shorter one when the text is too long for a network that opens ready to post", () => {
-    const long = `Maple Bakes has a page now. ${"Sourdough, baked each morning in Leeds. ".repeat(8)}`.trim();
+    const long = `Maple Bakes has a page now. ${"sourdough baked each morning in Leeds, ".repeat(8)}`.trim();
     expect(long.length).toBeGreaterThan(f.maxChars);
     expect(finalisePostDraft({ text: long, short: "Maple Bakes has a page now." }, f, LINK)).toEqual({ text: "Maple Bakes has a page now." });
     expect(finalisePostDraft({ text: long, short: "" }, f, LINK)).toEqual({ refused: "too_long" });

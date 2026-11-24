@@ -31,7 +31,8 @@ export function checkChannelCreative(c: ChannelCreativeCase, assets: readonly Fi
   }
   const text = assets.map((a) => `${a.title}\n${a.body}`).join("\n").toLowerCase();
   for (const must of c.mustContain) if (!text.includes(must.toLowerCase())) problems.push(`no draft contains "${must}"`);
-  for (const bad of c.mustNotContain) if (text.includes(bad.toLowerCase())) problems.push(`a draft contains "${bad}"`);
+  // A claim, not its denial: "Nothing has been booked" says the opposite of "has been booked" (live run 45166145671).
+  for (const bad of c.mustNotContain) if (new RegExp(`(?<!\\b(?:nothing|not|never|no)\\s)${bad.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(text)) problems.push(`a draft contains "${bad}"`);
   return problems;
 }
 
