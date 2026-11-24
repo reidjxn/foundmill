@@ -15,6 +15,8 @@
  * reason to prefer it. Re-read a site's terms and move `checkedOn` when you touch its entry.
  */
 
+import { APP_NAME } from "@foundmill/config";
+
 export type BrowserSiteState = "open" | "ask_first" | "never";
 
 export interface BrowserSite {
@@ -39,6 +41,8 @@ export interface BrowserSite {
   hardGatePages?: readonly RegExp[];
   /** Paths (beyond `NEVER_PATHS`) the team never opens. */
   neverPages?: readonly RegExp[];
+  /** Foundmill's own test page: for the operator's live checks and the evals, never shown to a founder. */
+  testOnly?: true;
 }
 
 const END = "([-_./?#]|$)";
@@ -112,8 +116,11 @@ const CHECKED = "2026-11-22";
  * below are the admin addresses as known on that day: confirm each with a real account before its entry opens. A site on no list is `ask_first` too, and gets a connector only when it is added here.
  */
 export const BROWSER_SITES: readonly BrowserSite[] = Object.freeze([
+  // Foundmill's own test page (apps/sites `browser-test.ts`, founder, Nov 24, 2026), at `browser-test.<SITES_DOMAIN>`;
+  // the production sites domain is foundmill.app. Open: Foundmill wrote it. Never offered to a founder (`testOnly`).
+  // vocab-allow: the line below names the production sites domain, an address, not the product's name in copy.
+  { key: "foundmill_test", name: `${APP_NAME} test page`, state: "open", testOnly: true, hosts: ["browser-test.foundmill.app"], startUrl: "https://browser-test.foundmill.app/", terms: { url: "https://browser-test.foundmill.app/", line: "Foundmill's own test page.", checkedOn: "2026-11-24" } },
   { key: "carrd", name: "Carrd", state: "ask_first", hosts: ["carrd.co"], paths: ["/dashboard", "/build"], startUrl: "https://carrd.co/dashboard", terms: { url: "https://carrd.com/docs/general/terms", line: "Forbids only to \"use an automatic device (such as a robot or spider) or manual process to copy or 'scrape' the Website or Website Content\"; silent on working in your own account.", checkedOn: CHECKED } },
-  { key: "linktree", name: "Linktree", state: "ask_first", hosts: ["linktr.ee"], paths: ["/admin"], startUrl: "https://linktr.ee/admin", terms: { url: "https://linktr.ee/s/terms", line: "Clause 13 forbids automated means \"to access, download, extract, aggregate or otherwise collect content or information from Linktree user profiles or the Platform\": aimed at collecting, silent on working in your own account. Wording read through a summary: re-read before opening.", checkedOn: CHECKED } },
   { key: "wave", name: "Wave", state: "ask_first", hosts: ["next.waveapps.com"], startUrl: "https://next.waveapps.com/", terms: { url: "https://www.waveapps.com/legal/terms-of-use", line: "No clause on automated access; \"If you authorize users ('Additional Users') to access and use certain parts of Wave on your behalf, they will have access to your account information\". Its API covers customers, invoices and products only.", checkedOn: CHECKED }, neverPages: [/\/(banking|payroll|payments\/setup|payouts?)([-_./?#]|$)/i] },
 ] satisfies BrowserSite[]);
 

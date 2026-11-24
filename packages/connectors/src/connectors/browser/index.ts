@@ -56,6 +56,11 @@ export interface BrowserHost {
    * deleted, founder, Nov 22, 2026). Best effort; never fails the call.
    */
   used?: (businessId: string, connectorKey: string) => Promise<void>;
+  /**
+   * A page needs the founder (a bot check, or a sign-in mid-task): the session is paused for them, and the host tells
+   * them once, with a way to open the live view. Best effort; never fails the read.
+   */
+  needsFounder?: (input: { businessId: string; siteKey: string; siteName: string; need: "captcha" | "sign_in"; simulated: boolean }) => Promise<void>;
   /** One of the project's own files, for `upload_file`. Absent: uploads are not available. */
   projectFile?: (businessId: string, fileId: string) => Promise<{ name: string; bytes: Uint8Array } | null>;
 }
@@ -136,6 +141,14 @@ function build(site: BrowserSite, mode: "mock" | "live", sessionsOf: () => Brows
     if (first && snap.needsFounder === "sign_in") {
       await sessionsOf().stop(session.businessId, site.key);
       throw new AppError("sign_in_again", `Sign in again: ${site.name} signed the saved session out. The founder signs in again in Settings › Integrations; do not retry.`, 401);
+    }
+    // A bot check, or a sign-in the site asks for mid-task, is the founder's (founder, Nov 24, 2026: "user solves
+    // captchas, no auto-solving"): the session pauses for them and they get one note. The agent sees the page as it is,
+    // and its next step waits until the founder hands the page back.
+    if (snap.needsFounder) {
+      if (sessionsOf().hold(session.businessId, site.key, "request", snap.needsFounder === "captcha" ? `Solve the check on ${site.name}` : `Sign in to ${site.name}`)) {
+        await host.needsFounder?.({ businessId: session.businessId, siteKey: site.key, siteName: site.name, need: snap.needsFounder, simulated: mode === "mock" }).catch(() => undefined);
+      }
     }
     return pageOut(site, session, snap);
   };

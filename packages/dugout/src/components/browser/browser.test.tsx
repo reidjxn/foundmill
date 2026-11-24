@@ -103,7 +103,7 @@ describe("BrowserSitesList", () => {
       <BrowserSitesList
         sites={[
           { connectorKey: "browser_carrd", siteKey: "carrd", name: "Carrd", askFirst: true, status: "not_connected" },
-          { connectorKey: "browser_linktree", siteKey: "linktree", name: "Linktree", askFirst: true, status: "connected" },
+          { connectorKey: "browser_shop", siteKey: "shop", name: "Shop", askFirst: true, status: "connected" },
           { connectorKey: "browser_wave", siteKey: "wave", name: "Wave", askFirst: false, status: "expired" },
         ]}
         canEdit
@@ -111,13 +111,13 @@ describe("BrowserSitesList", () => {
         onDisconnect={onDisconnect}
       />,
     );
-    expect(screen.getByText("Signed in to Linktree")).toBeTruthy();
+    expect(screen.getByText("Signed in to Shop")).toBeTruthy();
     expect(screen.getAllByText("Disconnect deletes the saved sign-in.").length).toBe(2);
     fireEvent.click(screen.getByTestId("browser-connect-carrd"));
     fireEvent.click(screen.getByTestId("browser-sign-in-again-wave"));
-    fireEvent.click(screen.getByRole("button", { name: "Disconnect Linktree" }));
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Shop" }));
     expect(onConnect.mock.calls.map((c) => c[0].siteKey)).toEqual(["carrd", "wave"]);
-    expect(onDisconnect.mock.calls[0]![0].siteKey).toBe("linktree");
+    expect(onDisconnect.mock.calls[0]![0].siteKey).toBe("shop");
     expect(screen.getByTestId("browser-never").textContent).toBe("Banks, brokerages, government and identity sites, health records and password managers are never offered.");
   });
 });

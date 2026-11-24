@@ -10,7 +10,7 @@ const meta = {
   title: "Browser/BrowserSiteConnectDialog",
   component: BrowserSiteConnectDialog,
   parameters: { layout: "centered" },
-  args: { open: true, onOpenChange: () => undefined, siteName: "Linktree", askFirst: false, showIntro: true, appName: APP_NAME, stage: "intro", liveViewUrl: null, onStart: () => undefined, onDone: () => undefined, onCancel: () => undefined },
+  args: { open: true, onOpenChange: () => undefined, siteName: "Wave", askFirst: false, showIntro: true, appName: APP_NAME, stage: "intro", liveViewUrl: null, onStart: () => undefined, onDone: () => undefined, onCancel: () => undefined },
 } satisfies Meta<typeof BrowserSiteConnectDialog>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -28,7 +28,7 @@ export const SecondSiteAskFirst: Story = { args: { siteName: "Carrd", askFirst: 
 export const LiveView: Story = { args: { stage: "sign_in", liveViewUrl: "https://6080-isample0000000001.e2b.app/vnc.html" } };
 
 /** Done did not finish: the sign-in is not complete, and the dialog stays open. */
-export const NotSignedInYet: Story = { args: { stage: "sign_in", liveViewUrl: "https://6080-isample0000000001.e2b.app/vnc.html", error: "You are not signed in to Linktree yet. Finish signing in, then press Done." } };
+export const NotSignedInYet: Story = { args: { stage: "sign_in", liveViewUrl: "https://6080-isample0000000001.e2b.app/vnc.html", error: "You are not signed in to Wave yet. Finish signing in, then press Done." } };
 
 /** The simulated mode: no page, and Done finishes it. */
 export const Simulated: Story = { args: { stage: "sign_in", liveViewUrl: null } };

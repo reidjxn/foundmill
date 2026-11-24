@@ -207,14 +207,24 @@ describe("the browser connector (recorded pages)", () => {
     expect((await call("open_page", { url: "/billing" })).error?.code).toBe("never_page");
   });
 
-  it("answers a bot check with request_founder, never an attempt", async () => {
+  it("a bot check pauses the session for the founder, tells them once, and never tries it (founder, Nov 24, 2026)", async () => {
+    const told: { siteKey: string; need: string; simulated: boolean }[] = [];
+    connector = createBrowserConnector(SITE, { browser: { recordStep: async (s) => (steps.push(s), `step-${steps.length}`), needsFounder: async (n) => void told.push(n) } }).mock;
+    ctx = makeToolContext(connector);
     const p = (await page("open_page", { url: "/verify" })).content;
     expect(p.needsFounder).toBe("captcha");
-    expect((await call("click", { ref: ref(p, "I am not a robot") })).error?.code).toBe("needs_founder");
+    expect(MOCK_BROWSER_SESSIONS.list(TEST_BUSINESS_ID)[0]?.held).toMatchObject({ why: "request", note: "Solve the check on Acme Admin" });
+    expect(told).toEqual([{ businessId: TEST_BUSINESS_ID, siteKey: "acme_admin", siteName: "Acme Admin", need: "captcha", simulated: true }]);
+    // Nothing is pressed while the founder has the page.
+    expect((await call("click", { ref: ref(p, "I am not a robot") })).error?.code).toBe("founder_has_page");
+    expect(steps).toEqual([]);
+    // After the founder hands it back, the team carries on from the page as the founder left it.
+    expect(MOCK_BROWSER_SESSIONS.handBack(TEST_BUSINESS_ID, SITE.key)).toBe(true);
+    expect((await page("open_page", { url: "/settings/tax" })).content.url).toBe("https://app.acme.example.com/settings/tax");
+    // The agent may still ask in words, and that never runs either.
     const r = await call("request_founder", { need: "captcha", sentence: "The site asks to confirm a person is here." });
     expect(r.error?.code).toBe("hard_gate");
     expect((r.data as HumanActionDescriptor).title).toBe("The team needs you in Acme Admin");
-    expect(MOCK_BROWSER_SESSIONS.list(TEST_BUSINESS_ID)[0]?.held?.why).toBe("request");
   });
 
   it("says Sign in again once for a signed-out saved session, and ends the session", async () => {
