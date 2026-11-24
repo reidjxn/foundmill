@@ -40,6 +40,7 @@ describe("the launch gate covers every agent template", () => {
     expect(claimedActions("This email was sent on behalf of Corner Cafe, [PHYSICAL POSTAL ADDRESS], Portland, OR.")).toEqual([]);
     expect(claimedActions("> We have scheduled your first stamp.")).toEqual([]);
     expect(claimedActions("We sent the email to {{first_name}}.")).toEqual([]);
+    expect(claimedActions("- The pitch says who it is from and says it was sent on behalf of Corner Cafe.")).toEqual([]);
     expect(claimedActions("## What was queued\n- Post id 98eb, status scheduled (simulated).")).toEqual([]);
   });
 });
