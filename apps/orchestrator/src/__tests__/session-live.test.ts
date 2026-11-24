@@ -32,7 +32,7 @@ import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { MIN_SESSION_CAP_MINOR } from "../cycle-contract";
 import { UNDER_FLOOR_SUMMARY } from "../activities/session-budget";
 import { openAgentSession } from "../activities/dispatch";
-import { ACCEPTANCE_BRIEF, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, NO_REPORT_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, TASK_CLOSING_LINE, FREE_PLAN_SWITCH_NOTE, freeSessionModel, lastAttemptNote, NO_CHANGES_REASON, NO_CHANGES_TURN, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES, sessionSystemPrompt } from "../activities/session";
+import { ACCEPTANCE_BRIEF, ACCEPTANCE_BRIEF_SAMPLE, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, NO_REPORT_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, TASK_CLOSING_LINE, FREE_PLAN_SWITCH_NOTE, freeSessionModel, lastAttemptNote, NO_CHANGES_REASON, NO_CHANGES_TURN, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES, sessionSystemPrompt } from "../activities/session";
 import { connectSubject, handOffSubject } from "../activities/hand-off";
 import { SessionDrain } from "../drain";
 import { emitEvent } from "../events";
@@ -2605,8 +2605,16 @@ describe("honest outcomes: a task that is not code is done only when its agent r
 
     it("on a sample project a simulated call still counts, as WP-05 T2 allows there", async () => {
       const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (sample, simulated send)");
-      script = session(task.id, sessionId, allMet, { sendResult: SIMULATED_SEND });
+      let first = "";
+      const run = session(task.id, sessionId, allMet, { sendResult: SIMULATED_SEND });
+      script = async function* (call) {
+        first = (await promptsOf(call).next()).value?.message.content ?? "";
+        yield* run();
+      };
       expect((await a.runAgentSession(input, launch)).outcome).toBe("done");
+      // And the agent is told so, instead of the brief that says simulated lines are not met (launch gate, Nov 24).
+      expect(first).toContain(ACCEPTANCE_BRIEF_SAMPLE);
+      expect(first).not.toContain(ACCEPTANCE_BRIEF);
     });
 
     it("a line met on a tool this session never ran is not met", async () => {
