@@ -37,6 +37,7 @@ describe("the launch gate covers every agent template", () => {
     expect(claimedActions("Buffer answered from its mock: the queueing is simulated.")).toEqual([]);
     expect(claimedActions("**Refunds:** The order was paid online and was made.")).toEqual([]);
     expect(claimedActions("We paid the printer.")).toHaveLength(1);
+    expect(claimedActions("## What was queued\n- Post id 98eb, status scheduled (simulated).")).toEqual([]);
   });
 });
 

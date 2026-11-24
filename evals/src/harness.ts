@@ -133,6 +133,9 @@ export function goldenTaskPrompt(task: Pick<GoldenTask, "prompt">): string {
 }
 
 /** Run one golden task end to end: agent → deterministic checks → grader. Never throws; errors land in `error`. */
+/** A weighted mean of grader lines can land a hair under the threshold it equals (0.7999… shown as 0.80, run 45408711835). */
+const SCORE_EPSILON = 1e-9;
+
 export async function runGoldenTask(task: GoldenTask, opts: HarnessOptions): Promise<GoldenTaskResult> {
   const started = Date.now();
   const template = getTemplate(task.templateKey);
@@ -168,7 +171,7 @@ export async function runGoldenTask(task: GoldenTask, opts: HarnessOptions): Pro
 
     const graded = await gradeGoldenOutput(opts.client, { ...task, prompt }, result.text, checkResults, { route: opts.graderRoute });
     costMinor += graded.costMinor;
-    return { ...base, score: graded.score, passed: graded.score >= threshold, checks: checkResults, grader: graded.grade, outputText: result.text, costMinor, durationMs: Date.now() - started };
+    return { ...base, score: graded.score, passed: graded.score >= threshold - SCORE_EPSILON, checks: checkResults, grader: graded.grade, outputText: result.text, costMinor, durationMs: Date.now() - started };
   } catch (err) {
     return { ...base, score: 0, passed: false, durationMs: Date.now() - started, error: err instanceof Error ? err.message : String(err) };
   }
