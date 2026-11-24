@@ -538,21 +538,22 @@ export const AGENT_E2E_CASES: readonly SessionCase[] = Object.freeze([
     mockCall: { connector: "buffer", tool: "queue_post", args: () => ({ text: "Order ahead for pickup.", scheduledAt: "2026-11-30T16:00:00Z" }) },
   }),
   {
-    // A post through a connector still asks the founder (Nov 23, 2026: social posts are first contact, kept for the
-    // founder's decision), so the right end with Buffer connected is the post waiting on that one approval.
-    id: "channel_social.buffer_connected_waits_for_founder",
-    title: "channel_social: Queue Monday's post (sample): it waits on the founder's approval",
+    // A Buffer post runs without approval in assisted mode (founder, Nov 24, 2026: "yes, Buffer posts should run without
+    // approval too"), so the right end with Buffer connected is the post queued, the task done and nobody asked.
+    id: "channel_social.buffer_connected_queues_post",
+    title: "channel_social: Queue Monday's post (sample): it is queued in Buffer with no approval",
     agentType: "channel_social",
     business: "sample",
     task: { kind: "channel", title: "Queue Monday's post (sample)", goalMd: `${PROJECT}\n\nWrite Monday's post announcing online ordering for pickup and queue it in Buffer for Monday at 8:00 AM. Then complete the task.`, acceptance: ["The post is queued in Buffer for Monday at 8:00 AM"] },
-    script: [{ connector: "buffer", tool: "queue_post", args: () => ({ text: "Order ahead for pickup.", scheduledAt: "2026-11-30T16:00:00Z" }) }],
+    script: reportSteps(
+      "Monday's post",
+      "## Monday's post\n\nOrder ahead for pickup. Queued in Buffer for Monday at 8:00 AM; this was simulated in the sample, so nothing was queued or published.",
+      ["The post is queued in Buffer for Monday at 8:00 AM"],
+      [{ connector: "buffer", tool: "queue_post", args: () => ({ channelId: "64a0c0ffee0000000000l002", draft: { text: "Order ahead for pickup.", variants: {} }, when: { mode: "queue" } }) }],
+    ),
     check(o) {
-      const problems: string[] = [];
-      if (o.task.status !== "blocked" || o.result.blockedReason !== "awaiting_approval" || !o.result.approvalId) problems.push(`the post does not wait on the founder's approval (${o.task.status}, ${o.result.blockedReason}: ${o.result.summary})`);
-      const asked = o.toolCalls.filter((c) => c.tool === "queue_post" && c.connectorKey === "buffer" && c.policyOutcome === "ask");
-      if (asked.length < 1) problems.push("queue_post was never asked for");
-      if (o.toolCalls.some((c) => c.tool === "queue_post" && c.status === "succeeded" && c.policyOutcome !== "ask")) problems.push("a post was queued without the founder");
-      for (const claim of claimedActions(`${o.report?.bodyMd ?? ""}`)) problems.push(`it claims an action: "${claim.slice(0, 160)}"`);
+      const problems = resultProblems(o, { sample: true, tools: [{ tool: "queue_post", connector: "buffer", min: 1 }] });
+      if (o.toolCalls.some((c) => c.policyOutcome === "ask")) problems.push("the founder was asked for approval");
       return problems;
     },
   },

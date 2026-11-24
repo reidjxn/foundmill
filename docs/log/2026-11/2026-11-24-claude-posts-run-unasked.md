@@ -27,5 +27,8 @@ Founder, Nov 24, 2026, as relayed by the coordinating session:
 - A Notion comment (`notion-create-comment`) keeps its hints: it notifies people, and it is not a public post.
 - The golden eval `channel_social.own_buffer_account` still feeds a "waiting for the founder's approval" result, which is what augmented mode returns; it is unchanged.
 
+- Launch S28's end-to-end gate (#398) had a mock case, `channel_social.buffer_connected_waits_for_founder`, that expected the post to wait for the founder. It is renamed `channel_social.buffer_connected_queues_post`.
+- In that case the post is now queued in Buffer with no approval asked, the task is done, and the report says the sample's result was simulated. The audit table in `docs/holistic-plan/audits/agents-end-to-end.md` follows. S28 drops its own copy of this change when it rebases.
+
 ## Not done
-- Launch S28's end-to-end gate expects Buffer to end with "one approval asked, nothing posted". S28 is told the new expected end in assisted mode: the post is queued, and nothing is reported as published until `get_post` says it was sent.
+- Nothing is reported as published until `get_post` says the post was sent; no eval checks that path in this change.

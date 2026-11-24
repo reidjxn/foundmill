@@ -49,7 +49,7 @@ Tools: the number of platform tools the grants resolve to, then the outside conn
 | `channel_seo` | channel | SEO specialist | channel | 21 platform; github, serpapi, firecrawl, indexnow | SEO brief for the ordering page | no | `channel_seo.page_brief` |
 | `channel_geo` | channel | Generative engine optimization specialist | channel | 21 platform; anthropic, openai, gemini, perplexity, serpapi, firecrawl, indexnow, github | Make the cafe answerable by AI assistants | no | `channel_geo.answer_page` |
 | `channel_content` | channel | Content marketing specialist | channel | 21 platform; google_drive, notion, github, cli_inkscape | Write the online ordering blog post | no | `channel_content.launch_post` |
-| `channel_social` | channel | Social media specialist | channel | 21 platform; runway, elevenlabs_voice, buffer, cli_gimp | Queue Monday's post | no | `channel_social.buffer_not_connected`, `channel_social.buffer_connected_waits_for_founder` |
+| `channel_social` | channel | Social media specialist | channel | 21 platform; runway, elevenlabs_voice, buffer, cli_gimp | Queue Monday's post | no | `channel_social.buffer_not_connected`, `channel_social.buffer_connected_queues_post` |
 | `channel_paid_ads` | channel | Paid media specialist | channel | 21 platform | Plan a first ads test | no | `channel_paid_ads.test_plan` |
 | `channel_influencer` | channel | Creator partnerships specialist | channel | 21 platform; dropbox_sign, shopify, gmail | Brief for local food creators | no | `channel_influencer.creator_brief` |
 | `channel_affiliate` | channel | Affiliate program manager | channel | 21 platform; stripe | Design a referral reward | no | `channel_affiliate.referral_program` |
