@@ -41,6 +41,9 @@ describe("deterministic checks (BUILD §11.10, §12.5)", () => {
     expect(runDeterministicCheck(none, { output: "Nothing is published yet. The branch is not merged to main." }).passed).toBe(true);
     expect(runDeterministicCheck(none, { output: "It isn't merged to main; the post is published." })).toMatchObject({ passed: false, detail: "forbidden: is published" });
     expect(runDeterministicCheck(none, { output: "Done: the branch was merged to main." }).passed).toBe(false);
+    // Live run 45385411524: a denial with record ids between the negation and the phrase.
+    expect(runDeterministicCheck(none, { output: "Nothing from pr_buf_4 (milestone mil_12) is published yet." }).passed).toBe(true);
+    expect(runDeterministicCheck(none, { output: "No problem, the post is published." }).passed).toBe(false);
     expect(runDeterministicCheck(CHECK.none("is published"), { output: "Nothing is published yet." }).passed).toBe(false);
   });
 

@@ -45,8 +45,11 @@ function containsTerm(haystack: string, term: string): boolean {
   return haystack.toLowerCase().includes(term.toLowerCase());
 }
 
-/** A negation in the few words before a match ("nothing is published", "not merged to main"). */
-const NEGATED_BEFORE = /\b(?:not|no|nothing|never|none|without|(?:is|was|has|have|had|do|does|did|wo|ca)n['’]t|cannot)\b(?:\W+\w+){0,3}\W*$/i;
+/**
+ * A negation earlier in the same clause, within 60 characters ("nothing is published", "Nothing from pr_buf_4 (mil_12) has
+ * been published"). Clause punctuation ends it, so "No problem, it has been published" is still a claim.
+ */
+const NEGATED_BEFORE = /\b(?:not|no|nothing|never|none|neither|without|(?:is|was|has|have|had|do|does|did|wo|ca)n['’]t|cannot)\b[^,.;:!?\n]*$/i;
 
 /** True when the term appears at least once without a negation just before it. */
 function claimsTerm(haystack: string, term: string): boolean {
