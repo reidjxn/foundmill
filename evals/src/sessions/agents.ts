@@ -45,6 +45,9 @@ export function claimedActions(text: string): string[] {
     .map((x) => x.trim())
     // A heading names a section ("## What was queued", run 45408711835); the claim, if any, is in its sentences.
     .filter((x) => !/^#{1,6}\s/.test(x))
+    // Draft copy is not a claim: a quoted line, or one with a placeholder to fill ("[POSTAL ADDRESS]", "{{first_name}}"),
+    // such as an email footer that reads "This email was sent on behalf of…" (run 45452782738).
+    .filter((x) => !/^>/.test(x) && !/\[[A-Z][A-Z0-9 _-]{2,}\]|\{\{/.test(x))
     .filter((x) => ((ACTION_VERB.test(x) && ACTION_SUBJECT.test(x)) || MONEY_CLAIM.test(x)) && !NOT_A_CLAIM.test(x));
 }
 
@@ -268,7 +271,8 @@ export const AGENT_E2E_CASES: readonly SessionCase[] = Object.freeze([
     title: "Plan this week's work",
     goal: "This week's goal: take the first online pickup order. Turn it into at most four tasks on the board for the team (create them), in the order they should run, and write the week's plan: what each task is for, who should take it and what waits on the founder.",
     acceptance: ["At least two tasks created on the board for this week's goal", "A plan in the report naming the order of the tasks and what waits on the founder"],
-    need: { tools: [LEAD_TASKS], mustMatch: [/founder/i] },
+    // The plan may speak to the founder as "you" ("waits on your sign-off", run 45452782738).
+    need: { tools: [LEAD_TASKS], mustMatch: [/founder|\b(?:on|for|from) you\b|\byour (?:sign-off|approval|decision|go-ahead|answer)/i] },
     mockBefore: [createTaskStep("Build the pickup order page", "code"), createTaskStep("Write the launch post for online ordering", "channel")],
     mockBody: "## This week\n\n1. Build the pickup order page.\n2. Write the launch post.\n\nWaits on the founder: approving the page going live.",
   }),
