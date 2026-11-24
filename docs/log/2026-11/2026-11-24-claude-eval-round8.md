@@ -17,4 +17,7 @@ supersedes: []
 - Saying "hex" without a negation still fails, and the rubric line on tokens only is unchanged.
 
 ## Not done
+- The same `claims` reading now covers the other forbidden terms an agent naturally denies: "can't guarantee a ranking", "no discount", "nothing was emailed", "no doorway pages", "haven't booked the truck". These go through a `noClaim` helper in `tasks.ts`.
+  - Credentials, hosts and tool names (`sk_live`, `localhost`, `request_human_action`) stay strict, because naming them at all is the failure.
+  - A denial whose list runs over a comma ("nothing was looked up, emailed or added") still ends the clause at the comma. That keeps "No problem, it is published" a claim, and those cases have passed on every run.
 - No live run.
