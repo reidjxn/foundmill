@@ -39,7 +39,7 @@ describe.skipIf(!live)("outcome evals: sessions with tools (live)", () => {
       async () => {
         const r = await env.runSessionCase(c);
         results.push(r);
-        console.warn(`[eval] ${r.passed ? "PASS" : "FAIL"} ${c.id}: ${r.outcome ?? "not run"} / task ${r.taskStatus ?? "-"}, cost ${r.costMinor.toFixed(2)} minor (Estimate); run spent ${env.budget.spentMinor.toFixed(2)}${r.problems.length ? `; problems: ${r.problems.join(" | ")}` : ""}`);
+        console.warn(`[eval] ${r.passed ? "PASS" : "FAIL"} ${c.id}: ${r.outcome ?? "not run"} / task ${r.taskStatus ?? "-"}, cost ${r.costMinor.toFixed(2)} minor (Estimate); run spent ${env.budget.spentMinor.toFixed(2)}${r.problems.length ? `; problems: ${r.problems.join(" | ")}\ntools: ${r.toolTrail || "none"}${r.reportExcerpt ? `\nreport: ${r.reportExcerpt}` : ""}` : ""}`);
         expect(r.problems).toEqual([]);
         expect(env.budget.spentMinor).toBeLessThanOrEqual(env.budget.totalMinor);
       },
