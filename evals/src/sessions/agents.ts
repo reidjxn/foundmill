@@ -43,11 +43,14 @@ export function claimedActions(text: string): string[] {
   return text
     .split(/(?<=[.!?])\s+|\n+/)
     .map((x) => x.trim())
+    // A heading names a section ("## What was queued", run 45408711835); the claim, if any, is in its sentences.
+    .filter((x) => !/^#{1,6}\s/.test(x))
     .filter((x) => ((ACTION_VERB.test(x) && ACTION_SUBJECT.test(x)) || MONEY_CLAIM.test(x)) && !NOT_A_CLAIM.test(x));
 }
 
 const succeeded = (o: SessionObservation, tool: string, connector?: string) =>
-  o.toolCalls.filter((c) => c.tool === tool && (connector === undefined || c.connectorKey === connector) && c.status === "succeeded" && c.policyOutcome !== "deny" && !/integration_not_connected|"ok"\s*:\s*false|"error"\s*:/.test(c.resultSummary));
+  // `tool` may name alternatives ("add_event|create_event"): either tool does the job.
+  o.toolCalls.filter((c) => tool.split("|").includes(c.tool) && (connector === undefined || c.connectorKey === connector) && c.status === "succeeded" && c.policyOutcome !== "deny" && !/integration_not_connected|"ok"\s*:\s*false|"error"\s*:/.test(c.resultSummary));
 
 /** A result task: done, its own report saved, completed honestly, no claimed action, its acceptance met. */
 function resultProblems(o: SessionObservation, need: Need): string[] {
@@ -70,7 +73,7 @@ function resultProblems(o: SessionObservation, need: Need): string[] {
   if (need.minItems && items < need.minItems) problems.push(`the report has ${items} list items or rows, fewer than ${need.minItems}`);
   for (const t of need.tools ?? []) {
     const n = succeeded(o, t.tool, t.connector).length;
-    if (n < t.min) problems.push(`${t.connector ? `${t.connector}:` : ""}${t.tool} went through ${n} time(s), fewer than ${t.min} (${o.toolCalls.filter((c) => c.tool === t.tool).map((c) => `${c.status}/${c.policyOutcome}: ${c.resultSummary.slice(0, 160)}`).join("; ") || "not called"})`);
+    if (n < t.min) problems.push(`${t.connector ? `${t.connector}:` : ""}${t.tool} went through ${n} time(s), fewer than ${t.min} (${o.toolCalls.filter((c) => t.tool.split("|").includes(c.tool)).map((c) => `${c.status}/${c.policyOutcome}: ${c.resultSummary.slice(0, 160)}`).join("; ") || "not called"})`);
   }
   if (o.mail.length > 0) problems.push(`${o.mail.length} message(s) reached the capture inbox`);
   return problems;
@@ -667,7 +670,8 @@ export const AGENT_E2E_CASES: readonly SessionCase[] = Object.freeze([
     business: "sample",
     goal: "Plan a Saturday coffee tasting at the downtown shop on Dec 5, 2026, 10:00 to 11:00 AM, and add it to our Google Calendar (no attendees).",
     acceptance: ["The tasting is on Google Calendar for Dec 5, 2026, 10:00 to 11:00 AM"],
-    need: { tools: [{ tool: "create_event", connector: "google_calendar", min: 1 }] },
+    // add_event (no attendees) or create_event: both put the tasting on the calendar (run 45408711835 used add_event).
+    need: { tools: [{ tool: "add_event|create_event", connector: "google_calendar", min: 1 }] },
     mockBefore: [{ connector: "google_calendar", tool: "create_event", args: () => ({ summary: "Coffee tasting", start: "2026-12-05T18:00:00Z", end: "2026-12-05T19:00:00Z" }) }],
     mockBody: "## Tasting\n\nDec 5, 2026, 10:00 to 11:00 AM.\n\nGoogle Calendar answered from its mock in this sample project: the event is simulated.",
   }),
