@@ -87,7 +87,8 @@ export const SOURCE_WATCH_CASES: SourceWatchCase[] = [
     mustNotContain: [],
     rubric: [
       "The summary names the two asks (receipt chasing by text, a second bank feed) and nothing invented.",
-      "Features gains receipt chasing by text message and a second bank feed; the existing three features stay word for word.",
+      // The spec covers bank feeds in both Features (matching) and Integrations (the aggregator), so either block may take the second feed.
+      "Features gains receipt chasing by text message as a feature line, and a second bank feed is added to Features or Integrations; the existing lines stay word for word.",
       "The rationale quotes the interview at most once, under 25 words.",
       "No new prices or numbers are invented; any figure of the drafter's own is labeled Estimate.",
     ],

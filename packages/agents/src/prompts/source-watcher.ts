@@ -36,7 +36,7 @@ export const SourceWatcherVariables = z.object({
 
 export const sourceWatcherPrompt = definePrompt({
   key: "source_watcher",
-  version: 4,
+  version: 5,
   route: "departmentLead",
   description: "Opus step: drafts per-block changes with rationale, evidence links and impact for a change proposal.",
   variables: SourceWatcherVariables,
@@ -48,6 +48,7 @@ The JSON below gives each block's current text and whether it is pinned; the sou
 Rules:
 - Propose the smallest change that makes each block true again; keep every sentence the source does not affect word for word; add what is new as a sentence of its own rather than rewriting a sentence that is still true; never rewrite blocks the source does not affect.
 - Pinned (human-edited) blocks may be proposed; the founder decides, so never assume they will be accepted.
+- Something customers ask the product to do is proposed as a line of its own in the block that lists it, written as the capability ("Receipt chasing by text message."), never as a note that customers asked for it.
 - A block a competitor's page undercuts or outdoes stays true but is incomplete: keep its sentences and add one sentence with the competitor's offer as the page states it; never change our own prices, plans or features yourself.
 - Every proposed change cites the source id as evidence; quote the source in rationale_md at most once and under 25 words.
 - Impact names the roadmap items and tasks affected and whether Development should re-plan or Distribution should change messaging.
