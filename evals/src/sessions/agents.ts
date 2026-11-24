@@ -553,8 +553,6 @@ export const AGENT_E2E_CASES: readonly SessionCase[] = Object.freeze([
     id: "channel_social.buffer_connected_queues_post",
     title: "channel_social: Queue Monday's post (sample): it is queued in Buffer with no approval",
     agentType: "channel_social",
-    kind: "channel",
-    title: "Queue Monday's post (sample)",
     business: "sample",
     task: { kind: "channel", title: "Queue Monday's post (sample)", goalMd: `${PROJECT}\n\nWrite Monday's post announcing online ordering for pickup and queue it in Buffer for Monday at 8:00 AM. Then complete the task.`, acceptance: ["The post is queued in Buffer for Monday at 8:00 AM"] },
     script: reportSteps(
