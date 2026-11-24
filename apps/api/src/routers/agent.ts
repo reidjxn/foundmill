@@ -111,6 +111,22 @@ async function agentTestCount(ctx: BusinessContext, agent: Agent): Promise<numbe
   return tests;
 }
 
+/**
+ * The tests a run of `skillKeys` (or every skill, left out) grades, held-out ones included. Each key must be one the agent
+ * carries (400): a run never grades a skill the agent does not hold.
+ */
+async function scopedTestCount(ctx: BusinessContext, agent: Agent, skillKeys?: readonly string[]): Promise<number> {
+  if (!skillKeys) return agentTestCount(ctx, agent);
+  const carried = new Set((await ctx.rls((tx) => repos.skills.listForAgent(tx, ctx.businessId, agent.id))).map((s) => s.skillKey));
+  const missing = skillKeys.find((k) => !carried.has(k));
+  if (missing) throw new ValidationError(`${agent.name} does not carry the skill ${missing}`);
+  let tests = 0;
+  for (const k of skillKeys) tests += await skillTestCount(ctx.db, ctx.businessId, agent.agentType, k);
+  return tests;
+}
+
+const SkillKeys = z.array(z.string().min(1)).min(1).max(3);
+
 /** The retests a model change would queue (as `changeAgentModels` decides): unlocked agents not already on the model. */
 async function retestPlan(ctx: BusinessContext, targets: readonly Agent[], modelKey: ModelKey): Promise<{ agents: number; tests: number; costMinor: number }> {
   let agents = 0;
@@ -253,6 +269,8 @@ export const agentRouter = router({
           metrics,
           recent,
           trainingRuns: runs.items,
+          /** The live version is a later one that no promoted run scored: its ratings are from before the change. */
+          untestedSinceChange: !!current && current.version > 1 && !runs.items.some((r) => r.decision === "promoted" && r.toVersionId === current.id),
           sessions: sessions.items.map((s) => {
             const task = s.taskId ? tasks.find((t) => t.id === s.taskId) : undefined;
             return { ...s, task: task ? { id: task.id, title: task.title, status: task.status } : null };
@@ -311,15 +329,14 @@ export const agentRouter = router({
     ),
 
     /** Cost and duration estimate for a training run (labelled Estimate; held-out tests counted, never returned). */
-    estimate: read.input(z.object({ agentId: Id, modelKey: ChoosableModel.optional() })).query(async ({ ctx, input }) => {
+    estimate: read.input(z.object({ agentId: Id, modelKey: ChoosableModel.optional(), skillKeys: SkillKeys.optional() })).query(async ({ ctx, input }) => {
       const { agent, skills } = await ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         return { agent, skills: await repos.skills.listForAgent(tx, ctx.businessId, agent.id) };
       });
       const modelKey = input.modelKey ?? agent.modelKey;
-      let tests = 0;
-      for (const s of skills) tests += await skillTestCount(ctx.db, ctx.businessId, agent.agentType, s.skillKey);
-      return { tests, skills: skills.length, modelKey, costMinor: trainingPrice(ctx, tests, modelKey), batchCostMinor: trainingPrice(ctx, tests, modelKey, true), currency: CREDITS_CURRENCY, durationMinutes: Math.max(2, Math.min(5, Math.ceil(tests / 20))), label: "Estimate" as const };
+      const tests = await scopedTestCount(ctx, agent, input.skillKeys);
+      return { tests, skills: input.skillKeys?.length ?? skills.length, modelKey, costMinor: trainingPrice(ctx, tests, modelKey), batchCostMinor: trainingPrice(ctx, tests, modelKey, true), currency: CREDITS_CURRENCY, durationMinutes: Math.max(2, Math.min(5, Math.ceil(tests / 20))), label: "Estimate" as const };
     }),
 
     /**
@@ -327,20 +344,20 @@ export const agentRouter = router({
      * at a time: a second request while one is queued, running or grading is refused (409), so a double click never
      * pays for two runs.
      */
-    run: write.input(z.object({ agentId: Id, versionId: Id })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
+    run: write.input(z.object({ agentId: Id, versionId: Id, skillKeys: SkillKeys.optional() })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       // Paid entry (WP-09 T16): a training run's model calls wait for the entry plan.
       await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
       await assertAgentsRunning(ctx, "a training run");
       const { trained, draft } = await ctx.rls(async (tx) => ({ trained: await repos.agents.get(tx, ctx.businessId, input.agentId), draft: await repos.agents.getVersion(tx, ctx.businessId, input.versionId) }));
-      await assertTrainingAffordable(ctx, trainingPrice(ctx, await agentTestCount(ctx, trained), draft.modelKey));
+      await assertTrainingAffordable(ctx, trainingPrice(ctx, await scopedTestCount(ctx, trained, input.skillKeys), draft.modelKey));
       const run = await ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team`);
         const version = await repos.agents.getVersion(tx, ctx.businessId, input.versionId);
         if (version.agentId !== agent.id) throw new ValidationError("Version belongs to another agent");
         if (version.state !== "draft") throw new ValidationError("Only a draft version can be trained");
-        const r = await repos.training.createForDraft(tx, ctx.businessId, { agentId: agent.id, fromVersionId: agent.currentVersionId, toVersionId: version.id, status: "queued", requestedBy: ctx.userId });
-        await audit(tx, ctx, { action: "agent.training.run", target: { kind: "training_run", id: r.id }, details: { agentId: agent.id, versionId: version.id } });
+        const r = await repos.training.createForDraft(tx, ctx.businessId, { agentId: agent.id, fromVersionId: agent.currentVersionId, toVersionId: version.id, status: "queued", requestedBy: ctx.userId, ...(input.skillKeys ? { skillKeys: input.skillKeys } : {}) });
+        await audit(tx, ctx, { action: "agent.training.run", target: { kind: "training_run", id: r.id }, details: { agentId: agent.id, versionId: version.id, skillKeys: input.skillKeys ?? null } });
         return r;
       });
       const workflow = await ctx.temporal.start(WORKFLOWS.trainingRun, { workflowId: workflowIds.training(run.id), args: [{ businessId: ctx.businessId, trainingRunId: run.id }] });
@@ -380,10 +397,42 @@ export const agentRouter = router({
         }
         const watchUntil = new Date(Date.now() + LIMITS.rollbackWatchDays * 86_400_000);
         const run = await repos.training.decide(tx, ctx.businessId, input.runId, "promoted", { watchUntil });
-        const version = await repos.agents.getVersion(tx, ctx.businessId, run.toVersionId!);
-        await emit(tx, ctx, { type: "agent.promoted", payload: { agentId: run.agentId, trainingRunId: run.id, fromVersionId: run.fromVersionId, toVersionId: version.id, version: version.version, watchUntil: watchUntil.toISOString(), rollback: false } });
-        await audit(tx, ctx, { action: "agent.training.promote", target: { kind: "training_run", id: run.id }, details: { agentId: run.agentId, versionId: version.id, ratings: run.ratings.map((r) => ({ skillKey: r.skillKey, from: r.previousTested, to: r.tested, potential: r.potential })) } });
+        // A skill check has no candidate version: accepting it writes the ratings and nothing goes live.
+        const version = run.toVersionId ? await repos.agents.getVersion(tx, ctx.businessId, run.toVersionId) : null;
+        if (version) await emit(tx, ctx, { type: "agent.promoted", payload: { agentId: run.agentId, trainingRunId: run.id, fromVersionId: run.fromVersionId, toVersionId: version.id, version: version.version, watchUntil: watchUntil.toISOString(), rollback: false } });
+        await audit(tx, ctx, { action: "agent.training.promote", target: { kind: "training_run", id: run.id }, details: { agentId: run.agentId, versionId: version?.id ?? null, ratings: run.ratings.map((r) => ({ skillKey: r.skillKey, from: r.previousTested, to: r.tested, potential: r.potential })) } });
         return run;
+      }),
+    ),
+
+    /**
+     * Make a draft live without a run (WP-06 T11): an edit of one line should not cost a full run. The ratings stay as
+     * they were and the profile marks them not tested since the change (`untestedSinceChange`). Refused when the version is
+     * not a draft, when it breaks a house rule, or while a run for it is active; a draft that widens the live tools is
+     * an owner's or admin's. On the service connection after the membership check, as `promote` is.
+     */
+    promoteDraft: write.input(z.object({ agentId: Id, versionId: Id })).mutation(({ ctx, input }) =>
+      ctx.db.transaction(async (tx) => {
+        await repos.memberships.get(tx, ctx.businessId, ctx.userId);
+        const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
+        if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team; its profile is kept as a record`);
+        const draft = await repos.agents.getVersion(tx, ctx.businessId, input.versionId);
+        if (draft.agentId !== agent.id || draft.state !== "draft") throw new ValidationError("Only a draft can be made live");
+        const live = agent.currentVersionId ? await repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null;
+        const before = live ? AgentInstructions.safeParse(live.instructions) : null;
+        const after = AgentInstructions.parse(draft.instructions);
+        const detection = detectClubRuleViolation(before?.success ? { before: before.data, after } : { before: after, after });
+        if (detection.flagged) throw new ValidationError(`This version breaks a house rule (${detection.violations.map((v) => v.ruleId).join(", ")}) and cannot go live`);
+        if (await repos.training.activeForVersion(tx, ctx.businessId, draft.id)) throw new ConflictError("A run for this version is still going; wait for it or cancel it first");
+        if (!isAdminRole(ctx)) {
+          const templateTools = getTemplateByAgentType(agent.agentType)?.tools;
+          if (widensGrants(runningGrants(live ?? undefined, templateTools), runningGrants(draft, templateTools))) throw new ForbiddenError("This version gives the agent new tools; an owner or admin makes it live");
+        }
+        const promoted = await repos.agents.promoteVersion(tx, ctx.businessId, agent.id, draft.id, { keepAgentModel: true });
+        const watchUntil = new Date(Date.now() + LIMITS.rollbackWatchDays * 86_400_000);
+        await emit(tx, ctx, { type: "agent.promoted", payload: { agentId: agent.id, trainingRunId: null, fromVersionId: agent.currentVersionId, toVersionId: draft.id, version: draft.version, watchUntil: watchUntil.toISOString(), rollback: false } });
+        await audit(tx, ctx, { action: "agent.version.promote_untested", target: { kind: "agent_version", id: draft.id }, details: { agentId: agent.id, from: agent.currentVersionId, to: draft.id } });
+        return promoted;
       }),
     ),
 
@@ -523,6 +572,37 @@ export const agentRouter = router({
      * came from and whether a training run has scored it yet. Its instructions reach the agent's prompt after the house
      * rules; the list shows their first lines.
      */
+    /**
+     * Check one skill on one agent (WP-06 T10): the live version runs the tests of the rated skills the skill `improves`
+     * (at most 3, those the agent carries) with and without it, two arms. The price comes back with the run and is
+     * checked against the balance first. Results wait for the founder's decision like any run (2026-10-18), so a rating
+     * changes only when they accept; nothing goes live.
+     */
+    measure: write.input(z.object({ agentId: Id, skillKey: z.string().min(1) })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
+      await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
+      await assertAgentsRunning(ctx, "a skill check");
+      const { agent, carried } = await ctx.rls(async (tx) => {
+        const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
+        return { agent, carried: (await repos.skills.listForAgent(tx, ctx.businessId, agent.id)).map((s) => s.skillKey) };
+      });
+      if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team`);
+      if (!input.skillKey.startsWith(LIBRARY_SKILL_PREFIX) || !carried.includes(input.skillKey)) throw new ValidationError(`${agent.name} does not carry the skill ${input.skillKey}`);
+      const lib = getLibrarySkill(input.skillKey.slice(LIBRARY_SKILL_PREFIX.length));
+      const skillKeys = (lib?.improves ?? []).filter((k) => carried.includes(k)).slice(0, 3);
+      if (skillKeys.length === 0) throw new ValidationError("This skill sharpens no rating this agent has, so there is nothing to check");
+      const arms = 2;
+      const tests = (await scopedTestCount(ctx, agent, skillKeys)) * arms;
+      const costMinor = trainingPrice(ctx, tests, agent.modelKey);
+      await assertTrainingAffordable(ctx, costMinor);
+      const run = await ctx.rls(async (tx) => {
+        const r = await repos.training.create(tx, ctx.businessId, { agentId: agent.id, fromVersionId: agent.currentVersionId, toVersionId: null, status: "queued", requestedBy: ctx.userId, kind: "skill_check", skillKeys, measuredSkillKey: input.skillKey });
+        await audit(tx, ctx, { action: "agent.skills.measure", target: { kind: "training_run", id: r.id }, details: { agentId: agent.id, skillKey: input.skillKey, skillKeys } });
+        return r;
+      });
+      await ctx.temporal.start(WORKFLOWS.trainingRun, { workflowId: workflowIds.training(run.id), args: [{ businessId: ctx.businessId, trainingRunId: run.id }] });
+      return { run, estimate: { tests, arms, skillKeys, modelKey: agent.modelKey, costMinor, currency: CREDITS_CURRENCY, label: "Estimate" as const } };
+    }),
+
     added: read.input(z.object({ agentId: Id })).query(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
