@@ -433,9 +433,9 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_seo.hosted_page",
     templateKey: "channel_seo",
     title: "The hosted page, with only the page tools",
-    prompt: `Project Lantern Bikes has a published page and no code repository. Tool result from read_public_page (page_fix_7): pitch "Lantern Bikes" (the project's name), about "We repair bikes at your door. Book a slot and a van with parts comes to you." (84 characters), who it is for "People who commute by bike", listed false (reason: short_about), limits pitch 140, title 70, description 160. The positioning notes say the project is for people who commute by bike in Leeds. The only tools you have are read_public_page and propose_page_edit; search data is not connected for this project. A pitch reads best under 55 characters. Say what you found and what you propose, what waits for the founders, and what you cannot report. Under 200 words.`,
-    // "wait" covers waits, waiting and wait for the founders.
-    checks: [CHECK.all("page_fix_7", "wait", "not connected"), CHECK.none("rank #1", "guarantee", "top of Google", "ranking will"), CHECK.words(60, 220)],
+    prompt: `Project Lantern Bikes has a published page and no code repository. Tool result from read_public_page (page_fix_7): pitch "Lantern Bikes" (the project's name), about "We repair bikes at your door. Book a slot and a van with parts comes to you." (84 characters), who it is for "People who commute by bike", listed false (reason: short_about), limits pitch 140, title 70, description 160. The positioning notes say the project is for people who commute by bike in Leeds. The only tools you have are read_public_page and propose_page_edit; search data is not connected for this project. A pitch reads best under 55 characters. Propose the pitch and a longer about text, using only facts on the page and in the positioning notes. Say what you found and what you propose, what waits for the founders, and what you cannot report. Under 200 words.`,
+    // "wait" covers waits, waiting and wait for the founders; "isn't connected" says the same as "not connected".
+    checks: [CHECK.all("page_fix_7", "wait"), { kind: "contains_all", params: { terms: ["not connected", "n't connected"], any: true } }, CHECK.none("rank #1", "guarantee", "top of Google", "ranking will"), CHECK.words(60, 220)],
     sourceIds: ["page_fix_7"],
     rubric: [
       "Proposes a pitch under 55 characters that names who it is for (people who commute by bike), through the proposal tool, not by editing the page.",
