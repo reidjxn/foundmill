@@ -111,6 +111,11 @@ export function runDeterministicCheck(check: DeterministicCheck, ctx: CheckConte
     case "contains_all": {
       const text = checkedText(ctx, params);
       const missing = terms(params).filter((t) => !containsTerm(text, t));
+      // `any: true`: one of the terms is enough (the same idea in the product's other words).
+      if (params.any === true) {
+        const found = missing.length < terms(params).length;
+        return { kind: check.kind, passed: found, detail: found ? undefined : `missing all of: ${missing.join(", ")}` };
+      }
       return { kind: check.kind, passed: missing.length === 0, detail: missing.length ? `missing: ${missing.join(", ")}` : undefined };
     }
     case "contains_none": {

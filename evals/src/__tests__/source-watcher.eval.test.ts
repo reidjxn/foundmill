@@ -21,7 +21,7 @@ describe.skipIf(!live)("Source Watcher (live)", () => {
     async () => {
       const results = await runAll(cases, 2, (c) => runSourceWatchCase(c, { client: client! }));
       for (const r of results) {
-        if (!r.passed) console.warn(`[eval] ${r.caseId} score ${r.score.toFixed(2)} < ${SOURCE_WATCH_PASS_THRESHOLD}${r.error ? ` (${r.error})` : ""}\n${r.problems.join("\n")}\nclassifier: ${JSON.stringify(r.relevance?.blocks ?? null)}\n${JSON.stringify(r.grader?.lines ?? [], null, 2)}`);
+        if (!r.passed) console.warn(`[eval] ${r.caseId} score ${r.score.toFixed(2)} < ${SOURCE_WATCH_PASS_THRESHOLD}${r.error ? ` (${r.error})` : ""}\n${r.problems.join("\n")}\nclassifier: ${JSON.stringify(r.relevance?.blocks ?? null)}\ndrafter: ${JSON.stringify(r.drafted)}\n${JSON.stringify(r.grader?.lines ?? [], null, 2)}`);
       }
       const cost = results.reduce((s, r) => s + r.costMinor, 0);
       console.warn(`[eval] source watcher: ${results.filter((r) => r.passed).length}/${results.length} passed, cost ${cost} minor (Estimate)`);
