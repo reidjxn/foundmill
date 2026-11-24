@@ -267,7 +267,8 @@ export function finaliseProposal(out: SourceProposalOutput, ctx: { source: Sourc
   const seen = new Set<string>();
   const hunks: DraftedProposal["hunks"] = [];
   for (const h of out.hunks) {
-    const block = byId.get(h.block_id);
+    // As in finaliseRelevance: the prompt labels blocks "<id> (Section, pinned)", and a copied label is still that block.
+    const block = byId.get(h.block_id) ?? byId.get(UUID_IN_TEXT.exec(h.block_id)?.[0].toLowerCase() ?? "");
     if (!block || seen.has(block.id)) continue;
     const text = plainModelText(h.proposed_text).trim();
     if (!text) continue;

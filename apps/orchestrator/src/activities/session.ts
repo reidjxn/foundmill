@@ -552,7 +552,7 @@ class SessionRecorder {
       if (full.status === "started") this.toolCalls += 1;
       if (full.status === "failed" || full.status === "denied") this.toolFailures += 1;
       this.trackBlockTask(full, opts.args);
-      this.trackCompleteTask(full, opts.args);
+      this.trackCompleteTask(full, opts.args, opts.result);
       this.trackOutside(full, opts.result);
       this.trackToolUse(full, opts.result);
       this.trackAgentPush(full, opts.args);
@@ -602,7 +602,7 @@ class SessionRecorder {
    * A `complete_task` or a `save_report` on this session's own task (WP-05 T3: a saved report is a reported result),
    * tracked like `trackBlockTask`: it counts once the call went through.
    */
-  private trackCompleteTask(call: Extract<SessionEventInput, { kind: "tool_call" }>, args: unknown): void {
+  private trackCompleteTask(call: Extract<SessionEventInput, { kind: "tool_call" }>, args: unknown, result?: string): void {
     if ((call.tool !== "complete_task" && call.tool !== "save_report") || (call.connectorKey !== null && call.connectorKey !== undefined && call.connectorKey !== "platform")) return;
     if (call.status === "started") {
       const a = (args ?? {}) as { taskId?: unknown; acceptance?: unknown };
@@ -616,7 +616,8 @@ class SessionRecorder {
     if (!this.completeCalls.delete(call.callId)) return;
     const claims = this.claimCalls.get(call.callId);
     this.claimCalls.delete(call.callId);
-    if (call.status !== "succeeded" || call.policyOutcome === "deny" || call.policyOutcome === "ask") return;
+    // A call the platform answered with an error (a claim citing a heading the report lacks) did not complete the task.
+    if (call.status !== "succeeded" || call.policyOutcome === "deny" || call.policyOutcome === "ask" || /"ok"\s*:\s*false/.test(result ?? call.resultSummary ?? "")) return;
     this.completedOwnTask = true;
     if (call.tool === "save_report") this.savedOwnReport = true;
     else this.acceptanceClaims = claims ?? null;
@@ -1650,11 +1651,13 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const grants = withContextReads(await sessionGrantsFor(deps.db, input.businessId, task.id, withBrowserSites(resolveGrants(parseGrants(live.version, live.template)), await browserSitesFor(deps.db, input.businessId, agent))), await repos.integrations.contextReads(deps.db, input.businessId));
   if (grants.unresolved.length > 0) deps.log.info({ sessionId: input.sessionId, unresolved: grants.unresolved.map((u) => `${u.connectorKey}.${u.capability}`).slice(0, 50) }, "granted capabilities no tool serves yet");
   // What the gateway would refuse as not connected (WP-05 T12, the gateway's own rule): the agent is told, and a research
-  // or channel task whose every outside connector is refused does not start, before any workspace, token or SDK exists.
-  // A sample business, development and test keep their simulated answers, as after the session (T2).
+  // task that cannot read the web, with every outside connector refused, does not start, before any workspace, token or
+  // SDK exists. A channel task, or research without web search (a planner on GitHub), starts: drafting needs no outside
+  // tool, and the agent blocks itself when the task does (Launch S28: content, SEO and the planner never started on a new
+  // project). A sample business, development and test keep their simulated answers, as after the session (T2).
   const unusable = mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo) ? [] : unusableConnectors(grants.servers, channelAvailabilityFacts(deps.env, live.business, await repos.integrations.list(deps.db, input.businessId)));
   const outsideServers = grants.servers.filter((key) => !ALWAYS_LIVE_CONNECTORS.has(key));
-  if ((task.kind === "research" || task.kind === "channel") && outsideServers.length > 0 && outsideServers.every((key) => unusable.includes(key))) {
+  if (task.kind === "research" && unusable.includes("web") && outsideServers.every((key) => unusable.includes(key))) {
     return { outcome: "blocked", reason: `not connected: ${unusable.join(", ")}`, blockedReason: "not_connected", approvalId: null, summary: `Blocked: ${namesList(unusable.map(connectorName))} not connected for this project, so nothing real was read or sent.`.slice(0, 1800), providerSessionId: null };
   }
   const notConnectedNote = unusable.length > 0 ? `Not connected for this project: ${namesList(unusable.map(connectorName))}. Calls to them are refused. If the task cannot be done without one, call block_task now and name it.` : "";
@@ -2315,7 +2318,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       return { outcome: "stopped", reason: stoppedLate.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stoppedLate.reason}.`, providerSessionId: sdkSessionId, ...usageNow() };
     }
     if (recorder.pendingApprovalId) return { outcome: "blocked", reason: "waiting for the founder's approval", blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
-    if (agentBlock) return { outcome: "blocked", reason: agentBlock.reason, blockedReason: "dependency", approvalId: null, summary: `Blocked by ${agent.name}: ${agentBlock.reason}`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+    if (agentBlock) return { outcome: "blocked", reason: agentBlock.reason, blockedReason: "dependency", approvalId: null, summary: agentBlockSummary(agent.name, agentBlock.reason, acceptanceLines(task), recorder.acceptanceClaims), providerSessionId: sdkSessionId, ...usageNow() };
     if (nothingWritten) {
       await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `${agent.name} ended the session without changing any file, so the task is not done. It is blocked until it runs again.` });
       return { outcome: "blocked", reason: NO_CHANGES_REASON, blockedReason: "error", approvalId: null, summary: `Blocked: ${agent.name} changed no files on "${task.title}".`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
@@ -2897,7 +2900,7 @@ export const REPORT_TURN = "You ended without reporting. Call complete_task with
 /** Why a task that is not code is blocked when its agent never reported a result. */
 export const NO_RESULT_REASON = "no result: the session ended without complete_task or block_task";
 /** What a task that is not code with acceptance lines tells its agent, under the numbered lines. */
-export const ACCEPTANCE_BRIEF = "Save your result with save_report, then call complete_task with one acceptance result per line, by its number: met or not, and for a met line where it shows (reportSection: a heading of your report, or tool: the outside tool call that did it). The task is done only when every line is met on a real result; a line that rests only on simulated or not-connected calls is not met, so say so.";
+export const ACCEPTANCE_BRIEF = "Save your result with save_report, then call complete_task with one acceptance result per line, by its number: met or not, and for a met line where it shows (reportSection: a heading of your report, or tool: the outside tool call that did it). The task is done only when every line is met on a real result; a line that rests only on simulated or not-connected calls is not met, so say so. If you block the task instead, name in the reason each line that is not met.";
 /** Why a task that is not code is blocked when its report is missing or one of its acceptance lines is not met. */
 export const ACCEPTANCE_UNMET_REASON = "acceptance not met";
 /** The founder's one sentence on what was not met, each line named once; never a to-do. */
@@ -2906,6 +2909,15 @@ export function acceptanceUnmetSummary(agentName: string, title: string, total: 
   if (unmet.length === 0) return `Blocked: ${agentName} ended "${title}" without saving a report, so its result is not counted as done.`.slice(0, 1800);
   const count = unmet.length === total ? (total === 1 ? "its one line" : `all ${total} of its lines`) : `${unmet.length} of its ${total} lines`;
   return `Blocked: ${agentName} ended "${title}" with ${count} not met${reportSaved ? "" : " and no report saved"}: ${quoted}.`.slice(0, 1800);
+}
+/**
+ * The founder's sentence on a task its agent blocked: the agent's reason, then each acceptance line the session could not
+ * count as met, quoted once (a line the reason already quotes is not repeated), so the founder sees which line waits.
+ */
+export function agentBlockSummary(agentName: string, reason: string, lines: readonly string[], claims: readonly AcceptanceResultT[] | null): string {
+  const open = lines.filter((l, i) => !claims?.some((c) => c.line === i + 1 && c.met) && !reason.includes(l));
+  const quoted = open.map((l) => `“${l.length > 160 ? `${l.slice(0, 159)}…` : l}”`).join("; ");
+  return `Blocked by ${agentName}: ${reason}${open.length ? `${/[.!?]$/.test(reason.trim()) ? "" : "."} Not counted as met yet: ${quoted}.` : ""}`.slice(0, 1800);
 }
 /** How much of a report's body `task.completed.summary` carries after its title (the schema allows 2,000 in all). */
 export const REPORT_SUMMARY_BODY_CHARS = 1_700;

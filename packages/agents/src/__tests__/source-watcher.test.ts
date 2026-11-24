@@ -135,6 +135,9 @@ describe("Source Watcher answers", () => {
     expect(p).toMatchObject({ title: "Pricing: match the competitor", evidence: [SOURCE.id], severity: "normal", impact: { label: "Estimate", dates: "One week", tasks: ["Update the pricing page"], notify: ["distribution"] } });
     expect(p.rationaleMd).not.toMatch(/https?:/);
     expect(finaliseProposal({ title: "", rationale_md: "", hunks: [{ block_id: id(3), proposed_text: "Xero and bank feeds through an aggregator.", evidence: [] }], impact: { dates: null, tasks: [], cost_text: null }, notify: [] }, { source: SOURCE, blocks: [BLOCKS[2]!], relevance })).toBeNull();
+    // A block id copied with the prompt's label is still that block.
+    const labeled = finaliseProposal({ title: "", rationale_md: "", hunks: [{ block_id: `${BLOCKS[2]!.id} (Integrations)`, proposed_text: "Xero, QuickBooks and bank feeds.", evidence: [] }], impact: { dates: null, tasks: [], cost_text: null }, notify: [] }, { source: SOURCE, blocks: [BLOCKS[2]!], relevance });
+    expect(labeled?.hunks.map((h) => h.specBlockId)).toEqual([BLOCKS[2]!.id]);
   });
 
   it("proposedDoc rebuilds a list the drafter kept item by item", () => {

@@ -903,3 +903,37 @@ describe("nightly schedules", () => {
     expect((await repos.audit.list(t.db, t.businessId, { limit: 50 })).items.some((a) => a.action === "browser.sign_in_deleted")).toBe(true);
   });
 });
+
+describe("skill check (WP-06 T10)", () => {
+  it("scores the live version with and without the measured skill: both arms run, both are recorded, nothing goes live", async () => {
+    const calls: string[] = [];
+    const models = Object.create(t.deps.models) as typeof t.deps.models;
+    models.complete = ((req: { route?: string }) => {
+      calls.push(req.route ?? "");
+      return (t.deps.models.complete as (r: unknown) => unknown)(req);
+    }) as typeof models.complete;
+    const acts = createTrainingActivities({ ...t.deps, models });
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const live = await repos.agents.getVersion(t.db, t.businessId, agent.currentVersionId!);
+    const key = getTemplateByAgentType(agent.agentType)!.skills[0]!;
+    const tests = getSkillTests(key, { includeHeldOut: true }).length;
+    const run = await repos.training.create(t.db, t.businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: null, kind: "skill_check", skillKeys: [key], measuredSkillKey: "library_release_notes" });
+    const loaded = await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
+    expect(loaded).toMatchObject({ skillKeys: [key], draftVersionId: live.id, measuredSkillKey: "library_release_notes", retest: null });
+    const outcome = await acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: loaded.draftVersionId, skillKey: key, modelKey: "sonnet", measuredSkillKey: "library_release_notes" });
+    // A candidate answer per test per arm, each graded once.
+    expect(calls.filter((r) => r === getTemplateByAgentType(agent.agentType)!.route)).toHaveLength(tests * 2);
+    expect(outcome.testsRun).toBe(tests);
+    expect(outcome.baselineTested).toBeGreaterThanOrEqual(1);
+    const result = await acts.finalizeTrainingRun({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: live.id, liveVersionId: live.id, outcomes: [outcome], clubRuleFlags: [], check: true, startedAt: new Date().toISOString() });
+    expect(result.status).toBe("awaiting_decision");
+    const stored = await repos.training.get(t.db, t.businessId, run.id);
+    expect(stored.results[key]).toEqual({ old: outcome.baselineTested, new: outcome.tested, tests });
+    expect(stored.coachSummaryMd).toMatch(/^Skill check, with and without the skill/);
+    expect((await repos.agents.get(t.db, t.businessId, agent.id)).currentVersionId).toBe(live.id);
+    // Accepting a check writes the ratings and needs no candidate version.
+    const decided = await repos.training.decide(t.db, t.businessId, run.id, "promoted");
+    expect(decided.decision).toBe("promoted");
+    expect((await repos.agents.get(t.db, t.businessId, agent.id)).currentVersionId).toBe(live.id);
+  });
+});

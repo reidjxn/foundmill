@@ -27,20 +27,22 @@ Recorded in docs/log/2026-11/ (find them with `node scripts/decisions-index.mjs 
 
 All by the coordinating session on the founder's word (reported by that session, not checked here): `domains` (Nov 16) and `web` (Nov 17) added to `LIVE_CONNECTORS` on the gateway, api and orchestrator; `OPERATOR_USER_IDS` set on the api to the founder's one account (Nov 17); the `sites` service and its domain (WP-00 S9, above); `LIVE_MODE` is 1 on the api and stays so (founder, Nov 17).
 
-## Open pull requests and branches (Nov 23)
+## Open pull requests and branches (Nov 24)
 
 | Pull request | What | State |
 | --- | --- | --- |
 | #303 | WP-14 T9: share a Customer Update as a card | open, Session 5 |
-| #368 | Part C: patents through Lightbringer, and founder-executed tools (migration 0163) | merges as is (founder, Nov 23, option 1) |
 | #372 | WP-08 T8: page tools for the SEO and GEO agents | open |
-| #377 | WP-06 T13: coding agents start with two coding skills | open |
-| #378 | WP-06 T11 and T10: make an edit live without a run; the scoped per-agent check | open |
-| #376, #379 | the grader-agreement eval also tries Opus at low; the tool scout uses the hosted browser route | open |
 
-Merged Nov 22 to 23: #358 (one included budget per owner, project limits at every stage), #365 (people and community safety), #369, #370 (booking slot lock), #371 (the first restore drill, Nov 22, passed: WP-11 T3's runbook is proven), #374 (WP-07 T12: the merge review records a connected repository's preview).
+Merged Nov 23 to 24: #368 (Part C, below), #374, #375 (launch loose ends: search snippets from citations, `public_profiles` for the service only), #376, #377 (WP-06 T13), #378 (WP-06 T10, T11), #381 (WP-05 T0), #382 (steps run without per-step approval), #384 (Google verified scopes), #385 (team calls always end), #386 (outside contact runs from the first message), #387 and #388, #389 to #391 (golden-suite fixes; WP-05 T19 and T20), and the hosted-browser route for the tool scout (Part D, D3 and D4). #380 (this file).
 
-Merged since Nov 20: #238 (WP-11 T4, T5, T7), #330 (WP-09 T9), #332 (WP-14 T15), #334 (Session 2), #336 (the streak), #341, #351 and #356 (domains: Path B, Path A on OpenSRS, paying for a domain before it is registered), #344 and #352 (Resting; Billing's team budget in outcomes), #345 (the idea box shows the page, 390 px journey tested), #346 (the opt-in gallery at /explore), #347 (remote MCP in the gateway: Notion, HubSpot, a custom server; the Gmail scope split), #348 (the console by stage), #349 and #350, #353 (CLI-Anything in the sandbox), #354 (First ten; `create_payment_link` mock-first), #355 (WP-11 T6, T9), #357 (the three red specs), #359 and #363 (below), #361, #362 (community safety H1 to H4), #364 (Commit's spend cap starts at 0 again).
+#368, reported by the tool-scout session (Nov 23): `lightbringer_mcp`, a remote MCP server built from Lightbringer's real tool list (51 tools) with a policy per tool; its MCP has no file or pay tool, so the founder's one press is `request_patent_preparation`, and the founder merged it as it is. Founder-executed tools: the `founderExecuted` and `askAlways` hints, `POST /v1/founder-actions/execute` on the gateway, a single-use press token bound to the payload hash, owner or cofounder only, Cedar policies `05-founder-executed` and `47-ask-always`. Migration 0169 `founder_actions` (the next free number is 0170 or later: check main). The `patent_preparation` skill is in defaults release 5 (the next is 6). Two warnings from that session: the skill library list (`team.skills.library`) is just under its 60 KB test budget in `apps/api` `agent-skills.test.ts`, so the next library skill will probably need shorter listing text or a larger budget agreed with the founder; and `apps/gateway/src/__tests__/follower-update.test.ts` ("a draft edited after the founder's preview is not sent") failed once in CI because two saves can land in the same millisecond, and is not fixed.
+
+**The launch gate (founder, Nov 24): "100% of our agents have to work end to end for our users when we launch, otherwise we're not launching."** Every one of the 49 agent templates must pass a live end-to-end session eval (Launch S28, `evals-agents-e2e.yml`), plus the golden suite at 59/59 and both Source Watcher cases (Launch S22), each in two consecutive live runs. `SIGNUP_OPEN` waits on this gate.
+
+Earlier merges, since Nov 20, are listed below.
+
+Merged Nov 20 to 22: #238 (WP-11 T4, T5, T7), #330 (WP-09 T9), #332 (WP-14 T15), #334 (Session 2), #336 (the streak), #341, #351 and #356 (domains: Path B, Path A on OpenSRS, paying for a domain before it is registered), #344 and #352 (Resting; Billing's team budget in outcomes), #345 (the idea box shows the page, 390 px journey tested), #346 (the opt-in gallery at /explore), #347 (remote MCP in the gateway: Notion, HubSpot, a custom server; the Gmail scope split), #348 (the console by stage), #349 and #350, #353 (CLI-Anything in the sandbox), #354 (First ten; `create_payment_link` mock-first), #355 (WP-11 T6, T9), #357 (the three red specs), #359 and #363 (below), #361, #362 (community safety H1 to H4), #364 (Commit's spend cap starts at 0 again).
 
 Nov 22 (reported by the session "Foundmill: tool scout, booking, patents"): #359, the tool scout (Part A): a tool catalog as data, the `tool_need` task kind, the `tool_needs` table (migration 0154), the platform tools `raise_tool_need`, `read_tool_need` and `recommend_tool`, the `tool_scout` skill and five evals.
 #363, booking of our own, free on every plan, with no booking vendor (Part B): migration 0161 (`booking_settings`, `booking_services`, `bookings`, an exclusion constraint against double booking, `btree_gist`), the pages `/p/<slug>/book` and `/p/<slug>/book/manage`, a Booking panel on Product > Public page, Bookings in Customers, upcoming bookings on Today, a 15-minute `booking-reminders` schedule, the agent tools `booking_setup` and `list_bookings`, and the events `booking.confirmed` (a real outcome when real), `booking.canceled`, `booking.rescheduled` and `booking.no_show`. Not built: deposits through Stripe, a Meet link, a booking link on a project's site, group classes. WP-08 T6 (the pay or booking button with a pasted link) is still not started.
@@ -63,7 +65,7 @@ Part C (patents through Lightbringer and founder-executed tools) will open as a 
 | 7 | Wave 2: waitlist and people (WP-14 T15, #332) |  | merged (#332) |
 | 8 | Wave 2: data (WP-11 T6, T9) |  | merged (#355) |
 | 9, 10 | Wave 3: the first shareable thing at 390 px; cards and the gallery |  | Session 9 merged (#345); Session 10's gallery merged (#346); cards (Open Graph images, Share progress card) not checked |
-| 11 | Wave 4: production, live keys, Google's verification, founder zero |  | not started; pre-launch checklist (founder, Nov 23): Stripe S8 last, after the product is presented to Luminar; spending backstops and the OpenSRS reseller account ($95 up front) before launch |
+| 11 | Wave 4: production, live keys, Google's verification, founder zero |  | not started; launch gate (founder, Nov 24): all 49 agent templates pass a live end-to-end eval, the golden suite is 59/59 and both Source Watcher cases pass, each in two consecutive live runs, before `SIGNUP_OPEN`; pre-launch checklist (founder, Nov 23): Stripe S8 last, after the product is presented to Luminar; spending backstops and the OpenSRS reseller account ($95 up front) before launch |
 | 12 | The streak shows the days opened; the morning email drops its streak line |  | merged (#336) |
 | 13 | WP-11 T3, T8, T10 | | merged (#337); its production steps wait for Session 11 |
 | 14 | Domains: Path B, then Path A on OpenSRS (the reseller account opens Nov 22) |  | Path B (#341), Path A (#351) and paying first (#356) merged; the live calls wait for the OpenSRS reseller account, which the founder opens before launch (Nov 23) |
@@ -135,8 +137,8 @@ Part C (patents through Lightbringer and founder-executed tools) will open as a 
 | WP-04 | T14 | The one-click answer page on a phone | merged (#222) |  |
 | WP-04 | T15 | A phone start without a card | merged (#277) |  |
 | WP-04 | T16 | Win-back for the 11 stalled projects | merged (#282) | letters are signed "The Foundmill team" from hey@foundmill.com (Nov 16) |
-| WP-05 | T0 | Read why sessions block, once, before building | unknown | a reading task; no pull request or log entry names it |
-| WP-05 | T1 | An account-free mock connector is refused for a real project; search returns something to read | partly merged | steps 1 and 2 merged (#171); the rest unknown |
+| WP-05 | T0 | Read why sessions block, once, before building | merged (#381) | why sessions block, measured on production (Nov 23) |
+| WP-05 | T1 | An account-free mock connector is refused for a real project; search returns something to read | merged (#375) | search snippets from citations |
 | WP-05 | T2 | A task that is not code is done only when the agent reported a result on real tools | merged (#175, #253) |  |
 | WP-05 | T3 | Reports: the result of a task is saved, readable by the next agent and by the founder's note | merged (#186) |  |
 | WP-05 | T4 | The brief says what the project is, and every session gets it | merged (#188) |  |
@@ -163,10 +165,10 @@ Part C (patents through Lightbringer and founder-executed tools) will open as a 
 | WP-06 | T7 | Picker data: suggestions, the body on request, availability | merged (#243) |  |
 | WP-06 | T8 | Measure once on the platform: evidence and starting ratings | waiting | Founder: the measuring run waits for the key to be confirmed, later, on the batch route (Nov 16) |
 | WP-06 | T9 | Hire writes measured ratings; adding a skill shows its evidence | waiting | T8 |
-| WP-06 | T10 | The scoped per-agent check | pull request open (#378) | with T11 |
-| WP-06 | T11 | Make an edit live without a run | pull request open (#378) | with T10 |
+| WP-06 | T10 | The scoped per-agent check | merged (#378) |  |
+| WP-06 | T11 | Make an edit live without a run | merged (#378) | kept by the founder, Nov 19: "Make it live without testing"; ratings marked "not tested since the change" |
 | WP-06 | T12 | Two honesty fixes in Recruitment and Training copy | merged (#247) |  |
-| WP-06 | T13 | Coding agents start with Ponytail and Caveman | pull request open (#377) |  |
+| WP-06 | T13 | Coding agents start with Ponytail and Caveman | merged (#377) | with #310 and #311 |
 | WP-07 | T1 | Specialists can record a supplier and an interaction | merged (#234) |  |
 | WP-07 | T2 | Site tables, the switch and the events | merged (#240) | with T4 |
 | WP-07 | T3 | A site session starts from the latest release and ends in a release | merged (#271) |  |
@@ -237,7 +239,7 @@ Part C (patents through Lightbringer and founder-executed tools) will open as a 
 | WP-11 | T15 | ingest: bounded webhook bodies; mail routes on `/health` | merged (#248) |  |
 | WP-11 | T16 | Account export and closing, by request | merged (#264, #308, #329) | #329 keeps a closed account's reports for the operator |
 | WP-11 | T17 | The service connection: the rule as it is, and a pinned list | merged (#248) |  |
-| WP-11 | T18 | The P3 items in one change | partly merged | steps 2 to 4 merged (#248); step 1: unknown |
+| WP-11 | T18 | The P3 items in one change | merged (#248, #375) | step 1 (`public_profiles` for the service only) merged in #375 |
 | WP-11 | T19 | A dated decision for every item left open | merged (#256) |  |
 | WP-11 | T20 | A founder's own Stripe: store the webhook signing secret | merged (#256) |  |
 | WP-12 | T0 | The standing solo-guard test | merged (#235) |  |
@@ -280,7 +282,5 @@ Part C (patents through Lightbringer and founder-executed tools) will open as a 
 ## Unknown, for the founder or the session that owns each
 
 - WP-01 T2: whether the nightly lane has made its first real run. WP-01 T8: what became of #38.
-- WP-05 T0 (the reading task) and the rest of WP-05 T1 after steps 1 and 2.
 - WP-09 T4: whether the price table and Haiku suites were done beyond the model id.
-- WP-11 T18 step 1.
 - Any production change since Nov 15 beyond the list above.

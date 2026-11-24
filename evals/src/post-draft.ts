@@ -163,7 +163,7 @@ export function postDraftEvalFacts(c: PostDraftCase): PostDraftFacts {
 }
 
 const STOP = new Set("that this with they them their there what when want wants from have into about your just like make made some will would could also than then only very more most each here been were which while where page pages project public live online first follower followers person people went goes come came has now its our mine yours".split(" "));
-const contentWords = (s: string): string[] => (s.toLowerCase().match(/[a-z][a-z'-]{3,}/g) ?? []).filter((w) => !STOP.has(w));
+const contentWords = (s: string): string[] => (s.toLowerCase().match(/[a-z][a-z'-]{3,}/g) ?? []).map((w) => w.replace(/'s$/, "")).filter((w) => w.length > 3 && !STOP.has(w));
 /** Sentences, not counting a trailing run of the page's own hashtags. */
 const sentences = (s: string): string[] =>
   s
@@ -181,7 +181,8 @@ const SAYS_FACT: Record<TeamPostSubject, RegExp> = { page_live: /\b(?:page|site|
 export function postDraftProblems(c: PostDraftCase, text: string): string[] {
   const problems: string[] = [];
   const facts = postDraftEvalFacts(c);
-  const given = [facts.projectName, facts.page.pitch, facts.page.about, facts.page.forWhom, facts.fact.sentence].join("\n");
+  // The page's stage is an input the prompt hands the model (run 45166145671: "It's at the idea stage" counted as invented).
+  const given = [facts.projectName, facts.page.pitch, facts.page.about, facts.page.forWhom, `${facts.page.stage} stage`, facts.fact.sentence].join("\n");
   const lower = text.toLowerCase();
   // The product's own check: links, addresses, markup, invented figures, hashtags, emoji, praise, claims, banned phrases.
   const refused: PostDraftRefusal | null = checkPostDraft(text, facts);

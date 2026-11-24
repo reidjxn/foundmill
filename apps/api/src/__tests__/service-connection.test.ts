@@ -18,7 +18,7 @@ export const SERVICE_CONNECTION_ROUTERS: Readonly<Record<string, { lines: number
   "founder.ts": { lines: 16, why: "mixed", note: "mostly the person's own profile and preferences; two public procedures; a profile save re-rates Founder fit on the person's own ideas (WP-14 T2)" },
   "email.ts": { lines: 15, why: "signed_out", note: "one-click answers and cancel links from an email: the hashed token is the credential" },
   "business.ts": { lines: 16, why: "mixed", note: "creating and listing projects (person), the example project, vacation and the journey refresh, and paid entry's plan check (account_plans crosses accounts)" },
-  "agent.ts": { lines: 17, why: "mixed", note: "agent and skill reads and transactions after the procedure's membership check, paid entry's plan check, and the training price check against the credits" },
+  "agent.ts": { lines: 19, why: "mixed", note: "agent and skill reads and transactions after the procedure's membership check, paid entry's plan check, the training price check against the credits, promoting a draft, and the scoped test counts" },
   "integrations.ts": { lines: 11, why: "mixed", note: "connect and health go through the gateway; credentials are service-only; connect reads the connection it replaces before the gateway rewrites it" },
   "import.ts": { lines: 9, why: "mixed", note: "imports run as protected procedures before and after a project exists" },
   "product.ts": { lines: 5, why: "mixed", note: "not classified line by line" },

@@ -488,10 +488,14 @@ export interface LoadedTrainingRun {
   clubRuleFlags: { ruleId: string; line: string; reason: string }[];
   /** A model change's retest (AC-11.10.5): the live version copied onto another model. Absent on runs loaded before it existed. */
   retest?: { fromModelKey: ModelKey; toModelKey: ModelKey } | null;
+  /** A skill check (WP-06 T10): no draft, `draftVersionId` is the live version, and this skill is put in and taken out. */
+  measuredSkillKey?: string | null;
 }
 
 export interface SkillTestsOutcome {
   skillKey: string;
+  /** A skill check: the rating without the measured skill. `tested` is the rating with it. */
+  baselineTested?: number;
   group: "craft" | "judgement" | "execution";
   testsRun: number;
   meanScore: number;
