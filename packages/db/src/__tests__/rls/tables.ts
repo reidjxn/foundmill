@@ -348,6 +348,9 @@ export const NON_TENANT_TABLES = [
   // record (service role only, no policy); covered by rls/project-updates.test.ts.
   "project_updates",
   "project_update_deliveries",
+  // 0136: a Customer Update shared as a card (members read; only the service connection writes); covered by
+  // rls/update-cards.test.ts.
+  "customer_update_cards",
   // 0170: who is on a team call's page (the room's heartbeat), service role only; covered by rls/team-calls.test.ts.
   "team_call_presence",
   // 0083: one person's rows in one business (presence, visit days, founder emails); covered by rls/founder-return.test.ts.

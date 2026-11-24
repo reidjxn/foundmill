@@ -500,6 +500,7 @@ export const EVENT_TYPES = [
   "invitation.sent", "invitation.accepted", "invitation.declined",
   "showcase.requested", "showcase.approved", "showcase.withdrawn", "showcase.asked", "showcase.settled",
   "visit.attributed", "post.outcome_attributed",
+  "customer_update.shared", "customer_update.unshared",
   "founder_notice.sent",
   // The funnel's four account facts (WP-02 T9): admitted, profile created, a card kept, a first deck drafted.
   "account.admitted", "profile.created", "idea.kept", "idea.drafted",

@@ -48,7 +48,9 @@ async function main(): Promise<void> {
     const local = await openLocalPglite(pgliteDir);
     log(`PGlite at ${local.dataDir} (${local.appliedMigrations.length} migration(s) applied now, pgvector ${local.hasVector ? "on" : "off"}); services: DATABASE_URL=pglite:${local.dataDir}`);
     try {
-      const result = await seedDemo(local.db, { today, days, volumeScale, ownerEmails, ownerProfile, log });
+      // A real project for the browser suites: this local path only, never a hosted database.
+      const e2eProject = /^(1|true|yes|on)$/i.test((process.env.SEED_E2E_PROJECT ?? "").trim());
+      const result = await seedDemo(local.db, { today, days, volumeScale, ownerEmails, ownerProfile, e2eProject, log });
       log(`done in ${Math.round(result.durationMs / 1000)}s: ${result.businesses.northwind.slug} (${result.businesses.northwind.id}), ${result.businesses.ledgerly.slug} (${result.businesses.ledgerly.id}); owner ${result.owner.email} = ${result.owner.userId}`);
     } finally {
       await local.close();

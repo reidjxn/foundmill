@@ -457,7 +457,7 @@ jobs:
         # Shard 1 starts without a founder profile (onboarding.spec.ts meets the gate and saves it); the other shards and the
         # smoke entry start with one, so their screens do not bounce to /onboarding. Shard 1's golden path also runs after
         # the profile is saved, so the smoke entry runs it against the same state.
-        run: SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e SEED_VOLUME_SCALE=0.1 SEED_OWNER_PROFILE=${{ matrix.shard == 1 && '0' || '1' }} pnpm --filter @foundmill/db seed
+        run: SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e SEED_VOLUME_SCALE=0.1 SEED_E2E_PROJECT=1 SEED_OWNER_PROFILE=${{ matrix.shard == 1 && '0' || '1' }} pnpm --filter @foundmill/db seed
       - name: Start apps/api against the seeded database
         # No Redis, Temporal or composer URL: the api degrades to in-process behaviour (docs/ARCHITECTURE.md §13).
         run: |

@@ -159,7 +159,7 @@ export const PUBLIC_STORY_LIMITS = {
   unknown: { limit: 600, windowMs: 60_000 },
 } as const satisfies Record<string, WindowLimit>;
 
-type Scope = "public-story" | "public-card";
+type Scope = "public-story" | "public-card" | "public-update-card";
 
 const limitKeys = (scope: Scope) =>
   ({
@@ -171,11 +171,12 @@ const limitKeys = (scope: Scope) =>
 
 export const publicStoryLimitKeys = limitKeys("public-story");
 export const publicCardLimitKeys = limitKeys("public-card");
+export const publicUpdateCardLimitKeys = limitKeys("public-update-card");
 
-type PublicContext = Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null };
+export type PublicContext = Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null };
 
 /** One limited public read: the caller's own budget, then the key's and the overall one; nothing found moves the hit to `unknown`. */
-async function limitedRead<T>(ctx: PublicContext, what: string, scope: Scope, key: string, read: () => Promise<T | null>): Promise<T | null> {
+export async function limitedRead<T>(ctx: PublicContext, what: string, scope: Scope, key: string, read: () => Promise<T | null>): Promise<T | null> {
   const keys = limitKeys(scope);
   if (ctx.clientAddress) await takeOrThrow(ctx.limits, what, [{ key: keys.caller(ctx.env, ctx.clientAddress), rule: PUBLIC_STORY_LIMITS.perCaller }]);
   const ticket = await takeOrThrow(ctx.limits, what, [
@@ -191,7 +192,7 @@ async function limitedRead<T>(ctx: PublicContext, what: string, scope: Scope, ke
 }
 
 /** The public facts of the project behind `slug`, or null when its page is not public (the view lists nothing). */
-async function projectFacts(ctx: PublicContext, slug: string): Promise<PublicMilestoneProject | null> {
+export async function projectFacts(ctx: PublicContext, slug: string): Promise<PublicMilestoneProject | null> {
   const page = await repos.pages.public.bySlug(ctx.db, slug);
   if (!page) return null;
   const [logo, planTier] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, slug), repos.pages.public.planBySlug(ctx.db, slug)]);

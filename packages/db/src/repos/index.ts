@@ -32,6 +32,7 @@ import { domainRegistrantsRepo } from "./domain-registrants";
 import { postalAddressRepo } from "./postal-address";
 import { repliesRepo } from "./replies";
 import { updatesRepo } from "./updates";
+import { updateCardsRepo } from "./update-cards";
 import { followersRepo } from "./followers";
 import { notifyEmailRepo } from "./notify-email";
 import { holidaysRepo } from "./holidays";
@@ -122,6 +123,7 @@ export const repos = {
   postalAddress: postalAddressRepo,
   replies: repliesRepo,
   updates: updatesRepo,
+  updateCards: updateCardsRepo,
   followers: followersRepo,
   notifyEmail: notifyEmailRepo,
   departments: departmentsRepo,
@@ -204,6 +206,7 @@ export * from "./agents";
 export * from "./positioning";
 export * from "./replies";
 export * from "./updates";
+export * from "./update-cards";
 export * from "./approvals";
 export * from "./audit";
 export { formerFounderSince, type FounderDepartureView } from "./founder-departures";

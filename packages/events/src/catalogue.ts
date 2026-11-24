@@ -709,6 +709,13 @@ const paymentReceived = declareEvent(
      * and the metrics queries read this flag), whoever delivered it.
      */
     simulated: z.boolean().default(false),
+    /**
+     * True when the delivery was signed with Foundmill's own platform webhook secret: a Stripe account the founder signed
+     * in to with "Sign in with Stripe" (Connect), whose events Stripe sends to the platform endpoint. No founder knows that
+     * secret, so only these payments can be called verified (a card says "Verified by Foundmill" only for them). A payment
+     * through a pasted key is signed with the founder's own secret, which the founder could use to sign a made-up one.
+     */
+    platformSigned: z.boolean().default(false),
   }),
   {
     doc: "Money came in from a customer (Stripe invoice.paid, checkout.session.completed, Shopify orders/create, signed contract). Only a first payment (`firstPayment`) is a conversion that wins a customer and triggers journeyBuild (Match Day level cup); renewals and repeat orders count as revenue only.",
@@ -2030,6 +2037,34 @@ const notifyEmailSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// A Customer Update a founder shares as a card (0173; WP-14 T9; docs/DESIGN.md §9f)
+// ---------------------------------------------------------------------------------------------------
+
+/** What both events carry: the card, the Customer Update it was made from, and the addresses. Never the customer. */
+const SharedUpdateFacts = z.object({
+  cardId: Id,
+  journeyId: Id,
+  /** The project page's address under /p/. */
+  slug: z.string().min(3).max(40),
+  /** The card's full public URL (`/m/update/<cardId>`). */
+  url: z.string().url().max(2048),
+  /** Whether the founder added a line of their own (the words themselves stay on the card's row). */
+  hasNote: z.boolean(),
+});
+
+const customerUpdateShared = declareEvent("customer_update.shared", SharedUpdateFacts, {
+  doc: "An owner or an admin shared one Customer Update as a public card: from this moment anyone can open it at `url`, while the project's page is public. The founder's own press, each time (nothing becomes public on its own). The card carries the day, the lead channel and the standout agent, never the customer or the amount. Counted by the metrics consumer as a share of that Customer Update. Never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const customerUpdateUnshared = declareEvent("customer_update.unshared", SharedUpdateFacts, {
+  doc: "An owner or an admin stopped sharing a Customer Update: its card is deleted and `url` answers not found from now on. The Customer Update itself is unchanged. Never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+// ---------------------------------------------------------------------------------------------------
 // Milestones a founder chooses to show (0089; docs/NETWORK.md F2 "the story", F3 "cards")
 // ---------------------------------------------------------------------------------------------------
 
@@ -2516,6 +2551,8 @@ export const EVENTS = {
   "showcase.withdrawn": showcaseWithdrawn,
   "showcase.asked": showcaseAsked,
   "showcase.settled": showcaseSettled,
+  "customer_update.shared": customerUpdateShared,
+  "customer_update.unshared": customerUpdateUnshared,
   "visit.attributed": visitAttributed,
   "post.outcome_attributed": postOutcomeAttributed,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };

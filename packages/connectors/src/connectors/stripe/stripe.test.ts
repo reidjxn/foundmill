@@ -6,7 +6,7 @@ import { describeConnectorContract, envKeysPresent, makeToolContext, TEST_BUSINE
 import { MOCK_NOW_UNIX, MOCK_STRIPE_ACCOUNT_ID, ST_CHECKOUT_PAID, ST_CUSTOMERS, ST_INVOICES, ST_TRIAL_SUBSCRIPTION } from "./fixtures/stripe";
 import { createStripeConnector, PLATFORM_BILLING_INTEGRATION_ID } from "./index";
 import { createStripeMock, signedStripeRequest, stripeEvent, stripeMock } from "./mock";
-import { parseStripeSignature, verifyStripeSignature } from "./webhooks";
+import { createStripeWebhook, parseStripeSignature, verifyStripeSignature } from "./webhooks";
 
 let n = 0;
 const evt = <T>(type: string, object: T) => stripeEvent(type, object, `evt_test_${++n}`);
@@ -104,6 +104,20 @@ describe("stripe webhook normalisation and signature details", () => {
     // Only an explicit `livemode: false` is test mode: Stripe sends the field on every event, and a body without it is not guessed at.
     const [absent] = await normalise({ ...evt("invoice.paid", ST_INVOICES[0]!), livemode: undefined });
     expect(absent!.payload).toMatchObject({ simulated: false });
+  });
+  it("a payment is platformSigned only when the delivery verifies with Foundmill's own platform secret; a founder's own signing secret never is (founder, Nov 22, 2026)", async () => {
+    const hook = createStripeWebhook({ secretFor: async () => "whsec_founder", platformSecret: () => "whsec_platform", resolveBusinessId: async () => TEST_BUSINESS_ID, now: () => new Date(MOCK_NOW_UNIX * 1000) });
+    const event = { ...evt("invoice.paid", ST_INVOICES[0]!), livemode: true };
+    const signed = (secret: string) => signedStripeRequest(TEST_BUSINESS_ID, event as never, { secret });
+    const [platform] = await hook.normalise(signed("whsec_platform"));
+    expect(platform!.payload).toMatchObject({ platformSigned: true, simulated: false });
+    // A made-up payment signed with the founder's own secret verifies at its own endpoint and is not platform signed.
+    expect(await hook.verify(signed("whsec_founder"))).toBe(true);
+    const [founder] = await hook.normalise(signed("whsec_founder"));
+    expect(founder!.payload).toMatchObject({ platformSigned: false });
+    // With no platform secret configured nothing is.
+    const none = createStripeWebhook({ secretFor: async () => "whsec_founder", resolveBusinessId: async () => TEST_BUSINESS_ID, now: () => new Date(MOCK_NOW_UNIX * 1000) });
+    expect((await none.normalise(signed("whsec_platform")))[0]!.payload).toMatchObject({ platformSigned: false });
   });
   it("carries the payer (customer id, email, name) so ingest can link or add the CRM record", async () => {
     const [paid] = await stripeMock.webhooks![0]!.normalise(signedStripeRequest(TEST_BUSINESS_ID, evt("invoice.paid", ST_INVOICES[0]!)));

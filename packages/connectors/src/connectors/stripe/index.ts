@@ -71,6 +71,7 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
   const webhook = createStripeWebhook({
     secretFor: async (businessId) => (businessId && getBusinessSecret ? await getBusinessSecret(businessId, "stripe_webhook_secret") : null) ?? secrets.stripeWebhookSecret ?? null,
     resolveBusinessId,
+    platformSecret: () => secrets.stripeWebhookSecret ?? null,
     now,
   });
 

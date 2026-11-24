@@ -107,6 +107,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   journeys: t(s.journeys, "distribution"),
   chapter_titles: t(s.chapterTitles, "distribution"),
   milestones: t(s.milestones, "distribution"),
+  customer_update_cards: t(s.customerUpdateCards, "distribution"),
   post_links: t(s.postLinks, "distribution"),
   // crm
   entities: t(s.entities, "crm"),

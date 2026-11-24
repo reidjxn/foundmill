@@ -167,6 +167,7 @@ describe("journal", () => {
       "0170_team_call_wrap_up_failed",
       "0171_training_run_kind",
       "0172_page_proposals",
+      "0173_customer_update_cards",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);
@@ -266,7 +267,7 @@ describe("structural invariants", () => {
   });
   it("the views exist with the expected shape", async () => {
     const v = (await rows<{ table_name: string }>(sql`select table_name from information_schema.views where table_schema = 'public' order by 1`)).rows.map((x) => x.table_name);
-    expect(v).toEqual(["journey_daily", "member_conversions", "public_booking_pages", "public_explore_projects", "public_page_quizzes", "public_person_profiles", "public_profiles", "public_project_milestones", "public_project_pages", "real_businesses"]);
+    expect(v).toEqual(["journey_daily", "member_conversions", "public_booking_pages", "public_customer_update_cards", "public_explore_projects", "public_page_quizzes", "public_person_profiles", "public_profiles", "public_project_milestones", "public_project_pages", "real_businesses"]);
     const mv = (await rows<{ matviewname: string }>(sql`select matviewname from pg_matviews`)).rows.map((x) => x.matviewname);
     expect(mv).toEqual(["journey_daily_mv"]);
   });
@@ -281,7 +282,7 @@ describe("Drizzle schema mirrors the SQL", () => {
     const ours = drizzleTables.map((t) => getTableName(t)).sort();
     expect(ours).toEqual(sqlTables);
     expect(new Set(ours).size).toBe(ours.length);
-    expect(drizzleViews).toHaveLength(11);
+    expect(drizzleViews).toHaveLength(12);
   });
 
   it("every Drizzle column exists in SQL with the same name and nullability, and vice versa", async () => {

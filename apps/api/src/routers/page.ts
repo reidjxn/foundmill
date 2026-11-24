@@ -32,6 +32,7 @@ import { publicCardById, publicStoryBySlug } from "../services/milestones";
 import { dismissPageProposal, usePageProposal, followPage, pageView, siteFollowConsent, publicExplore, publicIndexNowKeyFile, publicListedPages, publicPageBySlug, publishPage, savePageDraft, setPageExplore, setPageSlug, unpublishPage } from "../services/pages";
 import { recordPostVisit } from "../services/post-attribution";
 import { publicProcedure, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
+import { publicUpdateCardById } from "../services/update-cards";
 
 const read = sectionRead("product");
 const write = sectionWrite("product");
@@ -87,4 +88,6 @@ export const publicPageRouter = router({
   /** The sentence a site's sign-up form shows beside its box (apps/sites, WP-07 T6): the same one the record keeps. */
   siteConsent: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => siteFollowConsent(ctx, input.slug)),
   visited: publicProcedure.input(z.object({ via: z.string().max(VIA_MAX_LENGTH * 2) })).mutation(({ ctx, input }) => recordPostVisit(ctx, input)),
+  /** One Customer Update a founder shared as a card (WP-14 T9; the view `public_customer_update_cards` only); null for anything not public. */
+  updateCardById: publicProcedure.input(z.object({ id: z.string().max(80) })).query(({ ctx, input }) => publicUpdateCardById(ctx, input.id)),
 });

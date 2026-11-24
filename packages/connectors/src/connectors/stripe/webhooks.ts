@@ -47,6 +47,8 @@ export interface StripeWebhookDeps {
   /** Endpoint secret for a business (per-business endpoint) or the platform endpoint (`businessId` null). */
   secretFor(businessId: string | null): Promise<string | null>;
   resolveBusinessId?: BusinessResolver;
+  /** Foundmill's own platform endpoint secret: a delivery that verifies with it is `platformSigned` (a Connect account, never a founder's own key). */
+  platformSecret?(): string | null;
   replay?: ReplayGuard;
   now?: () => Date;
   toleranceSeconds?: number;
@@ -85,7 +87,11 @@ export function createStripeWebhook(deps: StripeWebhookDeps): ConnectorWebhook {
       if (!event) return [];
       const businessId = await businessFor(req, event);
       if (!businessId) return [];
-      return normaliseStripeEvent(event, businessId);
+      // Signed by the platform secret itself (re-checked here, not inferred from the address): only Stripe holds it.
+      const sig = header(req, STRIPE_SIGNATURE_HEADER);
+      const platform = deps.platformSecret?.() ?? null;
+      const platformSigned = !!(sig && platform && verifyStripeSignature(platform, await rawBody(req), sig, now().getTime(), deps.toleranceSeconds));
+      return normaliseStripeEvent(event, businessId, { platformSigned });
     },
   };
 }
@@ -99,7 +105,8 @@ const stripeCustomer = (customerId: string | null, email: string | null | undefi
 /** Stripe says so on every event: `livemode: false` is test mode, where no money moves. Nothing else says "test". */
 const isTestMode = (event: StEvent): boolean => event.livemode === false;
 
-export function normaliseStripeEvent(event: StEvent, businessId: string): PlatformEvent[] {
+export function normaliseStripeEvent(event: StEvent, businessId: string, opts: { platformSigned?: boolean } = {}): PlatformEvent[] {
+  const platformSigned = opts.platformSigned === true;
   const occurredAt = new Date(event.created * 1000);
   const actor = { kind: "webhook" as const, id: STRIPE_KEY };
   switch (event.type) {
@@ -130,6 +137,7 @@ export function normaliseStripeEvent(event: StEvent, businessId: string): Platfo
             customer: stripeCustomer(customerId, inv.customer_email, inv.customer_name),
             source: null,
             simulated: isTestMode(event),
+            platformSigned,
           },
         }),
       ];
@@ -161,6 +169,7 @@ export function normaliseStripeEvent(event: StEvent, businessId: string): Platfo
             fee: null,
             customer: stripeCustomer(customerId, email, s.customer_details?.name),
             simulated: isTestMode(event),
+            platformSigned,
             source: s.metadata?.utm_source || s.metadata?.utm_medium || s.metadata?.promo_code ? { utmSource: s.metadata.utm_source ?? null, utmMedium: s.metadata.utm_medium ?? null, utmCampaign: s.metadata.utm_campaign ?? null, referrer: null, code: s.metadata.promo_code ?? null } : null,
           },
         }),
