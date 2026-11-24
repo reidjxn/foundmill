@@ -34,6 +34,7 @@ import { ACCEPTANCE_RUN_LOG, createSessionActivities } from "@foundmill/orchestr
 import type { SessionResult } from "@foundmill/orchestrator/activities/types";
 import { createGatewayClient } from "@foundmill/orchestrator/gateway-client";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "@foundmill/orchestrator/__tests__/harness";
+import { createBusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
 import type { SandboxProvider } from "@foundmill/sandbox";
 import { loadEnv, type TaskKind } from "@foundmill/shared";
 
@@ -364,6 +365,11 @@ export interface SessionCase {
   agentType: string;
   /** `platform_only`: the agent holds only its template's platform grant (the narrowest a session can have). */
   grants?: "template" | "platform_only";
+  /**
+   * `sample`: the session runs in a sample project (`is_demo`), where a mock connector answers as if connected, marked
+   * simulated (the "connected" half of a not-connected pair). Default `person`: a person's project, where it does not.
+   */
+  business?: "person" | "sample";
   task: { kind: TaskKind; title: string; goalMd: string; acceptance?: unknown[] };
   /** `free`: the project is on the free plan for this case (WP-13), as a new project made in the Ideation Studio is. */
   plan?: "free";
@@ -513,6 +519,16 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
   };
   const acts = createSessionActivities(deps);
   const templates = listTemplates();
+  // The sample project, made on first use: the same fixture as the person's project, marked `is_demo`.
+  let sample: { businessId: string; departmentId: string } | null = null;
+  const sampleProject = async () => {
+    if (!sample) {
+      const f = await createBusinessFixture(t.h, `sample-${Math.random().toString(36).slice(2, 7)}`);
+      await t.h.pg.query("update businesses set is_demo = true where id = $1", [f.businessId]);
+      sample = { businessId: f.businessId, departmentId: f.departmentId };
+    }
+    return sample;
+  };
 
   async function runSessionCase(c: SessionCase): Promise<SessionCaseResult> {
     const base = { caseId: c.id, costMinor: 0, outcome: null, taskStatus: null, summary: null };
@@ -521,24 +537,26 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
     if (!template) return { ...base, passed: false, problems: [`no agent template ${c.agentType}`] };
     const spec = initialVersionFromTemplate(template, "00000000-0000-0000-0000-000000000000");
     const tools = c.grants === "platform_only" ? spec.tools.filter((g) => g.connectorKey === "platform") : spec.tools;
-    const agent = await repos.agents.create(t.db, t.businessId, { name: `Eval ${template.name}`.slice(0, 80), role: template.role, agentType: template.agentType, layer: "worker", descriptionMd: template.description, departmentIds: [t.fixture.departmentId], modelKey: template.modelKey, status: "idle", autonomy: spec.autonomy, initialVersion: { instructions: spec.instructions, tools, modelKey: spec.modelKey } });
-    const task = await repos.tasks.create(t.db, t.businessId, { kind: c.task.kind, title: c.task.title, goalMd: c.task.goalMd, ...(c.task.acceptance ? { acceptance: c.task.acceptance as never } : {}), assigneeAgentId: agent.id, status: "ready" });
+    const where = c.business === "sample" ? await sampleProject() : { businessId: t.businessId, departmentId: t.fixture.departmentId };
+    const businessId = where.businessId;
+    const agent = await repos.agents.create(t.db, businessId, { name: `Eval ${template.name}`.slice(0, 80), role: template.role, agentType: template.agentType, layer: "worker", descriptionMd: template.description, departmentIds: [where.departmentId], modelKey: template.modelKey, status: "idle", autonomy: spec.autonomy, initialVersion: { instructions: spec.instructions, tools, modelKey: spec.modelKey } });
+    const task = await repos.tasks.create(t.db, businessId, { kind: c.task.kind, title: c.task.title, goalMd: c.task.goalMd, ...(c.task.acceptance ? { acceptance: c.task.acceptance as never } : {}), assigneeAgentId: agent.id, status: "ready" });
     // A code case's codebase: saved on the task as an earlier session's work, so the session starts from it.
     if (c.workspace) {
       const files = Object.entries(c.workspace).map(([p, text]) => ({ path: p, content: new TextEncoder().encode(text) }));
-      await t.db.transaction((tx) => repos.workspaces.save(tx as never, t.businessId, { taskId: task.id, files, carryOver: true }));
+      await t.db.transaction((tx) => repos.workspaces.save(tx as never, businessId, { taskId: task.id, files, carryOver: true }));
     }
     caseLimits = new MemoryRateLimitStore();
     // Each case starts with no Needs you item, so one said once in an earlier case does not hide this case's.
-    for (const i of (await repos.inbox.list(t.db, t.businessId, { tab: "respond", limit: 200 })).items) await repos.inbox.archive(t.db, t.businessId, i.id, { force: true });
-    if (c.revision) await repos.audit.append(t.db, t.businessId, { actorKind: "system", action: "second_read.completed", target: { kind: "task", id: task.id }, details: { revisionTaskId: task.id } });
-    if (c.plan === "free") await repos.businesses.update(t.db, t.businessId, { planTier: "free", modelBilling: "credits" });
-    const sessionId = await openSessionRow(t, agent.id, task.id);
-    const ctx: CaseContext = { businessId: t.businessId, agentId: agent.id, taskId: task.id, sessionId };
+    for (const i of (await repos.inbox.list(t.db, businessId, { tab: "respond", limit: 200 })).items) await repos.inbox.archive(t.db, businessId, i.id, { force: true });
+    if (c.revision) await repos.audit.append(t.db, businessId, { actorKind: "system", action: "second_read.completed", target: { kind: "task", id: task.id }, details: { revisionTaskId: task.id } });
+    if (c.plan === "free") await repos.businesses.update(t.db, businessId, { planTier: "free", modelBilling: "credits" });
+    const sessionId = await openSessionRow({ ...t, businessId }, agent.id, task.id);
+    const ctx: CaseContext = { businessId, agentId: agent.id, taskId: task.id, sessionId };
     const servedFrom = web.served.length;
     const mailFrom = inbox.mail.length;
     const fixture = c.acceptanceRun ? createFixtureSandbox(c.acceptanceRun) : null;
-    const planBefore = (await repos.businesses.get(t.db, t.businessId)).planTier;
+    const planBefore = (await repos.businesses.get(t.db, businessId)).planTier;
     const run: ActiveCase = { live, ctx, script: c.codeScript ?? c.script, options: null, probe: null, turns: [], sandbox: fixture?.provider ?? null };
     active = run;
     try {
@@ -549,8 +567,8 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
       await acts.finishSession(input, launch, result);
       const costMinor = (result.costMicroMinor ?? result.costMinor * 1_000_000) / 1_000_000;
       budget.add(costMinor);
-      const after = await repos.tasks.get(t.db, t.businessId, task.id);
-      const report = await repos.taskReports.latestForTask(t.db, t.businessId, task.id);
+      const after = await repos.tasks.get(t.db, businessId, task.id);
+      const report = await repos.taskReports.latestForTask(t.db, businessId, task.id);
       const events = await readSessionEvents(t.redis, sessionId);
       const toolCalls: ToolCallSeen[] = events
         .map((r) => r.event)
@@ -558,7 +576,7 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
         .map((e) => ({ connectorKey: e.connectorKey ?? null, tool: e.tool, status: e.status, policyOutcome: e.policyOutcome ?? null, resultSummary: e.resultSummary ?? "" }));
       const builtinsSeen = run.probe ? await run.probe : {};
       const tests = events.map((r) => r.event).flatMap((e) => (e.kind === "test_result" && e.acceptance ? [{ passed: e.passed, failed: e.failed }] : []));
-      const needsYou = (await repos.inbox.list(t.db, t.businessId, { tab: "respond", limit: 50 })).items.filter((i) => i.fromAgentId === agent.id).map((i) => ({ subject: i.subject, bodyMd: i.bodyMd }));
+      const needsYou = (await repos.inbox.list(t.db, businessId, { tab: "respond", limit: 50 })).items.filter((i) => i.fromAgentId === agent.id).map((i) => ({ subject: i.subject, bodyMd: i.bodyMd }));
       const observation: SessionObservation = { task: after, result, report, toolCalls, served: web.served.slice(servedFrom), mail: inbox.mail.slice(mailFrom), options: run.options, builtins: builtinsSeen, turns: run.turns, tests, testedFiles: fixture?.lastFiles() ?? new Map(), needsYou };
       const problems = run.options ? c.check(observation) : ["the session never reached the SDK", ...c.check(observation)];
       return { caseId: c.id, passed: problems.length === 0, problems, costMinor, outcome: result.outcome, taskStatus: after.status, summary: result.summary };
@@ -566,7 +584,7 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
       return { ...base, passed: false, problems: [`the session threw: ${(err as Error).message}`], error: (err as Error).message };
     } finally {
       active = null;
-      if (c.plan === "free") await repos.businesses.update(t.db, t.businessId, { planTier: planBefore });
+      if (c.plan === "free") await repos.businesses.update(t.db, businessId, { planTier: planBefore });
     }
   }
 

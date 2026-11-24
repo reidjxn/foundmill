@@ -2576,6 +2576,23 @@ describe("honest outcomes: a task that is not code is done only when its agent r
       expect(ask!.bodyMd).toContain("Not met: A sample request sent to one supplier");
     });
 
+    it("a complete_task the platform refused (a claim citing a heading the report lacks): its claims are not taken, and the saved report finishes the task (Launch S28, WP-05 T26)", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (refused claims)", staging());
+      script = async function* () {
+        yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+        yield toolUse("tu-report", "mcp__platform__save_report", { taskId: task.id, title: "Suppliers compared", bodyMd: BODY });
+        yield toolResult("tu-report", JSON.stringify({ reportId: "r", taskId: task.id, title: "Suppliers compared" }));
+        yield toolUse("tu-done", "mcp__platform__complete_task", { taskId: task.id, summary: "Compared.", acceptance: [{ line: 1, met: true, reportSection: "Nope" }, { line: 2, met: true, reportSection: "Nope" }] });
+        yield toolResult("tu-done", JSON.stringify({ ok: false, error: { code: "invalid_state", message: 'line 1 cites the section "Nope", which the report does not have' } }));
+        yield resultOf(modelUsage(10, 5, 0.01));
+      };
+      const result = await a.runAgentSession(input, launch);
+      // Its report stands (the launch gate, WP-05 T26): done, and both lines, never counted as met, go to the founder.
+      expect(result).toMatchObject({ outcome: "done" });
+      expect(result.summary).toContain("2 acceptance lines went to you");
+      expect((await handOffOf(task.title))!.bodyMd).toContain("Not met: Two suppliers compared on price");
+    });
+
     it("on a real project, a line met only on a simulated call is not met (T2's rule, per line), though other calls were real: it is handed over", async () => {
       const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (simulated send)", staging());
       script = session(task.id, sessionId, allMet, { sendResult: SIMULATED_SEND });
@@ -2686,6 +2703,19 @@ describe("not connected: the agent is told, and the session still runs with what
     expect(prompt).toContain(TASK_CLOSING_LINE);
     expect(result).toMatchObject({ outcome: "done", blockedReason: null });
     expect((await a.finishSession(input, launch, result)).taskStatus).toBe("done");
+  });
+
+  it("a channel task with the same grants starts (drafting needs no outside tool), and its prompt carries the not-connected line (Launch S28)", async () => {
+    const { sessionId, input, acts: a, launch } = await taskFor(workerId, "channel", "Draft the week's posts");
+    let prompt = "";
+    script = async function* (call) {
+      prompt = (await promptsOf(call).next()).value?.message.content ?? "";
+      yield* success(sessionId)();
+    };
+    const result = await a.runAgentSession(input, launch);
+    expect(calls).toHaveLength(1);
+    expect(result.blockedReason).not.toBe("not_connected");
+    expect(prompt).toContain(NOT_CONNECTED_LINE);
   });
 
   it("a lead's ops task with the same grants still starts, and its prompt carries the not-connected line", async () => {

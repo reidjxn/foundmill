@@ -152,7 +152,8 @@ describe("outcome evals with scripted agents (mock)", () => {
     expect(sends[1]!.resultSummary).toMatch(/platform-mail-off/);
     expect(sends.some((t) => /mail-needs-basis/.test(t.resultSummary))).toBe(false);
     expect(seen!.result.outcome).toBe("done");
-    expect(seen!.needsYou.map((i) => i.subject).some((x) => x.startsWith("Connect "))).toBe(true);
+    expect(seen!.needsYou).toHaveLength(1);
+    expect(seen!.needsYou[0]!.bodyMd).toMatch(/Connect .+ in Settings › Integrations/);
     expect(r.problems).toEqual([]);
   }, 60_000);
 
