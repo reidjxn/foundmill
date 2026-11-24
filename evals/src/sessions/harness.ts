@@ -401,6 +401,8 @@ export interface SessionCaseResult {
   summary: string | null;
   /** The start of the session's report, for a failing case's log line. */
   reportExcerpt?: string;
+  /** The session's finished tool calls in order, as `connector:tool/status`, for a failing case's log line. */
+  toolTrail?: string;
   error?: string;
 }
 
@@ -587,7 +589,7 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
       const needsYou = (await repos.inbox.list(t.db, businessId, { tab: "respond", limit: 50 })).items.filter((i) => i.fromAgentId === agent.id).map((i) => ({ subject: i.subject, bodyMd: i.bodyMd }));
       const observation: SessionObservation = { task: after, result, report, toolCalls, served: web.served.slice(servedFrom), mail: inbox.mail.slice(mailFrom), options: run.options, builtins: builtinsSeen, turns: run.turns, tests, testedFiles: fixture?.lastFiles() ?? new Map(), needsYou };
       const problems = run.options ? c.check(observation) : ["the session never reached the SDK", ...c.check(observation)];
-      return { caseId: c.id, passed: problems.length === 0, problems, costMinor, outcome: result.outcome, taskStatus: after.status, summary: result.summary, reportExcerpt: report?.bodyMd.slice(0, 1500) };
+      return { caseId: c.id, passed: problems.length === 0, problems, costMinor, outcome: result.outcome, taskStatus: after.status, summary: result.summary, reportExcerpt: report?.bodyMd.slice(0, 1500), toolTrail: toolCalls.map((x) => `${x.connectorKey ?? "sdk"}:${x.tool}/${x.status}${x.policyOutcome ? `/${x.policyOutcome}` : ""}`).join(", ") };
     } catch (err) {
       return { ...base, passed: false, problems: [`the session threw: ${(err as Error).message}`], error: (err as Error).message };
     } finally {

@@ -53,7 +53,7 @@ describe.skipIf(!live)("launch gate: every agent end to end (live)", () => {
         const r = await env.runSessionCase(c);
         results.push(r);
         if (!r.passed) failed.push(c.id);
-        console.warn(`[eval] ${r.passed ? "PASS" : "FAIL"} ${c.id}: ${r.outcome ?? "not run"} / task ${r.taskStatus ?? "-"}, cost ${r.costMinor.toFixed(2)} minor (Estimate); run spent ${budget.spentMinor.toFixed(2)}${r.problems.length ? `; problems: ${r.problems.join(" | ")}${r.reportExcerpt ? `\nreport: ${r.reportExcerpt}` : ""}` : ""}`);
+        console.warn(`[eval] ${r.passed ? "PASS" : "FAIL"} ${c.id}: ${r.outcome ?? "not run"} / task ${r.taskStatus ?? "-"}, cost ${r.costMinor.toFixed(2)} minor (Estimate); run spent ${budget.spentMinor.toFixed(2)}${r.problems.length ? `; problems: ${r.problems.join(" | ")}\ntools: ${r.toolTrail || "none"}${r.reportExcerpt ? `\nreport: ${r.reportExcerpt}` : ""}` : ""}`);
         expect(r.problems).toEqual([]);
       },
       15 * 60 * 1000,
