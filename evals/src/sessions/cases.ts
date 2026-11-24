@@ -60,7 +60,6 @@ const SAMPLE_REPORT = "## Suppliers compared\n\n| Supplier | 12 oz price | Minim
 export const SUPPLIER_LINES = ["At least two suppliers recorded in Customers, each with the page it was found on", "An RFQ pack drafted in the report; nothing is sent"] as const;
 const SUPPLIER_REPORT = "## Suppliers recorded\n\nTwo suppliers are in Customers, each with its page.\n\n## RFQ pack draft\n\nIdentical questions for every supplier: price at 10,000 and 50,000 units, minimum order, lead time. Nothing has been sent.";
 
-const notDone = (o: SessionObservation): string[] => (o.task.status === "done" ? [`the task is done (${o.result.summary})`] : []);
 /** The launch gate (founder, Nov 24, 2026): the task ends done with a saved report, never blocked. */
 const doneWithReport = (o: SessionObservation): string[] => [
   ...(o.task.status === "done" ? [] : [`the task is ${o.task.status}, not done (${o.result.outcome}: ${o.result.summary})`]),

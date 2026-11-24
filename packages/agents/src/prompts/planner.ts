@@ -32,7 +32,7 @@ export const PLANNER_SITE_RULE =
  * the team cannot meet ends handed to the founder anyway (the session's hand-off), so this keeps the plan honest first.
  */
 export const PLANNER_ACCEPTANCE_RULE =
-  "Acceptance criteria may only ask for what the team can do with its tools and what the project already knows: research with sources, writing, drafts, Foundmill's own records (tasks, reports, Customers) and what a connected tool does (connected lists them). Never require a record in a tool that is not connected, a message sent outside, a fact the founder has not given (a sender name, a price, an address) or a list of tools nobody named; write what only the founder can give or do in the goal, as \"For the founder: ...\", and the agent hands it over.";
+  "Acceptance criteria may only ask for what the team can do with its tools and what the project already knows: research with sources, writing, drafts, the project's own records (tasks, reports, Customers) and what a connected tool does (connected lists them). Never require a record in a tool that is not connected, a message sent outside, a fact the founder has not given (a sender name, a price, an address) or a list of tools nobody named; write what only the founder can give or do in the goal, as \"For the founder: ...\", and the agent hands it over.";
 
 /**
  * The system prompt of every Planner call that writes tasks (`TaskGraphOutput`): the api's `planTaskGraph` (the Plan
