@@ -28,7 +28,8 @@ const TOOLS = {
   unlistedRemote: { connector: "notion_mcp", name: "call_unlisted_tool", contactsThirdParty: true, irreversible: true },
   notionUpdatePage: { connector: "notion_mcp", name: "notion_update_page" },
   hubspotManageCrm: { connector: "hubspot_mcp", name: "manage_crm_objects" },
-  hubspotMarketingEmail: { connector: "hubspot_mcp", name: "manage_marketing_email", contactsThirdParty: true, irreversible: true },
+  hubspotMarketingEmail: { connector: "hubspot_mcp", name: "manage_marketing_email", contactsThirdParty: true },
+  bufferPost: { connector: "buffer", name: "queue_post", contactsThirdParty: true },
   /** A hosted-browser step the classifier could not name: no hints (founder, Nov 23, 2026). */
   browserUnknownStep: { connector: "browser_wave", name: "click" },
   notionRead: { connector: "notion_mcp", name: "notion_fetch" },
@@ -62,8 +63,9 @@ const TABLE: Row[] = [
   { name: "remote MCP tool on no list", tool: TOOLS.unlistedRemote, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "unlisted-remote-tool-asks" },
   { name: "Notion page change", tool: TOOLS.notionUpdatePage, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   { name: "HubSpot record change", tool: TOOLS.hubspotManageCrm, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
-  // Mail and posts to outside people from HubSpot still ask in every mode (first contact waits for the founder).
-  { name: "HubSpot marketing email", tool: TOOLS.hubspotMarketingEmail, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "remote-change-asks-founder" },
+  // Public posts and mail to the founder's own lists ask in augmented mode only (founder, Nov 24, 2026).
+  { name: "HubSpot marketing email", tool: TOOLS.hubspotMarketingEmail, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
+  { name: "Buffer post", tool: TOOLS.bufferPost, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
   { name: "Notion read", tool: TOOLS.notionRead, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   { name: "send email (external)", tool: TOOLS.sendEmail, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
   { name: "ad spend within threshold", tool: TOOLS.adSpend, ctx: { amountMinor: 10_000 }, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
@@ -102,14 +104,11 @@ describe("evaluate: every rule × every business mode", () => {
   }
 });
 
-describe("a listed remote mail or post asks on vacation too", () => {
-  for (const t of [TOOLS.hubspotMarketingEmail]) {
-    for (const mode of BUSINESS_MODES) {
-      it(`${t.connector}:${t.name} in ${mode} on vacation → ask`, () => {
-        const result = evaluate({ principal: agent(), tool: t, business: business(mode, true), context: { holidayActive: true } });
-        expect(result.outcome).toBe("ask");
-      });
-    }
+describe("a public post runs on vacation", () => {
+  for (const t of [TOOLS.hubspotMarketingEmail, TOOLS.bufferPost]) {
+    it(`${t.connector}:${t.name} on vacation → allow`, () => {
+      expect(evaluate({ principal: agent(), tool: t, business: business("assisted", true), context: { holidayActive: true } }).outcome).toBe("allow");
+    });
   }
 });
 

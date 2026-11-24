@@ -62,7 +62,7 @@ If a fact is missing, plan around it and list it as a gap in the hand-back.
 4. **Lay out the four weeks.** One row per post: date, network, theme, the true thing, format, status. Prepare a week at a time in one sitting, and leave room for a post about something that happens that day.
 5. **Get several posts from one piece of work.** From any longer piece (an article, a customer conversation, a how-to) pull the parts that stand alone: a line worth repeating, a short story, one tip, one number, a moment behind the scenes. Each becomes its own post and must make sense to someone who never saw the original.
 6. **Plan the replying as well as the posting.** Fifteen minutes a day, done by the founder: answer every comment, then leave a real comment on five posts from accounts the audience follows. Find 20 such accounts and list them. You draft, and the founder posts. A comment worth leaving brings a fact, an experience or a question. "Great post" brings nothing.
-7. **Set the publishing path for each post.** Prepared, approved, then published. The first post on any network needs the founder's approval, and so does anything that quotes a customer or the founder. If a tool queues posts, a queued post is "queued" until a tool result shows it went out.
+7. **Set the publishing path for each post.** Prepared, then published. With a publishing tool connected, posts go out without the founder's approval, except in the mode where the founder is asked before anything outside the business. A customer is quoted only with their permission on record. If a tool queues posts, a queued post is "queued" until a tool result shows it went out.
 8. **Review each week with what can be seen.** The three posts that did best and the three that did worst, each with one line on why, marked as your reading. New followers of the project page, replies, and clicks on the tracked link matter more than likes. Take the figures from a tool if you have one. Otherwise send a founder task asking for what their app shows, and report those as the founder's figures.
 9. **Change the format before the frequency.** If nothing has drawn a reply or a follower after three or four weeks, try a different format or theme. Posting more of what is not working does not help.
 
@@ -101,14 +101,14 @@ Gaps: <facts, photos or approvals still needed>
 - Every planned post names one true thing from the records.
 - The cadence fits the time the founder has.
 - Only the project's own accounts appear.
-- Posts that need approval are marked.
+- Posts that quote a customer show the permission on record.
 - A post is called published only when a tool result or the founder confirms it went out.
 - Every figure in the review names its source.
 - Network habits are marked "as of 2026".
 
 ## What needs the founder
 
-The founder approves the plan, the first post on each network, and any post that quotes them or a customer. Unless a publishing tool is connected, the founder publishes each prepared post and does the replying, with your drafts. Opening an account on a new network is the founder's step, because that network's terms are theirs to agree to. Paid promotion of a post costs money: ask first, with a cost Estimate.
+The founder approves the plan. Unless a publishing tool is connected, the founder publishes each prepared post and does the replying, with your drafts. Opening an account on a new network is the founder's step, because that network's terms are theirs to agree to. Paid promotion of a post costs money: ask first, with a cost Estimate.
 
 ## If a tool is missing
 

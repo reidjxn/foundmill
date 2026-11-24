@@ -62,7 +62,7 @@ describe("sendgrid mock: mail composition and signals", () => {
     await mock.callTool("send_mail", { ...base, kind: "marketing", unsubscribeGroupId: 21_904 }, ctx);
     expect(mock.sentFor(ctx.businessId)[1]!.body).toMatchObject({ asm: { groupId: 21_904 } });
     expect(mock.policyHints.send_mail).toEqual({ contactsThirdParty: true });
-    expect(mock.policyHints.schedule_campaign).toEqual({ contactsThirdParty: true, irreversible: true });
+    expect(mock.policyHints.schedule_campaign).toEqual({ contactsThirdParty: true });
   });
   it("add_suppression blocks later sends (opt-out received elsewhere)", async () => {
     const mock = createSendgridMock();

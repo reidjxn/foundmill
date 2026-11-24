@@ -186,7 +186,7 @@ export function teamCanDoWords(input: SpendLineInput & { mode: BusinessMode; hol
  */
 export function teamCanDoOptionDescription(mode: BusinessMode, line: SpendLineInput): string {
   if (mode === "augmented") return "The team researches, drafts and prepares on its own. It asks you before contacting anyone, spending anything or doing anything it can't undo.";
-  if (mode === "assisted") return `The team does routine work on its own. It asks you ${beforeSpending(line, false)}, before anything it can't undo and before any contract. It emails people outside the project on its own.`;
+  if (mode === "assisted") return `The team does routine work on its own. It asks you ${beforeSpending(line, false)}, before anything it can't undo and before any contract. It emails and posts for the project on its own.`;
   const spend = spendLineKind(line.lineMinor) === "always" ? "Every spend still asks you" : `It still asks you ${beforeSpending(line, false)}`;
   return `The team works without asking, and the Chief of Staff answers the team's questions in the Inbox for you. ${spend}, and putting changes live in your product still comes to you.`;
 }
