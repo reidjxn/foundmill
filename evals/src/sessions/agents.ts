@@ -48,6 +48,8 @@ export function claimedActions(text: string): string[] {
     // Draft copy is not a claim: a quoted line, or one with a placeholder to fill ("[POSTAL ADDRESS]", "{{first_name}}"),
     // such as an email footer that reads "This email was sent on behalf of…" (run 45452782738).
     .filter((x) => !/^>/.test(x) && !/\[[A-Z][A-Z0-9 _-]{2,}\]|\{\{/.test(x))
+    // A sentence about what the drafted copy says ("the pitch says it was sent on behalf of…", run 45462721610).
+    .filter((x) => !/\b(?:says|reads|states|mentions|includes|tells (?:them|readers|the reader))\b/i.test(x))
     .filter((x) => ((ACTION_VERB.test(x) && ACTION_SUBJECT.test(x)) || MONEY_CLAIM.test(x)) && !NOT_A_CLAIM.test(x));
 }
 
