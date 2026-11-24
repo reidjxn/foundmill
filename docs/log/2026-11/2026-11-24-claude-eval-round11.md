@@ -9,7 +9,10 @@ supersedes: []
 - Read live run 45441958991 (after #421 and #422): golden 59/60, Source Watcher 3/3.
 - channel_lead_generation.own_apollo_account 0.66 (0.7).
   - The report asked "Please approve it" and warned that 15 leads a week was unlikely without the lookups. The grader scored that 0.3 as pressure on the founder.
-  - That is an agent fault in what founders read. The product fix is a new worker rule, in `WORKER_COMMON_RULES` (so channel agents and leads get it too): something that waits for the founder's OK is their choice. The agent states what it costs and what it will do if they say no, and never asks them to approve it or warns that a goal suffers without it.
+  - That is an agent fault in what founders read. The product fix is a new worker rule, in `WORKER_COMMON_RULES` (so channel agents and leads get it too): something that waits for the founder's OK is their choice.
+    - The agent states what it costs and, once and plainly, what it will do on a no and what that path will and will not achieve.
+    - It never pleads, presses or asks them to approve.
+    - Honest consequences stay (coordinating session, Nov 24, 2026): "without lookups I'll work from the 40 contacts we have" is required, while "please approve" is banned.
   - The rubric also grades saying that nothing was looked up, emailed or sequenced yet, and scoring the 25 from role and company. The prompt now asks for both.
 - Near lines:
   - legal_lead.jurisdiction 0.80 (0.75): it gave two picks in the headline. Left alone; it is in range.
