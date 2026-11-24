@@ -122,7 +122,7 @@ export async function gradeGoldenOutput(
  * the answer on asking for tools and ids, and the checks fail on that instead of on the work (live run of Nov 22, 2026).
  */
 export const ONE_REPLY_NOTE =
-  "How this task runs: you answer it in one reply, and no tool runs during it. Everything you may use is in the task above: its records, tool results and ids. Write the deliverable the task asks for, citing the ids the task gives as your sources, inline next to each claim. The length the task gives counts your whole reply, citations and notes included: stay under it. Do not ask for tools, records or ids the task does not give. Where the task names a tool for a step, write what that call would carry and say that it has not run.";
+  "How this task runs: you answer it in one reply, and no tool runs during it. Everything you may use is in the task above: its records, tool results and ids. Write the deliverable the task asks for, citing the ids the task gives as your sources, inline next to each claim. The length the task gives counts your whole reply, citations and notes included: stay under it. Do not ask for tools, records or ids the task does not give, and name only the tools, records and steps the task gives: no platform flows, approvals or tools it does not mention. Where the task names a tool for a step, write what that call would carry and say that it has not run.";
 
 /** The user turn a golden task's agent receives, and the task the grader reads. */
 export function goldenTaskPrompt(task: Pick<GoldenTask, "prompt">): string {
