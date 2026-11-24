@@ -288,6 +288,21 @@ describe("training says a true price and checks it against the balance (WP-09 T9
     expect((await owner.agent.model.set({ businessId, agentId, modelKey: "opus", retest: false })).retests).toEqual([]);
   });
 
+  it("a half-price run is priced and checked at the batch figure, and starts the workflow on the batch path (WP-09 T10)", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    await repos.businesses.update(hz.db, businessId, { planTier: "pro" });
+    const estimate = await owner.agent.training.estimate({ businessId, agentId, modelKey: "opus" });
+    // Enough for the half-price run, not for the run now.
+    await leave(businessId, estimate.batchCostMinor);
+    const live = await repos.agents.getVersion(hz.db, businessId, hz.A.agentVersionId);
+    const version = await repos.agents.createVersion(hz.db, businessId, agentId, { instructions: live.instructions, tools: live.tools as unknown[], modelKey: "opus", state: "draft", createdByKind: "user", createdBy: ownerId });
+    await expect(owner.agent.training.run({ businessId, agentId, versionId: version.id })).rejects.toMatchObject({ code: "PAYMENT_REQUIRED" });
+    const { run } = await owner.agent.training.run({ businessId, agentId, versionId: version.id, mode: "batch" });
+    expect(temporal.starts.filter((s) => s.workflowId === `training:${run.id}`)).toEqual([{ type: "trainingRun", workflowId: `training:${run.id}`, args: [{ businessId, trainingRunId: run.id, batch: true }] }]);
+    await owner.agent.training.cancel({ businessId, runId: run.id });
+  });
+
   it("does not check a project on its own key", async () => {
     const { businessId, ownerId, agentId } = hz.B;
     await repos.businesses.update(hz.db, businessId, { planTier: "pro" });

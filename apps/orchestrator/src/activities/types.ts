@@ -474,6 +474,17 @@ export interface ApprovalDecision {
 export interface TrainingRunInput {
   businessId: string;
   trainingRunId: string;
+  /** Run the tests through the half-price batch path (WP-09 T10): results within a day. Absent or false runs them now. */
+  batch?: boolean;
+}
+
+/** What the batch path's activities need of a loaded run (WP-09 T10). */
+export interface TrainingBatchInput extends TrainingRunInput {
+  agentId: string;
+  draftVersionId: string;
+  skillKeys: string[];
+  modelKey: ModelKey;
+  measuredSkillKey?: string;
 }
 
 export interface LoadedTrainingRun {

@@ -186,6 +186,9 @@ test.describe("agent profile", () => {
     await expect(page.getByTestId("train-dialog")).toBeVisible();
     await expect(page.getByTestId("train-dialog")).toContainText("Estimate");
     await expect(page.getByTestId("train-dialog")).toContainText("half stay hidden");
+    // Two ways to run, each with its price, both labeled Estimate (WP-09 T10).
+    await expect(page.getByTestId("train-confirm")).toHaveText(/^Run now, about \$\d+\.\d{2} \(Estimate\)$/);
+    await expect(page.getByTestId("train-batch")).toHaveText(/^Run within a day at half price, about \$\d+\.\d{2} \(Estimate\)$/);
     // The dialog opens on its primary button, not on the Estimate chip or a defined word, so one Escape closes it.
     await expect(page.getByTestId("train-confirm")).toBeFocused();
     await page.keyboard.press("Escape");

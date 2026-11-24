@@ -53,6 +53,12 @@ export const EARLY_ACCESS_PRICE_LABEL = "Free while in early access" as const;
 /** Beneath the plans while invite-only: the one promise made (founder, Nov 17, 2026, A12). */
 export const INVITED_FOUNDERS_LINE = "Free while in early access. Founders invited now keep it free for good." as const;
 
+/**
+ * Which way a training check runs unless the founder picks the other (WP-09 T10): "now", or "batch" (within a day at
+ * half price). D11 is the founder's to decide (recommended: "batch" on the free plan); until then it is "now".
+ */
+export const TRAINING_DEFAULT_MODE: "now" | "batch" = "now";
+
 /** Try's price from the day sign-up opens, in US cents a month (#273, #274). */
 export const TRY_PRICE_MONTHLY_MINOR = 500;
 

@@ -8,7 +8,7 @@ import { MODEL_KEYS, type ModelKey } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities, TrainingRunInput } from "../../activities";
 import { createTrainingActivities } from "../../activities/training";
-import { TRAINING_FINISH_FAILED, TRAINING_START_FAILED, trainingRun } from "../../workflows";
+import { TRAINING_BATCH_TIMEOUT, TRAINING_FINISH_FAILED, TRAINING_START_FAILED, trainingRun } from "../../workflows";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "../harness";
 import { createTemporalRig, wfId, type TemporalRig } from "./temporal";
 
@@ -152,4 +152,43 @@ describe("trainingRun workflow", () => {
     expect(calls.load).toBe(1);
     expect((await repos.training.get(t.db, t.businessId, run.id)).status).toBe("cancelled");
   });
+
+  it("a half-price run goes through the two batches and ends awaiting a decision (WP-09 T10)", async () => {
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const { run } = (await repos.training.createModelRetest(t.db, t.businessId, agent.id, { modelKey: "haiku" })).retest!;
+    const real = createTrainingActivities(t.deps);
+    const seen: string[] = [];
+    const { acts } = activities({
+      async runSkillTests(input) {
+        seen.push("now");
+        return real.runSkillTests(input);
+      },
+      async submitTrainingGrades(input) {
+        seen.push("grades");
+        return real.submitTrainingGrades(input);
+      },
+    });
+    const result = await execute(acts, { businessId: t.businessId, trainingRunId: run.id, batch: true });
+    expect(result.status).toBe("awaiting_decision");
+    expect(result.skillDeltas.length).toBeGreaterThan(0);
+    expect(seen).toEqual(["grades"]);
+    expect((await repos.training.get(t.db, t.businessId, run.id)).status).toBe("awaiting_decision");
+  });
+
+  it("a batch that has not ended within a day fails the run with the reason", async () => {
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const { run } = (await repos.training.createModelRetest(t.db, t.businessId, agent.id, { modelKey: "haiku" })).retest!;
+    let looks = 0;
+    const { acts, calls } = activities({
+      async trainingBatchEnded() {
+        looks++;
+        return false;
+      },
+    });
+    const result = await execute(acts, { businessId: t.businessId, trainingRunId: run.id, batch: true });
+    expect(result.status).toBe("failed");
+    expect(calls.fail).toEqual([TRAINING_BATCH_TIMEOUT]);
+    expect(looks).toBeGreaterThan(700);
+    expect((await repos.training.get(t.db, t.businessId, run.id)).coachSummaryMd).toBe(`Training failed: ${TRAINING_BATCH_TIMEOUT}`);
+  }, 120_000);
 });

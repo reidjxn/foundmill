@@ -344,12 +344,13 @@ export const agentRouter = router({
      * at a time: a second request while one is queued, running or grading is refused (409), so a double click never
      * pays for two runs.
      */
-    run: write.input(z.object({ agentId: Id, versionId: Id, skillKeys: SkillKeys.optional() })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
+    run: write.input(z.object({ agentId: Id, versionId: Id, skillKeys: SkillKeys.optional(), mode: z.enum(["now", "batch"]).default("now") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       // Paid entry (WP-09 T16): a training run's model calls wait for the entry plan.
       await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
       await assertAgentsRunning(ctx, "a training run");
       const { trained, draft } = await ctx.rls(async (tx) => ({ trained: await repos.agents.get(tx, ctx.businessId, input.agentId), draft: await repos.agents.getVersion(tx, ctx.businessId, input.versionId) }));
-      await assertTrainingAffordable(ctx, trainingPrice(ctx, await scopedTestCount(ctx, trained, input.skillKeys), draft.modelKey));
+      const batch = input.mode === "batch";
+      await assertTrainingAffordable(ctx, trainingPrice(ctx, await scopedTestCount(ctx, trained, input.skillKeys), draft.modelKey, batch));
       const run = await ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team`);
@@ -357,10 +358,11 @@ export const agentRouter = router({
         if (version.agentId !== agent.id) throw new ValidationError("Version belongs to another agent");
         if (version.state !== "draft") throw new ValidationError("Only a draft version can be trained");
         const r = await repos.training.createForDraft(tx, ctx.businessId, { agentId: agent.id, fromVersionId: agent.currentVersionId, toVersionId: version.id, status: "queued", requestedBy: ctx.userId, ...(input.skillKeys ? { skillKeys: input.skillKeys } : {}) });
-        await audit(tx, ctx, { action: "agent.training.run", target: { kind: "training_run", id: r.id }, details: { agentId: agent.id, versionId: version.id, skillKeys: input.skillKeys ?? null } });
+        await audit(tx, ctx, { action: "agent.training.run", target: { kind: "training_run", id: r.id }, details: { agentId: agent.id, versionId: version.id, skillKeys: input.skillKeys ?? null, mode: input.mode } });
         return r;
       });
-      const workflow = await ctx.temporal.start(WORKFLOWS.trainingRun, { workflowId: workflowIds.training(run.id), args: [{ businessId: ctx.businessId, trainingRunId: run.id }] });
+      // The half-price path (WP-09 T10): the tests go as two batches, results within a day.
+      const workflow = await ctx.temporal.start(WORKFLOWS.trainingRun, { workflowId: workflowIds.training(run.id), args: [{ businessId: ctx.businessId, trainingRunId: run.id, ...(batch ? { batch: true } : {}) }] });
       return { run, workflow };
     }),
 
