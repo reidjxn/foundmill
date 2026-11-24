@@ -185,7 +185,8 @@ const RAW_TASKS: GoldenTask[] = [
     title: "Build a Dugout-compliant table view",
     prompt: `Task: add an "Unreconciled invoices" saved table view to the finance screen, desktop only, using the design system (Dugout components and tokens, Lucide icons). Columns: invoice, customer (entity link), amount, days overdue, status pill. Return JSON matching the worker schema {summary, steps, artifacts}: component structure, state handling, keyboard and accessibility, tests and a Storybook story.`,
     schemaKey: "worker",
-    checks: [CHECK.all("story", "test"), CHECK.none("tailwind config", "hex")],
+    // `claims`: "no ad-hoc styling or hex values" denies hex colors, it does not use them.
+    checks: [CHECK.all("story", "test"), { kind: "contains_none", params: { terms: ["tailwind config", "hex"], claims: true } }],
     rubric: [
       "Uses existing table and status pill components with tokens only; no ad-hoc colors or mobile layout.",
       "Customer renders through the entity link component, never plain text.",
