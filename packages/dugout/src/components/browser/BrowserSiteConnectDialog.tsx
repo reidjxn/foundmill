@@ -13,7 +13,7 @@ import { BrowserLiveView } from "./BrowserLiveView";
 
 export type BrowserConnectStage = "intro" | "starting" | "sign_in";
 
-export const browserIntroWords = "The team will work in this account as you. You can watch and stop it. It will ask before it sends, posts, buys or agrees to anything. Some sites do not allow this, and those are not offered. You can disconnect at any time, and the saved sign-in is deleted.";
+export const browserIntroWords = "The team will work in this account as you. You can watch and stop it. It stops and asks you before it buys, pays, agrees to terms or deletes anything. Some sites do not allow this, and those are not offered. You can disconnect at any time, and the saved sign-in is deleted.";
 export const browserAskFirstWords = (site: string, appName: string): string => `${appName} has not yet confirmed that ${site}'s terms allow this. Connect it only if you are comfortable with that.`;
 export const browserSignInWords = (site: string): string => `Sign in to ${site} here yourself, including any code it sends you. Nobody on the team sees what you type.`;
 export const BROWSER_SIMULATED_SIGN_IN = "This is a simulated sign-in. No page is opened and nothing is saved at the site. Done finishes it.";

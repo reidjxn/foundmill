@@ -177,7 +177,7 @@ export function toolScoutProblems(c: ToolScoutCase, out: ToolScoutOutput): strin
   if (c.route && note.pick.route !== c.route) problems.push(`the tool comes in by ${note.pick.route}, not ${c.route}`);
   // The browser route is never chosen by the agent: only a catalog entry whose site is on the site list has it.
   if (note.pick.route === "browser" && c.route !== "browser") problems.push("the browser route was offered for a tool that has a better way in");
-  const founderKeepsSignUp = note.pick.route === "browser" ? note.bodyMd.includes("You sign up with") && note.bodyMd.includes("asks before it sends, buys or agrees") : note.bodyMd.includes("accept its terms yourself");
+  const founderKeepsSignUp = note.pick.route === "browser" ? note.bodyMd.includes("You sign up with") && note.bodyMd.includes("stops and asks you before it buys") : note.bodyMd.includes("accept its terms yourself");
   if (!own && !founderKeepsSignUp) problems.push("the note does not keep sign-up and terms with the founder");
   const pages = new Set(c.pages.map((p) => p.url));
   if (!own && c.pages.length && !r.sources.some((s) => pages.has(s.url))) problems.push("no source is one of the pages that were read");

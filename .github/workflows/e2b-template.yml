@@ -11,6 +11,10 @@ on:
         description: Template name (lowercase letters, numbers, dashes)
         default: foundmill-sandbox
         required: true
+      dockerfile:
+        description: The Dockerfile in infra/e2b (e2b.Dockerfile for foundmill-sandbox, browser.Dockerfile for foundmill-browser)
+        default: e2b.Dockerfile
+        required: true
       cpu:
         description: vCPUs for each sandbox
         default: "4"
@@ -36,9 +40,11 @@ jobs:
       - name: Build (E2B CLI 2.x builds the Dockerfile on E2B's side)
         env:
           E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
         run: |
+          case "$DOCKERFILE" in e2b.Dockerfile|browser.Dockerfile) ;; *) echo "Unknown Dockerfile: $DOCKERFILE"; exit 1 ;; esac
           if [ -z "$E2B_API_KEY" ]; then echo "The repository secret E2B_API_KEY is not set (Settings → Secrets and variables → Actions)."; exit 1; fi
-          npx --yes @e2b/cli@2.22.3 template create "${{ inputs.name }}" --path infra/e2b --dockerfile e2b.Dockerfile --cpu-count "${{ inputs.cpu }}" --memory-mb "${{ inputs.memory_mb }}"
+          npx --yes @e2b/cli@2.22.3 template create "${{ inputs.name }}" --path infra/e2b --dockerfile "$DOCKERFILE" --cpu-count "${{ inputs.cpu }}" --memory-mb "${{ inputs.memory_mb }}"
       - name: Show the team's templates
         env:
           E2B_API_KEY: ${{ secrets.E2B_API_KEY }}

@@ -8,7 +8,7 @@ import { ALL_TRAFFIC, MAX_SANDBOX_MINUTES, NPM_REGISTRY, browserEgress, createE2
 
 const SITE = browserSite("wave")!;
 
-function fake(over: { node?: number; answer?: (req: { op: string }) => unknown } = {}) {
+function fake(over: { node?: number; templateLib?: boolean; create?: Error; answer?: (req: { op: string }) => unknown } = {}) {
   const log: string[] = [];
   const files = new Map<string, string>();
   let killed = false;
@@ -19,7 +19,13 @@ function fake(over: { node?: number; answer?: (req: { op: string }) => unknown }
     commands: {
       run: async (cmd, opts) => {
         log.push(`run ${cmd.split(" ").slice(0, 2).join(" ")}${opts?.background ? " (background)" : ""}`);
-        if (cmd.startsWith("node --version")) return { exitCode: over.node ?? 0, stdout: "v22", stderr: "" };
+        // The SDK throws on a non-zero exit, with the result on the error.
+        const exit = (exitCode: number) => {
+          if (exitCode === 0) return { exitCode, stdout: "v22", stderr: "" };
+          throw Object.assign(new Error(`exit status ${exitCode}`), { name: "CommandExitError", exitCode, stdout: "", stderr: "sh: 1: node: not found" });
+        };
+        if (cmd.startsWith("node --version")) return exit(over.node ?? 0);
+        if (cmd.startsWith("test -f /opt/fm-browser")) return exit(over.templateLib === false ? 1 : 0);
         if (cmd.includes("call.mjs")) {
           const file = cmd.split(" ").at(-1)!.replace(/'/g, "");
           return { exitCode: 0, stdout: JSON.stringify(answer(JSON.parse(files.get(file)!))), stderr: "" };
@@ -32,16 +38,28 @@ function fake(over: { node?: number; answer?: (req: { op: string }) => unknown }
     stream: { start: async (o) => void log.push(`stream ${JSON.stringify(o)}`), getAuthKey: () => "k", getUrl: () => "https://6080-isample0000000001.e2b.app/vnc.html?password=k" },
     kill: async () => void (killed = true),
   };
-  const driver = createE2bBrowserDriver({ apiKey: "e2b_test", factory: async (input) => (created.push(input), sbx) });
-  return { driver, log, files, created, killed: () => killed };
+  const warnings: string[] = [];
+  const driver = createE2bBrowserDriver({ apiKey: "e2b_test", log: { warn: (o) => void warnings.push(JSON.stringify(o)) }, factory: async (input) => {
+    if (over.create) throw over.create;
+    return (created.push(input), sbx);
+  } });
+  return { driver, log, files, created, warnings, killed: () => killed };
 }
 
 describe("the E2B browser driver", () => {
-  it("installs the browser with the registry open, then narrows egress to the site before any page", async () => {
+  it("uses the template's own playwright-core, and narrows egress to the site before the browser starts", async () => {
     const f = fake();
+    await f.driver.open({ businessId: "b1", site: SITE, contextId: "new", minutes: 20, save: true });
+    expect(f.created[0]).toMatchObject({ template: "foundmill-browser" });
+    expect(f.log.some((l) => l.startsWith("run cd"))).toBe(false);
+    expect(f.log.findIndex((l) => l.startsWith("network"))).toBeLessThan(f.log.findIndex((l) => l.includes("(background)")));
+  });
+
+  it("without the template's library, installs it with the registry open, then narrows egress before any page", async () => {
+    const f = fake({ templateLib: false });
     const opened = await f.driver.open({ businessId: "b1", site: SITE, contextId: "new", minutes: 20, save: true });
-    expect(f.created[0]).toMatchObject({ template: "desktop", timeoutMs: 21 * 60_000, network: { allowOut: [NPM_REGISTRY], denyOut: [ALL_TRAFFIC] }, metadata: { kind: "hosted-browser", site: "wave" } });
-    const install = f.log.findIndex((l) => l.startsWith("run mkdir"));
+    expect(f.created[0]).toMatchObject({ template: "foundmill-browser", timeoutMs: 21 * 60_000, network: { allowOut: [NPM_REGISTRY], denyOut: [ALL_TRAFFIC] }, metadata: { kind: "hosted-browser", site: "wave" } });
+    const install = f.log.findIndex((l) => l.startsWith("run cd"));
     const narrow = f.log.findIndex((l) => l.startsWith("network"));
     const server = f.log.findIndex((l) => l.includes("(background)"));
     expect(install).toBeGreaterThan(-1);
@@ -70,10 +88,19 @@ describe("the E2B browser driver", () => {
     await expect(f.driver.goto(id, "https://next.waveapps.com/")).rejects.toThrow(/ended/);
   });
 
-  it("kills the sandbox when it cannot start the browser", async () => {
+  it("says why when the template has no Node (the SDK throws on the exit), logs it, and kills the sandbox", async () => {
     const f = fake({ node: 127 });
-    await expect(f.driver.open({ businessId: "b1", site: SITE, contextId: "new", minutes: 20, save: false })).rejects.toThrow(/no Node/);
+    await expect(f.driver.open({ businessId: "b1", site: SITE, contextId: "new", minutes: 20, save: false })).rejects.toThrow(/has no Node \(build infra\/e2b\/browser.Dockerfile/);
     expect(f.killed()).toBe(true);
+    expect(f.warnings.join(" ")).toContain("has no Node");
+  });
+
+  it("says why when E2B refuses the sandbox, never only that it could not be reached", async () => {
+    const missing = fake({ create: Object.assign(new Error("template 'foundmill-browser' not found"), { name: "NotFoundError" }) });
+    await expect(missing.driver.open({ businessId: "b1", site: SITE, contextId: "new", minutes: 20, save: false })).rejects.toThrow(/could not start the template "foundmill-browser"/);
+    const auth = fake({ create: Object.assign(new Error("Invalid API key"), { name: "AuthenticationError" }) });
+    await expect(auth.driver.open({ businessId: "b1", site: SITE, contextId: "new", minutes: 20, save: false })).rejects.toThrow(/E2B refused the key/);
+    expect(auth.warnings.join(" ")).not.toContain("e2b_test");
   });
 
   it("refuses a step the page answers with a change, and keeps nothing at E2B for a saved sign-in", async () => {
