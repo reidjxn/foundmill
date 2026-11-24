@@ -937,3 +937,97 @@ describe("skill check (WP-06 T10)", () => {
     expect((await repos.agents.get(t.db, t.businessId, agent.id)).currentVersionId).toBe(live.id);
   });
 });
+
+describe("training on the batch path (WP-09 T10)", () => {
+  /** A draft run, loaded, and the batch activities' input for it. */
+  async function draftRun(acts: ReturnType<typeof createTrainingActivities>) {
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const live = await repos.agents.getVersion(t.db, t.businessId, agent.currentVersionId!);
+    const draft = await repos.agents.createVersion(t.db, t.businessId, agent.id, { instructions: live.instructions as never, tools: live.tools, modelKey: "sonnet", state: "draft", createdByKind: "user" });
+    const run = await repos.training.create(t.db, t.businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id });
+    const loaded = await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
+    const skillKeys = loaded.skillKeys.slice(0, 2);
+    return { run, loaded, input: { businessId: t.businessId, trainingRunId: run.id, agentId: loaded.agentId, draftVersionId: loaded.draftVersionId, skillKeys, modelKey: loaded.modelKey } };
+  }
+
+  /** Models whose batches are counted; `refuse` turns every candidate answer into a refusal. */
+  function counted(refuse = false) {
+    const real = t.deps.models;
+    const submitted: string[][] = [];
+    const models = Object.create(real) as typeof real;
+    models.submitBatch = async (items) => {
+      submitted.push(items.map((i) => i.request.route));
+      return real.submitBatch!(items);
+    };
+    models.collectBatch = (async (batchId: string, items: readonly { customId: string; request: { route: string } }[]) => {
+      const results = await real.collectBatch!(batchId, items as never);
+      return refuse ? results.map((r, i) => (items[i]!.request.route === "skillGrader" ? r : { customId: r.customId, ok: false, kind: "refusal", message: "refused" })) : results;
+    }) as typeof real.collectBatch;
+    return { models, submitted };
+  }
+
+  async function runBatch(acts: ReturnType<typeof createTrainingActivities>, input: Awaited<ReturnType<typeof draftRun>>["input"]) {
+    const { batchId: candidateBatchId } = await acts.submitTrainingCandidates(input);
+    expect(candidateBatchId).toEqual(expect.any(String));
+    expect(await acts.trainingBatchEnded({ batchId: candidateBatchId!, businessId: t.businessId })).toBe(true);
+    const { batchId: graderBatchId } = await acts.submitTrainingGrades({ ...input, candidateBatchId: candidateBatchId! });
+    return { candidateBatchId, graderBatchId, collect: () => acts.collectTrainingOutcomes({ ...input, candidateBatchId, graderBatchId }) };
+  }
+
+  const scored = (o: { skillKey: string; testsRun: number; meanScore: number; tested: number; checksFailed: number }) => ({ skillKey: o.skillKey, testsRun: o.testsRun, meanScore: o.meanScore, tested: o.tested, checksFailed: o.checksFailed });
+
+  it("produces the same outcomes as a run now on the same fixtures", async () => {
+    const { models, submitted } = counted();
+    const acts = createTrainingActivities({ ...t.deps, models });
+    const { input } = await draftRun(acts);
+    const now = [];
+    for (const skillKey of input.skillKeys) now.push(await acts.runSkillTests({ ...input, skillKey }));
+    const { collect } = await runBatch(acts, input);
+    const batch = await collect();
+    expect(batch.map(scored)).toEqual(now.map(scored));
+    expect(batch.some((o) => o.testsRun > 0)).toBe(true);
+    // Two batches: every candidate answer, then every grade.
+    expect(submitted).toHaveLength(2);
+    expect(submitted[1]!.every((r) => r === "skillGrader")).toBe(true);
+  });
+
+  it("a refused candidate scores 0 and is not graded", async () => {
+    const { models, submitted } = counted(true);
+    const acts = createTrainingActivities({ ...t.deps, models });
+    const { input } = await draftRun(acts);
+    const { graderBatchId, collect } = await runBatch(acts, input);
+    expect(graderBatchId).toBeNull();
+    expect(submitted).toHaveLength(1);
+    const outcomes = await collect();
+    expect(outcomes.some((o) => o.testsRun > 0)).toBe(true);
+    for (const o of outcomes) expect(o.meanScore).toBe(0);
+  });
+
+  it("a retried collect books nothing twice", async () => {
+    const acts = createTrainingActivities(t.deps);
+    const { run, input } = await draftRun(acts);
+    const { collect } = await runBatch(acts, input);
+    const first = await collect();
+    const markers = async () => (await repos.usage.list(t.db, t.businessId, { agentId: input.agentId, limit: 500 })).items.filter((u) => u.kind === "training" && (u.details as { trainingRunId?: string }).trainingRunId === run.id);
+    const before = await markers();
+    expect(before).toHaveLength(first.filter((o) => o.testsRun > 0).length);
+    expect(await collect()).toEqual(first);
+    expect(await markers()).toHaveLength(before.length);
+  });
+
+  it("a run canceled after its candidates submits no second batch", async () => {
+    const { models, submitted } = counted();
+    const acts = createTrainingActivities({ ...t.deps, models });
+    const { run, input } = await draftRun(acts);
+    const { batchId: candidateBatchId } = await acts.submitTrainingCandidates(input);
+    await repos.training.cancel(t.db, t.businessId, run.id);
+    expect(await acts.submitTrainingGrades({ ...input, candidateBatchId: candidateBatchId! })).toEqual({ batchId: null });
+    expect(submitted).toHaveLength(1);
+    // What the candidates cost is still collected; no test is counted without its grade.
+    const outcomes = await acts.collectTrainingOutcomes({ ...input, candidateBatchId, graderBatchId: null });
+    expect(outcomes.every((o) => o.testsRun === 0)).toBe(true);
+    // Nothing is submitted for a run that already ended.
+    expect(await acts.submitTrainingCandidates(input)).toEqual({ batchId: null });
+    expect(submitted).toHaveLength(1);
+  });
+});

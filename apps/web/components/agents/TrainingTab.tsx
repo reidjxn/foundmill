@@ -14,7 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleStop, Dumbbell, Eye, FlaskConical, History, Save, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CREDITS_CURRENCY, planName } from "@foundmill/config";
+import { CREDITS_CURRENCY, TRAINING_DEFAULT_MODE, planName } from "@foundmill/config";
 import { BetterModelsPrompt, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Explainer, Icon, InstructionsEditor, KeyValueList, MODEL_LABELS, ModelPicker, Panel, ProgressRing, ProvenanceChip, SkillGrid, TabBar, Term, TrainingResults, formatDuration, formatMoney, formatRelative, instructionsEqual, useDateFormat, type AgentInstructions, type InstructionComment, type InstructionViolation, type TabItem } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
@@ -212,13 +212,15 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
   const [betterOpen, setBetterOpen] = useState(false);
 
   const doSave = (modelKey?: ModelKey) => saveDraft.mutate({ businessId, agentId: agent.id, instructions, tools: tools.length ? tools : undefined, modelKey: modelKey ?? draftModel, comment: comments[comments.length - 1]?.text });
-  const trainSaved = () => {
+  /** "now", or "batch": within a day at half price (WP-09 T10). */
+  type TrainMode = "now" | "batch";
+  const trainSaved = (mode: TrainMode = "now") => {
     if (!savedVersionId) return;
-    run.mutate({ businessId, agentId: agent.id, versionId: savedVersionId });
+    run.mutate({ businessId, agentId: agent.id, versionId: savedVersionId, mode });
   };
-  const saveAndTrain = async (modelKey?: ModelKey) => {
+  const saveAndTrain = async (modelKey?: ModelKey, mode: TrainMode = "now") => {
     const r = await saveDraft.mutateAsync({ businessId, agentId: agent.id, instructions, tools: tools.length ? tools : undefined, modelKey: modelKey ?? draftModel, comment: comments[comments.length - 1]?.text });
-    run.mutate({ businessId, agentId: agent.id, versionId: r.version.id });
+    run.mutate({ businessId, agentId: agent.id, versionId: r.version.id, mode });
   };
 
   const subTabs: TabItem[] = TRAINING_SUB_TABS.map((t) => ({ id: t.id, label: t.label, badge: t.id === "focus" && focus.length ? focus.length : undefined }));
@@ -226,7 +228,9 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
   const busy = saveDraft.isPending || run.isPending;
   // Retry runs the draft that failed (a model change's retest copy included) while it is still a draft.
   const failedDraft = flow.failed ? (profile.versions.find((v) => v.id === flow.failed?.toVersionId && v.state === "draft") ?? null) : null;
-  const retryFailed = failedDraft ? () => run.mutate({ businessId, agentId: agent.id, versionId: failedDraft.id }) : savedVersionId ? trainSaved : undefined;
+  const retryFailed = failedDraft ? () => run.mutate({ businessId, agentId: agent.id, versionId: failedDraft.id }) : savedVersionId ? () => trainSaved() : undefined;
+  const train = (mode: TrainMode) => (trainable ? trainSaved(mode) : void saveAndTrain(undefined, mode));
+  const price = (minor: number | undefined) => (minor === undefined ? "…" : formatMoney({ amountMinor: minor, currency: estimateQ.data?.currency ?? CREDITS_CURRENCY }));
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="agent-training" data-phase={flow.phase}>
@@ -447,7 +451,7 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
           // the defined word in the note: their cards would open with the dialog, and Esc would close them first.
           onOpenAutoFocus={(e) => {
             e.preventDefault();
-            document.getElementById("train-confirm")?.focus();
+            document.getElementById(TRAINING_DEFAULT_MODE === "batch" ? "train-batch" : "train-confirm")?.focus();
           }}
         >
           <DialogHeader>
@@ -458,8 +462,9 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
             <KeyValueList
               items={[
                 { label: "Tests", value: estimateQ.data ? `${estimateQ.data.tests} across ${estimateQ.data.skills} skills (half stay hidden)` : "…" },
-                { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1"><ProvenanceChip kind="estimate">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency: estimateQ.data.currency })}</ProvenanceChip></span> : "…", numeric: true },
-                { label: "Duration", value: estimateQ.data ? `about ${formatDuration(estimateQ.data.durationMinutes * 60_000)}` : "…", numeric: true },
+                { label: "Cost now", value: estimateQ.data ? <span className="inline-flex items-center gap-1"><ProvenanceChip kind="estimate">{price(estimateQ.data.costMinor)}</ProvenanceChip></span> : "…", numeric: true },
+                { label: "Within a day", value: estimateQ.data ? <span className="inline-flex items-center gap-1"><ProvenanceChip kind="estimate">{price(estimateQ.data.batchCostMinor)}</ProvenanceChip></span> : "…", numeric: true },
+                { label: "Duration now", value: estimateQ.data ? `about ${formatDuration(estimateQ.data.durationMinutes * 60_000)}` : "…", numeric: true },
                 { label: "Model", value: MODEL_LABELS[draftModel] },
               ]}
             />
@@ -471,8 +476,11 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
             <Button variant="ghost" onClick={() => setTrainOpen(false)}>
               Cancel
             </Button>
-            <Button id="train-confirm" variant="primary" icon={Dumbbell} loading={busy} onClick={() => (trainable ? trainSaved() : void saveAndTrain())} data-testid="train-confirm">
-              {trainable ? "Train" : "Save draft and train"}
+            <Button id="train-batch" variant={TRAINING_DEFAULT_MODE === "batch" ? "primary" : "secondary"} loading={busy} onClick={() => train("batch")} data-testid="train-batch">
+              Run within a day at half price, about {price(estimateQ.data?.batchCostMinor)} (Estimate)
+            </Button>
+            <Button id="train-confirm" variant={TRAINING_DEFAULT_MODE === "now" ? "primary" : "secondary"} icon={Dumbbell} loading={busy} onClick={() => train("now")} data-testid="train-confirm">
+              Run now, about {price(estimateQ.data?.costMinor)} (Estimate)
             </Button>
           </DialogFooter>
         </DialogContent>
