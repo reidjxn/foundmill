@@ -53,7 +53,9 @@ const NEGATED_BEFORE = /\b(?:not|no|nothing|never|none|neither|without|(?:is|was
 function claimsTerm(haystack: string, term: string): boolean {
   const h = haystack.toLowerCase();
   const t = term.toLowerCase();
-  for (let i = h.indexOf(t); i >= 0; i = h.indexOf(t, i + 1)) if (!NEGATED_BEFORE.test(h.slice(Math.max(0, i - 60), i))) return true;
+  // A parenthetical between the negation and the term ("Nothing from pr_buf_4 (milestone mil_12, the launch) has been
+  // published") is dropped first, so its own commas and length do not end the clause.
+  for (let i = h.indexOf(t); i >= 0; i = h.indexOf(t, i + 1)) if (!NEGATED_BEFORE.test(h.slice(Math.max(0, i - 200), i).replace(/\([^()]*\)/g, "").slice(-60))) return true;
   return false;
 }
 

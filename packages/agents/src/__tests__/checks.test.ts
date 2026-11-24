@@ -56,6 +56,10 @@ describe("deterministic checks (BUILD §11.10, §12.5)", () => {
     // Live run 45385411524: a denial with record ids between the negation and the phrase.
     expect(runDeterministicCheck(none, { output: "Nothing from pr_buf_4 (milestone mil_12) is published yet." }).passed).toBe(true);
     expect(runDeterministicCheck(none, { output: "No problem, the post is published." }).passed).toBe(false);
+    // Live run 45408633306: a parenthetical with a comma between the negation and the phrase.
+    const pub = { kind: "contains_none" as const, params: { terms: ["has been published"], claims: true } };
+    expect(runDeterministicCheck(pub, { output: "Nothing from pr_buf_4 (milestone mil_12, the approval workflow launch) has been published yet." }).passed).toBe(true);
+    expect(runDeterministicCheck(pub, { output: "Good news (milestone mil_12, not late) has been published." }).passed).toBe(false);
     expect(runDeterministicCheck(CHECK.none("is published"), { output: "Nothing is published yet." }).passed).toBe(false);
   });
 
