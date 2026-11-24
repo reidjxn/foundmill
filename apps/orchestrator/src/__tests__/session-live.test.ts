@@ -1221,6 +1221,28 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
   });
 
+  it("a task that is not code, completed while a call still waits on the founder, ends without waiting: the hold expires (launch gate)", async () => {
+    const { sessionId, input, launch } = await start();
+    const { approval } = await gatewayApproval(sessionId);
+    let prompt = "";
+    script = async function* (call: QueryCall) {
+      const prompts = promptsOf(call);
+      prompt = (await prompts.next()).value?.message.content ?? "";
+      const tool = (call.options.allowedTools as string[]).find((x) => x.startsWith("mcp__"))!;
+      yield { type: "system", subtype: "init", session_id: "sdk-ask-then-done" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "tu-gw", name: tool, input: { to: "pilot@customer.example" } }], usage: { input_tokens: 20, output_tokens: 5 } } };
+      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-gw", content: JSON.stringify({ outcome: "ask", approvalId: approval.id, reasons: ["a spend asks"], policyIds: ["assisted-ask-irreversible"], costMinor: 0, auditId: "00000000-0000-4000-8000-000000000002" }) }] } };
+      yield* reported();
+      yield resultOf(modelUsage(20, 5, 0.01));
+      await prompts.next();
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(prompt).toContain(`Task id: ${researchTaskId}`);
+    expect(result.blockedReason).not.toBe("awaiting_approval");
+    expect((await repos.approvals.get(t.db, t.businessId, approval.id)).outcome).toBe("expired");
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
   it("Reject tells the agent the founder's reason and not to retry the call", async () => {
     const { sessionId, input, launch } = await start();
     const { approval } = await gatewayApproval(sessionId);
