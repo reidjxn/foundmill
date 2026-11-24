@@ -552,7 +552,7 @@ class SessionRecorder {
       if (full.status === "started") this.toolCalls += 1;
       if (full.status === "failed" || full.status === "denied") this.toolFailures += 1;
       this.trackBlockTask(full, opts.args);
-      this.trackCompleteTask(full, opts.args);
+      this.trackCompleteTask(full, opts.args, opts.result);
       this.trackOutside(full, opts.result);
       this.trackToolUse(full, opts.result);
       this.trackAgentPush(full, opts.args);
@@ -602,7 +602,7 @@ class SessionRecorder {
    * A `complete_task` or a `save_report` on this session's own task (WP-05 T3: a saved report is a reported result),
    * tracked like `trackBlockTask`: it counts once the call went through.
    */
-  private trackCompleteTask(call: Extract<SessionEventInput, { kind: "tool_call" }>, args: unknown): void {
+  private trackCompleteTask(call: Extract<SessionEventInput, { kind: "tool_call" }>, args: unknown, result?: string): void {
     if ((call.tool !== "complete_task" && call.tool !== "save_report") || (call.connectorKey !== null && call.connectorKey !== undefined && call.connectorKey !== "platform")) return;
     if (call.status === "started") {
       const a = (args ?? {}) as { taskId?: unknown; acceptance?: unknown };
@@ -616,7 +616,8 @@ class SessionRecorder {
     if (!this.completeCalls.delete(call.callId)) return;
     const claims = this.claimCalls.get(call.callId);
     this.claimCalls.delete(call.callId);
-    if (call.status !== "succeeded" || call.policyOutcome === "deny" || call.policyOutcome === "ask") return;
+    // A call the platform answered with an error (a claim citing a heading the report lacks) did not complete the task.
+    if (call.status !== "succeeded" || call.policyOutcome === "deny" || call.policyOutcome === "ask" || /"ok"\s*:\s*false/.test(result ?? call.resultSummary ?? "")) return;
     this.completedOwnTask = true;
     if (call.tool === "save_report") this.savedOwnReport = true;
     else this.acceptanceClaims = claims ?? null;
@@ -1650,11 +1651,13 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const grants = withContextReads(await sessionGrantsFor(deps.db, input.businessId, task.id, withBrowserSites(resolveGrants(parseGrants(live.version, live.template)), await browserSitesFor(deps.db, input.businessId, agent))), await repos.integrations.contextReads(deps.db, input.businessId));
   if (grants.unresolved.length > 0) deps.log.info({ sessionId: input.sessionId, unresolved: grants.unresolved.map((u) => `${u.connectorKey}.${u.capability}`).slice(0, 50) }, "granted capabilities no tool serves yet");
   // What the gateway would refuse as not connected (WP-05 T12, the gateway's own rule): the agent is told, and a research
-  // or channel task whose every outside connector is refused does not start, before any workspace, token or SDK exists.
-  // A sample business, development and test keep their simulated answers, as after the session (T2).
+  // task that cannot read the web, with every outside connector refused, does not start, before any workspace, token or
+  // SDK exists. A channel task, or research without web search (a planner on GitHub), starts: drafting needs no outside
+  // tool, and the agent blocks itself when the task does (Launch S28: content, SEO and the planner never started on a new
+  // project). A sample business, development and test keep their simulated answers, as after the session (T2).
   const unusable = mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo) ? [] : unusableConnectors(grants.servers, channelAvailabilityFacts(deps.env, live.business, await repos.integrations.list(deps.db, input.businessId)));
   const outsideServers = grants.servers.filter((key) => !ALWAYS_LIVE_CONNECTORS.has(key));
-  if ((task.kind === "research" || task.kind === "channel") && outsideServers.length > 0 && outsideServers.every((key) => unusable.includes(key))) {
+  if (task.kind === "research" && unusable.includes("web") && outsideServers.every((key) => unusable.includes(key))) {
     return { outcome: "blocked", reason: `not connected: ${unusable.join(", ")}`, blockedReason: "not_connected", approvalId: null, summary: `Blocked: ${namesList(unusable.map(connectorName))} not connected for this project, so nothing real was read or sent.`.slice(0, 1800), providerSessionId: null };
   }
   const notConnectedNote = unusable.length > 0 ? `Not connected for this project: ${namesList(unusable.map(connectorName))}. Calls to them are refused. If the task cannot be done without one, call block_task now and name it.` : "";

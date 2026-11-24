@@ -2548,6 +2548,21 @@ describe("honest outcomes: a task that is not code is done only when its agent r
       expect(result.summary).toBe(`Blocked: Test Engineer ended "${task.title}" with all 2 of its lines not met: “Two suppliers compared on price”; “A sample request sent to one supplier”.`);
     });
 
+    it("a complete_task the platform refused (a claim citing a heading the report lacks) completes nothing: its claims are not taken (Launch S28)", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (refused claims)", staging());
+      script = async function* () {
+        yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+        yield toolUse("tu-report", "mcp__platform__save_report", { taskId: task.id, title: "Suppliers compared", bodyMd: BODY });
+        yield toolResult("tu-report", JSON.stringify({ reportId: "r", taskId: task.id, title: "Suppliers compared" }));
+        yield toolUse("tu-done", "mcp__platform__complete_task", { taskId: task.id, summary: "Compared.", acceptance: [{ line: 1, met: true, reportSection: "Nope" }, { line: 2, met: true, reportSection: "Nope" }] });
+        yield toolResult("tu-done", JSON.stringify({ ok: false, error: { code: "invalid_state", message: 'line 1 cites the section "Nope", which the report does not have' } }));
+        yield resultOf(modelUsage(10, 5, 0.01));
+      };
+      const result = await a.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "no_result" });
+      expect(result.summary).toContain("all 2 of its lines not met");
+    });
+
     it("on a real project, a line met only on a simulated call is not met (T2's rule, per line), though other calls were real", async () => {
       const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (simulated send)", staging());
       script = session(task.id, sessionId, allMet, { sendResult: SIMULATED_SEND });
@@ -2639,7 +2654,7 @@ describe("not connected: the agent is told, and a hopeless session does not star
     leadId = await webOnlyAgent("Web Lead", "lead");
   });
 
-  it.each(["research", "channel"] as const)("a %s task whose agent holds only an unusable web ends blocked not_connected with no SDK, no token and no workspace", async (kind) => {
+  it.each(["research"] as const)("a %s task whose agent holds only an unusable web ends blocked not_connected with no SDK, no token and no workspace", async (kind) => {
     const { task, sessionId, input, acts: a, launch } = await taskFor(workerId, kind, `Find suppliers (${kind})`);
     // A session that would end done if the SDK ran: `calls` stays empty only if it never did.
     script = success(sessionId);
@@ -2652,6 +2667,19 @@ describe("not connected: the agent is told, and a hopeless session does not star
     expect((await a.finishSession(input, launch, result)).taskStatus).toBe("blocked");
     const blocked = (await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 200 })).items.find((e) => (e.payload as { sessionId?: string }).sessionId === sessionId);
     expect(blocked?.payload).toMatchObject({ taskId: task.id, reason: "not_connected", detail: "not connected: web" });
+  });
+
+  it("a channel task with the same grants starts (drafting needs no outside tool), and its prompt carries the not-connected line (Launch S28)", async () => {
+    const { sessionId, input, acts: a, launch } = await taskFor(workerId, "channel", "Draft the week's posts");
+    let prompt = "";
+    script = async function* (call) {
+      prompt = (await promptsOf(call).next()).value?.message.content ?? "";
+      yield* success(sessionId)();
+    };
+    const result = await a.runAgentSession(input, launch);
+    expect(calls).toHaveLength(1);
+    expect(result.blockedReason).not.toBe("not_connected");
+    expect(prompt).toContain(NOT_CONNECTED_LINE);
   });
 
   it("a lead's ops task with the same grants still starts, and its prompt carries the not-connected line", async () => {
