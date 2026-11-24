@@ -14,4 +14,8 @@ describe("trainingEstimate (WP-09 T9)", () => {
     const batch = trainingEstimate({ tests: 40, agentModel: "opus", batch: true }).costMinor;
     expect(Math.abs(batch - now / 2)).toBeLessThanOrEqual(1);
   });
+  it("is not below the first measured live run (run 45428368258: 36 tests on Sonnet, 152.9 cents now, 75.1 in a batch)", () => {
+    expect(trainingEstimate({ tests: 36, agentModel: "sonnet", batch: false }).costMinor).toBeGreaterThanOrEqual(153);
+    expect(trainingEstimate({ tests: 36, agentModel: "sonnet", batch: true }).costMinor).toBeGreaterThanOrEqual(76);
+  });
 });

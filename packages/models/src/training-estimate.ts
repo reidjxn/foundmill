@@ -6,10 +6,14 @@
 import { meter } from "./pricing";
 import { MODELS, resolveModel, type ModelKey } from "./routing";
 
-/** Per test: about 4k input and 1.2k output tokens for the candidate (Estimate; calibrate from the cost report). */
-export const REFERENCE_TEST_USAGE = { inputTokens: 4_000, outputTokens: 1_200, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
-/** Per test: the grader's pass over the candidate's answer (Estimate). */
-export const REFERENCE_GRADE_USAGE = { inputTokens: 2_500, outputTokens: 400, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
+/**
+ * Per test: the candidate's call (Estimate). Raised by 12% on Nov 24, 2026 from 4k in and 1.2k out, after the first live
+ * three-skill check measured 4.25 cents a test run now and 2.09 in a batch (run 45428368258; Sonnet agent, Opus grader),
+ * so the Estimate is not below the measured cost. The split between candidate and grader was not measured yet.
+ */
+export const REFERENCE_TEST_USAGE = { inputTokens: 4_500, outputTokens: 1_350, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
+/** Per test: the grader's pass over the candidate's answer (Estimate; raised with the candidate's on Nov 24, 2026). */
+export const REFERENCE_GRADE_USAGE = { inputTokens: 2_800, outputTokens: 450, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
 
 export function trainingEstimate(input: { tests: number; agentModel: ModelKey; batch: boolean }): { costMinor: number; currency: "USD"; label: "Estimate" } {
   const opts = { batch: input.batch };
