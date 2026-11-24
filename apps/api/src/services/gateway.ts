@@ -14,7 +14,7 @@
  * installation reaches it and whether it is private (`repository`).
  */
 import { randomUUID } from "node:crypto";
-import { ELEVENLABS_SPEECH_TIMEOUT_MS, ELEVENLABS_TRANSCRIPTION_TIMEOUT_MS, OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
+import { type SiteCheck, ELEVENLABS_SPEECH_TIMEOUT_MS, ELEVENLABS_TRANSCRIPTION_TIMEOUT_MS, OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
 import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type OwnDomainRecord, type ReplyNotSent, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
@@ -360,6 +360,11 @@ export type GatewayToolCallOutcome =
 /** A follow confirmation waits at most this long: the visitor's form is waiting on it. */
 export const CONFIRM_FOLLOW_TIMEOUT_MS = 10_000;
 
+/** The gateway's answer to a terms check (apps/gateway site-check.ts). */
+export type GatewayCheckSite =
+  | { ok: false; code: "address" | "never" | "on_list"; message: string }
+  | { ok: true; host: string; name: string; startUrl: string; check: SiteCheck; simulated: boolean; cached: boolean };
+
 export interface ApiGatewayClient {
   /** Connects a live integration: an App installation verified, a vendor's secret sealed by the gateway and never returned. */
   connect(businessId: string, connector: string, input: Record<string, unknown>): Promise<GatewayConnectResult>;
@@ -370,6 +375,8 @@ export interface ApiGatewayClient {
   browserSessions?(businessId: string): Promise<{ sessions: GatewayBrowserSession[] }>;
   browserTakeOver?(businessId: string, siteKey: string): Promise<{ held: boolean }>;
   browserHandBack?(businessId: string, siteKey: string): Promise<{ handedBack: boolean }>;
+  /** Reads a typed website's terms (or answers from the platform-wide cache) and says whether they forbid automated use of an account. */
+  browserCheckSite?(businessId: string, url: string): Promise<GatewayCheckSite>;
   /** Ends one site's session, or every session of the project when `siteKey` is absent (Stop all agents). */
   browserStop?(businessId: string, siteKey?: string, timeoutMs?: number): Promise<{ stopped: number }>;
   /** After a sign-in was replaced and saved: withdraws the previous account's access, which the gateway does only when no project holds it. */
@@ -540,6 +547,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     disconnect: (businessId, connector) => post<{ released: boolean }>("/v1/integrations/disconnect", { businessId, connector }),
     browserSessions: (businessId) => post<{ sessions: GatewayBrowserSession[] }>("/v1/browser/sessions", { businessId }),
     browserTakeOver: (businessId, siteKey) => post<{ held: boolean }>("/v1/browser/takeover", { businessId, siteKey }),
+    browserCheckSite: (businessId, url) => post<GatewayCheckSite>("/v1/browser/check-site", { businessId, url }, 60_000),
     browserHandBack: (businessId, siteKey) => post<{ handedBack: boolean }>("/v1/browser/handback", { businessId, siteKey }),
     browserStop: (businessId, siteKey, stopTimeoutMs) => post<{ stopped: number }>("/v1/browser/stop", { businessId, ...(siteKey ? { siteKey } : {}) }, stopTimeoutMs ?? timeoutMs),
     release: (businessId, connector, externalAccountId) => post<{ released: boolean }>("/v1/integrations/release", { businessId, connector, externalAccountId }),

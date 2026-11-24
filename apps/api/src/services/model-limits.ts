@@ -81,6 +81,8 @@ export const MODEL_LIMITS = {
   continueLink: { what: "Emailing a link", user: [{ limit: 5, windowMs: MINUTE }, { limit: 20, windowMs: DAY }] },
   /** crm.replies.answer (WP-08 T2): one email per press from the project's address; the project's day cap still applies. */
   replyAnswer: { what: "Answering an email", user: [{ limit: 10, windowMs: MINUTE }, { limit: 100, windowMs: DAY }] },
+  /** browser.checkSite and refreshStarters (founder, Nov 24, 2026): the gateway reads a typed website's terms and a Haiku call classifies them; a host already checked costs nothing. */
+  siteCheck: { what: "Checking a website", user: [{ limit: 30, windowMs: HOUR }, { limit: 100, windowMs: DAY }], business: [{ limit: 60, windowMs: DAY }] },
   /** updates.send (WP-08 T3): one press sends up to the project's day of email; the gateway counts every message. */
   followerUpdate: { what: "Sending an update", user: [{ limit: 5, windowMs: MINUTE }, { limit: 20, windowMs: DAY }] },
 } as const satisfies Record<string, ModelLimitRule>;

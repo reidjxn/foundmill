@@ -5,12 +5,14 @@
  * the site (owner, cofounders, admins): whoever has the page controls the founder's signed-in account. Stop all agents ends every session too
  * (services/killswitch.ts).
  */
-import { browserSite } from "@foundmill/connectors";
+import { STARTER_SITES, WEB_CHECK_KEY } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
-import { ADMIN_ROLES, ForbiddenError, NotFoundError, hasSectionAccess } from "@foundmill/shared";
+import { ADMIN_ROLES, ForbiddenError, NotFoundError, connectorMode, hasSectionAccess } from "@foundmill/shared";
 import { z } from "zod";
 import { BROWSER_NOT_AVAILABLE, browserControl, listBrowserSessions } from "../services/browser";
-import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
+import { modelLimited } from "../services/model-limits";
+import { browserSiteName, checkTypedSite, starterSites, webSlots } from "../services/web-sites";
+import { Id, audit, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
 
 const read = sectionRead("development");
 const write = sectionWrite("development");
@@ -22,7 +24,40 @@ const CONTROL_REFUSED = "Only the people who may connect this website can take o
 /** Who may hold the page: the roles that may connect the site, with write on Development. */
 const mayControl = (ctx: { role: Parameters<typeof ADMIN_ROLES.includes>[0]; membership: Parameters<typeof hasSectionAccess>[0] }) => ADMIN_ROLES.includes(ctx.role) && hasSectionAccess(ctx.membership, "development", "write");
 
+const settingsRead = sectionRead("settings");
+const settingsAdmin = sectionAdmin("settings");
+/** The typed websites' checks are mock or live with the first place's connector, as the gateway decides (site-check.ts). */
+const simulatedChecks = (ctx: { env: Parameters<typeof connectorMode>[0] }) => connectorMode(ctx.env, WEB_CHECK_KEY) !== "live";
+
 export const browserRouter = router({
+  /**
+   * "Add any website" (founder, Nov 24, 2026): the gateway reads the typed site's terms and says whether they forbid
+   * automated use of an account. A refused site (a social network, a bank or payment account, terms that forbid it) comes
+   * back as a refusal with its reason and, for the terms, the quoted line; nothing is connected here. Admin roles only, as connecting is.
+   */
+  checkSite: settingsAdmin
+    .input(z.object({ url: z.string().trim().min(1).max(300) }))
+    .use(modelLimited("siteCheck"))
+    .mutation(async ({ ctx, input }) => {
+      const slots = await ctx.rls((tx) => webSlots(tx, ctx.businessId));
+      const answer = await checkTypedSite(ctx.gateway, ctx.businessId, input.url, slots);
+      await ctx.rls((tx) => audit(tx, ctx, { action: "browser.check_site", target: { kind: "website", name: answer.name }, details: { status: answer.status } }));
+      return answer;
+    }),
+
+  /** The starter list: marketplaces whose terms check does not forbid it, read from the platform-wide cache only. */
+  starters: settingsRead.query(({ ctx }) => starterSites(ctx.db, simulatedChecks(ctx))),
+
+  /** Checks the starter sites that have no fresh check, at once and booked to this project; the list then shows the ones that pass. */
+  refreshStarters: settingsAdmin.use(modelLimited("siteCheck")).mutation(async ({ ctx }) => {
+    const { pending } = await starterSites(ctx.db, simulatedChecks(ctx));
+    const known = new Set(STARTER_SITES.map((s) => s.host));
+    const hosts = pending.filter((h) => known.has(h));
+    await Promise.allSettled(hosts.map((h) => ctx.gateway.browserCheckSite?.(ctx.businessId, h)));
+    await ctx.rls((tx) => audit(tx, ctx, { action: "browser.refresh_starters", target: { kind: "website" }, details: { checked: hosts.length } }));
+    return { checked: hosts.length };
+  }),
+
   /** The project's running sessions. A member who may only read gets the sessions without their live view. */
   sessions: read.query(async ({ ctx }) => {
     const canControl = mayControl(ctx);
@@ -62,7 +97,7 @@ export const browserStepRouter = router({
     const { screenshot } = step;
     return {
       siteKey: step.siteKey,
-      siteName: browserSite(step.siteKey)?.name ?? step.siteKey,
+      siteName: await ctx.rls((tx) => browserSiteName(tx, ctx.businessId, step.siteKey)),
       target: step.target,
       class: step.class,
       why: step.why,

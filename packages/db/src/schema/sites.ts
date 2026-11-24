@@ -5,7 +5,7 @@
  * business's `workspace_blobs`. apps/sites reads through `site_resolve` and `site_file` as `sites_reader`.
  */
 import { sql } from "drizzle-orm";
-import { bigint, char, index, integer, jsonb, pgTable, text, unique, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, char, index, integer, jsonb, pgTable, text, unique, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { id, timestamps, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { tasks } from "./agents";
@@ -91,3 +91,29 @@ export const siteAddressHolds = pgTable(
   },
   (t) => [uniqueIndex("site_address_holds_slug_key").on(t.slug)],
 );
+
+/**
+ * 0174 — the terms check of a website (founder, Nov 24, 2026): one row per host for the whole platform, reused for 30
+ * days. A platform table with no business_id; service role only (no app-role grant or policy).
+ */
+export const SITE_TERMS_VERDICTS = ["forbids", "unclear", "allows"] as const;
+export type SiteTermsVerdict = (typeof SITE_TERMS_VERDICTS)[number];
+export const SITE_NEVER_CATEGORIES = ["bank", "brokerage", "payment", "government_identity", "health_records", "password_manager", "social_network"] as const;
+export type SiteNeverCategory = (typeof SITE_NEVER_CATEGORIES)[number];
+export const siteTermsChecks = pgTable(
+  "site_terms_checks",
+  {
+    id: id(),
+    host: text("host").notNull(),
+    verdict: text("verdict", { enum: SITE_TERMS_VERDICTS }).notNull(),
+    line: text("line"),
+    termsUrl: text("terms_url"),
+    signInHosts: text("sign_in_hosts").array().notNull().default(sql`'{}'`),
+    simulated: boolean("simulated").notNull().default(false),
+    neverCategory: text("never_category", { enum: SITE_NEVER_CATEGORIES }),
+    checkedAt: tstz("checked_at").notNull().defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("site_terms_checks_host_simulated_key").on(t.host, t.simulated)],
+);
+export type SiteTermsCheck = typeof siteTermsChecks.$inferSelect;

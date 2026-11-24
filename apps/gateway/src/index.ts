@@ -158,7 +158,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
   // The pipeline's digest runs on the key that pays for it, as `quarantine.read_untrusted` does (builtins.ts).
   const reader: UntrustedReader = options.reader ?? createUntrustedReader(readerClientFor(readerDeps));
-  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail, turnstile: { secret: env.TURNSTILE_SECRET_KEY ?? null }, speechStreamer: createElevenlabsSpeechStreamer({ secrets }), ...(env.STRIPE_ENTRY_PRICE_ID ? { entryPriceId: env.STRIPE_ENTRY_PRICE_ID } : {}), paidEntry: env.PAID_ENTRY === true, browserSessions };
+  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, siteCheck: { client: readerClientFor(readerDeps) }, platformMail, turnstile: { secret: env.TURNSTILE_SECRET_KEY ?? null }, speechStreamer: createElevenlabsSpeechStreamer({ secrets }), ...(env.STRIPE_ENTRY_PRICE_ID ? { entryPriceId: env.STRIPE_ENTRY_PRICE_ID } : {}), paidEntry: env.PAID_ENTRY === true, browserSessions };
   repositoryFiles = createRepositoryFiles(deps);
   founderActionPreparer = createFounderActionPreparer(deps);
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).

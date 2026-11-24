@@ -16,6 +16,7 @@ import { buildLiveConnector, buildMockConnector, healthResult } from "../../defi
 import { MOCK_NOW, mockHealth, mockIntegrationRecord } from "../../mock-utils";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { BROWSER_SITES, sitePageVerdict, type BrowserSite } from "../../browser-sites";
+import { WEB_SLOTS, WebSiteRefused, webSiteFromConfig, webSiteKey, webSlotKey, webSlotOf } from "../../browser-web";
 import { classifyStep, hintsForClass, instructionsToAgent, normalLabel, type StepAction, type StepVerdict } from "./classify";
 import { MOCK_BROWSER_SESSIONS } from "./mock";
 import { BrowserSessions, refOf, type BrowserSession, type RawSnapshot } from "./sessions";
@@ -61,6 +62,11 @@ export interface BrowserHost {
    * them once, with a way to open the live view. Best effort; never fails the read.
    */
   needsFounder?: (input: { businessId: string; siteKey: string; siteName: string; need: "captcha" | "sign_in"; simulated: boolean }) => Promise<void>;
+  /**
+   * A typed website's cached terms check, read again whenever a session is about to open: a reason when the site is now
+   * forbidden or a never site (the check is frozen at connect only until then), else null. `simulated`: the mock side.
+   */
+  siteAllowed?: (host: string, simulated: boolean) => Promise<string | null>;
   /** One of the project's own files, for `upload_file`. Absent: uploads are not available. */
   projectFile?: (businessId: string, fileId: string) => Promise<{ name: string; bytes: Uint8Array } | null>;
 }
@@ -365,10 +371,97 @@ export function createBrowserConnector(site: BrowserSite, options: LiveConnector
   return { ...liveSide.wrap(live), mock: wrappedMock };
 }
 
-export const BROWSER_CONNECTOR_FACTORIES: Readonly<Record<string, (o?: LiveConnectorOptions) => Connector>> = Object.freeze(Object.fromEntries(BROWSER_SITES.map((s) => [browserConnectorKey(s.key), (o?: LiveConnectorOptions) => createBrowserConnector(s, o)])));
+/** A typed website's connector (`browser_web_<n>`): the site is read from the integration's config on every call, never from code. */
+export function createWebSlotConnector(slot: number, options: LiveConnectorOptions = {}): Connector {
+  const host = options.browser ?? {};
+  const siteKey = webSiteKey(slot);
+  const placeholder: BrowserSite = { key: siteKey, name: "the website", state: "ask_first", hosts: ["placeholder.invalid"], startUrl: "https://placeholder.invalid/", terms: { url: "https://placeholder.invalid/", line: "", checkedOn: "" } };
+  const template = createBrowserConnector(placeholder, options);
+  // One connector per site seen, so a slot reconnected to another site never reuses the old one's rules.
+  const cache = new Map<string, Connector>();
+  const forSite = (site: BrowserSite): Connector => {
+    const id = JSON.stringify(site);
+    let c = cache.get(id);
+    if (!c) {
+      if (cache.size >= 20) cache.clear();
+      c = createBrowserConnector(site, options);
+      cache.set(id, c);
+    }
+    return c;
+  };
+  const siteOf = (config: unknown): BrowserSite => {
+    // Nothing set up in this place: not connected, said as every unconnected connector says it.
+    if (typeof (config as { address?: unknown } | null)?.address !== "string") throw new ConfigError(webSlotKey(slot), "a website", "connect a website in Settings › Integrations by signing in yourself");
+    try {
+      return webSiteFromConfig(slot, config);
+    } catch (e) {
+      if (e instanceof WebSiteRefused) throw new AppError("site_unavailable", e.message, 409);
+      throw e;
+    }
+  };
+  const side = (base: Connector, pick: (c: Connector) => Connector, sessionsOf: () => BrowserSessions | null, simulated: boolean): Connector => ({
+    ...base,
+    displayName: "A website you added",
+    // A hard gate never runs, whatever the place holds: the placeholder's own gate answers it.
+    callTool: async (name, args, ctx) => {
+      if (base.policyHints[name]?.hardGate) return base.callTool(name, args, ctx);
+      const site = siteOf(ctx.integration.config);
+      // A session about to open re-reads the site's cached check: what was allowed at connect may not be now.
+      if (!sessionsOf()?.get(ctx.businessId, siteKey)) {
+        const why = await host.siteAllowed?.(site.hosts[0]!, simulated);
+        if (why) throw new AppError("site_no_longer_allowed", why, 403);
+      }
+      return pick(forSite(site)).callTool(name, args, ctx);
+    },
+    // The site of a running session is the one it was opened on, so a write is classified by that site's own rules.
+    stepHints: async (name, args, businessId) => {
+      const running = sessionsOf()?.get(businessId, siteKey)?.site;
+      return running ? ((await pick(forSite(running)).stepHints?.(name, args, businessId)) ?? null) : null;
+    },
+    connect: async (businessId, input) => {
+      const site = siteOf(input);
+      const record = await pick(forSite(site)).connect(businessId, input);
+      const { address, check } = input as { address: string; check: unknown };
+      return { ...record, config: { ...record.config, siteKey, address, check } };
+    },
+    healthcheck: (integration, credential) => pick(forSite(siteOf(integration.config))).healthcheck(integration, credential),
+    disconnect: async (integration, credential) => {
+      try {
+        return (await pick(forSite(siteOf(integration.config))).disconnect?.(integration, credential)) ?? false;
+      } catch (e) {
+        await sessionsOf()?.stop(integration.businessId, siteKey);
+        if (e instanceof AppError) return false;
+        throw e;
+      }
+    },
+  });
+  const mock = side(template.mock, (c) => c.mock, () => MOCK_BROWSER_SESSIONS, true);
+  (mock as { mock: Connector }).mock = mock;
+  Object.assign(mock, { isMock: true, simulations: (template.mock as { simulations?: unknown }).simulations, simulate: (template.mock as { simulate?: unknown }).simulate });
+  return { ...side(template, (c) => c, () => host.sessions ?? null, false), mock };
+}
 
-/** The site a browser connector key stands for, or null. */
+export const BROWSER_CONNECTOR_FACTORIES: Readonly<Record<string, (o?: LiveConnectorOptions) => Connector>> = Object.freeze({
+  ...Object.fromEntries(BROWSER_SITES.map((s) => [browserConnectorKey(s.key), (o?: LiveConnectorOptions) => createBrowserConnector(s, o)])),
+  ...Object.fromEntries(Array.from({ length: WEB_SLOTS }, (_, i) => [webSlotKey(i + 1), (o?: LiveConnectorOptions) => createWebSlotConnector(i + 1, o)])),
+});
+
+/** The static site a browser connector key stands for, or null (a typed website's slot is not one: its site is in the integration's config). */
 export const browserSiteOfConnector = (connectorKey: string): BrowserSite | null => BROWSER_SITES.find((s) => browserConnectorKey(s.key) === connectorKey) ?? null;
+
+/** True for any hosted-browser connector: a site on the list or a typed website's slot. */
+export const isBrowserConnector = (connectorKey: string): boolean => browserSiteOfConnector(connectorKey) !== null || webSlotOf(connectorKey) !== null;
+
+/** The site a browser connector stands for given its integration's config: the list's entry, or the typed website's; null when there is none. */
+export function browserSiteOfIntegration(connectorKey: string, config: unknown): BrowserSite | null {
+  const slot = webSlotOf(connectorKey);
+  if (slot === null) return browserSiteOfConnector(connectorKey);
+  try {
+    return webSiteFromConfig(slot, config);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * A session's grants with the hosted browser's tools for the sites the project connected (Part D, D3): an agent that
@@ -376,7 +469,7 @@ export const browserSiteOfConnector = (connectorKey: string): BrowserSite | null
  * own connector. Applied before a second read narrows the grants, so a revision never gains them.
  */
 export function withBrowserSites<G extends { toolRefs: string[]; servers: string[]; mcpTools: string[] }>(grants: G, connectedConnectorKeys: readonly string[]): G {
-  const keys = connectedConnectorKeys.filter((k) => browserSiteOfConnector(k) !== null);
+  const keys = connectedConnectorKeys.filter(isBrowserConnector);
   if (keys.length === 0) return grants;
   return { ...grants, toolRefs: [...new Set([...grants.toolRefs, ...keys.map((k) => `${k}:*`)])], servers: [...new Set([...grants.servers, ...keys])], mcpTools: [...new Set([...grants.mcpTools, ...keys.map((k) => `mcp__${k}`)])] };
 }

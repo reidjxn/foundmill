@@ -60,6 +60,7 @@ import { HUBSPOT_MCP, LIGHTBRINGER_MCP, NOTION_MCP, SHOPIFY_MCP } from "./remote
 import { FOUNDER_EXECUTED_TOOLS } from "./remote-mcp";
 import { remoteToolList } from "./remote-mcp/build";
 import { BROWSER_SITES } from "./browser-sites";
+import { WEB_SLOT_KEYS } from "./browser-web";
 import { BROWSER_TOOL_LIST, browserConnectorKey } from "./connectors/browser/tools";
 
 const names = (tools: readonly { name: string }[]) => Object.freeze(tools.map((t) => t.name));
@@ -123,6 +124,8 @@ const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: Pol
   ],
   // The hosted browser: the same tools on every site of the site list.
   ...Object.fromEntries(BROWSER_SITES.map((s) => [browserConnectorKey(s.key), BROWSER_TOOL_LIST])),
+  // The same tools in each place a typed website can take (`browser_web_<n>`).
+  ...Object.fromEntries(WEB_SLOT_KEYS.map((k) => [k, BROWSER_TOOL_LIST])),
 };
 
 /** Every tool the gateway serves, by connector: the registry's connectors plus the built-ins (platform, web, quarantine). */

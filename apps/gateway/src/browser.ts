@@ -12,7 +12,7 @@
  * never stored or logged.
  */
 import { z } from "zod";
-import { BROWSER_SITES, MOCK_BROWSER_SESSIONS, browserConnectorKey, type BrowserHost, type BrowserSessions, type BrowserSessionView } from "@foundmill/connectors";
+import { BROWSER_SITES, MOCK_BROWSER_SESSIONS, browserConnectorKey, neverCategoryMessage, neverMessage, siteNameOf, WEB_SLOT_KEYS, type BrowserHost, type BrowserSessions, type BrowserSessionView } from "@foundmill/connectors";
 import { repos, type Db } from "@foundmill/db";
 import { BROWSER_CHECK_NOTE, browserCheckSubject, browserSignInExpiry } from "@foundmill/shared";
 import { writeGatewayEvent } from "./events";
@@ -27,7 +27,7 @@ export const BrowserStopRequest = BrowserProjectRequest.extend({ siteKey: z.stri
 const allSessions = (deps: Pick<GatewayDeps, "browserSessions">): BrowserSessions[] => [MOCK_BROWSER_SESSIONS, ...(deps.browserSessions ? [deps.browserSessions] : [])];
 
 function sessionsOfSite(deps: GatewayDeps, siteKey: string): BrowserSessions {
-  if (!BROWSER_SITES.some((s) => s.key === siteKey)) throw new GatewayError("unknown_site", "That website is not on the site list", 404, { siteKey });
+  if (!BROWSER_SITES.some((s) => s.key === siteKey) && !WEB_SLOT_KEYS.includes(browserConnectorKey(siteKey))) throw new GatewayError("unknown_site", "That website is not on the site list or added", 404, { siteKey });
   if (modeFor(deps, browserConnectorKey(siteKey)) === "mock") return MOCK_BROWSER_SESSIONS;
   if (!deps.browserSessions) throw new GatewayError("connector_unconfigured", "The hosted browser is not configured on this gateway", 503);
   return deps.browserSessions;
@@ -81,6 +81,14 @@ export function browserHost(db: Db, log: GatewayLogger, sessions: BrowserSession
   const touched = new Map<string, number>();
   return {
     ...(sessions ? { sessions } : {}),
+    // A typed website's check is read again when a session is about to open: forbidden or never now means no session.
+    siteAllowed: async (host, simulated) => {
+      const never = neverMessage(host);
+      if (never) return never;
+      const row = await repos.siteTermsChecks.get(db, host, { simulated, now: now() });
+      if (row?.neverCategory) return neverCategoryMessage(host, row.neverCategory);
+      return row?.verdict === "forbids" ? `${siteNameOf(host)}'s terms no longer allow automated use of an account. Disconnect it in Settings › Integrations.` : null;
+    },
     used: async (businessId, connectorKey) => {
       const key = `${businessId}:${connectorKey}`;
       const at = now();

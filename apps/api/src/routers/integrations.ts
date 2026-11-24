@@ -6,7 +6,7 @@
  */
 import { INPUT_LIMITS } from "@foundmill/config";
 import { parseOperatorIds } from "@foundmill/shared/reports";
-import { browserSiteOfConnector, isServiceOnlyConnector, MOCK_ONLY_CONNECTORS, type HealthResult } from "@foundmill/connectors";
+import { browserSiteOfConnector, browserSiteOfIntegration, isServiceOnlyConnector, neverReason, siteNameOf, WEB_CHECK_KEY, webSiteKey, webSlotOf, MOCK_ONLY_CONNECTORS, type HealthResult } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
 import { AppError, boundedRecord, connectorMode, ForbiddenError, mockResultsAllowed, platformMailAddress, platformMailDomain, platformMailLive, RegistrantContact } from "@foundmill/shared";
 import { z } from "zod";
@@ -15,6 +15,7 @@ import { clearPostalAddress, isProjectFounder, postalAddressOf, setPostalAddress
 import { addOwnDomain, checkOwnDomain, finishRegisteredDomain, ownDomainOf, quoteRegisteredDomain, completeDomainCheckout, removeOwnDomain, startDomainCheckout, setRegisteredDomainForwarding } from "../services/own-domain";
 import { oauthRedirectUri, signConnectState, signInstallState, verifyConnectState, verifyInstallState } from "../services/install-state";
 import { ANTHROPIC, revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
+import { webConnectInput, webSlots } from "../services/web-sites";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
 
 /** What a project is told when the Stripe account it signed in with is another project's (0137; the gateway's own words). */
@@ -49,6 +50,11 @@ function isUniqueViolation(e: unknown, constraint: string): boolean {
 
 const read = sectionRead("settings");
 
+/** The typed website a place holds, from its integration's config; null when it holds none (not connected, or no longer allowed). */
+const connectedIn = (row: { archivedAt: Date | null; status: string } | null | undefined): boolean => !!row && row.archivedAt === null && row.status !== "disconnected";
+const websiteIn = (row: { connectorKey: string; archivedAt: Date | null; status: string; settings: unknown } | null | undefined) =>
+  row && row.archivedAt === null && row.status !== "disconnected" ? browserSiteOfIntegration(row.connectorKey, (row.settings as { config?: unknown } | null)?.config) : null;
+
 /** The hosted browser's sign-in page, for this request's answer only. */
 type SignIn = { liveViewUrl: string } | null;
 const NO_SIGN_IN = null as SignIn;
@@ -74,25 +80,39 @@ const OAuthFinish = z.object({ code: z.string().regex(/^[A-Za-z0-9._~/+=-]{1,200
 const admin = sectionAdmin("settings");
 
 export const integrationsRouter = router({
-  list: read.query(({ ctx }) =>
-    ctx.rls(async (tx) => {
+  list: read.query(async ({ ctx }) => {
+    // A typed website the cached check now forbids (or that is a never site) stays listed as "No longer allowed", with Disconnect.
+    const simulated = connectorMode(ctx.env, WEB_CHECK_KEY) !== "live";
+    const blocked = new Set<string>();
+    for (const slot of await ctx.rls((tx) => webSlots(tx, ctx.businessId))) {
+      if (!slot.connected) continue;
+      const check = slot.host ? await repos.siteTermsChecks.get(ctx.db, slot.host, { simulated }) : null;
+      if (!slot.host || neverReason(slot.host) !== null || check?.neverCategory || check?.verdict === "forbids") blocked.add(slot.key);
+    }
+    return ctx.rls(async (tx) => {
       const rows = await repos.integrations.list(tx, ctx.businessId);
       // A connector only the platform calls (openai_images, the faces of anthropomorphic agents) is not a business's to connect.
       const catalogue = ctx.connectors.catalogue(ctx.env.INTEGRATIONS_MODE).filter((c) => !isServiceOnlyConnector(c.key));
       return {
         mode: ctx.env.INTEGRATIONS_MODE,
         integrations: rows,
-        // Foundmill's own browser test page is the operator's alone: no founder sees it (founder, Nov 24, 2026).
-        catalogue: catalogue.filter((c) => !browserSiteOfConnector(c.key)?.testOnly || isOperator(ctx)).map((c) => {
-          const live = connectorMode(ctx.env, c.key) === "live";
-          // Whether it can be connected here: live, or a mock where simulated results are allowed (WP-02 T3).
-          // A connector with no live build (MOCK_ONLY_CONNECTORS) is not available live, so Settings hides it unless connected.
-          const site = browserSiteOfConnector(c.key);
-          return { ...c, browser: site ? { siteKey: site.key, name: site.name, state: site.state } : null, live, available: live ? !MOCK_ONLY_CONNECTORS.has(c.key) : mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo), integration: rows.find((r) => r.connectorKey === c.key) ?? null };
-        }),
+        // Foundmill's own browser test page is the operator's alone: no founder sees it (founder, Nov 24, 2026). A place for a
+        // typed website is listed only once a website is connected in it, under that website's own name.
+        catalogue: catalogue
+          .filter((c) => !browserSiteOfConnector(c.key)?.testOnly || isOperator(ctx))
+          .filter((c) => webSlotOf(c.key) === null || connectedIn(rows.find((r) => r.connectorKey === c.key)))
+          .map((c) => {
+            const live = connectorMode(ctx.env, c.key) === "live";
+            const row = rows.find((r) => r.connectorKey === c.key) ?? null;
+            // Whether it can be connected here: live, or a mock where simulated results are allowed (WP-02 T3).
+            // A connector with no live build (MOCK_ONLY_CONNECTORS) is not available live, so Settings hides it unless connected.
+            const site = webSlotOf(c.key) === null ? browserSiteOfConnector(c.key) : websiteIn(row);
+            const browser = blocked.has(c.key) ? { siteKey: webSiteKey(webSlotOf(c.key)!), name: siteNameOf(String((row?.settings as { config?: { address?: unknown } } | null)?.config?.address ?? "this website")), state: "no_longer_allowed" as const } : site ? { siteKey: site.key, name: site.name, state: site.state } : null;
+            return { ...c, browser, live, available: live ? !MOCK_ONLY_CONNECTORS.has(c.key) : mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo), integration: row };
+          }),
       };
-    }),
-  ),
+    });
+  }),
 
   /**
    * The project's Foundmill sending address (package 1.5), for Settings › Integrations: null when the deployment has no
@@ -174,8 +194,15 @@ export const integrationsRouter = router({
     // The hosted browser's sign-in is the founder's own, in two calls (founder, Nov 22, 2026): the first opens a live view
     // and `{ cancel: true }` throws an unsaved sign-in away. Neither saves anything. The live view is the page itself, so
     // it goes back to this caller for this request only: no integrations row, no audit detail and no log line holds it.
+    // A typed website's place (`browser_web_<n>`): the site is rebuilt here from the platform-wide terms check, never taken from the client.
+    let acceptedUnconfirmed = false;
+    if (webSlotOf(input.connectorKey) !== null) {
+      const slots = await ctx.rls((tx) => webSlots(tx, ctx.businessId));
+      acceptedUnconfirmed = input.input.acceptUnconfirmed === true;
+      input.input = await webConnectInput(ctx.db, slots, input.connectorKey, input.input, connectorMode(ctx.env, WEB_CHECK_KEY) !== "live");
+    }
     if (browserSiteOfConnector(input.connectorKey)?.testOnly && !isOperator(ctx)) throw new AppError("connector_not_live", "That website is not available. Nothing was connected.", 404, { connector: input.connectorKey });
-    if (browserSiteOfConnector(input.connectorKey) && input.input.done !== true) {
+    if ((browserSiteOfConnector(input.connectorKey) || webSlotOf(input.connectorKey) !== null) && input.input.done !== true) {
       const step = input.input.cancel === true ? "canceled" : "started";
       let record: GatewayConnectResult["record"];
       let signIn: SignIn = null;
@@ -189,7 +216,7 @@ export const integrationsRouter = router({
         record = { status: "disconnected", scopes: [], accountLabel: null, externalAccountId: null, config: { step: step === "canceled" ? "canceled" : "sign_in" }, expiresAt: null };
       }
       const integration = await ctx.rls(async (tx) => {
-        await audit(tx, ctx, { action: "integrations.browser_sign_in", target: { kind: "integration", key: input.connectorKey }, details: { connectorKey: input.connectorKey, step, simulated: mode !== "live" } });
+        await audit(tx, ctx, { action: "integrations.browser_sign_in", target: { kind: "integration", key: input.connectorKey }, details: { connectorKey: input.connectorKey, step, simulated: mode !== "live", ...(webSlotOf(input.connectorKey) !== null ? { acceptedUnconfirmed } : {}) } });
         return repos.integrations.getByKey(tx, ctx.businessId, input.connectorKey);
       });
       return { integration, record: { ...record, connectorKey: input.connectorKey }, consentUrl: null, founderConsentRequired: false, signIn };

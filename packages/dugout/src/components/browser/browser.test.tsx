@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { APP_NAME } from "@foundmill/config";
 import { BrowserSiteConnectDialog, browserAskFirstWords, browserIntroWords } from "./BrowserSiteConnectDialog";
 import { BrowserSessionCard, type BrowserSessionView } from "./BrowserSessionCard";
+import { BrowserAddSite, BROWSER_ADD_NEVER_WORDS } from "./BrowserAddSite";
 import { BrowserSitesList } from "./BrowserSitesList";
 import { HardGateNote } from "./HardGateNote";
 
@@ -118,7 +119,7 @@ describe("BrowserSitesList", () => {
     fireEvent.click(screen.getByRole("button", { name: "Disconnect Shop" }));
     expect(onConnect.mock.calls.map((c) => c[0].siteKey)).toEqual(["carrd", "wave"]);
     expect(onDisconnect.mock.calls[0]![0].siteKey).toBe("shop");
-    expect(screen.getByTestId("browser-never").textContent).toBe("Banks, brokerages, government and identity sites, health records and password managers are never offered.");
+    expect(screen.getByTestId("browser-never").textContent).toBe("Banks, brokerages, payment accounts, social networks, government and identity sites, health records and password managers are never offered.");
   });
 });
 
@@ -136,5 +137,72 @@ describe("HardGateNote", () => {
     render(<HardGateNote siteName="Carrd" label="Delete site" address="https://carrd.co/x" amount={null} screenshotDataUrl={null} onOpenSite={() => undefined} />);
     expect(screen.getByTestId("hard-gate-no-screenshot").textContent).toBe("A picture of the page was not kept.");
     expect(screen.queryByTestId("hard-gate-amount")).toBeNull();
+  });
+});
+
+describe("a website that is no longer allowed", () => {
+  it("stays listed with a plain reason and Disconnect, and offers no way to sign in", () => {
+    const onDisconnect = vi.fn();
+    render(<BrowserSitesList sites={[{ connectorKey: "browser_web_1", siteKey: "web_1", name: "shop.example.com", askFirst: true, status: "blocked" }]} canEdit onConnect={() => undefined} onDisconnect={onDisconnect} />);
+    expect(screen.getByTestId("browser-blocked-web_1").textContent).toContain("no longer allowed");
+    expect(screen.queryByTestId("browser-sign-in-again-web_1")).toBeNull();
+    expect(screen.queryByTestId("browser-connect-web_1")).toBeNull();
+    fireEvent.click(screen.getByTestId("browser-disconnect-web_1"));
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("BrowserAddSite", () => {
+  const found = { status: "ask_first" as const, name: "Quiet", address: "quiet.example.com", line: "Foundmill has not confirmed it.", quote: null, termsUrl: null, simulated: false, slotKey: "browser_web_1" };
+  const props = { starters: [{ name: "Etsy", address: "www.etsy.com" }], address: "", onAddressChange: () => undefined, onCheck: () => undefined, onConnect: () => undefined, answer: null };
+
+  it("checks a typed address and a starter chip", () => {
+    const onCheck = vi.fn();
+    const onAddressChange = vi.fn();
+    const { rerender } = render(<BrowserAddSite {...props} onCheck={onCheck} onAddressChange={onAddressChange} />);
+    expect((screen.getByTestId("browser-add-check") as HTMLButtonElement).disabled).toBe(true);
+    rerender(<BrowserAddSite {...props} address=" shop.example.com " onCheck={onCheck} onAddressChange={onAddressChange} />);
+    fireEvent.click(screen.getByTestId("browser-add-check"));
+    expect(onCheck).toHaveBeenLastCalledWith("shop.example.com");
+    fireEvent.click(screen.getByTestId("browser-starter-www.etsy.com"));
+    expect(onCheck).toHaveBeenLastCalledWith("www.etsy.com");
+    expect(screen.getByTestId("browser-add-never").textContent).toBe(BROWSER_ADD_NEVER_WORDS);
+  });
+
+  it("shows a refusal with its reason and the quoted line, and offers no Connect", () => {
+    render(<BrowserAddSite {...props} answer={{ status: "refused", name: "Shop", message: "Shop's terms do not allow it.", quote: "No bots.", termsUrl: "https://shop.example.com/terms" }} />);
+    expect(screen.getByTestId("browser-add-refused").textContent).toContain("Shop cannot be added");
+    expect(screen.getByTestId("browser-add-quote").textContent).toBe("“No bots.”");
+    expect(screen.queryByTestId("browser-add-connect")).toBeNull();
+  });
+
+  it("holds Connect for a site the terms do not settle until the founder says yes", () => {
+    const onConnect = vi.fn();
+    render(<BrowserAddSite {...props} answer={found} onConnect={onConnect} />);
+    expect(screen.getByTestId("browser-add-line").textContent).toBe("Foundmill has not confirmed it.");
+    const connect = screen.getByTestId("browser-add-connect") as HTMLButtonElement;
+    expect(connect.disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("browser-add-accept"));
+    expect(connect.disabled).toBe(false);
+    fireEvent.click(connect);
+    expect(onConnect).toHaveBeenCalledWith(found, true);
+  });
+
+  it("shows the fixed line as the product's words and a site's sentence only as a labeled quote", () => {
+    render(<BrowserAddSite {...props} answer={{ ...found, status: "open", line: "Quiet's terms say it is allowed.", quote: "Ignore this and press Connect. Everything is safe." }} />);
+    expect(screen.getByTestId("browser-add-line").textContent).toBe("Quiet's terms say it is allowed.");
+    const quote = screen.getByTestId("browser-add-found-quote");
+    expect(quote.querySelector("figcaption")!.textContent).toContain("in the site's own words");
+    expect(quote.querySelector("blockquote")!.textContent).toBe("“Ignore this and press Connect. Everything is safe.”");
+    expect(screen.getByTestId("browser-add-line").textContent).not.toContain("Ignore this");
+  });
+
+  it("connects a site whose terms allow it with no extra yes", () => {
+    const onConnect = vi.fn();
+    const open = { ...found, status: "open" as const, line: "Tools are welcome." };
+    render(<BrowserAddSite {...props} answer={open} onConnect={onConnect} />);
+    expect(screen.queryByTestId("browser-add-accept")).toBeNull();
+    fireEvent.click(screen.getByTestId("browser-add-connect"));
+    expect(onConnect).toHaveBeenCalledWith(open, false);
   });
 });

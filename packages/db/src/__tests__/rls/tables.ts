@@ -266,6 +266,7 @@ export const SERVICE_ONLY_TABLES: readonly string[] = [
   "retired_mail_local_parts", // 0078
   "waitlist_batches", // 0153
   "team_call_presence", // 0170
+  "site_terms_checks", // 0174
 ];
 
 /** Keeps the catalogue honest: every spec must name the table its Drizzle object points at. */
@@ -351,6 +352,8 @@ export const NON_TENANT_TABLES = [
   // 0136: a Customer Update shared as a card (members read; only the service connection writes); covered by
   // rls/update-cards.test.ts.
   "customer_update_cards",
+  // 0174: a platform table (no business_id: a site's terms are the same for every project), service role only; covered by rls/site-terms-checks.test.ts.
+  "site_terms_checks",
   // 0170: who is on a team call's page (the room's heartbeat), service role only; covered by rls/team-calls.test.ts.
   "team_call_presence",
   // 0083: one person's rows in one business (presence, visit days, founder emails); covered by rls/founder-return.test.ts.

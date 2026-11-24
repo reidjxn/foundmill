@@ -33,7 +33,7 @@ import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, attachedSkills, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, NO_TOOL_LOOP_PRELOAD_BODIES, restoredWorkspaceNote, selectSkills, SESSION_PRELOAD_BODIES, skillsPreloadFor, ToolGrant, type AgentTemplate, type AttachedSkill } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, modelFundingFor, sandboxCostMicroMinor } from "@foundmill/config";
-import { AcceptanceResult, acceptanceLines, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, withBrowserSites, BROWSER_WORK_SKILL, browserSiteOfConnector, withContextReads, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
+import { AcceptanceResult, acceptanceLines, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, withBrowserSites, BROWSER_WORK_SKILL, isBrowserConnector, withContextReads, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
 import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, founderOnlyCall, freeCapCheck, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, readSessionEvents, type SessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_ENDPOINTS, MODEL_PRICING, MODEL_PROVIDER, MODELS, resolveModel, type ModelId, type ModelKey as RoutedModelKey, type RouteKey } from "@foundmill/models";
@@ -79,7 +79,7 @@ async function browserSitesFor(db: OrchestratorDeps["db"], businessId: string, a
   const skills = await repos.skills.listAddedForAgent(db, businessId, agent.id, agent.agentType);
   if (!skills.some((s) => s.skillKey === BROWSER_WORK_SKILL)) return [];
   const rows = await repos.integrations.list(db, businessId);
-  return rows.filter((r) => browserSiteOfConnector(r.connectorKey) !== null && r.archivedAt === null && (r.status === "connected" || r.status === "mock" || r.status === "degraded")).map((r) => r.connectorKey);
+  return rows.filter((r) => isBrowserConnector(r.connectorKey) && r.archivedAt === null && (r.status === "connected" || r.status === "mock" || r.status === "degraded")).map((r) => r.connectorKey);
 }
 
 export const STOP_CHECK_MS = 5_000;

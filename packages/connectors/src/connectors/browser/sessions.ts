@@ -135,7 +135,9 @@ export class BrowserSessions {
   /** The running session of a project on a site, started on its saved sign-in when there is none. Closed and refused at a limit. */
   async forAgent(businessId: string, site: BrowserSite, contextId: string, agentId: string): Promise<BrowserSession> {
     const existing = this.get(businessId, site.key);
-    if (existing) {
+    // A slot reconnected to another website must not keep the old site's session.
+    if (existing && existing.site.startUrl !== site.startUrl) await this.stop(businessId, site.key);
+    else if (existing) {
       const ageMinutes = (this.now().getTime() - existing.startedAt) / 60_000;
       if (existing.held?.why === "sign_in") throw new AppError("founder_has_page", `The founder is signing in to ${site.name} right now. Wait for them to finish.`, 409);
       if (existing.steps >= this.limits.sessionSteps || ageMinutes >= this.limits.sessionMinutes) {

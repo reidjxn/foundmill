@@ -17,10 +17,12 @@ export interface BrowserSiteRow {
   name: string;
   /** Not yet confirmed to allow this: the dialog says so before the founder connects. */
   askFirst: boolean;
-  status: "not_connected" | "connected" | "expired";
+  /** A website the founder typed in: its address, sent back when they sign in again. Absent for a site on the list. */
+  address?: string;
+  status: "not_connected" | "connected" | "expired" | "blocked";
 }
 
-export const BROWSER_NEVER_WORDS = "Banks, brokerages, government and identity sites, health records and password managers are never offered.";
+export const BROWSER_NEVER_WORDS = "Banks, brokerages, payment accounts, social networks, government and identity sites, health records and password managers are never offered.";
 export const BROWSER_DISCONNECT_WORDS = "Disconnect deletes the saved sign-in.";
 
 export interface BrowserSitesListProps {
@@ -46,10 +48,11 @@ export function BrowserSitesList({ sites, canEdit, pendingKey = null, onConnect,
               <div className="flex min-w-0 flex-1 flex-col">
                 <span className="text-body-strong text-primary">{s.name}</span>
                 {s.status === "connected" ? <span className="text-small text-secondary">Signed in to {s.name}</span> : null}
+                {s.status === "blocked" ? <span className="text-small text-secondary" data-testid={`browser-blocked-${s.siteKey}`}>{s.name} is no longer allowed: its terms or its kind of site changed. The team has stopped working in it. Disconnect it.</span> : null}
                 {s.status === "expired" ? <span className="text-small text-secondary">{s.name} signed you out. Sign in again so the team can keep working.</span> : null}
                 {connected ? <span className="text-small text-tertiary">{BROWSER_DISCONNECT_WORDS}</span> : null}
               </div>
-              {s.status === "expired" ? <Chip tone="warn">Signed out</Chip> : s.status === "connected" ? <Chip tone="good">Signed in</Chip> : s.askFirst ? <Chip tone="neutral">Ask first</Chip> : null}
+              {s.status === "blocked" ? <Chip tone="warn">No longer allowed</Chip> : s.status === "expired" ? <Chip tone="warn">Signed out</Chip> : s.status === "connected" ? <Chip tone="good">Signed in</Chip> : s.askFirst ? <Chip tone="neutral">Ask first</Chip> : null}
               {canEdit ? (
                 connected ? (
                   <>

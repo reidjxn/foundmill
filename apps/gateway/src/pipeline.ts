@@ -64,6 +64,7 @@ import { candidatesFromArgs, candidatesFromContent, hashRecipient, type Recipien
 import { AGENTS_STOPPED_POLICY_ID, BUSINESS_ARCHIVED_POLICY_ID, checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
 import type { BrowserSessions } from "@foundmill/connectors";
 import { stopBrowserSessions } from "./browser";
+import type { SiteCheckConfig } from "./site-check";
 import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
 import { ownSenderUnsubscribeUrl, platformMailSwitchRefusal, preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
 import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallRequestParsed, type CallResponse, type DenyResponse, type RateLimitedResponse } from "./types";
@@ -124,6 +125,8 @@ export interface GatewayDeps {
   turnstile?: TurnstileConfig;
   /** The hosted browser's live sessions (browser.ts); null or absent without the provider's key. */
   browserSessions?: BrowserSessions | null;
+  /** The terms check of a typed website (site-check.ts); absent: live checks are refused as unconfigured. */
+  siteCheck?: SiteCheckConfig;
 }
 
 const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();

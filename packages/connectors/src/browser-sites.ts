@@ -69,7 +69,7 @@ function whereOf(u: URL): string {
 
 export interface NeverSite {
   domains: readonly string[];
-  why: "bank" | "brokerage" | "government_identity" | "health_records" | "password_manager" | "terms_forbid";
+  why: "bank" | "brokerage" | "government_identity" | "health_records" | "password_manager" | "social_network" | "terms_forbid";
 }
 
 /**
@@ -78,19 +78,26 @@ export interface NeverSite {
  * and signature whatever the site.
  */
 export const NEVER_SITES: readonly NeverSite[] = [
-  { why: "bank", domains: ["chase.com", "bankofamerica.com", "wellsfargo.com", "citi.com", "capitalone.com", "usbank.com", "mercury.com", "brex.com", "revolut.com", "wise.com", "monzo.com", "n26.com", "paypal.com", "venmo.com", "cash.app"] },
-  { why: "brokerage", domains: ["schwab.com", "fidelity.com", "vanguard.com", "robinhood.com", "etrade.com", "interactivebrokers.com", "coinbase.com", "binance.com", "kraken.com"] },
+  { why: "bank", domains: ["chase.com", "bankofamerica.com", "wellsfargo.com", "citi.com", "capitalone.com", "usbank.com", "mercury.com", "brex.com", "revolut.com", "wise.com", "monzo.com", "n26.com", "paypal.com", "venmo.com", "cash.app", "payoneer.com", "stripe.com", "squareup.com", "square.com", "paypal.me", "klarna.com", "affirm.com", "zellepay.com",
+    // Payment accounts and wallets of the big platforms (security review, Nov 24, 2026).
+    "pay.google.com", "payments.google.com", "wallet.google.com", "pay.amazon.com", "payments.amazon.com", "wallet.apple.com",
+    // Big US banks and card issuers.
+    "citibank.com", "pnc.com", "truist.com", "tdbank.com", "ally.com", "chime.com", "sofi.com", "discover.com", "americanexpress.com", "synchrony.com", "marcus.com", "goldmansachs.com", "jpmorgan.com", "morganstanley.com", "navyfederal.org", "usaa.com", "citizensbank.com", "regions.com", "huntington.com", "key.com", "fifththird.com", "mtb.com", "visa.com", "mastercard.com", "dave.com", "currentlifestyle.com", "varomoney.com", "greendot.com", "bluebird.com", "wealthfront.com", "betterment.com",
+    // Big UK and EU banks and card issuers.
+    "hsbc.com", "hsbc.co.uk", "barclays.com", "barclays.co.uk", "natwest.com", "rbs.co.uk", "santander.com", "santander.co.uk", "halifax.co.uk", "nationwide.co.uk", "tsb.co.uk", "firstdirect.com", "virginmoney.com", "bnpparibas.com", "bnpparibas.fr", "ing.com", "ing.nl", "ing.de", "abnamro.nl", "commerzbank.de", "sparkasse.de", "creditagricole.fr", "societegenerale.com", "societegenerale.fr", "bbva.com", "bbva.es", "unicredit.it", "unicreditgroup.eu", "intesasanpaolo.com", "bunq.com", "nordea.com", "lloydsbank.com", "tide.co", "starlingbank.com", "paysera.com", "lydia-app.com", "qonto.com", "sumup.com"] },
+  { why: "brokerage", domains: ["schwab.com", "fidelity.com", "vanguard.com", "robinhood.com", "etrade.com", "interactivebrokers.com", "coinbase.com", "binance.com", "kraken.com", "webull.com", "tradestation.com", "tastytrade.com", "public.com", "ameritrade.com", "merrilledge.com", "crypto.com", "gemini.com", "bitstamp.net", "bitfinex.com", "kucoin.com", "okx.com", "bybit.com", "blockchain.com", "etoro.com", "trading212.com", "hl.co.uk", "ig.com", "degiro.com", "plus500.com", "ledger.com"] },
   { why: "government_identity", domains: ["irs.gov", "login.gov", "id.me", "ssa.gov", "gov.uk", "usa.gov", "bankid.com", "skatteverket.se"] },
-  { why: "health_records", domains: ["mychart.org", "mychart.com", "healthcare.gov", "nhs.uk"] },
-  { why: "password_manager", domains: ["1password.com", "lastpass.com", "bitwarden.com", "dashlane.com", "keepersecurity.com", "proton.me"] },
+  { why: "health_records", domains: ["mychart.org", "mychart.com", "healthcare.gov", "nhs.uk", "kaiserpermanente.org", "patientportal.com", "zocdoc.com"] },
+  { why: "password_manager", domains: ["1password.com", "lastpass.com", "bitwarden.com", "dashlane.com", "keepersecurity.com", "proton.me", "nordpass.com", "roboform.com", "enpass.io", "passbolt.com", "keepass.info"] },
   // Terms read on Nov 22, 2026 that forbid automated use of an account:
   // LinkedIn User Agreement 8.2(13): "Use bots or other unauthorized automated methods to access the Services".
   // Instagram terms of use: "accessing or collecting information in an automated way without our express permission, regardless of whether such automated access or collection is undertaken while logged-in".
   // Ko-fi terms (July 13, 2026): "Bots or other automatic means must not be used to interact with Ko-fi."
   // Big Cartel terms (07.21.23): "Access or attempt to access the Site ... using any automated means, such as robots, spiders, scrapers, scripts".
   // Typeform usage policy: access "through the use of any engine, software, tool, agent, device or mechanism (including automated scripts...) other than the Software and/or search agents provided by TYPEFORM".
-  // Facebook, Threads and X are held with them until the founder decides on social networks' personal accounts (brief, question 2).
-  { why: "terms_forbid", domains: ["linkedin.com", "instagram.com", "facebook.com", "threads.net", "threads.com", "x.com", "twitter.com", "ko-fi.com", "bigcartel.com", "typeform.com"] },
+  // Social networks are never opened (founder, Nov 22, 2026; Add any website, Nov 24, 2026): a personal account there is not the team's to work in, whatever the terms say.
+  { why: "social_network", domains: ["linkedin.com", "instagram.com", "facebook.com", "fb.com", "messenger.com", "threads.net", "threads.com", "x.com", "twitter.com", "tiktok.com", "pinterest.com", "snapchat.com", "reddit.com", "youtube.com", "youtu.be", "discord.com", "discord.gg", "discordapp.com", "twitch.tv", "tumblr.com", "telegram.org", "t.me", "whatsapp.com", "wechat.com", "weibo.com", "vk.com", "bsky.app", "mastodon.social", "snap.com", "quora.com", "nextdoor.com", "clubhouse.com", "line.me", "kakaocorp.com", "tiktokv.com", "bereal.com", "vsco.co", "flickr.com"] },
+  { why: "terms_forbid", domains: ["ko-fi.com", "bigcartel.com", "typeform.com"] },
 ];
 
 export const NEVER_WORDS: Readonly<Record<NeverSite["why"], string>> = Object.freeze({
@@ -99,6 +106,7 @@ export const NEVER_WORDS: Readonly<Record<NeverSite["why"], string>> = Object.fr
   government_identity: "a government or identity site",
   health_records: "a health records site",
   password_manager: "a password manager",
+  social_network: "a social network",
   terms_forbid: "a site whose terms do not allow automated use of an account",
 });
 
@@ -143,9 +151,9 @@ export const hostWithin = (host: string, domains: readonly string[]): boolean =>
 export function neverReason(urlOrHost: string): NeverSite["why"] | null {
   const host = hostOf(urlOrHost);
   if (!host) return null;
-  // Any .gov or .mil host, and any host that calls itself a bank, is treated as its category without being listed.
-  if (/\.(gov|mil)(\.[a-z]{2})?$/.test(host)) return "government_identity";
-  if (/bank/.test(host)) return "bank";
+  // Any government host (.gov, .gouv, .gob, .govt, .mil, with or without a country suffix), and any host that calls itself a bank, is treated as its category without being listed.
+  if (/(^|\.)(gov|gouv|gob|govt|mil)(\.[a-z]{2})?$/.test(host)) return "government_identity";
+  if (/bank|banco|banque|banca|sparkasse|volksbank|building-?society|credit-?union/.test(host)) return "bank";
   return NEVER_SITES.find((n) => hostWithin(host, n.domains))?.why ?? null;
 }
 
