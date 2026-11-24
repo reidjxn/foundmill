@@ -2315,7 +2315,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       return { outcome: "stopped", reason: stoppedLate.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stoppedLate.reason}.`, providerSessionId: sdkSessionId, ...usageNow() };
     }
     if (recorder.pendingApprovalId) return { outcome: "blocked", reason: "waiting for the founder's approval", blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
-    if (agentBlock) return { outcome: "blocked", reason: agentBlock.reason, blockedReason: "dependency", approvalId: null, summary: `Blocked by ${agent.name}: ${agentBlock.reason}`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+    if (agentBlock) return { outcome: "blocked", reason: agentBlock.reason, blockedReason: "dependency", approvalId: null, summary: agentBlockSummary(agent.name, agentBlock.reason, acceptanceLines(task), recorder.acceptanceClaims), providerSessionId: sdkSessionId, ...usageNow() };
     if (nothingWritten) {
       await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `${agent.name} ended the session without changing any file, so the task is not done. It is blocked until it runs again.` });
       return { outcome: "blocked", reason: NO_CHANGES_REASON, blockedReason: "error", approvalId: null, summary: `Blocked: ${agent.name} changed no files on "${task.title}".`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
@@ -2897,7 +2897,7 @@ export const REPORT_TURN = "You ended without reporting. Call complete_task with
 /** Why a task that is not code is blocked when its agent never reported a result. */
 export const NO_RESULT_REASON = "no result: the session ended without complete_task or block_task";
 /** What a task that is not code with acceptance lines tells its agent, under the numbered lines. */
-export const ACCEPTANCE_BRIEF = "Save your result with save_report, then call complete_task with one acceptance result per line, by its number: met or not, and for a met line where it shows (reportSection: a heading of your report, or tool: the outside tool call that did it). The task is done only when every line is met on a real result; a line that rests only on simulated or not-connected calls is not met, so say so.";
+export const ACCEPTANCE_BRIEF = "Save your result with save_report, then call complete_task with one acceptance result per line, by its number: met or not, and for a met line where it shows (reportSection: a heading of your report, or tool: the outside tool call that did it). The task is done only when every line is met on a real result; a line that rests only on simulated or not-connected calls is not met, so say so. If you block the task instead, name in the reason each line that is not met.";
 /** Why a task that is not code is blocked when its report is missing or one of its acceptance lines is not met. */
 export const ACCEPTANCE_UNMET_REASON = "acceptance not met";
 /** The founder's one sentence on what was not met, each line named once; never a to-do. */
@@ -2906,6 +2906,15 @@ export function acceptanceUnmetSummary(agentName: string, title: string, total: 
   if (unmet.length === 0) return `Blocked: ${agentName} ended "${title}" without saving a report, so its result is not counted as done.`.slice(0, 1800);
   const count = unmet.length === total ? (total === 1 ? "its one line" : `all ${total} of its lines`) : `${unmet.length} of its ${total} lines`;
   return `Blocked: ${agentName} ended "${title}" with ${count} not met${reportSaved ? "" : " and no report saved"}: ${quoted}.`.slice(0, 1800);
+}
+/**
+ * The founder's sentence on a task its agent blocked: the agent's reason, then each acceptance line the session could not
+ * count as met, quoted once (a line the reason already quotes is not repeated), so the founder sees which line waits.
+ */
+export function agentBlockSummary(agentName: string, reason: string, lines: readonly string[], claims: readonly AcceptanceResultT[] | null): string {
+  const open = lines.filter((l, i) => !claims?.some((c) => c.line === i + 1 && c.met) && !reason.includes(l));
+  const quoted = open.map((l) => `“${l.length > 160 ? `${l.slice(0, 159)}…` : l}”`).join("; ");
+  return `Blocked by ${agentName}: ${reason}${open.length ? `${/[.!?]$/.test(reason.trim()) ? "" : "."} Not counted as met yet: ${quoted}.` : ""}`.slice(0, 1800);
 }
 /** How much of a report's body `task.completed.summary` carries after its title (the schema allows 2,000 in all). */
 export const REPORT_SUMMARY_BODY_CHARS = 1_700;
