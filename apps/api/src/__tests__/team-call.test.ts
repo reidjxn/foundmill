@@ -183,14 +183,62 @@ describe("teamCall.end", () => {
     expect(await code(owner().teamCall.say({ businessId: A(), callId: call.id, text: "One more thing", via: "typed", clientTurnId: turnId() }))).not.toBe("ok");
   });
 
-  it("reopens the call when the wrap-up fails, so nothing said is lost", async () => {
+  it("tries a failed wrap-up once more, then ends the call as not written up with every turn kept, and Try again writes it up", async () => {
     const call = await owner().teamCall.start({ businessId: A(), kind: "team" });
     await owner().teamCall.say({ businessId: A(), callId: call.id, text: "Let's write the launch post.", via: "typed", clientTurnId: turnId() });
-    hz.deps.models = new MockModelClient({ overrides: { teamCallWrapUp: () => { throw new Error("model down"); } } });
-    expect(await code(owner().teamCall.end({ businessId: A(), callId: call.id }))).not.toBe("ok");
-    const view = await owner().teamCall.get({ businessId: A(), callId: call.id });
-    expect(view.status).toBe("live");
-    expect(view.turns.some((t) => t.text === "Let's write the launch post.")).toBe(true);
+    let calls = 0;
+    hz.deps.models = new MockModelClient({ overrides: { teamCallWrapUp: () => { calls += 1; throw new Error("model down"); } } });
+    const failed = await owner().teamCall.end({ businessId: A(), callId: call.id });
+    expect(calls).toBe(2);
+    expect(failed.status).toBe("wrap_up_failed");
+    expect(failed.turns.some((t) => t.text === "Let's write the launch post.")).toBe(true);
+    // Over: nothing more is said on it, and the lobby does not show it in progress.
+    expect(await code(owner().teamCall.say({ businessId: A(), callId: call.id, text: "Hello?", via: "typed", clientTurnId: turnId() }))).not.toBe("ok");
+    expect((await owner().teamCall.list({ businessId: A() })).find((c) => c.id === call.id)?.status).toBe("wrap_up_failed");
+    hz.deps.models = original;
+    const again = await owner().teamCall.end({ businessId: A(), callId: call.id });
+    expect(again.status).toBe("ended");
+    expect(again.actions.length).toBeGreaterThan(0);
+  });
+
+  it("writes up on the second try when only the first fails", async () => {
+    const call = await owner().teamCall.start({ businessId: A(), kind: "team" });
+    await owner().teamCall.say({ businessId: A(), callId: call.id, text: "Let's build the pricing page.", via: "typed", clientTurnId: turnId() });
+    let calls = 0;
+    hz.deps.models = new MockModelClient({
+      overrides: {
+        teamCallWrapUp: () => {
+          calls += 1;
+          if (calls === 1) throw new Error("model down");
+          return { summary: "You agreed to build the pricing page.", actions: [{ title: "Build the pricing page", detail: null, agent_id: hz.A.agent2Id, action: { type: "create_task", params: { kind: "code", title: "Build the pricing page", goal: "A pricing page" }, agent_id: hz.A.agent2Id } }] };
+        },
+      },
+    });
+    const ended = await owner().teamCall.end({ businessId: A(), callId: call.id, via: "left" });
+    expect(ended.status).toBe("ended");
+    expect(ended.actions.map((a) => a.status)).toEqual(["filed"]);
+  });
+
+  it("files the steps the founder agreed to on a realistic call, including what an agent proposed and the founder accepted", async () => {
+    const call = await owner().teamCall.start({ businessId: A(), kind: "team", agentIds: [hz.A.agentId, hz.A.agent2Id] });
+    const turns = [
+      [{ agent_id: hz.A.agent2Id, to: "founder", text: "Happy to help with that. I'll build the waitlist page with a signup form this week." }],
+      [{ agent_id: hz.A.agentId, to: "founder", text: "Great. I can write the launch email for the waitlist once the page is up." }],
+    ];
+    let round = 0;
+    hz.deps.models = new MockModelClient({ overrides: { teamCallTurn: () => ({ turns: turns[Math.min(round++, turns.length - 1)]!, hand_back: true }) } });
+    await owner().teamCall.say({ businessId: A(), callId: call.id, text: "I want people to be able to sign up for early access before we launch.", via: "spoken", clientTurnId: turnId() });
+    await owner().teamCall.say({ businessId: A(), callId: call.id, text: "Yes, do that.", via: "spoken", clientTurnId: turnId() });
+    await owner().teamCall.say({ businessId: A(), callId: call.id, text: "Sounds good. And add a referral program to the roadmap.", via: "spoken", clientTurnId: turnId() });
+    hz.deps.models = original;
+    const ended = await owner().teamCall.end({ businessId: A(), callId: call.id });
+    expect(ended.status).toBe("ended");
+    const titles = ended.actions.map((a) => `${a.actionType}:${a.title}`);
+    expect(titles.some((t) => /^create_task:.*waitlist page/i.test(t))).toBe(true);
+    expect(titles.some((t) => /launch email/i.test(t))).toBe(true);
+    expect(titles.some((t) => /^update_roadmap:.*referral/i.test(t))).toBe(true);
+    // Filed or waiting for a go-ahead as routeOf decides: nothing is left out of the call's notes.
+    expect(ended.actions.every((a) => a.status === "filed" || a.status === "awaiting_go_ahead")).toBe(true);
   });
 
   it("files nothing for a call where the founder said nothing", async () => {

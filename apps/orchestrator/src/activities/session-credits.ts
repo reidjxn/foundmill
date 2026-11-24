@@ -102,7 +102,7 @@ export class SessionCredits {
 
   private constructor(
     private readonly deps: OrchestratorDeps,
-    private session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey },
+    private session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey; skillsPreload?: "on" | "off" | null },
     /** What a live call may spend at launch, USD cents. */
     readonly spendableMinor: number,
     /** The reserve this session started against, USD cents. */
@@ -116,7 +116,7 @@ export class SessionCredits {
    * The session's credits at launch, or why it may not start. Under the reserve it does not start and the team rests
    * (one note; a team already resting is left as it is). `agentType` picks the sessions the reserve is averaged over.
    */
-  static async open(deps: OrchestratorDeps, session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey; agentType?: string }, reserve: SessionReserveConfig = SESSION_RESERVE): Promise<SessionCreditsOpen> {
+  static async open(deps: OrchestratorDeps, session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey; agentType?: string; skillsPreload?: "on" | "off" | null }, reserve: SessionReserveConfig = SESSION_RESERVE): Promise<SessionCreditsOpen> {
     const now = deps.clock.now();
     const check = await checkPlatformCredits(deps.db, session.businessId, { live: true, now });
     if (!check.ok) {
@@ -179,7 +179,7 @@ export class SessionCredits {
           currency: "USD",
           billedTo: "credits",
           occurredAt: this.deps.clock.now(),
-          details: { source: "claude-agent-sdk", label: "Estimate", partial: true },
+          details: { source: "claude-agent-sdk", label: "Estimate", partial: true, ...(this.session.skillsPreload ? { skills_preload: this.session.skillsPreload } : {}) },
         }, { topUps: topUpsOnSale(this.deps.env) });
         this.bookedMinor += costMinor;
         this.bookedTokens += tokens;

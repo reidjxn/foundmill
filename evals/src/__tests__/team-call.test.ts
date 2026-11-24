@@ -19,8 +19,8 @@ const round = (raw: Array<{ agent_id: string; text: string }>): TeamCallRoundRes
 });
 
 describe("team call eval", () => {
-  it("covers the five behaviors of the contract", () => {
-    expect(new Set(TEAM_CALL_CASES.map((c) => c.kind))).toEqual(new Set(["discussion", "nothing_done", "one_to_one", "wrap_up", "subtext"]));
+  it("covers the six behaviors of the contract", () => {
+    expect(new Set(TEAM_CALL_CASES.map((c) => c.kind))).toEqual(new Set(["discussion", "nothing_done", "one_to_one", "wrap_up", "subtext", "agreed_proposal"]));
   });
 
   it("the rubric passes a good discussion and catches no mention, one speaker, a done claim, an outsider and British spelling", () => {

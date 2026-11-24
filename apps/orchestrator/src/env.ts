@@ -38,6 +38,18 @@ const Extra = z.object({
    * means 0: nobody is admitted by number, and the sweep still emails anyone the operator admitted by hand.
    */
   WAITLIST_ADMIT_PER_DAY: z.coerce.number().int().min(0).max(1000).default(0),
+  /**
+   * The skills preload test (WP-06 T13; founder, Nov 18, 2026): "split" loads the coding skills marked `load: always`
+   * up front in half of code sessions (by business id) and records `skills_preload` on each one's token row. Off (the
+   * default) changes nothing.
+   */
+  SKILLS_PRELOAD: z.enum(["off", "split"]).default("off"),
+  /**
+   * The day the preload comparison starts counting (an ISO date): the day sign-up opens publicly (SIGNUP_OPEN on the
+   * api). Seven days after it, the nightly numbers raise one operator note with each half's average cost per code task.
+   * Unset: nothing is counted and no note is raised.
+   */
+  SKILLS_PRELOAD_FROM: z.iso.date().optional(),
   /** Port of the orchestrator's `/health` when PORT is unset (./health-server.ts). */
   ORCHESTRATOR_PORT: z.coerce.number().int().min(0).max(65_535).default(4007),
 });
@@ -58,6 +70,8 @@ export interface OrchestratorEnv extends Env {
   ORCHESTRATOR_PORT: number;
   MOCK_RESULTS_CLEANUP: "off" | "report" | "apply";
   WAITLIST_ADMIT_PER_DAY: number;
+  SKILLS_PRELOAD: "off" | "split";
+  SKILLS_PRELOAD_FROM: string | undefined;
 }
 
 let cached: OrchestratorEnv | undefined;
@@ -84,6 +98,8 @@ export function loadOrchestratorEnv(overrides: Partial<NodeJS.ProcessEnv> = {}):
     ORCHESTRATOR_PORT: extra.ORCHESTRATOR_PORT,
     MOCK_RESULTS_CLEANUP: extra.MOCK_RESULTS_CLEANUP,
     WAITLIST_ADMIT_PER_DAY: extra.WAITLIST_ADMIT_PER_DAY,
+    SKILLS_PRELOAD: extra.SKILLS_PRELOAD,
+    SKILLS_PRELOAD_FROM: extra.SKILLS_PRELOAD_FROM,
   };
   if (Object.keys(overrides).length === 0) cached = env;
   return env;

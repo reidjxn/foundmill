@@ -1,6 +1,6 @@
 import type { Sandbox as E2bSdkSandbox } from "e2b";
 import { describe, expect, it } from "vitest";
-import { buildCreateOptions, E2bSandboxProvider, egressAllowOut, type E2bCommandResult, type E2bCreateOptions, type E2bEntryInfo, type E2bRunOptions, type E2bSandboxClient } from "../e2b";
+import { buildCreateOptions, E2B_MAX_TTL_MINUTES, E2bSandboxProvider, egressAllowOut, type E2bCommandResult, type E2bCreateOptions, type E2bEntryInfo, type E2bRunOptions, type E2bSandboxClient } from "../e2b";
 import { LongLivedCredentialError, SandboxFileNotFoundError, SandboxStateError, SandboxUnavailableError } from "../errors";
 import { parseSandboxSpec } from "../types";
 
@@ -124,6 +124,8 @@ describe("E2bSandboxProvider", () => {
     const closed = buildCreateOptions(parseSandboxSpec({ ...spec, egressAllowList: [] }), { template: "base" });
     expect(closed.allowInternetAccess).toBe(false);
     expect(closed.network).toEqual({ denyOut: ["0.0.0.0/0"] });
+    // A spec may ask up to 24 hours; E2B Hobby refuses past 1 hour, so the create never asks for more.
+    expect(buildCreateOptions(parseSandboxSpec({ ...spec, ttlMinutes: 24 * 60 }), { template: "base" }).timeoutMs).toBe(60 * 60_000);
     expect(egressAllowOut(["*.github.com", "github.com", "10.0.0.0/8"])).toEqual(["*.github.com", "github.com", "10.0.0.0/8"]);
   });
 
@@ -161,8 +163,11 @@ describe("E2bSandboxProvider", () => {
     await expect(sb.listFiles("/nowhere")).rejects.toBeInstanceOf(SandboxFileNotFoundError);
 
     expect(await sb.snapshot()).toEqual({ id: "fm-b-1-sess-9:latest", sandboxId: "e2b-sbx_abc123", provider: "e2b", ref: "fm-b-1-sess-9:latest", createdAt: NOW.toISOString() });
+    await sb.setTtl(50);
+    expect(state.timeoutMs).toBe(50 * 60_000);
+    // Never past E2B Hobby's 1-hour limit ("400: Timeout cannot be greater than 1 hours").
     await sb.setTtl(90);
-    expect(state.timeoutMs).toBe(90 * 60_000);
+    expect(state.timeoutMs).toBe(E2B_MAX_TTL_MINUTES * 60_000);
 
     await sb.stop();
     expect(sb.state).toBe("stopped");

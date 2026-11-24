@@ -58,12 +58,12 @@ describe("team calls (0082): tenancy through the repo", () => {
     expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.teamCalls))).toEqual([]);
   });
 
-  it("a member of A writes nothing of B: no call, no turn, no wrap-up, no reopening", async () => {
+  it("a member of A writes nothing of B: no call, no turn, no wrap-up, no failed mark", async () => {
     await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.create(tx, B.businessId, { kind: "one_to_one", agentIds: [B.agentId], startedBy: A.ownerId }))).rejects.toThrow();
     await expect(h.asUser(A.ownerId).run((tx) => tx.insert(s.teamCalls).values({ businessId: B.businessId, kind: "team", agentIds: [B.agentId] }))).rejects.toThrow(RLS_DENIED);
     await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.appendTurns(tx, B.businessId, bCallId, [say(A.ownerId, "Hello?")]))).rejects.toBeInstanceOf(NotFoundError);
     await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.claimWrapUp(tx, B.businessId, bCallId))).rejects.toBeInstanceOf(NotFoundError);
-    await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.reopenAfterFailedWrapUp(tx, B.businessId, bCallId))).rejects.toBeInstanceOf(NotFoundError);
+    await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.markWrapUpFailed(tx, B.businessId, bCallId))).rejects.toBeInstanceOf(NotFoundError);
     await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.finish(tx, B.businessId, bCallId, { summary: "x", actions: [] }))).rejects.toThrow();
     const b = await h.service().run((tx) => repos.teamCalls.get(tx, B.businessId, bCallId));
     expect(b).toMatchObject({ status: "live", turnCount: 2 });
@@ -120,7 +120,7 @@ describe("team calls (0082): viewers never write", () => {
       expect(await h.asUser(userId).run((tx) => repos.teamCalls.claimWrapUp(tx, A.businessId, call.id))).toBe(false);
       expect((await h.service().run((tx) => repos.teamCalls.get(tx, A.businessId, call.id))).status).toBe("live");
       await h.service().run((tx) => repos.teamCalls.claimWrapUp(tx, A.businessId, call.id));
-      expect(await h.asUser(userId).run((tx) => repos.teamCalls.reopenAfterFailedWrapUp(tx, A.businessId, call.id))).toBe(false);
+      expect(await h.asUser(userId).run((tx) => repos.teamCalls.markWrapUpFailed(tx, A.businessId, call.id))).toBe(false);
       await expect(h.asUser(userId).run((tx) => repos.teamCalls.finish(tx, A.businessId, call.id, { summary: "x", actions: [] }))).rejects.toThrow();
       expect((await h.service().run((tx) => repos.teamCalls.get(tx, A.businessId, call.id))).status).toBe("wrapping_up");
     });
@@ -295,5 +295,17 @@ describe("agents.speech_accent (0082)", () => {
     await expect(raw(h.db.update(s.agents).set({ speechAccent: "x" }).where(eq(s.agents.id, A.agentId)))).rejects.toThrow(/speech_accent_shape/);
     // Service code (the seed, the api's service connection) is not an app role.
     expect((await h.service().run((tx) => repos.agents.setSpeechAccent(tx, A.businessId, A.agent2Id, "eldrin"))).speechAccent).toBe("eldrin");
+  });
+});
+
+describe("team_call_presence (0170): service role only", () => {
+  it("no member of any role reads or writes it; the service does", async () => {
+    await h.service().run((tx) => repos.teamCalls.markPresent(tx, B.businessId, bCallId, B.ownerId));
+    for (const userId of [A.ownerId, A.adminId, A.memberId, A.viewerId, B.ownerId]) {
+      await expect(raw(h.asUser(userId).run((tx) => tx.select().from(s.teamCallPresence)))).rejects.toThrow();
+      await expect(raw(h.asUser(userId).run((tx) => tx.insert(s.teamCallPresence).values({ businessId: B.businessId, callId: bCallId, userId }).returning()))).rejects.toThrow();
+    }
+    const rows = await h.service().run((tx) => tx.select().from(s.teamCallPresence).where(eq(s.teamCallPresence.callId, bCallId)));
+    expect(rows.map((r) => r.userId)).toEqual([B.ownerId]);
   });
 });

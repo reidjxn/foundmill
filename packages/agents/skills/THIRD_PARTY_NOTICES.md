@@ -14,6 +14,8 @@ Some skills in this folder keep the substance (frameworks, checklists, decision 
 | `ui-ux-pro-max` | github.com/nextlevelbuilder/ui-ux-pro-max-skill | 2.15.0 (d643997c) | MIT, Copyright (c) 2024 Next Level Builder |
 | `last30days` | github.com/mvanhorn/last30days-skill | 3.39.0 | MIT, Copyright (c) 2026 Matt Van Horn |
 | `example-skills`: Anthropic example skills (frontend-design, webapp-testing) | github.com/anthropics/skills | 1780c5e5 | Apache-2.0 |
+| `ponytail` | github.com/dietrichgebert/ponytail (`skills/ponytail`) | 96608e07 | MIT, Copyright (c) 2026 DietrichGebert |
+| `caveman` | github.com/JuliusBrussee/caveman (`skills/caveman`) | a1928947 | Apache-2.0 and MIT, Copyright 2026 Julius Brussee. The full Apache-2.0 text is in `.claude/skills/caveman/LICENSE` |
 
 Not adapted, only credited for ideas, because they ship without a license text: `karpathy-guidelines` (github.com/forrestchang/andrej-karpathy-skills; the four ideas are Andrej Karpathy's public observations on how models go wrong when coding, and `coding_discipline` is written in Foundmill's own words around them) and `impeccable` (github.com/pbakaus/impeccable).
 

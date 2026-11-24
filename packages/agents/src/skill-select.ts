@@ -24,6 +24,8 @@ export interface AttachedSkill {
   instructionsMd: string;
   stages?: readonly ProductStage[];
   improves?: readonly string[];
+  /** A library skill marked `load: always` (WP-06 T13): loaded up front on a code task when the preload is on. */
+  loadAlways?: boolean;
 }
 
 /** Bodies loaded up front in a session that holds `read_skill` (an Estimate, tuned with the eval). */
@@ -50,7 +52,7 @@ function cut(text: string, max: number): string {
 /** A stored library or file skill as the prompt uses it: a library skill takes its body and `whenToUse` from the catalog. */
 export function attachedSkillFrom(row: StoredSkillRow): AttachedSkill {
   const lib = row.source === "library" && row.skillKey.startsWith(LIBRARY_SKILL_PREFIX) ? getLibrarySkill(row.skillKey.slice(LIBRARY_SKILL_PREFIX.length)) : undefined;
-  if (lib) return { key: row.skillKey, name: row.name, source: "library", whenToUse: lib.whenToUse, instructionsMd: lib.instructionsMd, stages: lib.stages, improves: lib.improves };
+  if (lib) return { key: row.skillKey, name: row.name, source: "library", whenToUse: lib.whenToUse, instructionsMd: lib.instructionsMd, stages: lib.stages, improves: lib.improves, ...(lib.loadAlways ? { loadAlways: true } : {}) };
   return { key: row.skillKey, name: row.name, source: row.source, whenToUse: cut(row.description || row.name, SKILL_WHEN_TO_USE_MAX_CHARS), instructionsMd: row.instructionsMd };
 }
 
@@ -109,6 +111,11 @@ export interface SelectSkillsInput {
   /** Training: the skill under test; it and the skills that `improve` it are loaded. */
   ratedSkillKey?: string;
   maxBodies: number;
+  /**
+   * WP-06 T13: the skills preload is on for this session (`skillsPreloadFor`). On a code task, skills marked `loadAlways`
+   * are loaded first, outside `maxBodies` but within `SKILL_PRELOAD_MAX_CHARS`.
+   */
+  preloadAlways?: boolean;
 }
 
 /**
@@ -132,8 +139,17 @@ export function selectSkills(input: SelectSkillsInput): AgentSkillPrompt[] {
     .filter((r) => !hasSignal || r.ratedRank > 0 || r.overlap > 0)
     .sort((a, b) => b.ratedRank - a.ratedRank || b.stage - a.stage || b.overlap - a.overlap || a.i - b.i);
   let chars = input.skills.filter((s) => s.source === "role").reduce((n, s) => n + s.instructionsMd.length, 0);
+  const always = new Set<string>();
+  if (input.preloadAlways && input.task?.kind === "code") {
+    for (const s of input.skills) {
+      if (!s.loadAlways || s.source === "role" || chars + s.instructionsMd.length > SKILL_PRELOAD_MAX_CHARS) continue;
+      chars += s.instructionsMd.length;
+      always.add(s.key);
+    }
+  }
   const loaded = new Set<string>();
   for (const r of ranked) {
+    if (always.has(r.s.key)) continue;
     if (loaded.size >= input.maxBodies) break;
     if (chars + r.s.instructionsMd.length > SKILL_PRELOAD_MAX_CHARS) continue;
     chars += r.s.instructionsMd.length;
@@ -141,6 +157,22 @@ export function selectSkills(input: SelectSkillsInput): AgentSkillPrompt[] {
   }
   return input.skills.map((s) => {
     const prompt: AgentSkillPrompt = { key: s.key, name: s.name, source: s.source, whenToUse: s.whenToUse };
-    return s.source === "role" || loaded.has(s.key) ? { ...prompt, instructionsMd: s.instructionsMd } : prompt;
+    return s.source === "role" || loaded.has(s.key) || always.has(s.key) ? { ...prompt, instructionsMd: s.instructionsMd } : prompt;
   });
+}
+
+/**
+ * Which half of the skills preload test a business is in (founder, Nov 18, 2026): stable for the business, from the last
+ * hex digit of its id, so about half are "on". Recorded on each code session's token row (`skills_preload`).
+ */
+export function skillsPreloadHalf(businessId: string): "on" | "off" {
+  return Number.parseInt(businessId.slice(-1), 16) % 2 === 0 ? "on" : "off";
+}
+
+/**
+ * The session's preload for the test, or null when it is not part of it: the switch (`SKILLS_PRELOAD`, "split") is on
+ * and the task writes code. Off by default, so nothing changes until the switch is set.
+ */
+export function skillsPreloadFor(input: { mode: "off" | "split"; businessId: string; taskKind: TaskKind }): "on" | "off" | null {
+  return input.mode === "split" && input.taskKind === "code" ? skillsPreloadHalf(input.businessId) : null;
 }
