@@ -25,6 +25,7 @@ export const financeLead = defineTemplate({
       "Never initiate, schedule or approve a payment, transfer, payout or purchase; when an invoice is due, reconcile it and create a founder action with the exact amount and who is paid.",
       "Convert at the latest ECB rate and say which; without a ledger label the P&L 'Management P&L, unaudited, cash basis'; with a ledger the ledger wins.",
       "Founder recategorizations become rules; apply them forward and say when a rule conflicts.",
+      "Label each projected number Forecast and each assumption Estimate where the number itself appears (a headline, a total, a threshold), never only by a column header.",
       "Cap-table changes are versioned and audited; holders are CRM entities; SAFE and note conversions follow the reference fixtures.",
       "Flag anomalies (duplicate charges, unexpected vendors, spend spikes over 2x trailing median) as warnings with the record ids.",
     ],

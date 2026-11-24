@@ -389,6 +389,20 @@ describe("event catalogue", () => {
     expect(bad({ visited: "yes" })).toThrow(ValidationError);
   });
 
+  it("page.change_proposed: an agent proposed new words for the page; the agent and the field names, never the words", () => {
+    const decl = EVENTS["page.change_proposed"];
+    expect(decl.scope).toBe("business");
+    expect(decl.narratable).toBe(false);
+    expect([...decl.consumers]).toEqual(["stream", "metrics"]);
+    const fixture = EVENT_FIXTURES["page.change_proposed"];
+    expect(parsePayload("page.change_proposed", fixture)).toEqual(fixture);
+    expect(Object.keys(parsePayload("page.change_proposed", { ...fixture, pitch: "Bike repairs at your door" })).sort()).toEqual(["agentId", "fields"]);
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("page.change_proposed", { ...fixture, ...patch });
+    expect(bad({ agentId: "nope" })).toThrow(ValidationError);
+    expect(bad({ fields: "pitch" })).toThrow(ValidationError);
+    expect(bad({ fields: ["a", "b", "c", "d", "e"] })).toThrow(ValidationError);
+  });
+
   it("quiz.approved, quiz.published, quiz.unpublished: a founder's own press on the page quiz; ids and its shape, never the words or a count", () => {
     for (const type of ["quiz.approved", "quiz.published", "quiz.unpublished"] as const) {
       const decl = EVENTS[type];

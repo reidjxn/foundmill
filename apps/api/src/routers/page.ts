@@ -29,7 +29,7 @@ import { FOLLOW_EMAIL_MAX, PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PA
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { z } from "zod";
 import { publicCardById, publicStoryBySlug } from "../services/milestones";
-import { followPage, pageView, siteFollowConsent, publicExplore, publicIndexNowKeyFile, publicListedPages, publicPageBySlug, publishPage, savePageDraft, setPageExplore, setPageSlug, unpublishPage } from "../services/pages";
+import { dismissPageProposal, usePageProposal, followPage, pageView, siteFollowConsent, publicExplore, publicIndexNowKeyFile, publicListedPages, publicPageBySlug, publishPage, savePageDraft, setPageExplore, setPageSlug, unpublishPage } from "../services/pages";
 import { recordPostVisit } from "../services/post-attribution";
 import { publicProcedure, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
 import { publicUpdateCardById } from "../services/update-cards";
@@ -54,6 +54,10 @@ export const pageRouter = router({
   setSlug: write.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2), draft: ContentInput.optional() })).mutation(({ ctx, input }) => setPageSlug(ctx, input)),
   publish: publish.input(z.object({ content: ContentInput })).mutation(({ ctx, input }) => publishPage(ctx, { content: input.content })),
   unpublish: publish.mutation(({ ctx }) => unpublishPage(ctx)),
+  proposal: router({
+    use: write.mutation(({ ctx }) => usePageProposal(ctx)),
+    dismiss: write.mutation(({ ctx }) => dismissPageProposal(ctx)),
+  }),
   setExplore: publish.input(z.object({ listed: z.boolean() })).mutation(({ ctx, input }) => setPageExplore(ctx, input)),
 });
 

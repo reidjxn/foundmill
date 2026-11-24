@@ -2161,6 +2161,22 @@ const postPublished = declareEvent(
   },
 );
 
+const pageChangeProposed = declareEvent(
+  "page.change_proposed",
+  z.object({
+    /** The agent that proposed new words for the project's page. */
+    agentId: Id,
+    /** Which of the page's fields the proposal would change (`PAGE_PROPOSAL_FIELDS`). */
+    fields: z.array(z.string().max(20)).max(4),
+  }),
+  {
+    // North star (FOUNDMILL.md, founder 2026-11-11): words waiting for a founder are not an outside action or result.
+    doc: "An agent proposed new words for the project's public page. The proposal waits in Product › Public page for a founder to use or dismiss; nothing on the page or in its draft changed. Names the agent and the fields only, never the words. Not an outside result; never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 /** Which post and where (item 8, packages/db `post_links`): the link's row, the post's asset and its network (null: a copied or sent link). */
 const PostLinkFacts = {
   linkId: Id,
@@ -2522,6 +2538,7 @@ export const EVENTS = {
   "idea.drafted": ideaDrafted,
   "post.drafted": postDrafted,
   "post.published": postPublished,
+  "page.change_proposed": pageChangeProposed,
   "positioning.approved": positioningApproved,
   "quiz.approved": quizApproved,
   "quiz.published": quizPublished,

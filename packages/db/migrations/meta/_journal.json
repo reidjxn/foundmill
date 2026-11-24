@@ -992,7 +992,14 @@
     {
       "idx": 141,
       "version": "7",
-      "when": 1796591540000,
+      "when": 1796591420000,
+      "tag": "0172_page_proposals",
+      "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1796591480000,
       "tag": "0173_customer_update_cards",
       "breakpoints": true
     }

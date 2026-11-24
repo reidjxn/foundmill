@@ -457,3 +457,20 @@ export function pageIsListed(input: { name: string; content: Pick<ProjectPageCon
   if (input.content.about.trim().length < PAGE_LISTED_ABOUT_MIN) return { listed: false, reason: "short_about" };
   return { listed: true, reason: null };
 }
+
+/** The words of the page an agent may propose to change (WP-08 T8): never the stage, the founders, the form, a price or a button. */
+export const PAGE_PROPOSAL_FIELDS = ["pitch", "about", "forWhom"] as const;
+export type PageProposalField = (typeof PAGE_PROPOSAL_FIELDS)[number];
+export type PageProposalFields = Partial<Pick<ProjectPageContent, PageProposalField>>;
+
+/**
+ * What stops a proposal, in the founder's words: no field at all, a field over its limit, or a pitch or about left
+ * empty. Judged on the fields the agent sends only, against the same limits as the page itself.
+ */
+export function pageProposalProblems(fields: PageProposalFields): string[] {
+  const sent = PAGE_PROPOSAL_FIELDS.filter((f) => typeof fields[f] === "string");
+  if (sent.length === 0) return ["Propose a change to at least one of the pitch, about and who it is for."];
+  const filled: ProjectPageContent = { pitch: "x", about: "x", forWhom: "", stage: "idea", showFounders: false, followForm: true, ...Object.fromEntries(sent.map((f) => [f, fields[f]])) };
+  const errors = pageContentProblems(filled);
+  return sent.flatMap((f) => (errors[f] ? [errors[f]!] : []));
+}
