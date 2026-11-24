@@ -114,7 +114,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "distribution_strategist.recommend",
     templateKey: "distribution_strategist",
     title: "Recommend starter channels",
-    prompt: `Score all 15 channels (${CHANNEL_KEYS.join(", ")}) 1-20 on fit for Ledgerly: B2B SaaS, £49 per seat per month, buyers are operations managers at 20-200 person fintechs in the UK and US, monthly distribution budget £1,500, founder is strong at writing and weak at video, runway 11 months. Pick 3-6 starters. For each starter give fit (1-20), potential (1-5 stars), an expected cost-per-customer range labeled Estimate, and a three-sentence why. Say which channels run in kit mode. Plain text.`,
+    prompt: `Score all 15 channels (${CHANNEL_KEYS.join(", ")}) 1-20 on fit for Ledgerly: B2B SaaS, £49 per seat per month, buyers are operations managers at 20-200 person fintechs in the UK and US, monthly distribution budget £1,500, founder is strong at writing and weak at video, runway 11 months. Give every channel its score with a one-line reason. Pick 3-6 starters. For each starter give fit (1-20), potential (1-5 stars), an expected cost-per-customer range labeled Estimate, and a why of exactly three sentences. Say which channels run in kit mode. Plain text.`,
     checks: [CHECK.all("Estimate", "lead_generation"), CHECK.words(250, 1200)],
     rubric: [
       "All 15 channels receive a score with at least a short reason; no channel is skipped.",
@@ -433,7 +433,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_geo.panel",
     templateKey: "channel_geo",
     title: "Answer-share panel and entity consistency",
-    prompt: `Positioning notes (pos_3): Ledgerly is a month-end reconciliation tool for fintech operations teams, £49 per seat per month, sold in the UK and US. Design the first GEO cycle: a question set of 8 questions a fintech ops manager would ask an AI assistant about month-end reconciliation tools, the share-of-answer measurement across four assistants labeled approximate, the entity-consistency fixes (name, description, pricing on site, directories and llms.txt), how you earn mentions (accurate, consistent content and real coverage), and what you will never do (fake reviews, sock puppets, seeded posts). Under 350 words.`,
+    prompt: `Positioning notes (pos_3): Ledgerly is a month-end reconciliation tool for fintech operations teams, £49 per seat per month, sold in the UK and US. Design the first GEO cycle: a question set of 8 questions a fintech ops manager would ask an AI assistant about month-end reconciliation tools, the share-of-answer measurement across four assistants labeled approximate, the entity-consistency fixes (name, description, pricing on site, directories and llms.txt), how you earn mentions (accurate, consistent content and real coverage), and what you will never do (fake reviews, sock puppets, seeded posts). Write the questions one line each and every other part in at most two sentences. Under 350 words.`,
     checks: [CHECK.words(120, 380), CHECK.all("approximate", "llms.txt")],
     rubric: [
       "Eight realistic questions and a measurement method labeled approximate.",
@@ -639,7 +639,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_events.sponsorship",
     templateKey: "channel_events",
     title: "Evaluate a sponsorship within budget",
-    prompt: `Fintech Ops Summit London (event evt_9, 2026-11-18) offers a £3,500 sponsorship with a stand and attendee list access (consent-based). Expected 400 attendees, 30% ops managers. Estimate the pipeline needed to break even at £49 per seat per month with an average 8-seat deal, propose how leads are captured with lawful basis, the follow-up sequence, and the decision for the founder (sponsor, attend without sponsoring, skip) with exactly one of the three recommended, not a combination. Label estimates. The contract is a founder signature.`,
+    prompt: `Fintech Ops Summit London (event evt_9, 2026-11-18) offers a £3,500 sponsorship with a stand and attendee list access (consent-based). Expected 400 attendees, 30% ops managers. Estimate the pipeline needed to break even at £49 per seat per month with an average 8-seat deal, propose how leads are captured with lawful basis, the follow-up sequence, and the decision for the founder (sponsor, attend without sponsoring, skip) with exactly one of the three marked "Recommended", not a combination. Label estimates. The contract is a founder signature.`,
     // "recommend" counts a Recommendation heading as well as "recommended" (live run 45277670182).
     checks: [CHECK.all("evt_9", "Estimate", "recommend")],
     rubric: [
@@ -719,7 +719,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "packaging_design.dieline",
     templateKey: "packaging_design",
     title: "Packaging spec with mandatory label content",
-    prompt: `Specify the secondary carton for a 50 ml airless bottle sold in the EU: structure and board, dieline dimensions with tolerances, closure, materials chosen for recyclability, and the mandatory label content for an EU cosmetic (responsible person, nominal content, durability or PAO, precautions, batch, function, ingredients). Give the artwork handoff checklist.`,
+    prompt: `Specify the secondary carton for a 50 ml airless bottle sold in the EU (drawing dwg_air50: 40 mm diameter, 112 mm tall with the pump): structure and board, dieline dimensions with tolerances, closure, materials chosen on compatibility, recyclability and cost, and the mandatory label content for an EU cosmetic (responsible person, nominal content, durability or PAO, precautions, batch, function, ingredients). Give the artwork handoff checklist.`,
     checks: [CHECK.all("responsible person", "batch")],
     rubric: [
       "Dieline dimensions and tolerances fit the stated bottle.",
@@ -822,7 +822,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "moderation.outbound",
     templateKey: "moderation",
     title: "Pre-send check on an outbound email",
-    prompt: `Check this outbound marketing email against the honest-agent code and return JSON matching the moderation schema {allowed, flags:[{category, severity, excerpt}], rationale}. Email: "Hi Tom, I'm Sarah from the Ledgerly team. Over 500 fintechs already trust us and this week only we're giving 40% off. Reply now before spots run out!" Footer: none. Known facts: 38 customers; no discount campaign exists; the sender is an AI agent.`,
+    prompt: `Check this outbound marketing email against the honest-agent code and return JSON matching the moderation schema {allowed, flags:[{category, severity, excerpt}], rationale}. Email: "Hi Tom, I'm Sarah from the Ledgerly team. Over 500 fintechs already trust us and this week only we're giving 40% off. Reply now before spots run out!" Footer: none. Known facts: 38 customers; no discount campaign exists; the sender is an AI agent. The rationale names each honest-agent rule the email breaks.`,
     schemaKey: "moderation",
     checks: [CHECK.all("missing_unsubscribe", "fabricated_urgency")],
     rubric: [
