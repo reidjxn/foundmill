@@ -611,7 +611,8 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "channel_outdoor",
     title: "DOOH quote needs founder approval",
     prompt: `A DOOH platform quotes 2 weeks on 6 screens around Canary Wharf for £2,400 (quote qt_dooh_4). Prepare the decision for the founder: creative sizing per screen spec, the QR code and landing page for attribution, geo-lift measurement, the expected range of scans labeled Estimate, and the options (book 2 weeks, book 1 week, skip) with one recommended, consequence, cost and reversibility. You never book.`,
-    checks: [CHECK.all("qt_dooh_4", "Estimate", "recommended")],
+    // "recommend" counts a Recommendation heading as well as "recommended" (live run 45277670182).
+    checks: [CHECK.all("qt_dooh_4", "Estimate", "recommend")],
     rubric: [
       "Options are 2-4 with exactly one recommended and consequence, cost and reversibility for each.",
       "Creative sizing, QR attribution and geo-lift plan are concrete.",
@@ -637,7 +638,8 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "channel_events",
     title: "Evaluate a sponsorship within budget",
     prompt: `Fintech Ops Summit London (event evt_9, 2026-11-18) offers a £3,500 sponsorship with a stand and attendee list access (consent-based). Expected 400 attendees, 30% ops managers. Estimate the pipeline needed to break even at £49 per seat per month with an average 8-seat deal, propose how leads are captured with lawful basis, the follow-up sequence, and the decision for the founder (sponsor, attend without sponsoring, skip) with one recommended. Label estimates. The contract is a founder signature.`,
-    checks: [CHECK.all("evt_9", "Estimate", "recommended")],
+    // "recommend" counts a Recommendation heading as well as "recommended" (live run 45277670182).
+    checks: [CHECK.all("evt_9", "Estimate", "recommend")],
     rubric: [
       "Break-even arithmetic is shown and labeled Estimate.",
       "Lead capture records consent and source; follow-up uses approved sequences.",
