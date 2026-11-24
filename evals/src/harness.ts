@@ -13,6 +13,9 @@ import { loadEnv } from "@foundmill/shared";
 import {
   type DeterministicCheck,
   buildSystemPrompt,
+  countWords,
+  lengthRetryMessage,
+  statedWordLimit,
   getTemplate,
   prompts,
   restoredWorkspaceNote,
@@ -140,10 +143,18 @@ export async function runGoldenTask(task: GoldenTask, opts: HarnessOptions): Pro
     const prompt = goldenTaskPrompt(task);
     const messages: ChatMessage[] = [{ role: "user", content: prompt }];
     const schema = task.schemaKey ? (OUTPUT_SCHEMAS[task.schemaKey] as z.ZodType<unknown>) : undefined;
-    const result = schema
+    let result = schema
       ? await opts.client.complete({ route: template.route, system, messages, schema, scope: `eval:${task.id}` })
       : await opts.client.complete({ route: template.route, system, messages, scope: `eval:${task.id}` });
     let costMinor = result.cost.costMinorInt;
+    // A text reply over the task's stated word limit goes back once to be rewritten, as the product does (showcase script).
+    const limit = schema ? null : statedWordLimit(task.prompt);
+    const words = countWords(result.text);
+    if (limit !== null && words > limit) {
+      const retry = await opts.client.complete({ route: template.route, system, messages: [...messages, { role: "assistant", content: result.text }, { role: "user", content: lengthRetryMessage(words, limit) }], scope: `eval:${task.id}:length` });
+      costMinor += retry.cost.costMinorInt;
+      result = retry;
+    }
     const checks: DeterministicCheck[] = [...task.checks];
     if (schema && !checks.some((c) => c.kind === "json_schema_valid")) checks.unshift({ kind: "json_schema_valid", params: { schemaRef: task.schemaKey } });
     const checkResults = runDeterministicChecks(checks, {

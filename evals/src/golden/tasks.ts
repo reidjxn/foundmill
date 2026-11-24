@@ -392,7 +392,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_email_automation.follower_update",
     templateKey: "channel_email_automation",
     title: "First update to the project's followers",
-    prompt: `Draft the first update to the 14 people who follow Ember Candles on its public page. Positioning notes (the founders' record; use only facts in it): for whom: people in Portland who give a small handmade gift a few times a year (assumption); problem: gift shops sell the same mass-made candles (founder); different: each candle is poured by hand in small batches of 20 from soy wax (founder); step: buy. The page says: "Hand-poured soy candles from Portland. First batch of 20 ships Dec 4." Write a subject under 60 characters and a plain-text body of 80-140 words that says what happened, what is next and one ask (reply to say which scent they want). The founders send it; you only draft it with draft_follower_update.`,
+    prompt: `Draft the first update to the 14 people who follow Ember Candles on its public page. Positioning notes (the founders' record; use only facts in it): for whom: people in Portland who give a small handmade gift a few times a year (assumption); problem: gift shops sell the same mass-made candles (founder); different: each candle is poured by hand in small batches of 20 from soy wax (founder); step: buy. The page says: "Hand-poured soy candles from Portland. First batch of 20 ships Dec 4." Write a subject under 60 characters and a plain-text body of 80-140 words that says what happened, what is next and one ask (reply to say which scent they want). The founders send it; you only draft it with draft_follower_update. The whole reply is under 200 words.`,
     checks: [CHECK.all("Dec 4", "20"), CHECK.none("% off", "discount", "limited time", "only a few", "I'm a real person", "testimonial"), CHECK.words(60, 220)],
     rubric: [
       "Uses only facts from the positioning notes and the page: the batch of 20, hand-poured soy, Portland, Dec 4; invents no price, offer, customer, quote or number.",
@@ -734,7 +734,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "packaging_design.dieline",
     templateKey: "packaging_design",
     title: "Packaging spec with mandatory label content",
-    prompt: `Specify the secondary carton for a 50 ml airless bottle sold in the EU (drawing dwg_air50: 40 mm diameter, 112 mm tall with the pump): structure and board, dieline dimensions with tolerances, closure, materials chosen on compatibility, recyclability and cost, and the mandatory label content for an EU cosmetic (responsible person, nominal content, durability or PAO, precautions, batch, function, ingredients). Give the artwork handoff checklist.`,
+    prompt: `Specify the secondary carton for a 50 ml airless bottle sold in the EU (drawing dwg_air50: 40 mm diameter, 112 mm tall with the pump; PP body, PP and steel pump): structure and board, dieline dimensions with tolerances, closure, materials chosen on compatibility, recyclability and cost, and the mandatory label content for an EU cosmetic (responsible person, nominal content, durability or PAO, precautions, batch, function, ingredients). Give the artwork handoff checklist, including minimum text size and the barcode.`,
     checks: [CHECK.all("responsible person", "batch")],
     rubric: [
       "Dieline dimensions and tolerances fit the stated bottle.",
