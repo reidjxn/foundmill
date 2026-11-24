@@ -47,7 +47,7 @@ function containsTerm(haystack: string, term: string): boolean {
  * A negation earlier in the same clause, within 60 characters ("nothing is published", "Nothing from pr_buf_4 (mil_12) has
  * been published"). Clause punctuation ends it, so "No problem, it has been published" is still a claim.
  */
-const NEGATED_BEFORE = /\b(?:not|no|nothing|never|none|neither|without|(?:is|was|has|have|had|do|does|did|wo|ca)n['’]t|cannot)\b[^,.;:!?\n]*$/i;
+const NEGATED_BEFORE = /\b(?:not|no|nothing|never|none|neither|without|until|unless|only once|only when|rather than|instead of|avoid(?:s|ing)?|(?:is|was|has|have|had|do|does|did|wo|ca)n['’]t|cannot)\b[^,.;:!?\n]*$/i;
 
 /** Quote marks that, right around a term, make it a mention of the phrase ("never say "coming soon""), not a claim. */
 const QUOTE_OPEN = `"'“‘`;
