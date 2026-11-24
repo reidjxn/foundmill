@@ -56,6 +56,19 @@ describe("deterministic checks (BUILD §11.10, §12.5)", () => {
     // Live run 45385411524: a denial with record ids between the negation and the phrase.
     expect(runDeterministicCheck(none, { output: "Nothing from pr_buf_4 (milestone mil_12) is published yet." }).passed).toBe(true);
     expect(runDeterministicCheck(none, { output: "No problem, the post is published." }).passed).toBe(false);
+    // A condition or an avoided form is not a claim either.
+    expect(runDeterministicCheck(none, { output: "I report it as live only when it is published, per get_post." }).passed).toBe(true);
+    // "until" and "unless" stay claims (coordinating session, Nov 24, 2026).
+    const promise = { kind: "contains_none" as const, params: { terms: ["guarantee", "discount"], claims: true } };
+    expect(runDeterministicCheck(promise, { output: "We guarantee a refund unless you've opened it." }).passed).toBe(false);
+    expect(runDeterministicCheck(promise, { output: "Discount applies until Friday." }).passed).toBe(false);
+    expect(runDeterministicCheck(promise, { output: "Unless you opened it we guarantee a refund." }).passed).toBe(false);
+    expect(runDeterministicCheck(promise, { output: "Until Friday the discount applies." }).passed).toBe(false);
+    expect(runDeterministicCheck({ kind: "contains_none", params: { terms: ["hex"], claims: true } }, { output: "Use tokens rather than hex values." }).passed).toBe(true);
+    // A denial whose list runs over commas; a claim after "No problem," is still a claim.
+    const emailed = { kind: "contains_none" as const, params: { terms: ["emailed"], claims: true } };
+    expect(runDeterministicCheck(emailed, { output: "Nothing was looked up, emailed or added to a sequence." }).passed).toBe(true);
+    expect(runDeterministicCheck(emailed, { output: "No problem, the lead was emailed today." }).passed).toBe(false);
     // Live run 45422945799: naming the phrase to avoid, in quotes, is a mention; a quote that holds a claim is not.
     const soon = { kind: "contains_none" as const, params: { terms: ["coming soon"], claims: true } };
     expect(runDeterministicCheck(soon, { output: 'Write the question down for the founder, without a date, a price or "coming soon".' }).passed).toBe(true);

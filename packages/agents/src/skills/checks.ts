@@ -47,7 +47,7 @@ function containsTerm(haystack: string, term: string): boolean {
  * A negation earlier in the same clause, within 60 characters ("nothing is published", "Nothing from pr_buf_4 (mil_12) has
  * been published"). Clause punctuation ends it, so "No problem, it has been published" is still a claim.
  */
-const NEGATED_BEFORE = /\b(?:not|no|nothing|never|none|neither|without|(?:is|was|has|have|had|do|does|did|wo|ca)n['’]t|cannot)\b[^,.;:!?\n]*$/i;
+const NEGATED_BEFORE = /\b(?:not|no|nothing|never|none|neither|without|only once|only when|rather than|instead of|avoid(?:s|ing)?|(?:is|was|has|have|had|do|does|did|wo|ca)n['’]t|cannot)\b[^,.;:!?\n]*$/i;
 
 /** Quote marks that, right around a term, make it a mention of the phrase ("never say "coming soon""), not a claim. */
 const QUOTE_OPEN = `"'“‘`;
@@ -58,7 +58,9 @@ const QUOTE_CLOSE = `"'”’`;
  * that holds more than the term ("SSO is coming soon") is still a claim.
  */
 function claimsTerm(haystack: string, term: string): boolean {
-  const h = haystack.toLowerCase();
+  // A comma inside a short list ("nothing was looked up, emailed or added") keeps the clause going: it becomes a space,
+  // so positions do not move. Only a comma followed by one or two words and "or"/"and" counts as a list comma.
+  const h = haystack.toLowerCase().replace(/,(?=\s+(?:[\w'’-]+\s+)?[\w'’-]+\s+(?:or|and)\s)/g, " ");
   const t = term.toLowerCase();
   const quoted = (i: number): boolean => QUOTE_OPEN.includes(h[i - 1] ?? "") && QUOTE_CLOSE.includes(h[i + t.length] ?? "");
   // A parenthetical between the negation and the term ("Nothing from pr_buf_4 (milestone mil_12, the launch) has been
