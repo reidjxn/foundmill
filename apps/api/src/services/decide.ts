@@ -20,7 +20,7 @@
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, releaseFollowUpOf, repos, resolveAgentPrompt, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { AppError, ONE_CLICK_ACTION_TYPES, founderActionIdOfDecision, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, toolPickCategory, browserKeepSite, type SectionMembership } from "@foundmill/shared";
+import { AppError, ONE_CLICK_ACTION_TYPES, founderActionIdOfDecision, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, toolPickCategory, browserKeepSite, browserCheckSite, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, assertMayGrantFromPlan, decideReleaseFollowUp, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
@@ -36,7 +36,7 @@ import { isSiteReadyDecision } from "@foundmill/shared/sites";
 import { decidePostalAddressNote } from "./postal-address";
 import { decideFounderActionNote } from "./founder-actions";
 import { decideSignoffItem } from "./signoff";
-import { decideBrowserKeepNote, decideToolPickNote } from "./tool-needs";
+import { decideBrowserCheckNote, decideBrowserKeepNote, decideToolPickNote } from "./tool-needs";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, redispatchPlans, requiresConfirmation, stagedAction, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type DispatchResult, type ModelRetests, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
@@ -155,6 +155,7 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   // A founder-executed request (founder, 2026-11-22): the founder's one press, in-process, never the plan compiler.
   if (founderActionIdOfDecision(item.decision)) return decideFounderActionNote(ctx, item, { chosenOption, freeText });
   if (browserKeepSite(item.decision)) return decideBrowserKeepNote(ctx, item, { chosenOption, freeText });
+  if (browserCheckSite(item.decision)) return decideBrowserCheckNote(ctx, item, { chosenOption, freeText });
   if (freeText && !chosenOption && decision.free_text === false) throw new ValidationError("This decision takes one of its options. Pick one, or talk it through with the agent first.", { route: "conversation", itemId: item.id });
   const options = decision.options ?? [];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;

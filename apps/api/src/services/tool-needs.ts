@@ -5,7 +5,7 @@
  * for a vendor, accepts terms, pays or connects anything: those are the founder's steps, outside this note.
  */
 import { repos, type InboxItem } from "@foundmill/db";
-import { BROWSER_SIGN_IN, browserKeepSite, browserSignInExpiry, ConflictError, ForbiddenError, isAdminRole, TOOL_CATEGORY_LABELS, type ToolCategory, TOOL_NEED_ASK_AGAIN_DAYS, TOOL_PICK_NOTE, ValidationError, toolPickCategory } from "@foundmill/shared";
+import { BROWSER_CHECK_NOTE, BROWSER_SIGN_IN, browserCheckSite, browserKeepSite, browserSignInExpiry, ConflictError, ForbiddenError, isAdminRole, TOOL_CATEGORY_LABELS, type ToolCategory, TOOL_NEED_ASK_AGAIN_DAYS, TOOL_PICK_NOTE, ValidationError, toolPickCategory } from "@foundmill/shared";
 import { browserConnectorKey, browserSite, catalogTool } from "@foundmill/connectors";
 import type { BusinessContext } from "../trpc";
 import { answerNote } from "./answer-note";
@@ -114,5 +114,23 @@ export async function decideBrowserKeepNote(ctx: BusinessContext, item: InboxIte
     const credential = row ? await repos.credentials.latest(ctx.db, ctx.businessId, row.id) : null;
     if (credential) await repos.credentials.setExpiry(ctx.db, ctx.businessId, credential.meta.id, browserSignInExpiry(new Date()));
   }
+  return { item: answered.item, decision: answered.decision, plan: answered.plan, evaluations: [], requiresConfirmation: false, executed: [answered.actionId], deferred: [], denied: [], dispatch: null, followUp: null };
+}
+
+/**
+ * The founder's answer to "<site> needs you to solve a check" (founder, Nov 24, 2026): they solved it, or signed in, in
+ * the live view, so the page goes back to the team. Answering never solves anything itself.
+ */
+export async function decideBrowserCheckNote(ctx: BusinessContext, item: InboxItem, input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
+  const siteKey = browserCheckSite(item.decision);
+  const done = input.chosenOption === BROWSER_CHECK_NOTE.options.done;
+  if (!siteKey || (!done && input.chosenOption !== BROWSER_CHECK_NOTE.options.stop)) throw new ValidationError("Choose I've done it, carry on, or Stop for now.", { itemId: item.id });
+  if (!isAdminRole(ctx.role)) throw new ForbiddenError("Owners, cofounders and admins hand a website back to the team.");
+  const name = browserSite(siteKey)?.name ?? siteKey;
+  const answered = await ctx.rls((tx) => answerNote(tx, ctx, item.id, done ? BROWSER_CHECK_NOTE.options.done : BROWSER_CHECK_NOTE.options.stop, input.freeText, item.fromAgentId, done ? `Handed ${name} back to the team.` : `Stopped the session in ${name}.`, { params: { site: siteKey }, result: { site: siteKey } }));
+  if (!answered) throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
+  // Best effort: a session that ended meanwhile has nothing to hand back, and the next one starts on the page as it is.
+  if (done) await ctx.gateway.browserHandBack?.(ctx.businessId, siteKey).catch(() => undefined);
+  else await ctx.gateway.browserStop?.(ctx.businessId, siteKey).catch(() => undefined);
   return { item: answered.item, decision: answered.decision, plan: answered.plan, evaluations: [], requiresConfirmation: false, executed: [answered.actionId], deferred: [], denied: [], dispatch: null, followUp: null };
 }

@@ -14,7 +14,8 @@
 import { z } from "zod";
 import { BROWSER_SITES, MOCK_BROWSER_SESSIONS, browserConnectorKey, type BrowserHost, type BrowserSessions, type BrowserSessionView } from "@foundmill/connectors";
 import { repos, type Db } from "@foundmill/db";
-import { browserSignInExpiry } from "@foundmill/shared";
+import { BROWSER_CHECK_NOTE, browserCheckSubject, browserSignInExpiry } from "@foundmill/shared";
+import { writeGatewayEvent } from "./events";
 import { GatewayError, modeFor, safeError, type GatewayDeps, type GatewayLogger } from "./pipeline";
 import { isLiveViewUrl } from "./browser-e2b";
 
@@ -88,6 +89,36 @@ export function browserHost(db: Db, log: GatewayLogger, sessions: BrowserSession
       const row = await repos.integrations.getByKey(db, businessId, connectorKey);
       const credential = row ? await repos.credentials.latest(db, businessId, row.id) : null;
       if (credential) await repos.credentials.setExpiry(db, businessId, credential.meta.id, browserSignInExpiry(at));
+    },
+    // A bot check or a sign-in mid-task: one decision note from the Chief of Staff (emailed and pushed as a waiting
+    // decision), answered once the founder has solved it in the live view. A note still waiting is not written again.
+    needsFounder: async ({ businessId, siteKey, siteName, need, simulated }) => {
+      try {
+        const subject = browserCheckSubject(siteName, need);
+        if ((await repos.inbox.openBySubject(db, businessId, subject)).some((i) => i.state !== "answered")) return;
+        const chief = await repos.agents.chiefOfStaff(db, businessId);
+        if (!chief) return;
+        await db.transaction(async (tx) => {
+          const item = await repos.inbox.createItem(tx, businessId, {
+            type: "decision",
+            from_agent_id: chief.id,
+            subject,
+            body_md: `${simulated ? "Simulated: " : ""}The team is working in ${siteName} and the page asks for ${need === "captcha" ? "a check that only a person can do (a CAPTCHA)" : "your sign-in"}. The team never does that itself. Open ${siteName} from Development › Live sessions, press Take over, ${need === "captcha" ? "solve the check" : "sign in"}, then press Hand back. The team carries on from there.`,
+            status_strip: [],
+            exhibit: { kind: "none", spec_ref: null },
+            decision: { options: [
+                { id: BROWSER_CHECK_NOTE.options.done, label: "I've done it, carry on", recommended: true, consequence: "The team gets the page back and carries on.", cost_minor: 0, reversible: true },
+                { id: BROWSER_CHECK_NOTE.options.stop, label: "Stop for now", recommended: false, consequence: `The session in ${siteName} ends. The team picks the task up again next time.`, cost_minor: 0, reversible: true },
+              ], free_text: false, expires_at: null, key: `${BROWSER_CHECK_NOTE.keyPrefix}${siteKey}` },
+            blocks_continue: false,
+            source_event_ids: [],
+            entity_ids: [],
+          });
+          await writeGatewayEvent(tx, { businessId, type: "inbox.item_created", actor: { kind: "agent", id: chief.id }, payload: { inboxItemId: item.id, type: item.type, fromAgentId: chief.id, subject: item.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
+        });
+      } catch (e) {
+        log.warn({ err: safeError(e), businessId, siteKey }, "browser check note not written");
+      }
     },
     recordStep: async (step) => {
       try {

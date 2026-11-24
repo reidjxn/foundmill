@@ -4,6 +4,7 @@
  * routes it owns. It holds no secret, sets no cookie, and runs as a database login that can execute the site
  * functions and nothing else. `createSitesApp(deps)` is pure so tests boot it with fakes or a test database.
  */
+import { BROWSER_TEST_LABEL, browserTestPage } from "./browser-test";
 import { APP_NAME, tierShowsBuiltOnMark, type TierKey } from "@foundmill/config";
 import { FOLLOW_ERRORS, followEmailProblem } from "@foundmill/shared/project-page";
 import { PAY_LINK_KEY, payLinkUrlProblem } from "@foundmill/shared/pay-links";
@@ -148,6 +149,17 @@ export function createSitesApp(deps: SitesDeps): Hono {
     res.headers.set("Cache-Control", "no-store");
     return res;
   };
+
+  // The hosted browser's test page (browser-test.ts): served for its own host only, before any site is resolved.
+  app.use("*", async (c, next) => {
+    if (siteLabel(c.req.header("host"), env.SITES_DOMAIN) !== BROWSER_TEST_LABEL) return next();
+    if (c.req.method !== "GET") return plain(c, 405, NOT_FOUND_PAGE);
+    const html = browserTestPage(c.req.path, new URL(c.req.url).searchParams);
+    if (!html) return plain(c, 404, NOT_FOUND_PAGE);
+    const res = htmlPage(c, "live", html);
+    res.headers.set("X-Robots-Tag", "noindex, nofollow");
+    return res;
+  });
 
   // The report form: on every published site, every plan (a safety control, not a plan feature; WP-07 D3).
   app.get("/_fm/report", async (c) => {

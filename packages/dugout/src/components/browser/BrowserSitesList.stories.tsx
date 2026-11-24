@@ -3,7 +3,7 @@ import { BrowserSitesList, type BrowserSiteRow } from "./BrowserSitesList";
 
 const sites: BrowserSiteRow[] = [
   { connectorKey: "browser_carrd", siteKey: "carrd", name: "Carrd", askFirst: true, status: "not_connected" },
-  { connectorKey: "browser_linktree", siteKey: "linktree", name: "Linktree", askFirst: true, status: "connected" },
+  { connectorKey: "browser_shop", siteKey: "shop", name: "Shop", askFirst: true, status: "connected" },
   { connectorKey: "browser_wave", siteKey: "wave", name: "Wave", askFirst: false, status: "expired" },
 ];
 

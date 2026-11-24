@@ -11,7 +11,7 @@ describe("working in a website: the cases", () => {
     for (const c of BROWSER_WORK_CASES) {
       const { system, user } = browserWorkRequest(c);
       expect(system, c.id).toContain("# Working in a website");
-      expect(user, c.id).toContain('<untrusted source="https://next.waveapps.com');
+      expect(user, c.id).toContain('<untrusted source="https://browser-test.foundmill.app');
     }
   });
 

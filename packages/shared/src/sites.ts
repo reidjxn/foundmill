@@ -44,7 +44,7 @@ export function siteFileType(path: string): string | null {
 export const SITE_TAB = { slug: "site", title: "Site" } as const;
 
 /** Labels kept for the platform itself on the sites domain. */
-export const SITE_RESERVED_SLUGS: readonly string[] = ["www", "api", "app", "mail", "admin", "preview", "status", "report", "assets", "static"];
+export const SITE_RESERVED_SLUGS: readonly string[] = ["www", "api", "app", "mail", "admin", "preview", "status", "report", "assets", "static", "browser-test"];
 
 /** The label prefix of a preview host (`p-<token>`); no site address may start with it. */
 export const SITE_PREVIEW_PREFIX = "p-";

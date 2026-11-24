@@ -224,6 +224,24 @@ describe("the founder watches, takes over, hands back and stops", () => {
   });
 });
 
+describe("a bot check (founder, Nov 24, 2026: user solves captchas, no auto-solving)", () => {
+  it("writes one note for the founder, emailed as a waiting decision, and not again while it waits", async () => {
+    const g = await setup("assisted");
+    const warned: string[] = [];
+    const host = browserHost(g.db, { ...silentLog, warn: (o: unknown) => void warned.push(JSON.stringify(o)) }, null);
+    await repos.agents.create(g.db, g.businessId, { name: "Chief of Staff", agentType: "chief_of_staff", layer: "assistant", modelKey: "sonnet", initialVersion: { instructions: { role: "chief" }, tools: [] } });
+    const input = { businessId: g.businessId, siteKey: "wave", siteName: "Wave", need: "captcha" as const, simulated: false };
+    await host.needsFounder!(input);
+    await host.needsFounder!(input);
+    const notes = await repos.inbox.openBySubject(g.db, g.businessId, "Wave needs you to solve a check");
+    expect(warned).toEqual([]);
+    expect(notes).toHaveLength(1);
+    expect((notes[0]!.decision as { key: string }).key).toBe("browser_check:wave");
+    expect(notes[0]!.bodyMd).toContain("press Take over, solve the check, then press Hand back");
+    expect((await repos.events.list(g.db, g.businessId, { type: "inbox.item_created", limit: 5 })).items).toHaveLength(1);
+  });
+});
+
 describe("a quiet saved sign-in (Part D)", () => {
   it("each use moves its deletion date to 30 days from now, at most once an hour", async () => {
     const at = { now: new Date("2026-11-22T12:00:00Z") };

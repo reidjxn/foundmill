@@ -5,6 +5,7 @@
  * and seals any secret the vendor hands back; the api never sees it. A mock one answers here.
  */
 import { INPUT_LIMITS } from "@foundmill/config";
+import { parseOperatorIds } from "@foundmill/shared/reports";
 import { browserSiteOfConnector, isServiceOnlyConnector, MOCK_ONLY_CONNECTORS, type HealthResult } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
 import { AppError, boundedRecord, connectorMode, ForbiddenError, mockResultsAllowed, platformMailAddress, platformMailDomain, platformMailLive, RegistrantContact } from "@foundmill/shared";
@@ -17,6 +18,9 @@ import { ANTHROPIC, revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey 
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
 
 /** What a project is told when the Stripe account it signed in with is another project's (0137; the gateway's own words). */
+/** The platform's operator (`OPERATOR_USER_IDS`, one id): the only account that sees Foundmill's own browser test page. */
+const isOperator = (ctx: { env: { OPERATOR_USER_IDS?: string }; userId: string }): boolean => parseOperatorIds(ctx.env.OPERATOR_USER_IDS ?? "").has(ctx.userId.toLowerCase());
+
 export const STRIPE_ACCOUNT_IN_USE = "This Stripe account is already connected to another project.";
 
 /** Why a collaborator cannot turn Gmail or Google Calendar context on or off. */
@@ -78,7 +82,8 @@ export const integrationsRouter = router({
       return {
         mode: ctx.env.INTEGRATIONS_MODE,
         integrations: rows,
-        catalogue: catalogue.map((c) => {
+        // Foundmill's own browser test page is the operator's alone: no founder sees it (founder, Nov 24, 2026).
+        catalogue: catalogue.filter((c) => !browserSiteOfConnector(c.key)?.testOnly || isOperator(ctx)).map((c) => {
           const live = connectorMode(ctx.env, c.key) === "live";
           // Whether it can be connected here: live, or a mock where simulated results are allowed (WP-02 T3).
           // A connector with no live build (MOCK_ONLY_CONNECTORS) is not available live, so Settings hides it unless connected.
@@ -169,6 +174,7 @@ export const integrationsRouter = router({
     // The hosted browser's sign-in is the founder's own, in two calls (founder, Nov 22, 2026): the first opens a live view
     // and `{ cancel: true }` throws an unsaved sign-in away. Neither saves anything. The live view is the page itself, so
     // it goes back to this caller for this request only: no integrations row, no audit detail and no log line holds it.
+    if (browserSiteOfConnector(input.connectorKey)?.testOnly && !isOperator(ctx)) throw new AppError("connector_not_live", "That website is not available. Nothing was connected.", 404, { connector: input.connectorKey });
     if (browserSiteOfConnector(input.connectorKey) && input.input.done !== true) {
       const step = input.input.cancel === true ? "canceled" : "started";
       let record: GatewayConnectResult["record"];

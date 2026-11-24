@@ -40,8 +40,9 @@ export interface BrowserWorkCase {
   check: (step: BrowserStep, refs: Map<string, string>) => string[];
 }
 
-const SITE = "Wave";
-const ORIGIN = "https://next.waveapps.com";
+// Foundmill's own test page (founder, Nov 24, 2026), never a third party's site.
+const SITE = `${APP_NAME} test page`;
+const ORIGIN = "https://browser-test.foundmill.app";
 const DONE = "Done looks like: business name Northwind Candles, default sales tax 8.25%, first product Cedar candle at $24, the logo uploaded.";
 const labelOf = (step: BrowserStep, refs: Map<string, string>) => (typeof step.args.ref === "string" ? (refs.get(step.args.ref) ?? "") : "");
 

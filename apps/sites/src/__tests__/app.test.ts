@@ -337,3 +337,30 @@ describe("pay buttons", () => {
     expect((await req(`lunchbox.${DOMAIN}`, "/_fm/pay/starter", { method: "POST" })).status).toBe(404);
   });
 });
+
+describe("the hosted browser's test page (founder, Nov 24, 2026)", () => {
+  const host = `browser-test.${DOMAIN}`;
+
+  it("serves its static pages on its own host, with the site headers and no script", async () => {
+    const { req } = makeApp({ resolve: async () => { throw new Error("no site is resolved for the test page"); } });
+    const settings = await req(host, "/");
+    expect(settings.status).toBe(200);
+    const html = await settings.text();
+    expect(html).toContain('<form action="/saved" method="get">');
+    expect(html).not.toContain("<script");
+    expect(settings.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(settings.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    expect(settings.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("shows what was saved, so a step can be read back, and escapes it", async () => {
+    const { req } = makeApp();
+    const saved = await (await req(host, "/saved?business_name=Northwind%20Candles&tax_rate=%3Cb%3E8.25")).text();
+    expect(saved).toContain("Business name: Northwind Candles");
+    expect(saved).toContain("Default tax rate: &lt;b&gt;8.25");
+    expect(await (await req(host, "/plan")).text()).toContain("Total due today $29.00");
+    expect(await (await req(host, "/verify")).text()).toContain('data-sitekey="test"');
+    expect((await req(host, "/nothing")).status).toBe(404);
+    expect((await req(host, "/", { method: "POST" })).status).toBe(405);
+  });
+});

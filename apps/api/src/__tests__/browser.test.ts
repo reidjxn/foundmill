@@ -6,7 +6,7 @@
 import { openApprovalItem, repos } from "@foundmill/db";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { AppError, BROWSER_SIGN_IN } from "@foundmill/shared";
+import { AppError, BROWSER_CHECK_NOTE, BROWSER_SIGN_IN } from "@foundmill/shared";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { createCaller } from "../router";
 import type { ApiDeps, CallerUser } from "../context";
@@ -217,5 +217,18 @@ describe("a quiet saved sign-in (Part D)", () => {
     const { item, rowId, soon } = await keepNote(businessId, agentId);
     await hz.caller({ userId: ownerId }).inbox.decide({ businessId, itemId: item.id, chosenOption: BROWSER_SIGN_IN.options.letGo });
     expect(new Date((await repos.credentials.latest(hz.db, businessId, rowId))!.meta.expiresAt!).getTime()).toBe(soon.getTime());
+  });
+});
+
+describe("a bot check the founder solves (founder, Nov 24, 2026)", () => {
+  it("answering the note hands the page back to the team, and only an owner, cofounder or admin answers it", async () => {
+    const { businessId, ownerId, agentId, memberId } = hz.A;
+    const item = await repos.inbox.createItem(hz.db, businessId, { type: "decision", from_agent_id: agentId, subject: "Wave needs you to solve a check", body_md: "Solve it, then hand it back.", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: BROWSER_CHECK_NOTE.options.done, label: "I've done it, carry on", recommended: true, consequence: "The team carries on.", cost_minor: 0, reversible: true }, { id: BROWSER_CHECK_NOTE.options.stop, label: "Stop for now", recommended: false, consequence: "The session ends.", cost_minor: 0, reversible: true }], free_text: false, expires_at: null, key: "browser_check:wave" }, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+    const handBack = vi.fn(async () => ({ handedBack: true }));
+    await expect(liveCaller({ userId: memberId }, { browserHandBack: handBack }).inbox.decide({ businessId, itemId: item.id, chosenOption: BROWSER_CHECK_NOTE.options.done })).rejects.toThrow();
+    expect(handBack).not.toHaveBeenCalled();
+    const out = await liveCaller({ userId: ownerId }, { browserHandBack: handBack }).inbox.decide({ businessId, itemId: item.id, chosenOption: BROWSER_CHECK_NOTE.options.done });
+    expect(out.item.state).toBe("answered");
+    expect(handBack).toHaveBeenCalledWith(businessId, "wave");
   });
 });
