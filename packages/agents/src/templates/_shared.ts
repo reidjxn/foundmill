@@ -68,7 +68,7 @@ export const WORKER_SOURCE_RULE = "Every deliverable names the source record ids
 export const CHANNEL_SOURCE_RULE = "Every claim about the project comes from its positioning notes (read_positioning). If the notes do not say it, do not say it; propose a change to the notes instead.";
 
 /** Live evals of Nov 22 and 23, 2026: workers ran past a task's word limit with separate sources and notes lists. */
-export const LENGTH_RULE = "When the task gives a length, your whole reply fits it, sources and notes included: cite record ids inline next to the claim and leave out sections the task did not ask for.";
+export const LENGTH_RULE = "When the task gives a length, aim for about three quarters of it, so the whole reply fits with room to spare, sources and notes included: no headings, and no separate sources, notes or next-steps sections unless the task asks for them; cite record ids inline next to the claim. Count your words before you answer and cut until you are under; a reply over the length fails the task.";
 
 export const WORKER_COMMON_RULES: string[] = [
   "Coordinate only through the typed task board (claim, block, hand off, complete) and typed messages (request, inform, review); no free-form chat with other agents.",
