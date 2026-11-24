@@ -1,11 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { CHECK } from "../skills/blueprints/_types";
-import { allChecksPassed, countWords, runDeterministicCheck, runDeterministicChecks } from "../skills/checks";
+import { allChecksPassed, countWords, lengthRetryMessage, runDeterministicCheck, runDeterministicChecks, statedWordLimit } from "../skills/checks";
 
 const ID_A = "11111111-1111-4111-8111-111111111111";
 const ID_B = "22222222-2222-4222-8222-222222222222";
 
 describe("deterministic checks (BUILD §11.10, §12.5)", () => {
+  it("statedWordLimit reads the smallest length a task gives, and null when it gives none", () => {
+    expect(statedWordLimit("Plain text, under 300 words.")).toBe(300);
+    expect(statedWordLimit("Answer the founder in under 150 words: what you will do.")).toBe(150);
+    // A limit on one part is not the reply's.
+    expect(statedWordLimit("Write the pitch under 150 words that discloses who you are.")).toBeNull();
+    expect(statedWordLimit("Ending with their answer as a quote under 25 words), and the rule.")).toBeNull();
+    expect(statedWordLimit("A body of 80-140 words.")).toBeNull();
+    expect(statedWordLimit("Under 300 words. The offer section at most 120 words.")).toBe(120);
+    expect(statedWordLimit("Return JSON with the steps.")).toBeNull();
+    expect(lengthRetryMessage(340, 300)).toMatch(/^Your reply has 340 words; the task allows at most 300\./);
+  });
+
   it("word_count counts words within bounds", () => {
     expect(countWords("")).toBe(0);
     expect(countWords("  one two\nthree ")).toBe(3);

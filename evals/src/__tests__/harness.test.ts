@@ -74,6 +74,23 @@ describe("runGoldenTask", () => {
     expect(seen[1]).toContain(ONE_REPLY_NOTE);
   });
 
+  it("a text reply over the task's stated word limit goes back once to be rewritten, and the rewrite is graded", async () => {
+    const lengthTask = GOLDEN_TASKS.find((t) => t.id === "channel_lead_generation.batch")!;
+    const long = `${Array.from({ length: 360 }, (_, i) => `w${i}`).join(" ")} suppression`;
+    const short = `${Array.from({ length: 150 }, (_, i) => `w${i}`).join(" ")} suppression`;
+    const seen: string[] = [];
+    const client = fakeClient((req) => {
+      if (req.route === "skillGrader") return { text: "", json: grade(0.9, 4) };
+      seen.push(String(req.messages.at(-1)!.content));
+      return { text: seen.length === 1 ? long : short };
+    });
+    const r = await runGoldenTask(lengthTask, { client });
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toMatch(/^Your reply has 361 words; the task allows at most 300\./);
+    expect(r.outputText).toBe(short);
+    expect(r.checks.every((c) => c.passed)).toBe(true);
+  });
+
   it("a failed deterministic check is authoritative: score 0 even if the grader is generous", async () => {
     const output = `${Array.from({ length: 100 }, (_, i) => `w${i}`).join(" ")} use sk_live_123 here`;
     const client = fakeClient((req) => (req.route === "skillGrader" ? { text: "", json: grade(1, 4) } : { text: output }));

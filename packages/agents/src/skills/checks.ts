@@ -3,7 +3,7 @@
  * grader"). Pure functions over the agent's output plus what the sandbox observed, so the training runner and `evals/`
  * share one implementation and a grader can never override a failed check (BUILD §12.5).
  */
-import { ENTITY_MARKUP_RE } from "@foundmill/shared";
+import { ENTITY_MARKUP_RE, countWords } from "@foundmill/shared";
 import { type DeterministicCheck, type DeterministicCheckKind } from "../types";
 
 export interface CheckContext {
@@ -32,9 +32,7 @@ export interface CheckResult {
 /** Record-id shapes agents cite: `att_77`, `inc_9`, `qte_201`, `rep_12`, `src-2026-01`, UUIDs. */
 export const RECORD_ID_RE = /\b(?:[a-z]{2,10}[_-][0-9a-z][0-9a-z_-]{0,23}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i;
 
-export function countWords(text: string): number {
-  return text.trim().length === 0 ? 0 : text.trim().split(/\s+/).length;
-}
+export { countWords, lengthRetryMessage, statedWordLimit } from "@foundmill/shared";
 
 function terms(params: Record<string, unknown>): string[] {
   const t = params.terms;

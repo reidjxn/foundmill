@@ -58,6 +58,7 @@ export * from "./grants";
 export * from "./google-context";
 export * from "./channel-availability";
 export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, READ_SKILL_NOTICE, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";
+export { AUDIT_ACTION_REPORT_TOO_LONG, reportLengthRefusal } from "./connectors/platform/report-length";
 export { AcceptanceResult, acceptanceLines, acceptanceRefusal, toolKeys, toolUseKey, unmetAcceptanceLines, type AcceptanceResultT, type ToolUse } from "./connectors/platform/acceptance";
 export { createQuarantineConnector, quarantineMock, QUARANTINE_KEY, quarantinedReaderRequest } from "./connectors/quarantine";
 export * from "./connectors/platform_mail";
