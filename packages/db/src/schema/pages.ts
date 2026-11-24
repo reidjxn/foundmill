@@ -2,6 +2,7 @@
 import type { ProjectPageContent } from "@foundmill/shared";
 import { boolean, index, jsonb, pgTable, pgView, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
+import { agents } from "./agents";
 import { id, timestamps, tstz } from "./_common";
 import { businessId } from "./_refs";
 
@@ -29,6 +30,11 @@ export const projectPages = pgTable(
     /** 0119: when the published copy last changed (the page's dateModified and sitemap lastmod); the database's for a client role. */
     contentPublishedAt: tstz("content_published_at"),
     /** 0149: the owner's opt-in to the public gallery (`/explore`). Counts only while the page is published; an owner's or an admin's to switch (its own guard). */
+    /** 0172: an agent's proposed edit to the words of the page (fields it would change), never `draft` or `published`; one at a time. */
+    proposed: jsonb("proposed").$type<Partial<Pick<ProjectPageContent, "pitch" | "about" | "forWhom">>>(),
+    proposedNote: text("proposed_note"),
+    proposedByAgentId: uuid("proposed_by_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    proposedAt: tstz("proposed_at"),
     exploreListed: boolean("explore_listed").notNull().default(false),
     ...timestamps(),
     updatedBy: uuid("updated_by").references(() => authUsers.id, { onDelete: "set null" }),

@@ -31,6 +31,25 @@ const render = (v: PageViewResponse, onMutate?: (path: string, input: Record<str
 };
 
 describe("PublicPageScreen", () => {
+  it("shows an agent's suggested words beside the draft; Use this and Dismiss ask the api and change nothing public (WP-08 T8)", async () => {
+    const proposal = { fields: { pitch: "Candles for people who like the woods" }, reason: "It names who it is for.", agentName: "SEO Engine", at: "2026-11-22T10:00:00.000Z" };
+    const fake = render(view({ proposal }), (path) => (path === "page.proposal.use" ? view({ draft: { ...draft, pitch: proposal.fields.pitch } }) : view()));
+    const panel = screen.getByTestId("page-proposal");
+    expect(within(panel).getByText("SEO Engine suggests a change")).toBeTruthy();
+    expect(within(panel).getByText("It names who it is for.")).toBeTruthy();
+    expect(within(panel).getByText(draft.pitch)).toBeTruthy();
+    expect(within(panel).getByText(proposal.fields.pitch)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole("button", { name: "Use this" }));
+    });
+    await waitFor(() => expect(fake.mutations).toEqual([{ path: "page.proposal.use", input: {} }]));
+  });
+
+  it("shows no suggestion panel when none waits", () => {
+    render(view());
+    expect(screen.queryByTestId("page-proposal")).toBeNull();
+  });
+
   it("shows the fields with counts, the state line, the address and a phone-width preview of the same page", () => {
     render(view());
     expect(screen.getByTestId("page-state").textContent).toContain("Not published yet");

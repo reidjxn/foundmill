@@ -100,6 +100,8 @@ export interface PageViewResponse {
   followAvailable?: boolean;
   /** The opt-in to the public gallery (`/explore`, 0149); absent from an older api reads as off. */
   explore?: boolean;
+  /** An agent's suggested words for the page, waiting for a founder (0165, WP-08 T8); absent from an older api. */
+  proposal?: { fields: Partial<Pick<ProjectPageContent, "pitch" | "about" | "forWhom">>; reason: string | null; agentName: string | null; at: string | Date } | null;
 }
 
 type PublishResponse = { outcome: "published"; page: PageViewResponse } | { outcome: "held"; reason: PageHoldReason; message: string; page: PageViewResponse };
@@ -226,7 +228,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
   }, [data?.draft.pitch, data?.draft.about, data?.draft.forWhom, data?.draft.stage, data?.draft.showFounders, data?.draft.followForm]);
 
   const [touched, setTouched] = useState(false);
-  const [pending, setPending] = useState<null | "save" | "publish" | "unpublish" | "slug" | "explore">(null);
+  const [pending, setPending] = useState<null | "save" | "publish" | "unpublish" | "slug" | "explore" | "proposal">(null);
   const [error, setError] = useState<string | null>(null);
   const [held, setHeld] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -351,6 +353,15 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
 
   return (
     <Screen name="product/public-page" stack>
+      {data?.proposal && canEdit ? (
+        <ProposalPanel
+          proposal={data.proposal}
+          current={data.draft}
+          pending={pending === "proposal"}
+          onUse={() => void run("proposal", async () => apply(await mutate<PageViewResponse>("page.proposal.use", {})))}
+          onDismiss={() => void run("proposal", async () => apply(await mutate<PageViewResponse>("page.proposal.dismiss", {})))}
+        />
+      ) : null}
       <Panel
         title={PUBLIC_PAGE_WORDS.yourPage}
         span={6}
@@ -586,5 +597,42 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
         </DialogContent>
       </Dialog>
     </Screen>
+  );
+}
+
+const PROPOSAL_FIELD_LABELS = { pitch: "One-line pitch", about: "About", forWhom: "Who it is for" } as const;
+
+/**
+ * "‹Agent› suggests a change" (WP-08 T8): the words an agent proposed for the page, beside what the draft says now. Using
+ * them puts them in the draft only; publishing stays the founder's own press.
+ */
+function ProposalPanel({ proposal, current, pending, onUse, onDismiss }: { proposal: NonNullable<PageViewResponse["proposal"]>; current: ProjectPageContent; pending: boolean; onUse: () => void; onDismiss: () => void }) {
+  const fields = (Object.keys(PROPOSAL_FIELD_LABELS) as (keyof typeof PROPOSAL_FIELD_LABELS)[]).filter((f) => typeof proposal.fields[f] === "string");
+  return (
+    <Panel title={`${proposal.agentName ?? "Your team"} suggests a change`} span={12} data-testid="page-proposal">
+      <div className="flex flex-col gap-3">
+        {proposal.reason ? <p className="t-body text-secondary">{proposal.reason}</p> : null}
+        {fields.map((f) => (
+          <div key={f} className="grid grid-cols-2 gap-3" data-proposal-field={f}>
+            <div>
+              <p className="t-small text-tertiary">{PROPOSAL_FIELD_LABELS[f]}: now</p>
+              <p className="t-body whitespace-pre-line text-secondary">{current[f] || "Nothing yet"}</p>
+            </div>
+            <div>
+              <p className="t-small text-tertiary">{PROPOSAL_FIELD_LABELS[f]}: suggested</p>
+              <p className="t-body whitespace-pre-line text-primary">{proposal.fields[f]}</p>
+            </div>
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <Button variant="primary" size="sm" loading={pending} onClick={onUse}>
+            Use this
+          </Button>
+          <Button variant="ghost" size="sm" disabled={pending} onClick={onDismiss}>
+            Dismiss
+          </Button>
+        </div>
+      </div>
+    </Panel>
   );
 }

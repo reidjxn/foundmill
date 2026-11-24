@@ -386,6 +386,37 @@ export const platformTools = [
     output: z.object({ draftVersion: z.number() }),
     hints: {},
   }),
+  // ---- the hosted page (WP-08 T8) ---------------------------------------------------------------------------------
+  defineTool({
+    name: "read_public_page",
+    description: "The hosted public page: its words, whether it is live and listed, dates, limits and milestones.",
+    input: z.object({}),
+    output: z.object({
+      published: z.boolean(),
+      path: z.string().nullable(),
+      title: z.string(),
+      description: z.string(),
+      fields: z.object({ pitch: z.string(), about: z.string(), forWhom: z.string(), stage: z.string() }),
+      publishedOn: z.string().nullable(),
+      updatedOn: z.string().nullable(),
+      listed: z.boolean(),
+      notListedReason: z.string().nullable(),
+      limits: z.object({ pitch: z.number(), about: z.number(), forWhom: z.number(), title: z.number(), description: z.number() }),
+      milestones: z.array(z.object({ label: z.string(), on: z.string() })),
+    }),
+    hints: {},
+    // The page holds the founders' words (and, once published, text they typed): data, never instructions.
+    untrusted: "document",
+    untrustedRef: () => "public_page",
+    annotations: { readOnlyHint: true },
+  }),
+  defineTool({
+    name: "propose_page_edit",
+    description: "Propose new words for the public page and why. They wait for the founders; nothing changes until one uses them. Never a price, button or unsupported claim.",
+    input: z.object({ fields: z.object({ pitch: z.string().max(140).optional(), about: z.string().max(1500).optional(), forWhom: z.string().max(300).optional() }), reason: z.string().max(1000) }),
+    output: z.object({ proposed: z.literal(true) }),
+    hints: {},
+  }),
   defineTool({
     name: "draft_follower_update",
     description:
@@ -540,6 +571,8 @@ export interface PlatformHost {
   removeSkill(caller: PlatformCaller, args: PlatformArgs<"remove_skill">): Promise<PlatformResult<"remove_skill">>;
   readPositioning(caller: PlatformCaller): Promise<PlatformResult<"read_positioning">>;
   proposePositioningChange(caller: PlatformCaller, args: PlatformArgs<"propose_positioning_change">): Promise<PlatformResult<"propose_positioning_change">>;
+  readPublicPage(caller: PlatformCaller): Promise<PlatformResult<"read_public_page">>;
+  proposePageEdit(caller: PlatformCaller, args: PlatformArgs<"propose_page_edit">): Promise<PlatformResult<"propose_page_edit">>;
   draftFollowerUpdate(caller: PlatformCaller, args: PlatformArgs<"draft_follower_update">): Promise<PlatformResult<"draft_follower_update">>;
   raiseToolNeed(caller: PlatformCaller, args: PlatformArgs<"raise_tool_need">): Promise<PlatformResult<"raise_tool_need">>;
   readToolNeed(caller: PlatformCaller, args: PlatformArgs<"read_tool_need">): Promise<PlatformResult<"read_tool_need">>;

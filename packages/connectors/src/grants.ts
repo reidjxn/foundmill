@@ -300,6 +300,9 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     // The project's positioning notes (WP-08 T1): every marketing role reads them; two leads may propose a new version.
     "positioning.read": ["read_positioning"],
     "positioning.propose": ["propose_positioning_change"],
+    // The hosted page (WP-08 T8): read it, and propose new words that wait for a founder.
+    "page.read": ["read_public_page"],
+    "page.propose": ["propose_page_edit"],
     // A draft update to the project's followers (WP-08 T3): the founders check it and press Send; the tool never sends.
     "updates.draft": ["draft_follower_update"],
     // The tool scout (founder, Nov 22, 2026): any agent says what is missing; the Chief of Staff and the leads recommend.
