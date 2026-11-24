@@ -30,8 +30,9 @@
     "@foundmill/orchestrator": "workspace:*"
   },
   "devDependencies": {
-    "vitest": "catalog:",
+    "@anthropic-ai/claude-agent-sdk": "catalog:",
+    "@temporalio/testing": "catalog:",
     "tsx": "catalog:",
-    "@anthropic-ai/claude-agent-sdk": "catalog:"
+    "vitest": "catalog:"
   }
 }
