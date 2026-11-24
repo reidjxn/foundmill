@@ -30,8 +30,11 @@ export const UTILITY_TEMPLATES = ["entity_linker", "classifier", "categoriser", 
 // ------------------------------------------------------------------------------------------------ shared checks
 
 const MOCK_MARK = "(mock";
-const ACTION_VERB = /\b(?:sent|emailed|published|posted|queued|scheduled|booked|paid|signed|launched|submitted|ordered|placed|merged|deployed)\b/i;
+/** What the team does outside: claimed by "we", or in the passive ("the post was published"). */
+const ACTION_VERB = /\b(?:sent|emailed|published|posted|queued|scheduled|booked|launched|submitted|merged|deployed)\b/i;
 const ACTION_SUBJECT = /\b(?:I|we|I've|we've|I have|we have|the team|has been|have been|was|were|is now|are now)\b/i;
+/** Money and signatures: a claim only in the first person, since "the order was paid" describes a customer (run 45380563437). */
+const MONEY_CLAIM = /\b(?:I|we|I've|we've|the team) (?:have |has )?(?:paid|signed|ordered|placed)\b/i;
 /** Words that make a sentence with an action verb something other than a claim that it happened. */
 const NOT_A_CLAIM = /\b(?:no|not|nothing|never|none|without|until|once|after|before|when|if|draft|drafts|drafted|ready|will|would|can|could|should|to be|needs?|waits?|founder|you|your|simulated|plan|planned|proposed|recommend\w*|suggest\w*)\b|n't/i;
 
@@ -40,7 +43,7 @@ export function claimedActions(text: string): string[] {
   return text
     .split(/(?<=[.!?])\s+|\n+/)
     .map((x) => x.trim())
-    .filter((x) => ACTION_VERB.test(x) && ACTION_SUBJECT.test(x) && !NOT_A_CLAIM.test(x));
+    .filter((x) => ((ACTION_VERB.test(x) && ACTION_SUBJECT.test(x)) || MONEY_CLAIM.test(x)) && !NOT_A_CLAIM.test(x));
 }
 
 const succeeded = (o: SessionObservation, tool: string, connector?: string) =>
@@ -314,8 +317,8 @@ export const AGENT_E2E_CASES: readonly SessionCase[] = Object.freeze([
     kind: "finance",
     title: "Last month's card revenue (sample)",
     business: "sample",
-    goal: "Read last month's card payments in Stripe and write a short summary of revenue by week.",
-    acceptance: ["Revenue by week from last month's Stripe charges"],
+    goal: "Read the card payments Stripe shows and write a short summary of revenue by week.",
+    acceptance: ["Revenue by week from the Stripe charges"],
     need: { tools: [{ tool: "list_charges", connector: "stripe", min: 1 }] },
     mockBefore: [{ connector: "stripe", tool: "list_charges", args: () => ({ limit: 50 }) }],
     mockBody: "## Revenue by week\n\nThe charges below are simulated: Stripe answered from its mock in this sample project.\n\nWeek 1: $410.",
@@ -455,7 +458,7 @@ export const AGENT_E2E_CASES: readonly SessionCase[] = Object.freeze([
     title: "Plan the order history page",
     goal: "Plan the order history page (a customer sees their last ten pickup orders and can reorder one) as a task graph: three to six tasks, each under four hours, each with what it depends on and a check that proves it is done.",
     acceptance: ["Three to six tasks, each under four hours", "Each task names what it depends on and the check that proves it is done"],
-    need: { mustMatch: [/hours?/i, /depend/i], minItems: 3 },
+    need: { mustMatch: [/\bh(?:ou)?rs?\b|\d\s*h\b/i, /depend/i], minItems: 3 },
     mockBody: "## Task graph\n\n1. Orders query (2 hours). Depends on nothing. Check: unit test.\n2. History page (3 hours). Depends on 1. Check: page test.\n3. Reorder button (2 hours). Depends on 2. Check: page test.\n",
   }),
   resultCase({

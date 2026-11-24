@@ -35,6 +35,8 @@ describe("the launch gate covers every agent template", () => {
     expect(claimedActions("The post was published on Monday.")).toHaveLength(1);
     expect(claimedActions("Nothing has been sent. The draft is ready for the founder to send.")).toEqual([]);
     expect(claimedActions("Buffer answered from its mock: the queueing is simulated.")).toEqual([]);
+    expect(claimedActions("**Refunds:** The order was paid online and was made.")).toEqual([]);
+    expect(claimedActions("We paid the printer.")).toHaveLength(1);
   });
 });
 

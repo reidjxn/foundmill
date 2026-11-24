@@ -24,7 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { createAllConnectors, createRegistry, createWebConnector, type Connector } from "@foundmill/connectors";
 import { initialVersionFromTemplate, listTemplates } from "@foundmill/agents";
-import { repos, type Task, type TaskReport } from "@foundmill/db";
+import { periodOf, repos, type Task, type TaskReport } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { buildGateway, createGatewayBuiltins, createUntrustedReader, listenGateway, platformSearchWeb, type RunningGateway } from "@foundmill/gateway";
 import { MemoryRateLimitStore, type RateLimitStore } from "@foundmill/gateway/rate-limit";
@@ -399,6 +399,8 @@ export interface SessionCaseResult {
   outcome: string | null;
   taskStatus: string | null;
   summary: string | null;
+  /** The start of the session's report, for a failing case's log line. */
+  reportExcerpt?: string;
   error?: string;
 }
 
@@ -519,12 +521,18 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
   };
   const acts = createSessionActivities(deps);
   const templates = listTemplates();
+  // The projects stay on their plan (the session model a founder gets), with credits for a whole run: the fixture's
+  // included credits ran out four dollars into the launch gate's first pass and paused every agent after (run 45380563437).
+  const RUN_CREDITS_MINOR = 10_000;
+  const fund = (businessId: string) => repos.usage.grantCredits(t.db, businessId, periodOf(t.clock.now()), RUN_CREDITS_MINOR);
+  await fund(t.businessId);
   // The sample project, made on first use: the same fixture as the person's project, marked `is_demo`.
   let sample: { businessId: string; departmentId: string } | null = null;
   const sampleProject = async () => {
     if (!sample) {
       const f = await createBusinessFixture(t.h, `sample-${Math.random().toString(36).slice(2, 7)}`);
       await t.h.pg.query("update businesses set is_demo = true where id = $1", [f.businessId]);
+      await fund(f.businessId);
       sample = { businessId: f.businessId, departmentId: f.departmentId };
     }
     return sample;
@@ -579,7 +587,7 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
       const needsYou = (await repos.inbox.list(t.db, businessId, { tab: "respond", limit: 50 })).items.filter((i) => i.fromAgentId === agent.id).map((i) => ({ subject: i.subject, bodyMd: i.bodyMd }));
       const observation: SessionObservation = { task: after, result, report, toolCalls, served: web.served.slice(servedFrom), mail: inbox.mail.slice(mailFrom), options: run.options, builtins: builtinsSeen, turns: run.turns, tests, testedFiles: fixture?.lastFiles() ?? new Map(), needsYou };
       const problems = run.options ? c.check(observation) : ["the session never reached the SDK", ...c.check(observation)];
-      return { caseId: c.id, passed: problems.length === 0, problems, costMinor, outcome: result.outcome, taskStatus: after.status, summary: result.summary };
+      return { caseId: c.id, passed: problems.length === 0, problems, costMinor, outcome: result.outcome, taskStatus: after.status, summary: result.summary, reportExcerpt: report?.bodyMd.slice(0, 1500) };
     } catch (err) {
       return { ...base, passed: false, problems: [`the session threw: ${(err as Error).message}`], error: (err as Error).message };
     } finally {

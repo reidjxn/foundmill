@@ -1781,7 +1781,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "could not read the session's earlier tool calls");
     }
   }
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", acceptanceLines(task).length ? `## Acceptance criteria\n${acceptanceLines(task).map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n${ACCEPTANCE_BRIEF}` : Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? (siteProject ? siteTaskNote() : codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId)))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, policy.fileTools ? CODE_CLOSING_LINE : TASK_CLOSING_LINE].filter(Boolean).join("\n\n");
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", acceptanceLines(task).length ? `## Acceptance criteria\n${acceptanceLines(task).map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n${mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo) ? ACCEPTANCE_BRIEF_SAMPLE : ACCEPTANCE_BRIEF}` : Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? (siteProject ? siteTaskNote() : codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId)))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, policy.fileTools ? CODE_CLOSING_LINE : TASK_CLOSING_LINE].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
   /**
@@ -2924,6 +2924,11 @@ export const REPORT_TURN = "You ended without reporting. Call complete_task with
 export const NO_RESULT_REASON = "no result: the session ended without complete_task or block_task";
 /** What a task that is not code with acceptance lines tells its agent, under the numbered lines. */
 export const ACCEPTANCE_BRIEF = "Save your result with save_report, then call complete_task with one acceptance result per line, by its number: met or not, and for a met line where it shows (reportSection: a heading of your report, or tool: the outside tool call that did it). A line that rests only on simulated or not-connected calls is not met, so say so. Mark a line you cannot meet as not met and say why in the report: it goes to the founder as a Needs you item, and your report still finishes the task.";
+/**
+ * The brief where simulated results are allowed (a sample project, development, test): there the runner counts a line met
+ * on a simulated call (WP-05 T2), so an agent told otherwise blocked every connected task (launch gate, run 45380563437).
+ */
+export const ACCEPTANCE_BRIEF_SAMPLE = "Save your result with save_report, then call complete_task with one acceptance result per line, by its number: met or not, and for a met line where it shows (reportSection: a heading of your report, or tool: the outside tool call that did it). This is a sample project: its connected tools answer with simulated results, and a line met on a simulated result counts here. Say in the report that those results were simulated, never that the action really happened. Mark a line you cannot meet as not met and say why in the report: it goes to the founder as a Needs you item, and your report still finishes the task.";
 /**
  * The last line of the prompt of a task that is not code (the launch gate, founder, Nov 24, 2026; WP-05 T22): the
  * agent finishes with what it has, and what only the founder can do is handed over, never a block.
