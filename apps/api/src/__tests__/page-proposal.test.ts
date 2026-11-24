@@ -1,5 +1,5 @@
 /**
- * An agent's proposed words for the page (WP-08 T8; 0171; services/pages.ts `usePageProposal`): a proposal never changes
+ * An agent's proposed words for the page (WP-08 T8; 0172; services/pages.ts `usePageProposal`): a proposal never changes
  * what is public or the draft; a founder who may write uses it (the words become the draft) or dismisses it; held text
  * is refused in the hold's own words; another business never sees it.
  */

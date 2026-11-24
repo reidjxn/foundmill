@@ -1,4 +1,4 @@
--- 0171 — an agent's proposed edit to a project's page (WP-08 T8; audit s3 §6.1). The SEO and GEO agents, the content
+-- 0172 — an agent's proposed edit to a project's page (WP-08 T8; audit s3 §6.1). The SEO and GEO agents, the content
 -- agent and the Product lead can read the hosted page and propose changes to its words; a proposal never touches
 -- `draft` or `published`. It waits here, one per page (a new one replaces it), until a member who can write in Product
 -- uses it (it is copied into the draft) or dismisses it. No new table: the page row's existing tenant policy covers it,

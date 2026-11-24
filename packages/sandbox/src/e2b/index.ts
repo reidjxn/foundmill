@@ -117,6 +117,14 @@ export function egressAllowOut(allowList: readonly string[]): string[] {
   return [...out];
 }
 
+/**
+ * The longest lifetime E2B accepts on the Hobby plan: past it, `Sandbox.create` and `setTimeout` refuse with "400:
+ * Timeout cannot be greater than 1 hours" (23 blocked sessions, Oct 9 to 14, 2026). Every lifetime is capped here.
+ * shortcut: Hobby's limit for every account, raise it when production moves to E2B Pro (24 hours).
+ */
+export const E2B_MAX_TTL_MINUTES = 60;
+const e2bTimeoutMs = (minutes: number) => Math.min(E2B_MAX_TTL_MINUTES, Math.max(1, Math.round(minutes))) * 60_000;
+
 /** Build the SDK create options for a spec. Exported for tests. */
 export function buildCreateOptions(spec: SandboxSpec, opts: { template: string }): E2bCreateOptions {
   const allowOut = egressAllowOut(spec.egressAllowList);
@@ -124,7 +132,7 @@ export function buildCreateOptions(spec: SandboxSpec, opts: { template: string }
     template: opts.template,
     envs: { ...spec.envShortLived },
     metadata: { businessId: spec.businessId, taskId: spec.taskId, ...(spec.sessionId ? { sessionId: spec.sessionId } : {}), ...(spec.agentId ? { agentId: spec.agentId } : {}) },
-    timeoutMs: spec.ttlMinutes * 60_000,
+    timeoutMs: e2bTimeoutMs(spec.ttlMinutes),
     allowInternetAccess: allowOut.length > 0,
     network: allowOut.length > 0 ? { allowOut, denyOut: [E2B_ALL_TRAFFIC] } : { denyOut: [E2B_ALL_TRAFFIC] },
   };
@@ -307,7 +315,7 @@ export class E2bSandbox implements Sandbox {
 
   /** Extend or shorten the microVM's lifetime (the orchestrator heartbeat can keep a long session alive). */
   async setTtl(minutes: number): Promise<void> {
-    await this.running().setTimeout(Math.max(1, Math.round(minutes)) * 60_000);
+    await this.running().setTimeout(e2bTimeoutMs(minutes));
   }
 
   async closeEgress(): Promise<void> {

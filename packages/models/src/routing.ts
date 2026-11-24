@@ -222,7 +222,8 @@ export const ROUTES = {
   foundations: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // The vision and a one-line thesis per section, drafted first so sections can be written in parallel (audit P3).
   foundationsSkeleton: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
-  skillGrader: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
+  // Low effort agrees with Opus at medium on 29 of 30 graded answers, mean gap 0.002 (live run 45221162185, Nov 23, 2026).
+  skillGrader: { model: "opus", lowCredits: "sonnet", effort: "low", maxTokens: THINKING_MAX_TOKENS },
   coach: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: THINKING_MAX_TOKENS },
   worker: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: THINKING_MAX_TOKENS },
   journeyCommentary: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: THINKING_MAX_TOKENS },

@@ -110,7 +110,7 @@ export interface PageView {
   followAvailable: boolean;
   /** The owner's opt-in to the public gallery (`/explore`, 0149); it shows only while the page is live. */
   explore: boolean;
-  /** An agent's proposed words for the page, waiting for a founder (0171, WP-08 T8); null when none waits. Never the draft or the published copy. */
+  /** An agent's proposed words for the page, waiting for a founder (0172, WP-08 T8); null when none waits. Never the draft or the published copy. */
   proposal: { fields: PageProposalFields; reason: string | null; agentName: string | null; at: Date } | null;
 }
 

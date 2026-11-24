@@ -47,6 +47,22 @@ const pairsOf = (expected) => Object.fromEntries([...expected.matchAll(/([\w.]+)
 const pick = (obj, path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
 
 /** One function per check id. Each reads production and compares with the row's Expected cell. */
+/** The only paths a hidden robots.txt may allow: the waitlist page by its exact address, and what renders and previews it (apps/web/app/robots.ts). */
+const WAITLIST_ALLOWS = new Set(["/waitlist$", "/_next/static/", "/opengraph-image.png"]);
+
+/** One `*` group whose only Disallow is `/` and whose Allows are all in WAITLIST_ALLOWS; Sitemap lines are fine. */
+export function closedButWaitlist(text) {
+  const rules = text.split(/\r?\n/).map((l) => l.replace(/#.*/, "").trim()).filter(Boolean).map((l) => {
+    const i = l.indexOf(":");
+    return [l.slice(0, i).trim().toLowerCase(), l.slice(i + 1).trim()];
+  });
+  const of = (k) => rules.filter(([key]) => key === k).map(([, v]) => v);
+  const agents = of("user-agent");
+  const disallow = of("disallow");
+  const known = rules.every(([key]) => ["user-agent", "allow", "disallow", "sitemap"].includes(key));
+  return known && agents.length === 1 && agents[0] === "*" && disallow.length === 1 && disallow[0] === "/" && of("allow").every((a) => WAITLIST_ALLOWS.has(a));
+}
+
 export const CHECKS = {
   async "api-health"(ctx, row) {
     const body = await (await get(ctx, `${ctx.api}/health`)).json();
@@ -72,8 +88,9 @@ export const CHECKS = {
     const noindex = /<meta name="robots" content="[^"]*noindex/.test(home);
     const res = await get(ctx, `${ctx.base}/robots.txt`);
     const robots = res.status;
-    // Hidden is a 404 or a 200 that disallows everything (WP-03 T6 serves "User-Agent: * / Disallow: /").
-    const disallowsAll = robots === 200 && /^\s*user-agent:\s*\*\s*[\r\n]+\s*disallow:\s*\/\s*$/im.test(await res.text());
+    // Hidden is a 404 or a 200 that disallows everything (WP-03 T6 serves "User-Agent: * / Disallow: /"), except the
+    // waitlist page and what renders it (WP-14 T15, founder 2026-11-17; apps/web/app/robots.ts).
+    const disallowsAll = robots === 200 && closedButWaitlist(await res.text());
     const wantsHidden = /noindex/.test(row.expected);
     const got = `${noindex ? "noindex" : "indexable"}, robots.txt ${robots}${disallowsAll ? " disallowing all" : ""}`;
     if (wantsHidden) return noindex && (robots === 404 || disallowsAll) ? ok(got) : differs("noindex, robots.txt 404 or disallowing all", got);

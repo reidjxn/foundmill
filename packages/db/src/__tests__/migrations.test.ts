@@ -164,7 +164,8 @@ describe("journal", () => {
       "0167_network_safety",
       "0168_public_profiles_service_only",
       "0169_founder_actions",
-      "0171_page_proposals",
+      "0170_team_call_wrap_up_failed",
+      "0172_page_proposals",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);

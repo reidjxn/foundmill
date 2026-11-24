@@ -18,7 +18,7 @@ describe("routing (BUILD §10.1)", () => {
       logoDesigner: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
       foundations: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
       foundationsSkeleton: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
-      skillGrader: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: 16_000 },
+      skillGrader: { model: "opus", lowCredits: "sonnet", effort: "low", maxTokens: 16_000 },
       coach: { model: "opus", lowCredits: "sonnet", effort: "medium", maxTokens: 16_000 },
       worker: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: 16_000 },
       journeyCommentary: { model: "sonnet", lowCredits: "haiku", effort: "high", maxTokens: 16_000 },
@@ -46,7 +46,9 @@ describe("routing (BUILD §10.1)", () => {
   });
 
   it("a route's written effort is what its model's API default was: Opus medium, Sonnet high", () => {
-    for (const route of ["chiefOfStaff", "departmentLead", "codeReview", "documentReview", "skillGrader", "coach"] as const) expect(resolveModel(route)).toMatchObject({ modelKey: "opus", effort: "medium" });
+    for (const route of ["chiefOfStaff", "departmentLead", "codeReview", "documentReview", "coach"] as const) expect(resolveModel(route)).toMatchObject({ modelKey: "opus", effort: "medium" });
+    // The grader moved to low on a measured agreement (WP-09 T9, run 45221162185).
+    expect(resolveModel("skillGrader")).toMatchObject({ modelKey: "opus", effort: "low" });
     for (const route of ["worker", "journeyCommentary", "nightlyBatch"] as const) expect(resolveModel(route)).toMatchObject({ modelKey: "sonnet", effort: "high" });
   });
 

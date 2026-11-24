@@ -5,8 +5,6 @@ export const channelContent = defineChannelTemplate({
   name: "Content Marketing Engine",
   role: "Content marketing specialist",
   work: ["editorial calendar", "blogs, guides, e-books and newsletters", "short video scripts and production briefs", "gated assets that capture leads"],
-  // The hosted page every project has (WP-08 T8): read it, and propose new words that wait for the founders.
-  platformTools: ["page.read", "page.propose"],
   connectors: [
     grant("google_drive", ["files.list", "files.read", "files.write"]),
     grant("notion", ["pages.search", "pages.read", "pages.write"]),

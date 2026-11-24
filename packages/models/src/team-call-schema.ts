@@ -77,17 +77,28 @@ export const TeamCallTurnsDraft = z.object({
 });
 export type TeamCallTurnsDraft = z.infer<typeof TeamCallTurnsDraft>;
 
+/**
+ * Loose on purpose (founder, Nov 23, 2026: no call had ever finished its wrap-up). `params` is an open map, so this
+ * schema cannot go through structured outputs and reaches the model as prompt JSON (models `structuredOutputFor`),
+ * where nothing stops a reply that leaves out a null key or names an unknown action type. A strict draft failed such a
+ * reply twice, the wrap-up threw and the call went back to live. `finaliseTeamCallWrapUp` repairs or drops each action.
+ */
 export const TeamCallWrapUpDraft = z.object({
-  summary: z.string().describe("Plain text, at most 1,200 characters: what was discussed and what was agreed."),
+  summary: z.string().nullish().describe("Plain text, at most 1,200 characters: what was discussed and what was agreed."),
   actions: z
     .array(
       z.object({
-        title: z.string().describe("One line in the founder's words, ten words at most."),
-        detail: z.string().nullable().describe("What done looks like, at most 1,000 characters; null when the title says it all."),
-        agent_id: z.string().nullable().describe("Who does it, an id from agents; null for the founder's own step."),
-        action: PlanAction,
+        title: z.string().nullish().describe("One line in the founder's words, ten words at most."),
+        detail: z.string().nullish().describe("What done looks like, at most 1,000 characters; null when the title says it all."),
+        agent_id: z.string().nullish().describe("Who does it, an id from agents; null for the founder's own step."),
+        action: z.object({
+          type: z.string().describe("One of action_types."),
+          params: z.record(z.string(), z.unknown()).nullish().describe("The names in action_params for that type."),
+          agent_id: z.string().nullish(),
+        }),
       }),
     )
+    .nullish()
     .describe("At most 20 action items, one per agreed step."),
 });
 export type TeamCallWrapUpDraft = z.infer<typeof TeamCallWrapUpDraft>;

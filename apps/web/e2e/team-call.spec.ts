@@ -19,6 +19,24 @@ async function watchSpeakingTiles(page: Page): Promise<void> {
 
 const agentTurns = (page: Page) => page.locator('[data-testid="call-turn"][data-speaker="agent"]');
 
+/** Rewrites one procedure's answer in the api's batched tRPC responses (superjson `{ result: { data: { json } } }`). */
+async function rewriteResult<T>(page: Page, procedure: string, edit: (json: T) => T): Promise<void> {
+  await page.route(`**/*${procedure}*`, async (route) => {
+    // A request still in flight when the page moves on (or the test ends) is let go.
+    try {
+      const res = await route.fetch();
+      const names = decodeURIComponent(new URL(route.request().url()).pathname.split("/").pop() ?? "").split(",");
+      const at = names.indexOf(procedure);
+      const body = (await res.json()) as { result?: { data?: { json?: T } } }[] | { result?: { data?: { json?: T } } };
+      const item = Array.isArray(body) ? body[at] : at === 0 ? body : undefined;
+      if (item?.result?.data?.json !== undefined) item.result.data.json = edit(item.result.data.json);
+      await route.fulfill({ response: res, json: body });
+    } catch {
+      await route.continue().catch(() => undefined);
+    }
+  });
+}
+
 test.describe("Team call", () => {
   test("start from the lobby, hear the opening, type a message, see agents answer, end the call and open a filed task", async ({ page }) => {
     await watchSpeakingTiles(page);
@@ -82,6 +100,60 @@ test.describe("Team call", () => {
     // The call is in the lobby's history with its actions line.
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/calls`);
     await expect(page.getByTestId("call-history")).toContainText("filed", { timeout: LONG });
+  });
+
+  test("leaving the room ends the call: the lobby shows it written up, never in progress", async ({ page }) => {
+    await openBusiness(page, "calls");
+    await expect(page.getByTestId("call-lobby")).toBeVisible({ timeout: LONG });
+    await page.getByTestId("call-topic").fill("Leaving without End");
+    await page.getByTestId("call-start").click();
+    await page.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/calls/(${UUID})$`), { timeout: LONG });
+    const callId = new RegExp(`/calls/(${UUID})$`).exec(page.url())![1]!;
+    await expect(page.getByTestId("call-room")).toBeVisible({ timeout: LONG });
+    await page.getByTestId("call-type").fill("Let's build a waitlist page.");
+    await page.getByTestId("call-send").click();
+    await page.getByTestId("call-transcript-toggle").click();
+    await expect(page.locator('[data-testid="call-turn"][data-speaker="founder"]')).toHaveCount(1, { timeout: LONG });
+
+    // Back to the lobby by the breadcrumb, without pressing End: the room sends teamCall.end (via "left") as it goes.
+    const ended = page.waitForRequest((r) => r.method() === "POST" && r.url().includes("teamCall.end") && (r.postData() ?? "").includes('"left"'));
+    await page.locator("[data-testid=app-shell] nav [data-sidebar-item='calls']").click();
+    await ended;
+    await expect(page.getByTestId("call-lobby")).toBeVisible({ timeout: LONG });
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/calls/${callId}`);
+    await expect(page.getByTestId("call-wrapup")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("call-finished")).toHaveAttribute("data-status", "ended");
+  });
+
+  test("a call whose write-up failed says so, keeps its transcript, and Try again writes it up", async ({ page }) => {
+    // The mock's wrap-up never fails: End's first answer is shown as a failed write-up, and Try again asks again.
+    type View = { status: string; summary: string | null; actions: unknown[] };
+    let ends = 0;
+    const failed = (call: View): View => (ends <= 1 && call.status === "ended" ? { ...call, status: "wrap_up_failed", summary: null, actions: [] } : call);
+    await rewriteResult(page, "teamCall.end", (call: View) => (++ends, failed(call)));
+    await rewriteResult(page, "teamCall.get", failed);
+    await openBusiness(page, "calls");
+    await page.getByTestId("call-start").click();
+    await page.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/calls/${UUID}$`), { timeout: LONG });
+    await expect(page.getByTestId("call-room")).toBeVisible({ timeout: LONG });
+    await page.getByTestId("call-type").fill("Let's build a waitlist page.");
+    await page.getByTestId("call-send").click();
+    await page.getByTestId("call-transcript-toggle").click();
+    await expect(page.locator('[data-testid="call-turn"][data-speaker="founder"]')).toHaveCount(1, { timeout: LONG });
+    await page.getByTestId("call-end").click();
+    await expect(page.getByTestId("call-finished")).toHaveAttribute("data-status", "wrap_up_failed", { timeout: LONG });
+    await expect(page.getByTestId("call-finished")).toContainText("Ended, couldn't write up");
+    await expect(page.getByTestId("call-transcript")).toContainText("Let's build a waitlist page.");
+    await expect(page.getByTestId("call-wrap-up-failed")).toContainText("Everything that was said is kept");
+    await page.getByTestId("call-wrap-up-retry").click();
+    await expect(page.getByTestId("call-wrapup")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("call-finished")).toHaveAttribute("data-status", "ended");
+  });
+
+  test("the lobby never says In progress for a call that is over", async ({ page }) => {
+    await rewriteResult(page, "teamCall.list", (calls: { status: string; summaryLine: string | null }[]) => calls.map((c, i) => (i === 0 ? { ...c, status: "wrap_up_failed", summaryLine: null } : c)));
+    await openBusiness(page, "calls");
+    await expect(page.getByTestId("call-history").getByTestId("call-row-state").first()).toHaveText("Ended, couldn't write up", { timeout: LONG });
   });
 
   test("a one-to-one call starts from an agent's profile with Call", async ({ page }) => {

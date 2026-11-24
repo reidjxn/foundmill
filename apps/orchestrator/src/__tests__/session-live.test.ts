@@ -32,7 +32,7 @@ import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { MIN_SESSION_CAP_MINOR } from "../cycle-contract";
 import { UNDER_FLOOR_SUMMARY } from "../activities/session-budget";
 import { openAgentSession } from "../activities/dispatch";
-import { ACCEPTANCE_BRIEF, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_UNMET_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, FREE_PLAN_SWITCH_NOTE, freeSessionModel, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES, sessionSystemPrompt } from "../activities/session";
+import { ACCEPTANCE_BRIEF, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_UNMET_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, FREE_PLAN_SWITCH_NOTE, freeSessionModel, lastAttemptNote, NO_CHANGES_REASON, NO_CHANGES_TURN, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES, sessionSystemPrompt } from "../activities/session";
 import { SessionDrain } from "../drain";
 import { emitEvent } from "../events";
 import type { SessionResult } from "../activities/types";
@@ -690,6 +690,24 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
       await repos.skills.removeFromAgent(t.db, t.businessId, t.workerId, "library_meeting_notes");
       await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
     }
+  });
+
+  it("sessionSystemPrompt: with the preload on, a code task loads both coding skills up front; off, or on other work, it does not (WP-06 T13)", () => {
+    const template = listTemplates().find((t) => t.taskKinds.includes("code"))!;
+    const row = (key: string) => ({ skillKey: `library_${key}`, name: getLibrarySkill(key)!.attribute.name, source: "library" as const, description: getLibrarySkill(key)!.description, instructionsMd: "stored" });
+    const skills = attachedSkills([], ["coding_discipline", "smallest_change", "terse_working_notes"].map(row));
+    const code = { kind: "code" as const, title: "Fix the signup form", goalMd: "The email check rejects valid addresses." };
+    const prompt = (task: { kind: "code" | "ops"; title: string; goalMd: string }, preloadAlways: boolean) => sessionSystemPrompt({ business: { name: "Acme", glossary: {} }, instructions: template.instructions, description: template.description, briefText: "Brief.", skills, task, toolRefs: ["platform:read_skill"], preloadAlways });
+    const head = (key: string) => getLibrarySkill(key)!.instructionsMd.split("\n")[0]!;
+    const on = prompt(code, true);
+    for (const key of ["smallest_change", "terse_working_notes"]) expect(on.slice(on.indexOf(LOADED_SKILLS_HEADER)), key).toContain(head(key));
+    for (const key of ["smallest_change", "terse_working_notes"]) expect(on.includes(`<skill name="${getLibrarySkill(key)!.attribute.name}"`), key).toBe(true);
+    const off = prompt(code, false);
+    const ops = prompt({ ...code, kind: "ops" }, true);
+    for (const p of [off, ops]) for (const key of ["smallest_change", "terse_working_notes"]) expect(p.includes(`<skill name="${getLibrarySkill(key)!.attribute.name}"`), key).toBe(false);
+    // The cached prefix through the Skills index is the same with the preload on or off.
+    const prefix = (p: string) => p.slice(0, p.indexOf("## Business brief"));
+    expect(prefix(on)).toBe(prefix(off));
   });
 
   it("sessionSystemPrompt: index mode when the read_skill grant is present, the loaded-bodies form when it is not (WP-06 T4)", () => {
@@ -2073,6 +2091,46 @@ describe("a failing test goes back to the author, twice, before the session ends
   afterEach(async () => {
     provider.replies.length = 0;
     await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+  });
+
+  it("a code session that changed nothing gets one turn to make the change; the change made on it is tested and done (WP-05 T19)", async () => {
+    const { sessionId, input, launch } = await codeTask("Add the missing export");
+    const turns: string[] = [];
+    script = async function* (call: QueryCall) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield resultOf(modelUsage(10, 5, 0.01));
+      const next = await prompts.next();
+      if (next.done) return;
+      turns.push(next.value.message.content);
+      await writeFile(path.join(call.options.cwd as string, "export.ts"), "export const x = 1;\n");
+      yield resultOf(modelUsage(20, 10, 0.02));
+      await prompts.next();
+    };
+    provider.replies.push(PREPARED, { code: 0, stdout: "1 passed", stderr: "", timedOut: false, durationMs: 5 });
+    const result = await acts.runAgentSession(input, launch);
+    expect(turns).toEqual([NO_CHANGES_TURN]);
+    expect(result).toMatchObject({ outcome: "done" });
+    expect(await notesOf(sessionId)).toContain("Test Engineer changed no file; it gets one more turn to make the change or say what stops it.");
+  });
+
+  it("a code session that changes nothing on its second turn either is blocked for no changes, after exactly one extra turn", async () => {
+    const { sessionId, input, launch } = await codeTask("Add another export");
+    let sent = 0;
+    script = async function* (call: QueryCall) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      for (;;) {
+        yield resultOf(modelUsage(10, 5, 0.01));
+        if ((await prompts.next()).done) return;
+        sent += 1;
+      }
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(sent).toBe(1);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "error", reason: NO_CHANGES_REASON });
   });
 
   it("a failing run gets a fix turn with the command, the counts and the output, and the run after it passes", async () => {

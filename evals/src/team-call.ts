@@ -2,7 +2,7 @@
  * Team call evals (docs/TEAM_CALL.md §4): the turn director (`teamCallTurn`, Sonnet at low effort) and the wrap-up
  * (`teamCallWrapUp`, Opus at low effort), through the requests apps/api sends (packages/agents
  * `buildTeamCallTurnRequest`, `buildTeamCallWrapUpRequest`) and the same checks on the answers
- * (`finaliseTeamCallTurns`, `finaliseTeamCallWrapUp`). Five cases, scored deterministically on the model's own output
+ * (`finaliseTeamCallTurns`, `finaliseTeamCallWrapUp`). Six cases, scored deterministically on the model's own output
  * (before the server-side repairs, so a repair never hides a miss):
  *   1. discussion: agents address each other by mention, and at least one round has two agents speaking;
  *   2. nothing done: no turn claims an action was taken, even when the founder asks for it to be done now;
@@ -75,7 +75,7 @@ export interface TeamCallRoundSpec {
   founder?: string;
 }
 
-export type TeamCallCaseKind = "discussion" | "nothing_done" | "one_to_one" | "wrap_up" | "subtext";
+export type TeamCallCaseKind = "discussion" | "nothing_done" | "one_to_one" | "wrap_up" | "subtext" | "agreed_proposal";
 
 export interface TeamCallCase {
   id: string;
@@ -101,6 +101,20 @@ export const WRAP_UP_TRANSCRIPT: readonly TeamCallTranscriptTurn[] = Object.free
   founderSays("Let's not do the journalists yet. For ads, let's cap Instagram ads at £300 a month to start."),
   agentSays(TEAM_CALL_EVAL_IDS.chief, "So: the referral program on the roadmap, the waitlist page, the launch email and a £300 monthly cap on Instagram ads. Anything else?"),
   founderSays("That's it for today, thanks."),
+]);
+
+/**
+ * A call as founders hold it (founder, Nov 23, 2026: "no action items were noted"): the agents propose the steps and the
+ * founder only says yes. Two accepted proposals must become action items; the one the founder put off must not.
+ */
+export const AGREED_PROPOSAL_TRANSCRIPT: readonly TeamCallTranscriptTurn[] = Object.freeze([
+  OPENING,
+  founderSays("I want cafes to be able to sign up before we launch. What do you suggest?"),
+  agentSays(TEAM_CALL_EVAL_IDS.engineering, "I'll build a waitlist page with an email sign-up form this week."),
+  agentSays(TEAM_CALL_EVAL_IDS.distribution, "And I can write the launch email for everyone who signs up."),
+  founderSays("Yes, do both of those."),
+  agentSays(TEAM_CALL_EVAL_IDS.distribution, "Want me to set up a giveaway on Instagram too?"),
+  founderSays("Maybe later, not now. Thanks, team."),
 ]);
 
 export const TEAM_CALL_CASES: readonly TeamCallCase[] = Object.freeze([
@@ -143,6 +157,7 @@ export const TEAM_CALL_CASES: readonly TeamCallCase[] = Object.freeze([
     ],
     wrapUp: true,
   },
+  { id: "tc06", kind: "agreed_proposal", callKind: "team", participants: TEAM_CALL_PARTICIPANTS, rounds: [], transcript: AGREED_PROPOSAL_TRANSCRIPT },
 ]);
 
 /**
@@ -249,6 +264,13 @@ export function teamCallProblems(c: TeamCallCase, rounds: readonly TeamCallRound
     // What only an agent proposed (the sponsored post, the journalists) is never filed.
     if (wrapUp.actions.some((a) => /journalist|press|sponsored|newsletter post/i.test(`${a.title} ${a.detail ?? ""}`))) problems.push("filed something only an agent proposed");
   }
+  if (c.kind === "agreed_proposal") {
+    if (!wrapUp) return [...problems, "no write-up"];
+    const words = (a: FinalisedTeamCallWrapUp["actions"][number]) => `${a.title} ${a.detail ?? ""} ${String(a.action.params.goal ?? "")}`;
+    if (!wrapUp.actions.some((a) => /waitlist|sign-?up/i.test(words(a)))) problems.push("the accepted waitlist page is not an action item");
+    if (!wrapUp.actions.some((a) => /launch email|email/i.test(words(a)) && !/waitlist page/i.test(a.title))) problems.push("the accepted launch email is not an action item");
+    if (wrapUp.actions.some((a) => /giveaway|instagram/i.test(words(a)))) problems.push("filed the giveaway the founder put off");
+  }
   return [...new Set(problems)];
 }
 
@@ -319,7 +341,7 @@ export async function runTeamCallCase(client: ModelClient, c: TeamCallCase): Pro
       for (const t of finalised.turns) transcript.push(agentSays(t.agentId, t.text));
       if (round.mode === "continue") sinceFounder++;
     }
-    if (c.kind === "wrap_up" || c.wrapUp) {
+    if (c.kind === "wrap_up" || c.kind === "agreed_proposal" || c.wrapUp) {
       const input = wrapUpInputFor(c, transcript);
       const result = await client.complete({ ...buildTeamCallWrapUpRequest(input), scope: `eval:team-call:${c.id}:wrap-up` });
       cost += result.cost.costMinorInt;

@@ -93,6 +93,7 @@ export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "showcase_consents.user_id": { export: true, onDelete: "cascade" },
   "showcase_requests.requested_by_user_id": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "spec_versions.published_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
+  "team_call_presence.user_id": { export: false, onDelete: "cascade", note: "who had a call's page open in the last minute and a half; gone with the account" },
   "team_call_turns.user_id": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "team_calls.started_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "waitlist_entries.user_id": { export: true, onDelete: "cascade" },

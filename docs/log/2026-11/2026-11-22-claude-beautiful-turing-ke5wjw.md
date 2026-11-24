@@ -7,9 +7,9 @@ supersedes: []
 ---
 ## What changed
 Two platform tools, `read_public_page` and `propose_page_edit` (capabilities `page.read` and `page.propose`), granted to
-the SEO, GEO and content channel agents. An agent reads the hosted page (words, stage, live, listed
+the SEO and GEO channel agents. An agent reads the hosted page (words, stage, live, listed
 and why not, dates, limits, shown milestones) and proposes new words for the pitch, about or who it is for, with a reason.
-A proposal never touches the draft or the published copy: it waits in four new columns on `project_pages` (migration 0171,
+A proposal never touches the draft or the published copy: it waits in four new columns on `project_pages` (migration 0172,
 no new table), one at a time, and a new one replaces it. The event `page.change_proposed` names the agent and the fields.
 In Product › Public page a panel above the editor reads "‹Agent› suggests a change" with the reason, the words now beside
 the words suggested, "Use this" (copies them into the draft; publishing stays the founder's press) and "Dismiss"
@@ -27,9 +27,9 @@ session either way. Changing the Board needs a page-live fact in `ChannelAvailab
 
 ### The tools are short, and the Product lead does not get them
 The orchestrator's tool-budget test caps a template's tool definitions at 6,500 tokens (Estimate). The two tools first came
-to 287 tokens and put the Product lead (6,732) and the content channel (6,610) over. Shortened to 171 tokens, the content
-channel fits (about 6,494); the Product lead, 55 under the cap before, cannot hold even the shortened pair, so it keeps
-drafting the page through its own flow and the SEO, GEO and content agents get the tools. The detail that left the
+to 287 tokens and put the Product lead (6,732) and the content channel (6,610) over. Shortened to 171 tokens they still do
+not fit once main grew (the content channel read 6,549), so the Product lead and the content channel keep working on the
+page through their own flows and only the SEO and GEO agents get the tools. The detail that left the
 descriptions belongs in a skill (WP-06).
 
 ### The hold check runs when a founder uses the words, not in the tool

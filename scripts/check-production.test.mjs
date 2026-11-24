@@ -93,4 +93,11 @@ test("landing-robots: hidden accepts a 404 or a 200 that disallows everything", 
   assert.equal(await run(robots(404, "")), "ok");
   assert.equal(await run(robots(200, "User-Agent: *\nDisallow: /\n")), "ok");
   assert.notEqual(await run(robots(200, "User-Agent: *\nAllow: /\nDisallow: /api/\n")), "ok");
+  // The waitlist page and what renders it may open (WP-14 T15), exactly as apps/web/app/robots.ts serves them; nothing else.
+  const waitlist = "User-Agent: *\nAllow: /waitlist$\nAllow: /_next/static/\nAllow: /opengraph-image.png\nDisallow: /\n\nSitemap: https://foundmill.com/sitemap.xml\n";
+  assert.equal(await run(robots(200, waitlist)), "ok");
+  assert.notEqual(await run(robots(200, waitlist.replace("/waitlist$", "/waitlist"))), "ok");
+  assert.notEqual(await run(robots(200, waitlist.replace("Allow: /_next/static/", "Allow: /b/"))), "ok");
+  assert.notEqual(await run(robots(200, waitlist.replace("Disallow: /\n", "Disallow: /api/\n"))), "ok");
+  assert.notEqual(await run(robots(200, `${waitlist}\nUser-Agent: GPTBot\nAllow: /\n`)), "ok");
 });
