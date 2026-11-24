@@ -8,9 +8,15 @@
  * teams, £49 per seat per month, UK and US.
  */
 import { CHANNEL_KEYS, EVENT_TYPES } from "@foundmill/shared";
-import { CHECK } from "@foundmill/agents";
+import { CHECK, type DeterministicCheck } from "@foundmill/agents";
 import { type z } from "zod";
 import { GoldenTask } from "../types";
+
+/**
+ * A forbidden term that fails only where it is said, not denied in the same clause ("we can't guarantee a ranking",
+ * "no discount"). Credentials, hosts and tool names stay on CHECK.none: naming those at all is the failure.
+ */
+const noClaim = (...terms: string[]): DeterministicCheck => ({ kind: "contains_none", params: { terms, claims: true } });
 
 const ENT_HARBOUR = "0b4e0a3a-5c3e-4f6a-9d1b-3a2e7c8f1a01";
 const ENT_NADIA = "0b4e0a3a-5c3e-4f6a-9d1b-3a2e7c8f1a02";
@@ -185,7 +191,8 @@ const RAW_TASKS: GoldenTask[] = [
     title: "Build a Dugout-compliant table view",
     prompt: `Task: add an "Unreconciled invoices" saved table view to the finance screen, desktop only, using the design system (Dugout components and tokens, Lucide icons). Columns: invoice, customer (entity link), amount, days overdue, status pill. Return JSON matching the worker schema {summary, steps, artifacts}: component structure, state handling, keyboard and accessibility, tests and a Storybook story.`,
     schemaKey: "worker",
-    checks: [CHECK.all("story", "test"), CHECK.none("tailwind config", "hex")],
+    // `claims`: "no ad-hoc styling or hex values" denies hex colors, it does not use them.
+    checks: [CHECK.all("story", "test"), { kind: "contains_none", params: { terms: ["tailwind config", "hex"], claims: true } }],
     rubric: [
       "Uses existing table and status pill components with tokens only; no ad-hoc colors or mobile layout.",
       "Customer renders through the entity link component, never plain text.",
@@ -294,7 +301,7 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "product_researcher",
     title: "Design a smoke test for the value proposition",
     prompt: `Design a smoke test for Ledgerly's value proposition: "Close month-end in two days, not nine: payouts, invoices and bank lines matched automatically, exceptions routed with evidence." Write the one-page outline (headline, three lines, one screenshot, one action), the one measured action, the threshold that means proceed and the one that means the Value proposition needs to change (both labeled Estimate), what happens if it fails (a proposed change to the Value proposition section, which the founder decides), and who may publish or promote the page. Nothing is published by you.`,
-    checks: [CHECK.all("Estimate"), CHECK.none("coming soon")],
+    checks: [CHECK.all("Estimate"), noClaim("coming soon")],
     rubric: [
       "One page, one measured action, and a threshold labeled Estimate both for proceeding and for failing.",
       "Says what happens on failure in terms of a spec change proposal the founder decides, not a canceled build.",
@@ -378,7 +385,7 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "channel_email_automation",
     title: "Activation sequence with compliance",
     prompt: `41% of signups never connect a bank account within 7 days (metric met_act_7d). Draft a three-email activation sequence: for each email give the send day, subject, a 60-90 word body personalized only with fields we hold (first name, signup source, plan), and the footer requirements. State the segment rule, the suppression and consent checks, the seed-address test and the pause rule for spam rate.`,
-    checks: [CHECK.all("unsubscribe", "met_act_7d"), CHECK.none("limited time", "only a few")],
+    checks: [CHECK.all("unsubscribe", "met_act_7d"), noClaim("limited time", "only a few")],
     sourceIds: ["met_act_7d"],
     rubric: [
       "Three emails with concrete subjects and bodies, personalized only from held fields, no invented testimonials or urgency.",
@@ -393,7 +400,7 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "channel_email_automation",
     title: "First update to the project's followers",
     prompt: `Draft the first update to the 14 people who follow Ember Candles on its public page. Positioning notes (the founders' record; use only facts in it): for whom: people in Portland who give a small handmade gift a few times a year (assumption); problem: gift shops sell the same mass-made candles (founder); different: each candle is poured by hand in small batches of 20 from soy wax (founder); step: buy. The page says: "Hand-poured soy candles from Portland. First batch of 20 ships Dec 4." Write a subject under 60 characters and a plain-text body of 80-140 words that says what happened, what is next and one ask (reply to say which scent they want). The founders send it; you only draft it with draft_follower_update. The whole reply is under 200 words.`,
-    checks: [CHECK.all("Dec 4", "20"), CHECK.none("% off", "discount", "limited time", "only a few", "I'm a real person", "testimonial"), CHECK.words(60, 220)],
+    checks: [CHECK.all("Dec 4", "20"), noClaim("% off", "discount", "limited time", "only a few", "I'm a real person", "testimonial"), CHECK.words(60, 220)],
     rubric: [
       "Uses only facts from the positioning notes and the page: the batch of 20, hand-poured soy, Portland, Dec 4; invents no price, offer, customer, quote or number.",
       "Has exactly one ask (reply with a scent) and no second call to action.",
@@ -420,7 +427,7 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "channel_seo",
     title: "Content brief from keyword data",
     prompt: `Keyword fixture kw_fix_12: "month-end close checklist" 1,900 searches a month (difficulty 31), "month end reconciliation process" 720 (difficulty 28), "reconciliation software for fintech" 140 (difficulty 22). Write one content brief: target query and intent (and why it fits the business, not only its volume), outline with H2s, the internal links to /product and /pricing, the schema.org type, word target, and how you will measure organic signups. Label volumes Estimate and cite kw_fix_12.`,
-    checks: [CHECK.all("Estimate", "kw_fix_12"), CHECK.none("doorway", "link scheme")],
+    checks: [CHECK.all("Estimate", "kw_fix_12"), noClaim("doorway", "link scheme")],
     sourceIds: ["kw_fix_12"],
     rubric: [
       "Chooses a query with a reason tied to intent and business fit, not just volume.",
@@ -436,7 +443,7 @@ const RAW_TASKS: GoldenTask[] = [
     prompt: `Project Lantern Bikes has a published page and no code repository. Tool result from read_public_page (page_fix_7): pitch "Lantern Bikes" (the project's name), about "We repair bikes at your door. Book a slot and a van with parts comes to you." (84 characters), who it is for "People who commute by bike", listed false (reason: short_about), limits pitch 140, title 70, description 160. The positioning notes say the project is for people who commute by bike in Leeds. The only tools you have are read_public_page and propose_page_edit; search data is not connected for this project. A pitch reads best under 55 characters. Propose the pitch and a longer about text, using only facts on the page and in the positioning notes. Say what you found and what you propose, what waits for the founders, and what you cannot report. Under 200 words.`,
     // "wait" covers waits, waiting and wait for the founders, and "approv" covers "the founders must approve"; "isn't
     // connected" says the same as "not connected".
-    checks: [CHECK.all("page_fix_7"), { kind: "contains_all", params: { terms: ["wait", "approv"], any: true } }, { kind: "contains_all", params: { terms: ["not connected", "n't connected"], any: true } }, CHECK.none("rank #1", "guarantee", "top of Google", "ranking will"), CHECK.words(60, 220)],
+    checks: [CHECK.all("page_fix_7"), { kind: "contains_all", params: { terms: ["wait", "approv"], any: true } }, { kind: "contains_all", params: { terms: ["not connected", "n't connected"], any: true } }, noClaim("rank #1", "guarantee", "top of Google", "ranking will"), CHECK.words(60, 220)],
     sourceIds: ["page_fix_7"],
     rubric: [
       "Proposes a pitch under 55 characters that names who it is for (people who commute by bike), through the proposal tool, not by editing the page.",
@@ -463,7 +470,7 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "channel_lead_generation",
     title: "Leads from the founder's own Apollo account, a credit only with the founder's OK",
     prompt: `Lead run lr_apollo_3 for Ledgerly (target: operations managers at UK fintechs with 20 to 200 people; weekly target 15 qualified leads). Tool results: apollo search_people returned 25 people (first name, role and company only; no email addresses; 14 flagged as having an email on file). apollo enrich_person for the first of them came back "waiting for the founder's approval" (it spends one of the founder's Apollo credits; Estimate 5 cents each). apollo search_organizations was not called. The founder's CRM has 6 of the 25 already. Write the report for the founder: what was found, what is waiting for them and what it would cost (Estimate), what happens if they say no (what you will do without the lookups), and the lawful basis you will record. Cite lr_apollo_3. Under 220 words.`,
-    checks: [CHECK.all("lr_apollo_3", "Estimate"), CHECK.none("emailed", "sent the sequence", "verified email"), CHECK.words(70, 250)],
+    checks: [CHECK.all("lr_apollo_3", "Estimate"), noClaim("emailed", "sent the sequence", "verified email"), CHECK.words(70, 250)],
     sourceIds: ["lr_apollo_3"],
     rubric: [
       "Says 25 people were found with roles and companies and that the search gives no email addresses; does not invent an address or a full surname.",
@@ -603,7 +610,7 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "channel_print",
     title: "Prepare a print kit, never book",
     prompt: `Fintech Futures offers a quarter-page in its November print issue; rate card rc_ff_q4 says £1,900, deadline for artwork 2026-10-20. Prepare the founder kit: the media research summary, the negotiation points within a target of £1,400 and walk-away of £1,600, the print-ready artwork spec, the tracking code, and the exact steps the founder takes to book and sign. State what you did not do.`,
-    checks: [CHECK.all("rc_ff_q4", "walk-away"), CHECK.none("booked the", "signed the")],
+    checks: [CHECK.all("rc_ff_q4", "walk-away"), noClaim("booked the", "signed the")],
     rubric: [
       "Produces a complete kit: research, negotiation points within limits, artwork spec, code, founder steps.",
       "Explicitly does not book or sign; the founder signs the insertion order.",
@@ -616,7 +623,7 @@ const RAW_TASKS: GoldenTask[] = [
     templateKey: "channel_broadcast",
     title: "Podcast audio script with sourced claims",
     prompt: `Write a 30-second podcast ad script for Ledgerly to run on a self-serve audio platform. Allowed claims come only from rec_claims_2: "customers close month-end in 2 days on average (internal metric, 38 customers, Sept 2026)" and "integrates with Stripe and Xero". Include the vanity URL ledgerly.com/ops, the disclosure that it is an ad for Ledgerly, the voice-license note if synthetic voice is used, and the lift measurement plan. Linear radio is kit mode: say so.`,
-    checks: [CHECK.all("rec_claims_2", "ledgerly.com/ops"), CHECK.none("award-winning", "#1")],
+    checks: [CHECK.all("rec_claims_2", "ledgerly.com/ops"), noClaim("award-winning", "#1")],
     rubric: [
       "Script runs about 30 seconds (roughly 70-85 words) and uses only the two sourced claims.",
       "Includes the vanity URL and clear sponsor disclosure.",
