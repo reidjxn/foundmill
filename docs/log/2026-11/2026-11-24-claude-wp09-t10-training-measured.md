@@ -25,7 +25,8 @@ the eval failed on that assertion. The cap was not raised.
 - The live eval now prints each route's calls, input, output, cache write and cache read tokens and cost for both
   paths, so the next run shows where the spend goes.
 
-## Where the spend goes, and why it is not cut here
+## Decisions
+Where the spend goes, and why it is not cut here:
 - Repeated context is small. In mock mode the candidate's system prompt is about 6.5k characters (about 1.6k tokens),
   cached on block 0 since T9, and the grader's prompt is about 230 characters. Most of the cost is output, thinking
   included, on Sonnet at high effort for the candidate and Opus at low for the grader. By the reference figures the
