@@ -14,7 +14,8 @@ supersedes: []
   - a tight word limit.
 - `packages/agents` `skills/checks.ts` (`claims`):
   - A comma inside a short list keeps a denial's clause going: "nothing was looked up, emailed or added". Only a comma followed by one or two words and "or" or "and" counts. "No problem, the lead was emailed today." is still a claim.
-  - until, unless, only once, only when, rather than, instead of and avoid now count as not claiming: "tokens rather than hex values", "avoid questions like Would you pay".
+  - only once, only when, rather than, instead of and avoid now count as not claiming: "tokens rather than hex values", "avoid questions like Would you pay".
+  - "until" and "unless" stay claims (coordinating session, Nov 24, 2026): "Discount applies until Friday" and "We guarantee a refund unless you have opened it" promise something. Tests require both to fail.
   - Tests cover both, including the claims that must still fail.
 - Forbidden phrases that a correct reply names while denying them now use `noClaim`:
   - "legal advice:", in "Not legal advice:";

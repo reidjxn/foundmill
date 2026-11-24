@@ -57,7 +57,13 @@ describe("deterministic checks (BUILD §11.10, §12.5)", () => {
     expect(runDeterministicCheck(none, { output: "Nothing from pr_buf_4 (milestone mil_12) is published yet." }).passed).toBe(true);
     expect(runDeterministicCheck(none, { output: "No problem, the post is published." }).passed).toBe(false);
     // A condition or an avoided form is not a claim either.
-    expect(runDeterministicCheck(none, { output: "Wait until it is published; I report it only when get_post says sent." }).passed).toBe(true);
+    expect(runDeterministicCheck(none, { output: "I report it as live only when it is published, per get_post." }).passed).toBe(true);
+    // "until" and "unless" stay claims (coordinating session, Nov 24, 2026).
+    const promise = { kind: "contains_none" as const, params: { terms: ["guarantee", "discount"], claims: true } };
+    expect(runDeterministicCheck(promise, { output: "We guarantee a refund unless you've opened it." }).passed).toBe(false);
+    expect(runDeterministicCheck(promise, { output: "Discount applies until Friday." }).passed).toBe(false);
+    expect(runDeterministicCheck(promise, { output: "Unless you opened it we guarantee a refund." }).passed).toBe(false);
+    expect(runDeterministicCheck(promise, { output: "Until Friday the discount applies." }).passed).toBe(false);
     expect(runDeterministicCheck({ kind: "contains_none", params: { terms: ["hex"], claims: true } }, { output: "Use tokens rather than hex values." }).passed).toBe(true);
     // A denial whose list runs over commas; a claim after "No problem," is still a claim.
     const emailed = { kind: "contains_none" as const, params: { terms: ["emailed"], claims: true } };
