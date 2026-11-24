@@ -7,7 +7,7 @@
  */
 import { getSkillTests, getTemplateByAgentType } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
-import { trainingEstimate, type ModelClient } from "@foundmill/models";
+import { trainingEstimate, type CompleteResult, type ModelClient } from "@foundmill/models";
 import { createTrainingActivities } from "@foundmill/orchestrator/activities/training";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "@foundmill/orchestrator/__tests__/harness";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -22,6 +22,40 @@ const live = isLiveEvalEnabled();
 let t: OrchestratorTestHarness;
 let client: ModelClient;
 
+/** Tokens and cost per route, so a run shows where its spend goes (candidate answers or grading, input or output). */
+type Tally = Record<string, { calls: number; inputTokens: number; outputTokens: number; cacheWriteTokens: number; cacheReadTokens: number; costMicroMinor: number }>;
+function add(tally: Tally, r: Pick<CompleteResult, "route" | "usage" | "cost">) {
+  const row = (tally[r.route] ??= { calls: 0, inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, costMicroMinor: 0 });
+  row.calls++;
+  row.inputTokens += r.usage.inputTokens;
+  row.outputTokens += r.usage.outputTokens;
+  row.cacheWriteTokens += r.usage.cacheCreationInputTokens;
+  row.cacheReadTokens += r.usage.cacheReadInputTokens;
+  row.costMicroMinor += r.cost.costMicroMinor;
+}
+/** The client with every answer it returns counted, now (`complete`) and in batches (`collectBatch`). */
+function counting(base: ModelClient, tally: { now: Tally; batch: Tally }): ModelClient {
+  const c = Object.create(base) as ModelClient;
+  const seen = new Set<string>();
+  c.complete = (async (req: Parameters<ModelClient["complete"]>[0]) => {
+    const r = await base.complete(req as never);
+    add(tally.now, r);
+    return r;
+  }) as ModelClient["complete"];
+  // On the base client, so a mock that answers at submit through `complete` is not counted as a call made now.
+  c.submitBatch = (items) => base.submitBatch!(items);
+  c.collectBatch = (async (batchId: string, items: never) => {
+    const rs = await base.collectBatch!(batchId, items);
+    // The candidates are collected twice (for the grades, then for the outcomes): each answer is counted once.
+    for (const r of rs) if (r.ok && !seen.has(`${batchId}:${r.customId}`)) {
+      seen.add(`${batchId}:${r.customId}`);
+      add(tally.batch, r.result);
+    }
+    return rs;
+  }) as ModelClient["collectBatch"];
+  return c;
+}
+
 describe.skipIf(!live)("training now and on the batch path (live)", () => {
   beforeAll(async () => {
     // Before the harness, which sets MODEL_MODE=mock for its own deps.
@@ -35,7 +69,8 @@ describe.skipIf(!live)("training now and on the batch path (live)", () => {
   it(
     "checks three skills each way and reports both costs",
     async () => {
-      const acts = createTrainingActivities({ ...t.deps, models: client });
+      const tally = { now: {} as Tally, batch: {} as Tally };
+      const acts = createTrainingActivities({ ...t.deps, models: counting(client, tally) });
       const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
       const live = await repos.agents.getVersion(t.db, t.businessId, agent.currentVersionId!);
       const start = async () => {
@@ -79,7 +114,7 @@ describe.skipIf(!live)("training now and on the batch path (live)", () => {
       const batch = await finalize(batchRun, await acts.collectTrainingOutcomes({ ...batchRun.input, candidateBatchId, graderBatchId }));
 
       const estimate = (b: boolean, tests: number) => trainingEstimate({ tests, agentModel: nowRun.loaded.modelKey, batch: b }).costMinor;
-      console.warn(`[eval] training cost: ${JSON.stringify({ skills: nowRun.input.skillKeys, model: nowRun.loaded.modelKey, now: { ...now, estimateMinor: estimate(false, now.tests) }, batch: { ...batch, estimateMinor: estimate(true, batch.tests) } })} (list price, before the credit markup)`);
+      console.warn(`[eval] training cost: ${JSON.stringify({ skills: nowRun.input.skillKeys, model: nowRun.loaded.modelKey, now: { ...now, estimateMinor: estimate(false, now.tests), byRoute: tally.now }, batch: { ...batch, estimateMinor: estimate(true, batch.tests), byRoute: tally.batch } })} (list price, before the credit markup)`);
       expect(now.tests).toBeGreaterThan(0);
       expect(batch.tests).toBeGreaterThan(0);
       expect(now.costMinor).toBeLessThanOrEqual(MAX_RUN_NOW_MINOR);
