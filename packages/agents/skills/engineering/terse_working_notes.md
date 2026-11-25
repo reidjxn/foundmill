@@ -6,8 +6,8 @@ category: engineering
 attribute_name: Terse working notes
 attribute_group: execution
 when_to_use: Use when working through a code task, for your own working turns and tool-run notes, never for anything a person will read.
-roles: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
-default_for: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
+roles: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, security_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
+default_for: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, security_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
 default_since: 6
 load: always
 stage: building, page_live, first_followers, first_sale, growing

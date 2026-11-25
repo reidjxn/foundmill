@@ -20,6 +20,7 @@ const EXPECTED_KEYS = [
   "frontend_engineer",
   "data_engineer",
   "infra_engineer",
+  "security_engineer",
   "qa_engineer",
   "design_to_code",
   "docs_writer",

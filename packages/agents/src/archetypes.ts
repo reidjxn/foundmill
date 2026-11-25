@@ -68,7 +68,8 @@ export const UTILITY_TEMPLATE_KEYS: readonly string[] = Object.freeze(["entity_l
 // The starting team (WP-04 T4): defined in @foundmill/shared so Commit and Team › Agents read the same list.
 export { STARTING_TEAM_TEMPLATE_KEYS, startingTeam } from "@foundmill/shared";
 
-const CODING_CORE = ["planner", "backend_engineer", "frontend_engineer", "qa_engineer", "review_agent", "integration_agent"];
+// Every project with engineering agents has a Head of Security (founder, Nov 25, 2026).
+const CODING_CORE = ["planner", "backend_engineer", "frontend_engineer", "qa_engineer", "review_agent", "integration_agent", "security_engineer"];
 
 interface DeptSpec {
   base: DepartmentDefault;
@@ -463,7 +464,7 @@ const dtcPhysical = ArchetypeSeed.parse({
   assistantTemplateKey: "chief_of_staff",
   departments: departments([
     { base: DEPARTMENT_DEFAULTS.product, members: ["researcher", "product_researcher"] },
-    { base: DEPARTMENT_DEFAULTS.development, members: ["planner", "frontend_engineer", "backend_engineer", "qa_engineer", "review_agent", "integration_agent", "design_to_code"] },
+    { base: DEPARTMENT_DEFAULTS.development, members: [...CODING_CORE, "design_to_code"] },
     {
       base: OPERATIONS_DEPARTMENT,
       members: ["sourcing_manufacturing", "formulation_chemist", "pharmacology_regulatory", "certification", "packaging_design", "quality", "logistics", "costing"],
@@ -668,7 +669,7 @@ const services = ArchetypeSeed.parse({
   assistantTemplateKey: "chief_of_staff",
   departments: departments([
     { base: DEPARTMENT_DEFAULTS.product, members: ["researcher", "product_researcher"], name: "Service design" },
-    { base: DEPARTMENT_DEFAULTS.development, members: ["planner", "frontend_engineer", "backend_engineer", "qa_engineer", "review_agent", "integration_agent", "docs_writer"], budgetMinor: 30_000 },
+    { base: DEPARTMENT_DEFAULTS.development, members: [...CODING_CORE, "docs_writer"], budgetMinor: 30_000 },
     { base: DEPARTMENT_DEFAULTS.distribution, members: channelMembers(["lead_generation", "events", "email_automation", "seo", "pr"]) },
     { base: DEPARTMENT_DEFAULTS.finance, members: [] },
     { base: DEPARTMENT_DEFAULTS.team, members: [...UTILITY_TEMPLATE_KEYS] },
@@ -747,7 +748,7 @@ const contentMedia = ArchetypeSeed.parse({
   assistantTemplateKey: "chief_of_staff",
   departments: departments([
     { base: DEPARTMENT_DEFAULTS.product, members: ["researcher", "product_researcher"], name: "Editorial" },
-    { base: DEPARTMENT_DEFAULTS.development, members: ["planner", "frontend_engineer", "backend_engineer", "qa_engineer", "review_agent", "integration_agent"], budgetMinor: 30_000 },
+    { base: DEPARTMENT_DEFAULTS.development, members: [...CODING_CORE], budgetMinor: 30_000 },
     { base: DEPARTMENT_DEFAULTS.distribution, members: channelMembers(["content", "social", "email_automation", "seo", "geo", "affiliate"]) },
     { base: DEPARTMENT_DEFAULTS.finance, members: [] },
     { base: DEPARTMENT_DEFAULTS.team, members: [...UTILITY_TEMPLATE_KEYS] },

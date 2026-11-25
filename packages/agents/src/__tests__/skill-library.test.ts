@@ -54,7 +54,11 @@ const CLI_ANYTHING_KEYS = ["make_brand_assets", "make_documents_and_decks", "mak
 const ADDED_KEYS = ["tool_scout", "browser_work", "patent_preparation"];
 /** The two coding skills added by WP-06 T13 (founder, Nov 18, 2026), defaults from release 6. */
 const T13_KEYS = ["smallest_change", "terse_working_notes"];
-const ALL_KEYS = [...new Set([...KEPT_KEYS, ...DRAFTED_KEYS, ...ADDED_KEYS, ...T13_KEYS])];
+/** Error reports for what the team builds, a default for the Head of Security from release 7 (founder, Nov 25, 2026). */
+const SENTRY_KEY = "error_reports_sentry";
+/** Bodies changed on Nov 25, 2026: speed numbers, a typed code for sign-up, and the first hour of a launch. */
+const NOV_25_V2 = ["ui_quality_checklist", "signup_flow", "launch_plan", "social_strategy"];
+const ALL_KEYS = [...new Set([...KEPT_KEYS, ...DRAFTED_KEYS, ...ADDED_KEYS, ...T13_KEYS, SENTRY_KEY])];
 
 /** Agents a founder hires: every template but the utilities, which take typed input and render no Skills section. */
 const HIREABLE = TEMPLATE_KEYS.filter((k) => !UTILITY_TEMPLATE_KEYS.includes(k));
@@ -129,8 +133,8 @@ describe("the library is generated from packages/agents/skills", () => {
     expect(generator.renderCatalog(SKILLS_DIR)).toBe(readFileSync(CATALOG, "utf8"));
   });
 
-  it("keeps the 20 keys and holds the 64 drafts, the tool scout, working in a website, patent preparation, the 3 CLI-Anything skills and T13's two (91 skills), in category order and then by key", () => {
-    expect(ALL_KEYS).toHaveLength(91);
+  it("keeps the 20 keys and holds the 64 drafts, the tool scout, working in a website, patent preparation, the 3 CLI-Anything skills T13's two and error reports (92 skills), in category order and then by key", () => {
+    expect(ALL_KEYS).toHaveLength(92);
     expect([...SKILL_LIBRARY.map((s) => s.key)].sort()).toEqual([...ALL_KEYS].sort());
     const rank = (s: (typeof SKILL_LIBRARY)[number]) => SKILL_LIBRARY_CATEGORIES.indexOf(s.category);
     const ordered = [...SKILL_LIBRARY].sort((a, b) => rank(a) - rank(b) || a.key.localeCompare(b.key));
@@ -151,7 +155,7 @@ describe("the library is generated from packages/agents/skills", () => {
       const fix = FIXED[s.key];
       // pricing_analysis: the drafted body replaced the old one under the same key (WP-06 T3).
       // tool_scout: the hosted browser route (Part D, Nov 22, 2026).
-      expect(s.version, s.key).toBe(fix || s.key === "pricing_analysis" || s.key === "tool_scout" ? 2 : 1);
+      expect(s.version, s.key).toBe(fix || s.key === "pricing_analysis" || s.key === "tool_scout" || NOV_25_V2.includes(s.key) ? 2 : 1);
       if (!fix) continue;
       expect(s.instructionsMd.split("\n"), s.key).toContain(fix.after);
       expect(s.instructionsMd, s.key).not.toContain(fix.before);
@@ -198,7 +202,7 @@ describe("every library skill (WP-06 T3)", () => {
       expect(s.roles.length, s.key).toBeGreaterThan(0);
       for (const r of s.roles) expect(HIREABLE, `${s.key} roles ${r}`).toContain(r);
       for (const r of s.defaultFor) expect(s.roles, `${s.key} default_for ${r}`).toContain(r);
-      expect(s.defaultSince, s.key).toBe(s.key === "tool_scout" ? 2 : CLI_ANYTHING_KEYS.includes(s.key) ? 3 : s.key === "browser_work" ? 4 : s.key === "patent_preparation" ? 5 : T13_KEYS.includes(s.key) ? 6 : 1);
+      expect(s.defaultSince, s.key).toBe(s.key === "tool_scout" ? 2 : CLI_ANYTHING_KEYS.includes(s.key) ? 3 : s.key === "browser_work" ? 4 : s.key === "patent_preparation" ? 5 : T13_KEYS.includes(s.key) ? 6 : s.key === SENTRY_KEY ? 7 : 1);
     }
   });
 
@@ -247,7 +251,7 @@ describe("every library skill (WP-06 T3)", () => {
   });
 
   it("gives coding_discipline by default to every template that writes code", () => {
-    expect(CODE_TEMPLATES).toHaveLength(11);
+    expect(CODE_TEMPLATES).toHaveLength(12);
     expect([...SKILL_LIBRARY.find((s) => s.key === "coding_discipline")!.defaultFor].sort()).toEqual([...CODE_TEMPLATES].sort());
   });
 

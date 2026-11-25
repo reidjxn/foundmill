@@ -17,8 +17,10 @@ const rowsFor = (templateKey: string) =>
   });
 
 describe("default skills per role", () => {
-  it("is the sixth release of defaults: the tool scout (release 2), the CLI-Anything skills (release 3), working in a website (release 4), patent preparation for the Legal Lead (release 5) and T13's two coding skills (release 6)", () => {
-    expect(DEFAULT_SKILLS_VERSION).toBe(6);
+  it("is the seventh release of defaults: the tool scout (release 2), the CLI-Anything skills (release 3), working in a website (release 4), patent preparation for the Legal Lead (release 5) T13's two coding skills (release 6) and error reports for the Head of Security (release 7)", () => {
+    expect(DEFAULT_SKILLS_VERSION).toBe(7);
+    expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 7).map((s) => s.key)).toEqual(["error_reports_sentry"]);
+    expect(defaultSkillKeysFor("security_engineer")).toContain("error_reports_sentry");
     expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 2).map((s) => s.key)).toEqual(["tool_scout"]);
     expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 3).map((s) => s.key).sort()).toEqual(["make_brand_assets", "make_documents_and_decks", "make_media_files"]);
     expect(SKILL_LIBRARY.filter((s) => s.defaultSince === 4).map((s) => s.key)).toEqual(["browser_work"]);

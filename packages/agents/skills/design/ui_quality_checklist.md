@@ -13,7 +13,7 @@ needs: repo
 adapted_from: ui-ux-pro-max:ui-ux-pro-max
 license_note: MIT, Copyright (c) 2024 Next Level Builder
 improves: exploratory_testing, accessibility, change_risk_assessment
-version: 1
+version: 2
 ---
 # Interface quality checklist
 
@@ -50,7 +50,9 @@ Run each section for each view. Mark every item pass, miss or not checked.
 
 - Touch targets are at least 44 by 44 px on touch screens, with at least 8 px between neighbors.
 - Nothing depends on hover alone. Whatever hover reveals can also be reached by tap and by keyboard.
-- Every action answers within a moment: a pressed state, then a loading state for anything slower.
+- Every action answers within 100 ms: a pressed state shows before the finger lifts, even when the work is not done.
+- An action that nearly always succeeds (a like, a send, a toggle, adding to a list) shows its result at once and saves in the background. If the save fails, put it back and say so.
+- A wait shorter than 300 ms shows no loading sign at all. A sign that flashes makes the page feel slower.
 - A button that submits is disabled while the request runs, so a double tap cannot send twice.
 - Anything that cannot be undone asks for confirmation first, or offers an undo.
 
@@ -73,7 +75,9 @@ Run each section for each view. Mark every item pass, miss or not checked.
 
 **5. States**
 
-- Loading: a view that waits on data shows that it is loading and keeps its layout stable.
+- Loading: a view that waits on data shows a skeleton (gray shapes where the content will sit), not a spinner, and keeps its layout stable. Images fade in over a soft placeholder, never a blank box.
+- A wait longer than one second says what is happening. A progress bar never stalls near the end.
+- Loading starts on the tap, not after the next screen opens.
 - Empty: it says what will appear there and offers the one action that fills it.
 - Error: it says what went wrong in plain words and how to try again. It does not show a raw code or a blank screen.
 - Success: a completed action is confirmed where the person is looking.

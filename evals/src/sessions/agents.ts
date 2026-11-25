@@ -237,6 +237,10 @@ const DATA_FILES = { "package.json": pkg("corner-cafe-data"), "orders.csv": ORDE
 const NODE_TEST = 'import { test } from "node:test";\nimport assert from "node:assert/strict";\nimport { readFileSync } from "node:fs";\n\ntest("the project builds on Node 22", () => {\n  const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));\n  assert.match(pkg.engines.node, /^(>=|\\^)?22/);\n  assert.equal(readFileSync(new URL("./.nvmrc", import.meta.url), "utf8").trim(), "22");\n});\n';
 const INFRA_FILES = { "package.json": `${JSON.stringify({ name: "corner-cafe-site", private: true, type: "module", engines: { node: ">=18" }, scripts: { test: "node --test" } }, null, 2)}\n`, ".nvmrc": "18\n", "node-version.test.js": NODE_TEST };
 
+// The Head of Security's case: a public project key for error reports typed into a source file.
+const DSN = "https://abc123@o4500000000000001.ingest.sentry.io/4500000000000002";
+const REPORTS_FILES = { "package.json": pkg("corner-cafe-shop"), "error-reports.js": `export const dsn = "${DSN}";\n`, ".env.example": "PORT=3000\n" };
+
 const QA_FILES = { "package.json": pkg("corner-cafe-shop"), "pricing.json": `${JSON.stringify({ currency: "USD", salesTaxRate: 0.08, loyaltyStampsForFreeDrink: 10 }, null, 2)}\n` };
 
 const CARD_FILES = { "package.json": pkg("corner-cafe-site"), "styles.css": ":root {\n  --brand: #1f6f4a;\n}\n" };
@@ -398,6 +402,19 @@ export const AGENT_E2E_CASES: readonly SessionCase[] = Object.freeze([
       return /^(>=|\^)?22/.test(engines) && (f.get(".nvmrc") ?? "").trim() === "22" ? pass("the project builds on Node 22") : fail("the project builds on Node 22", `engines.node ${JSON.stringify(engines)}, .nvmrc ${JSON.stringify((f.get(".nvmrc") ?? "").trim())}`);
     },
     writes: { "package.json": INFRA_FILES["package.json"].replace(">=18", ">=22"), ".nvmrc": "22\n" },
+  }),
+  codeCase({
+    id: "security_engineer.key_from_the_environment",
+    agentType: "security_engineer",
+    title: "Read the error-report key from the environment",
+    goal: "error-reports.js has the project key for error reports typed into it. Read it from the environment variable SENTRY_DSN instead (reporting is off when it is not set), and name the variable in .env.example without its value.",
+    files: REPORTS_FILES,
+    run: (f) => {
+      const src = f.get("error-reports.js") ?? "";
+      const example = f.get(".env.example") ?? "";
+      return /process\.env\.SENTRY_DSN/.test(src) && !src.includes("ingest.sentry.io") && /^SENTRY_DSN=$/m.test(example) ? pass("the key comes from the environment") : fail("the key comes from the environment", "error-reports.js still holds the key, or .env.example does not name SENTRY_DSN with no value");
+    },
+    writes: { "error-reports.js": "export const dsn = process.env.SENTRY_DSN ?? null;\n", ".env.example": "PORT=3000\nSENTRY_DSN=\n" },
   }),
   codeCase({
     id: "qa_engineer.writes_the_test",

@@ -66,7 +66,7 @@ export const KNOWLEDGE_NUDGES: readonly NudgePreset[] = Object.freeze([
   HURRY_UP,
 ]);
 
-const ENGINEERING_TYPES = new Set(["backend_engineer", "frontend_engineer", "data_engineer", "infra_engineer", "qa_engineer", "design_to_code", "integration_agent", "review_agent", "planner", "engineering_lead"]);
+const ENGINEERING_TYPES = new Set(["backend_engineer", "frontend_engineer", "data_engineer", "infra_engineer", "security_engineer", "qa_engineer", "design_to_code", "integration_agent", "review_agent", "planner", "engineering_lead"]);
 
 function presetsFor(template: AgentTemplate | undefined, agentType: string): readonly NudgePreset[] {
   if (ENGINEERING_TYPES.has(agentType)) return ENGINEERING_NUDGES;

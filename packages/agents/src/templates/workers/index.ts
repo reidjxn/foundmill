@@ -2,6 +2,7 @@ export { backendEngineer } from "./backend_engineer";
 export { frontendEngineer } from "./frontend_engineer";
 export { dataEngineer } from "./data_engineer";
 export { infraEngineer } from "./infra_engineer";
+export { securityEngineer } from "./security_engineer";
 export { qaEngineer } from "./qa_engineer";
 export { designToCode } from "./design_to_code";
 export { docsWriter } from "./docs_writer";

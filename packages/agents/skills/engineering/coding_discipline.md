@@ -6,8 +6,8 @@ category: engineering
 attribute_name: Coding discipline
 attribute_group: judgement # us-english-allow
 when_to_use: Use when writing, changing or reviewing code for any task, before the first edit and again before handing the change back.
-roles: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
-default_for: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
+roles: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, security_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
+default_for: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, security_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
 stage: building, page_live, first_followers, first_sale, growing
 needs: repo
 adapted_from: original, after Andrej Karpathy's observations on LLM coding pitfalls
