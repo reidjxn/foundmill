@@ -73,6 +73,8 @@ export const THIRD_PARTY_CONNECTOR_KEYS = [
   // Lightbringer's own remote MCP server for patents (founder, 2026-11-22), on the founder's own sign-in. Mock-only until
   // Foundmill's OAuth client is set. Its one request to prepare a filing is never an agent's tool (a founder-executed tool).
   "lightbringer_mcp",
+  // Sentry's own remote MCP server for error reports (founder, Nov 25, 2026), on the founder's own Sentry sign-in.
+  "sentry_mcp",
 ] as const;
 
 export const CONNECTOR_KEYS = [...PLATFORM_CONNECTOR_KEYS, ...THIRD_PARTY_CONNECTOR_KEYS] as const;

@@ -8,7 +8,7 @@ export * from "./browser-sites";
 export * from "./browser-web";
 export * from "./connectors/browser";
 export * from "./tool-recommendation";
-export { MOCK_ONLY_CONNECTORS, REMOTE_MCP_SERVERS, createNotionMcpConnector, createHubspotMcpConnector, createShopifyMcpConnector, createLightbringerMcpConnector, createMcpCustomConnector, FOUNDER_EXECUTED_TOOLS, remoteFounderExecutedCall, listProblems as remoteListProblems, LIGHTBRINGER_MCP, LIGHTBRINGER_DEMO_INVENTION, LIGHTBRINGER_DEMO_FAIL_INVENTION, assertPublicServer, remoteToolList, MCP_CUSTOM_KEY, remoteHardGateCall, toolName as remoteToolName } from "./remote-mcp";
+export { MOCK_ONLY_CONNECTORS, REMOTE_MCP_SERVERS, createNotionMcpConnector, createHubspotMcpConnector, createShopifyMcpConnector, createLightbringerMcpConnector, createSentryMcpConnector, SENTRY_MCP, SENTRY_DEMO_ISSUE, SENTRY_DEMO_INJECTION_ISSUE, createMcpCustomConnector, FOUNDER_EXECUTED_TOOLS, remoteFounderExecutedCall, listProblems as remoteListProblems, LIGHTBRINGER_MCP, LIGHTBRINGER_DEMO_INVENTION, LIGHTBRINGER_DEMO_FAIL_INVENTION, assertPublicServer, remoteToolList, MCP_CUSTOM_KEY, remoteHardGateCall, toolName as remoteToolName } from "./remote-mcp";
 export * from "./mock-utils";
 export * from "./quarantine";
 export * from "./facts";

@@ -43,6 +43,8 @@ export interface RemoteServer {
   /** False until someone checked the server's OAuth and tools against the live vendor: the connector stays mock-only and Settings hides it. */
   live: boolean;
   scopes?: readonly string[];
+  /** Scopes a sign-in must not carry (Sentry's write access to keys, teams and alerts): a token that reports one is not connected. */
+  refusedScopes?: readonly string[];
   /** Foundmill's pre-registered OAuth client at this vendor (env on the gateway); null when not configured. */
   clientOf(secrets: PlatformSecrets): McpClientIdentity | null;
   /** Env names a ConfigError tells the operator to set. */
@@ -188,13 +190,13 @@ export function createRemoteMcpConnector(server: RemoteServer, options: RemoteOp
         const t = await exchangeCode(fetch, ep, id, { code: given.code, redirectUri: start.redirectUri, verifier, resource: server.url }, now);
         // A server that grants a scope Foundmill did not ask for (Lightbringer's `mcp:trade-secrets`) is not connected.
         const granted = typeof t.raw.scope === "string" ? t.raw.scope.split(/[\s,]+/).filter(Boolean) : [];
-        const extra = server.scopes ? granted.filter((s) => !server.scopes!.includes(s)) : [];
+        const extra = server.scopes ? granted.filter((s) => !server.scopes!.includes(s)) : granted.filter((s) => server.refusedScopes?.includes(s));
         if (extra.length > 0) throw new ConnectInputError(server.key, "scope", `${server.displayName} granted access ${APP_NAME} did not ask for (${extra.join(", ")}), so it was not connected. Connect it again and leave that access out.`);
         const createdAt = now().toISOString();
         const label = typeof t.raw.workspace_name === "string" && t.raw.workspace_name ? t.raw.workspace_name : server.displayName;
         const account = [t.raw.workspace_id, t.raw.hub_id, t.raw.user_id].find((v): v is string | number => typeof v === "string" || typeof v === "number");
         return {
-          id: uuid(), businessId, connectorKey: server.key, status: "connected", scopes: [...(server.scopes ?? [])], accountLabel: label, externalAccountId: account === undefined ? null : String(account),
+          id: uuid(), businessId, connectorKey: server.key, status: "connected", scopes: server.scopes ? [...server.scopes] : granted, accountLabel: label, externalAccountId: account === undefined ? null : String(account),
           config: { server: server.url }, credentialRef: null, expiresAt: t.refreshToken ? null : (t.expiresAt ?? null), lastHealthAt: createdAt, createdAt,
           credentialToStore: { kind: "oauth", secret: t.accessToken, ...(t.refreshToken ? { refreshToken: t.refreshToken } : {}), ...(t.expiresAt ? { expiresAt: t.expiresAt } : {}) },
         };

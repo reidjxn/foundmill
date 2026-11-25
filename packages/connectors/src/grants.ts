@@ -56,7 +56,7 @@ import { opensrsTools } from "./connectors/opensrs/tools";
 import { webTools } from "./connectors/web/tools";
 import { e2bTools } from "./connectors/e2b/tools";
 import { platformMailTools } from "./connectors/platform_mail/tools";
-import { HUBSPOT_MCP, LIGHTBRINGER_MCP, NOTION_MCP, SHOPIFY_MCP } from "./remote-mcp/servers";
+import { HUBSPOT_MCP, LIGHTBRINGER_MCP, NOTION_MCP, SENTRY_MCP, SHOPIFY_MCP } from "./remote-mcp/servers";
 import { FOUNDER_EXECUTED_TOOLS } from "./remote-mcp";
 import { remoteToolList } from "./remote-mcp/build";
 import { BROWSER_SITES } from "./browser-sites";
@@ -118,6 +118,7 @@ const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: Pol
   hubspot_mcp: remoteToolList(HUBSPOT_MCP),
   shopify_mcp: remoteToolList(SHOPIFY_MCP),
   lightbringer_mcp: remoteToolList(LIGHTBRINGER_MCP),
+  sentry_mcp: remoteToolList(SENTRY_MCP),
   mcp_custom: [
     { name: "list_remote_tools", hints: {} },
     { name: "call_unlisted_tool", hints: { contactsThirdParty: true, irreversible: true } },
@@ -215,6 +216,11 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "inventions.draft": ["register_innovation", "update_innovation", "start_innovation_feedback"],
     "reviews.respond": ["respond_to_review", "add_comment", "add_discussion_comment", "reply_to_comment", "comment"],
     "patents.manage": ["set_validation_countries", "import_patent", "start_journey", "ask_agent", "answer_agent", "update_company_context"],
+  },
+  // Error reports in the founder's own Sentry (founder, Nov 25, 2026): reading runs; changing an issue is a separate capability.
+  sentry_mcp: {
+    "issues.read": ["whoami", "find_organizations", "find_projects", "search_issues", "get_issue_details", "search_issue_events", "get_event_stacktrace", "get_issue_breadcrumbs", "get_issue_tag_values", "get_issue_activity", "find_related_issues", "find_releases", "get_release_details"],
+    "issues.update": ["update_issue", "link_issue"],
   },
   notion: { "pages.search": ["search", "query_data_source"], "pages.read": ["get_page", "get_page_content", "query_data_source"], "pages.write": ["create_page", "append_paragraphs"] },
   opencorporates: { "companies.search": ["search_companies", "get_company"] },

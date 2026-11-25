@@ -11,7 +11,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
-import { createHubspotMcpConnector, createNotionMcpConnector, type Connector } from "@foundmill/connectors";
+import { createHubspotMcpConnector, createNotionMcpConnector, createSentryMcpConnector, SENTRY_DEMO_INJECTION_ISSUE, type Connector } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { storeCredential } from "../credentials";
 import { doneKeyOf } from "../pipeline";
@@ -185,5 +185,30 @@ describe("unasked HubSpot changes", () => {
     const session = { agentId: "a1", sessionId: "s1" };
     expect(doneKeyOf(hubspot, "manage_crm_objects", { objectType: "contacts" }, {}, session)).toBeTruthy();
     expect(doneKeyOf(hubspot, "search_crm_objects", {}, {}, session)).toBeNull();
+  });
+});
+
+describe("Sentry error reports (founder, Nov 25, 2026)", () => {
+  const sentry = (): Connector[] => [createSentryMcpConnector({ secrets: {} })];
+  const READ = { connector: "sentry_mcp", tool: "get_issue_details", args: { issueId: SENTRY_DEMO_INJECTION_ISSUE } } as const;
+
+  it("mock: a report comes back untrusted and simulated, the instruction inside it only as data", async () => {
+    const g = (open = await setupGateway({ mode: "mock", businessMode: "automated", connectors: sentry() }));
+    const token = await g.token({ allowedTools: ["sentry_mcp:get_issue_details"] });
+    const r = asAllow(await g.client.call(token, READ));
+    expect(r.result).toMatchObject({ ok: true, untrusted: true, simulated: true, notice: SIMULATED_NOTICE });
+  });
+
+  it("changing an issue runs unasked; a note asks in augmented mode; keys and access are denied", async () => {
+    const g = (open = await setupGateway({ mode: "mock", businessMode: "augmented", connectors: sentry() }));
+    const token = await g.token({ allowedTools: ["sentry_mcp:*"] });
+    expect(asAllow(await g.client.call(token, { connector: "sentry_mcp", tool: "update_issue", args: { issueId: "BOOKING-42", status: "resolved" } })).result.ok).toBe(true);
+    expect((await g.client.call(token, { connector: "sentry_mcp", tool: "add_issue_note", args: { issueId: "BOOKING-42", text: "Fixed in PR 12" } })).outcome).toBe("ask");
+    for (const tool of ["create_dsn", "add_team_to_project"]) {
+      const r = await g.client.call(token, { connector: "sentry_mcp", tool, args: {} });
+      expect(r.outcome, tool).toBe("deny");
+      expect(JSON.stringify(r), tool).toContain("hard-gate");
+    }
+    expect((await g.client.call(token, { connector: "sentry_mcp", tool: "call_unlisted_tool", args: { tool: "delete_alert_rule", arguments: {} } })).outcome).toBe("deny");
   });
 });

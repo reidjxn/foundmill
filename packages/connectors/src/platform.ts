@@ -68,6 +68,7 @@ export interface PlatformSecrets {
   hubspotMcpClientSecret?: string;
   shopifyMcpClientId?: string;
   lightbringerMcpClientId?: string;
+  sentryMcpClientId?: string;
 }
 
 /**
@@ -129,6 +130,7 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   set("hubspotMcpClientSecret", env.HUBSPOT_MCP_CLIENT_SECRET);
   set("shopifyMcpClientId", env.SHOPIFY_MCP_CLIENT_ID);
   set("lightbringerMcpClientId", env.LIGHTBRINGER_MCP_CLIENT_ID);
+  set("sentryMcpClientId", env.SENTRY_MCP_CLIENT_ID);
   return s;
 }
 
