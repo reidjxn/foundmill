@@ -19,7 +19,8 @@
     "@hono/node-server": "catalog:",
     "@foundmill/db": "workspace:*",
     "@foundmill/shared": "workspace:*",
-    "@foundmill/config": "workspace:*"
+    "@foundmill/config": "workspace:*",
+    "@foundmill/journey": "workspace:*"
   },
   "devDependencies": {
     "drizzle-orm": "catalog:",

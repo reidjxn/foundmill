@@ -1,7 +1,7 @@
 /**
  * 0124 `sites` and `site_releases` (WP-07 T2). Not in the generated suite (one site per business, and a release needs
  * that site), so this file covers their tenancy, the founder's press (`sites_publish`, `site_releases_publish` and the
- * column grants), the same-business triggers, `site_resolve` and `site_file`, and the `sites_reader` login.
+ * column grants), the same-business triggers, `site_resolve` and `site_file`, the `sites_reader` login, and `site_visit` (0176).
  */
 import { createHash } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
@@ -305,6 +305,50 @@ describe("sites_reader", () => {
     expect((await asReader(sql`select * from site_resolve('beta-site')`)).rows).toEqual([{ release_id: bPreview.id, business_id: B.businessId, kind: "live", plan_tier: "free" }]);
     expect((await asReader(sql`select site_report('nobody-here', 'scam', null) as r`)).rows).toEqual([{ r: "unknown" }]);
     expect((await asReader(sql`select size from site_file(${bPreview.id}::uuid, 'index.html')`)).rows).toEqual([{ size: Buffer.byteLength(ONLY_B) }]);
+  });
+});
+
+describe("site_visit (0176): a Site's visit counts", () => {
+  const siteRows = (businessId: string) => h.service().run((tx) => tx.select().from(s.pageVisitDays).where(eq(s.pageVisitDays.businessId, businessId)));
+  const asReader = (q: ReturnType<typeof sql>) =>
+    h.db.transaction(async (tx) => {
+      await tx.execute(sql`set local role sites_reader`);
+      return tx.execute(q);
+    });
+
+  it("sites_reader counts a live site's visit for its own business only, and reads or writes no row itself", async (ctx) => {
+    if (!(await canBecomeReader())) ctx.skip();
+    await asReader(sql`select site_visit('beta-site', 'search')`);
+    await asReader(sql`select site_visit('BETA-SITE', 'search')`);
+    const rows = await siteRows(B.businessId);
+    expect(rows.map((r) => ({ surface: r.surface, source: r.source, visits: r.visits }))).toEqual([{ surface: "site", source: "search", visits: 2 }]);
+    expect(await siteRows(A.businessId)).toEqual([]);
+    expect(await causes(asReader(sql`select * from page_visit_days`))).toMatch(/permission denied for table/);
+    expect(await causes(asReader(sql`insert into page_visit_days (business_id, day, source) values (${B.businessId}, '2026-11-25', 'direct')`))).toMatch(/permission denied for table/);
+    // Cross-tenant: A's people read none of B's counts; B's owner reads them under RLS.
+    expect(await h.asUser(A.ownerId).run((tx) => tx.select().from(s.pageVisitDays))).toEqual([]);
+    expect((await h.asUser(B.ownerId).run((tx) => tx.select().from(s.pageVisitDays))).map((r) => r.businessId)).toEqual([B.businessId]);
+  });
+
+  it("counts nothing for a draft, a taken-down site, a preview, an unknown label, a source off the list, or a sample project", async () => {
+    const before = (await siteRows(B.businessId)).reduce((n, r) => n + r.visits, 0);
+    for (const label of ["alpha-site", "gamma-site", `p-${aPreview2.previewToken}`, `p-${bPreview.previewToken}`, "nobody-here"]) {
+      await h.service().execute(sql`select site_visit(${label}, 'direct')`);
+    }
+    await h.service().execute(sql`select site_visit('beta-site', 'evil')`);
+    await h.db.execute(sql`update businesses set is_demo = true where id = ${B.businessId}`);
+    try {
+      await h.service().execute(sql`select site_visit('beta-site', 'direct')`);
+    } finally {
+      await h.db.execute(sql`update businesses set is_demo = false where id = ${B.businessId}`);
+    }
+    for (const f of [A, C]) expect(await siteRows(f.businessId), f.businessId).toEqual([]);
+    expect((await siteRows(B.businessId)).reduce((n, r) => n + r.visits, 0)).toBe(before);
+  });
+
+  it("no client role may call it", async () => {
+    await expect(h.anon().run((tx) => tx.execute(sql`select site_visit('beta-site', 'direct')`))).rejects.toThrow(/permission denied/);
+    await expect(h.asUser(B.ownerId).run((tx) => tx.execute(sql`select site_visit('beta-site', 'direct')`))).rejects.toThrow(/permission denied/);
   });
 });
 

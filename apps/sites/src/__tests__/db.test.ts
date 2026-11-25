@@ -1,13 +1,13 @@
 /**
  * apps/sites on a real (PGlite) database, every call made as `sites_reader`: the login the service runs as is enough
- * to serve a published release, its preview, and a report, and a held release is never served.
+ * to serve a published release, its preview, and a report, to count a visit, and a held release is never served.
  */
 import { createHash } from "node:crypto";
 import { createBusinessFixture, type BusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { repos, type SiteRelease } from "@foundmill/db";
 import { sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createSitesApp } from "../app";
 import { sitesDeps } from "../index";
 
@@ -73,5 +73,13 @@ describe("apps/sites as sites_reader", () => {
     expect(res.status).toBe(200);
     const rows = (await h.db.execute(sql`select details from audit_log where business_id = ${A.businessId} and action = 'site.reported'`)) as unknown as { rows: { details: { reason: string } }[] };
     expect(rows.rows.map((r) => r.details.reason)).toEqual(["scam"]);
+  });
+
+  it("counts a browser's visit to the live site through the login (0176), and none to the preview", async () => {
+    const browser = { "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15", "sec-fetch-dest": "document", referer: "https://www.google.com/" };
+    expect((await get(`alpha-site.${DOMAIN}`, "/", { headers: browser })).status).toBe(200);
+    expect((await get(`p-${live.previewToken}.${DOMAIN}`, "/", { headers: browser })).status).toBe(200);
+    const counted = async () => ((await h.db.execute(sql`select surface, source, visits from page_visit_days where business_id = ${A.businessId}`)) as unknown as { rows: unknown[] }).rows;
+    await vi.waitFor(async () => expect(await counted()).toEqual([{ surface: "site", source: "search", visits: 1 }]));
   });
 });

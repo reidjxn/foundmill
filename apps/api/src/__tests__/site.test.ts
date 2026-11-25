@@ -5,7 +5,7 @@
  * capability reaches these procedures; with SITES_DOMAIN unset the view says `enabled: false`.
  */
 import { CAPABILITY_TOOLS } from "@foundmill/connectors";
-import { repos, type SiteRelease } from "@foundmill/db";
+import { pageVisitDays, repos, type SiteRelease } from "@foundmill/db";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SITE_PUBLISH_LIMIT_MESSAGE, SITE_PUBLISH_ROLE_MESSAGE } from "../services/sites";
@@ -69,8 +69,22 @@ describe("site.get", () => {
 
   it("is off, with nothing in it, while SITES_DOMAIN is unset", async () => {
     const p = await project(off, { site: false });
-    expect(await p.owner.site.get({ businessId: p.id })).toEqual({ enabled: false, site: null, releases: [], canPublish: false });
+    expect(await p.owner.site.get({ businessId: p.id })).toEqual({ enabled: false, site: null, releases: [], canPublish: false, visits: null });
     expect(await code(p.owner.site.unpublish({ businessId: p.id }))).toMatch(/^NOT_FOUND|sites_off/);
+  });
+
+  it("shows the Site's own visit counts (0176), not the public page's, and none of another project's", async () => {
+    const a = await project(hz);
+    const b = await project(hz);
+    const today = new Date().toISOString().slice(0, 10);
+    await hz.db.insert(pageVisitDays).values([
+      { businessId: a.id, day: today, surface: "site", source: "search", visits: 3 },
+      { businessId: a.id, day: today, surface: "page", source: "direct", visits: 9 },
+      { businessId: b.id, day: today, surface: "site", source: "social", visits: 5 },
+    ]);
+    const view = await a.owner.site.get({ businessId: a.id });
+    expect(view.visits).toMatchObject({ estimate: true, last7: 3, total: 3, bySource: [{ source: "search", visits: 3 }] });
+    expect((await a.member.site.get({ businessId: a.id })).visits!.total).toBe(3);
   });
 
   it("never shows another business's site", async () => {

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { createSitesApp, sitePath, siteLabel, type ResolvedSite, type SiteFile, type SitesDeps } from "../app";
+import { SITE_VISIT_MAX_IN_FLIGHT, SITE_VISIT_MAX_PER_MINUTE, createSitesApp, sitePath, siteLabel, type ResolvedSite, type SiteFile, type SitesDeps } from "../app";
 import { siteCsp } from "../headers";
 
 const DOMAIN = "sites.localhost";
@@ -32,6 +32,7 @@ const SITES: Record<string, ResolvedSite> = {
 function makeApp(overrides: Partial<SitesDeps> = {}) {
   const reports: { label: string; reason: string; detail: string }[] = [];
   const submits: Parameters<SitesDeps["follow"]["submit"]>[0][] = [];
+  const visits: { label: string; source: string }[] = [];
   const deps: SitesDeps = {
     env: { APP_ENV: "production", APP_URL: "https://foundmill.com", SITES_DOMAIN: DOMAIN },
     resolve: async (label) => SITES[label] ?? null,
@@ -41,6 +42,7 @@ function makeApp(overrides: Partial<SitesDeps> = {}) {
       return "recorded";
     },
     ping: async () => true,
+    visit: async (label, source) => void visits.push({ label, source }),
     payLink: async (label, key) => (key === "starter" && (label === "lunchbox" || label === `p-${TOKEN}`) ? "https://buy.stripe.com/test_starter" : key === "tampered" ? "https://evil.example/x" : null),
     follow: {
       consent: async (slug) => (SITES[slug]?.kind === "live" ? { consentText: "I agree to get email from Lunchbox about the project. I can stop at any time." } : null),
@@ -55,7 +57,7 @@ function makeApp(overrides: Partial<SitesDeps> = {}) {
   };
   const app = createSitesApp(deps);
   const req = (host: string, path = "/", init: RequestInit = {}) => app.request(`http://${host}${path}`, { ...init, headers: { host, ...(init.headers as Record<string, string> | undefined) } });
-  return { app, req, reports, submits };
+  return { app, req, reports, submits, visits };
 }
 
 const EXPECTED_LIVE = {
@@ -362,5 +364,56 @@ describe("the hosted browser's test page (founder, Nov 24, 2026)", () => {
     expect(await (await req(host, "/verify")).text()).toContain('data-sitekey="test"');
     expect((await req(host, "/nothing")).status).toBe(404);
     expect((await req(host, "/", { method: "POST" })).status).toBe(405);
+  });
+});
+
+describe("visit counts (founder, Nov 25, 2026; 0176)", () => {
+  const SAFARI = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+  const browser = (more: Record<string, string> = {}) => ({ headers: { "user-agent": SAFARI, "sec-fetch-dest": "document", ...more } });
+
+  it("counts a browser's arrival at a live site's page, with its source, and never waits on it", async () => {
+    const { req, visits } = makeApp();
+    expect((await req(`lunchbox.${DOMAIN}`, "/", browser({ referer: "https://www.google.com/" }))).status).toBe(200);
+    expect((await req(`lunchbox.${DOMAIN}`, "/about/?utm_medium=email", browser())).status).toBe(200);
+    await req(`lunchbox.${DOMAIN}`, "/?via=s.k3m7qa2xpw", browser());
+    expect(visits).toEqual([
+      { label: "lunchbox", source: "search" },
+      { label: "lunchbox", source: "email" },
+      { label: "lunchbox", source: "post" },
+    ]);
+  });
+
+  it("counts an arrival from an app or a page with no web address (security review: it once answered 500)", async () => {
+    const { req, visits } = makeApp();
+    for (const referer of ["android-app://com.google.android.gm/", "ios-app://123/x", "about:blank", "not a url"]) {
+      expect((await req(`lunchbox.${DOMAIN}`, "/", browser({ referer }))).status, referer).toBe(200);
+    }
+    expect(visits).toHaveLength(4);
+  });
+
+  it("does not count a bot, HEAD, a prefetch, a click inside the site, a file that is not a page, a 404, or a preview", async () => {
+    const { req, visits } = makeApp();
+    await req(`lunchbox.${DOMAIN}`, "/", { headers: { "user-agent": "Googlebot/2.1 (+http://www.google.com/bot.html)" } });
+    await req(`lunchbox.${DOMAIN}`, "/", { headers: {} });
+    await req(`lunchbox.${DOMAIN}`, "/", { ...browser(), method: "HEAD" });
+    await req(`lunchbox.${DOMAIN}`, "/", browser({ "sec-purpose": "prefetch" }));
+    await req(`lunchbox.${DOMAIN}`, "/about/", browser({ referer: `http://lunchbox.${DOMAIN}/` }));
+    await req(`lunchbox.${DOMAIN}`, "/styles.css", browser({ "sec-fetch-dest": "style" }));
+    await req(`lunchbox.${DOMAIN}`, "/nothing.html", browser());
+    await req(`p-${TOKEN}.${DOMAIN}`, "/", browser());
+    await req(`lunchbox.${DOMAIN}`, "/", browser({ "sec-fetch-dest": "iframe" }));
+    expect(visits).toEqual([]);
+  });
+
+  it("serves the page even when the count fails, and stops counting a site past its limit a minute", async () => {
+    const failing = makeApp({ visit: async () => { throw new Error("db down"); } });
+    expect((await failing.req(`lunchbox.${DOMAIN}`, "/", browser())).status).toBe(200);
+    // A slow database: past the writes in flight, counts are dropped and pages still answer.
+    const slow = makeApp({ visit: () => new Promise<void>(() => {}) });
+    for (let i = 0; i < SITE_VISIT_MAX_IN_FLIGHT + 5; i++) expect((await slow.req(`lunchbox.${DOMAIN}`, "/", browser())).status).toBe(200);
+    const { req, visits } = makeApp();
+    for (let i = 0; i < SITE_VISIT_MAX_PER_MINUTE + 3; i++) await req(`lunchbox.${DOMAIN}`, "/", browser());
+    expect(visits.length).toBeLessThanOrEqual(SITE_VISIT_MAX_PER_MINUTE);
+    expect(visits.length).toBeGreaterThan(0);
   });
 });

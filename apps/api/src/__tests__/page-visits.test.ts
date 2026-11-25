@@ -5,13 +5,13 @@
  * - Left out: a member of the project, an address that is not a published page, a caller over its limit.
  * - Nothing about the visitor is stored: the row holds the business, the day, the source bucket and a count.
  * - `page.get` gives the members the last 28 days; another business's members see none of it (RLS).
- * - The source: a post's code, a Foundmill link, UTM tags and the referrer.
+ * The source buckets are tested in packages/journey `page-visit-source.test.ts`.
  */
 import { pageVisitDays, repos } from "@foundmill/db";
 import type { ProjectPageContent } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { PAGE_VISIT_LIMIT, pageVisitSource, recordPageVisit } from "../services/page-visits";
+import { PAGE_VISIT_LIMIT, recordPageVisit } from "../services/page-visits";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -23,7 +23,6 @@ beforeEach(() => hz.limits.reset());
 
 const content: ProjectPageContent = { pitch: "Bike repairs at your door", about: "A van full of parts comes to the bike.", forWhom: "", stage: "building", showFounders: false, followForm: true };
 const silent = { debug() {}, info() {}, warn() {}, error() {} } as never;
-const APP = "https://app.example.com";
 
 let n = 0;
 async function project(name: string, publish = true) {
@@ -38,24 +37,6 @@ async function project(name: string, publish = true) {
 }
 const rows = (businessId: string) => hz.db.select().from(pageVisitDays).where(eq(pageVisitDays.businessId, businessId));
 
-describe("pageVisitSource", () => {
-  it.each([
-    [{ via: "s.k3m7qa2xpw" }, "post"],
-    [{ via: "p.maple-bakes" }, "foundmill"],
-    [{ referrer: `${APP}/home` }, "foundmill"],
-    [{ referrer: "https://www.google.com/" }, "search"],
-    [{ referrer: "https://chatgpt.com/" }, "ai"],
-    [{ referrer: "https://www.instagram.com/" }, "social"],
-    [{ search: "?utm_source=newsletter&utm_medium=email" }, "email"],
-    [{ search: "?utm_medium=cpc" }, "paid"],
-    [{ referrer: "https://someblog.example/" }, "referral"],
-    [{}, "direct"],
-    [{ referrer: "not a url" }, "direct"],
-  ])("%j is %s", (input, source) => {
-    expect(pageVisitSource(input, APP)).toBe(source);
-  });
-});
-
 describe("publicPage.visited counts visits", () => {
   it("adds one per visit for today and its source, and stores nothing about the visitor", async () => {
     const b = await project("Counted");
@@ -65,12 +46,12 @@ describe("publicPage.visited counts visits", () => {
     await anon.publicPage.visited({ slug: b.slug, via: "s.k3m7qa2xpw" });
     // No slug (a bot-looking browser sends none): nothing is counted.
     await anon.publicPage.visited({ via: "" });
-    const got = (await rows(b.id)).map((r) => ({ source: r.source, visits: r.visits })).sort((x, y) => x.source.localeCompare(y.source));
+    const got = (await rows(b.id)).map((r) => ({ surface: r.surface, source: r.source, visits: r.visits })).sort((x, y) => x.source.localeCompare(y.source));
     expect(got).toEqual([
-      { source: "post", visits: 1 },
-      { source: "search", visits: 2 },
+      { surface: "page", source: "post", visits: 1 },
+      { surface: "page", source: "search", visits: 2 },
     ]);
-    expect(Object.keys((await rows(b.id))[0]!).sort()).toEqual(["businessId", "createdAt", "day", "id", "source", "updatedAt", "visits"]);
+    expect(Object.keys((await rows(b.id))[0]!).sort()).toEqual(["businessId", "createdAt", "day", "id", "source", "surface", "updatedAt", "visits"]);
   });
 
   it("leaves out a member of the project, a page that is not published and an unknown address", async () => {

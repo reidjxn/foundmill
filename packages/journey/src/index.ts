@@ -5,6 +5,7 @@ export {
   parseTouchSource, positionBased4020, buildMarkovModel, dataDrivenWeights, conversionPathsFromTouches, chooseModel, attribute,
   channelWeights, filterTouchesForConsent, selectJourneyTouches, hasClickIds, touchState, OFFLINE_CHANNELS, MARKOV_STATES,
 } from "./attribution";
+export { pageVisitSource } from "./page-visit-source";
 export type {
   AttributionRegistry, CodeRegistryEntry, ParseTouchSourceInput, ParsedTouchSource, TouchMedium, SelectJourneyTouchesInput, ConsentFilterResult,
   MarkovState, MarkovModel, ConversionPath, AttributeOptions, AttributionResult,
