@@ -2,7 +2,7 @@
 date: 2026-11-25
 branch: claude/inspiring-archimedes-le54qm
 title: Head of Security with error reports, speed numbers, typed sign-up codes and the first hour of a launch
-areas: [agents, evals, docs]
+areas: [agents, evals, docs, gateway]
 supersedes: []
 ---
 ## What changed
@@ -12,6 +12,8 @@ supersedes: []
 - `signup_flow` (version 2) asks for a six-digit code typed on the same screen where an address must be confirmed before the person goes on, never a link that makes them leave.
 - `launch_plan` (version 2) plans the first hour of each launch post; `social_strategy` (version 2) points to it.
 - Tests: `archetypes.test.ts` (the role is on every engineering team), the pinned counts in `skill-library.test.ts` and `default-skills.test.ts`, a golden task and a session case for the role in `evals/src`.
+
+- Second push (same day): two gateway tests no longer depend on the machine's clock or speed. `domains.test.ts` runs on a fixed clock; the 2 MB scan in `site-check.test.ts` allows 2,000 ms instead of 200 ms.
 
 ## Decisions
 ### The founder's answers (Nov 25, 2026)
@@ -41,7 +43,12 @@ A follower confirms that they want email, and the confirmation ends in the email
 ### First-hour notes follow the Nov 23, 2026 first-contact rule
 The team sends supporters' notes on its own in assisted and automated mode and asks in augmented mode. Supporters are people the founder listed or who follow the project. The skill forbids paid or traded engagement, extra accounts and scripted reviews, and drops the ask where a network forbids asking for responses.
 
+### Two flaky gateway tests (founder, Nov 25, 2026: "Yes, fix the flaky gateway timing test")
+The scan test failed on two unrelated pull requests at 203 and 216 ms against a 200 ms limit. It guards against a scan that goes quadratic, which would take minutes on these pages, so 2,000 ms still catches it.
+
+The founder named one test; CI showed a second. The per-minute limit test in `domains.test.ts` failed once on a third pull request: the limit counts per clock minute, and the real clock crossed a minute between calls. It now passes a fixed clock through `deps.now`, which the route already reads.
+
 ## Not done
-- Projects created before this change keep their teams: teams are hired at commit (`apps/api/src/services/commit.ts`), and nothing adds the Head of Security to an existing project. A backfill is a separate change.
-- A Sentry connector, so the team can read reports. Needs the founder: Sentry's own MCP server needs an OAuth client.
+- Projects created before this change keep their teams. The founder decided no backfill is needed: "existing projects don't matter since we're pre launch and there are no real users".
+- The Sentry connection was built afterwards in its own change (`docs/log/2026-11/2026-11-25-claude-sentry-connection.md`).
 - Recurring playbooks, native visit counts and the first go-live checklist are in three other sessions' pull requests.
