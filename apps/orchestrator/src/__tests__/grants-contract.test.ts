@@ -31,8 +31,8 @@ describe("agent template grants resolve to real gateway tools", () => {
     }
   });
 
-  it("there are 48 templates and no deliberate gap is open", () => {
-    expect(ALL_TEMPLATES).toHaveLength(48);
+  it("there are 49 templates and no deliberate gap is open", () => {
+    expect(ALL_TEMPLATES).toHaveLength(49);
     expect(NOT_YET_SERVED).toEqual({});
   });
 
