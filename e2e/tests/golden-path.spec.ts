@@ -339,8 +339,8 @@ test.describe("golden path", () => {
     await expect(inboxRow(page, FIRST_NOTE)).toBeVisible({ timeout: LONG });
     // Nothing waits for an answer but the Chief of Staff's goal (proposed once the sign-offs and a round of work are done,
     // founder 2026-11-07) and the Product lead's "Your project's page is ready" (package 1.3): the Board's question is not
-    // asked before distribution starts.
-    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i }).filter({ hasNotText: /page is ready/i })).toHaveCount(0);
+    // asked before distribution starts; nor is the Chief of Staff's build choice (Nov 25, 2026).
+    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i }).filter({ hasNotText: /page is ready/i }).filter({ hasNotText: /Build your app with/ })).toHaveCount(0);
     // Start distribution: the Board's question is in the Inbox, the channels start, the Board no longer waits.
     const { boardItemId } = await startDistributionFromBoard(page, bid);
     await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
