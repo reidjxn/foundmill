@@ -30,6 +30,7 @@
 import { communityScreenLocalFlags } from "@foundmill/agents";
 import { tierShowsBuiltOnMark } from "@foundmill/config";
 import { siteSlugProblem, sitesDomain } from "@foundmill/shared/sites";
+import { pageVisitWindowStart, summarizePageVisits, type PageVisitSummary } from "@foundmill/shared/page-visits";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { awardPageLiveMilestone, markBilling, repos, showsBuiltOnMark, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
@@ -104,6 +105,8 @@ export interface PageView {
   preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[]; logo: string | null };
   /** How many people follow the page now (package 1.6): a count only, never who. */
   followers: number;
+  /** Visits to the public page counted by Foundmill over the last 28 days (0175; an estimate); null before the first save. */
+  visits: PageVisitSummary | null;
   /** Whether the page carries the small "Built on" mark for its visitors (the free plan; docs/NETWORK.md F2). */
   mark: boolean;
   /** Whether Follow can confirm an address here (platform mail live, or a development or test stack). */
@@ -142,12 +145,14 @@ export async function suggestedSlug(ctx: BusinessContext): Promise<string> {
  * Inside the caller's transaction: everything that needs the service connection (`suggestedSlug`) is asked before it.
  */
 async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, suggested: string | null = null): Promise<PageView> {
-  const [draft, founderNames, followers, logo] = await Promise.all([
+  const today = new Date();
+  const [draft, founderNames, followers, logo, visitRows] = await Promise.all([
     // A draft saved before the follow form existed reads with it on, like every new page; the published copy reads as it went out.
     row ? Promise.resolve(readPageContent(row.draft, true) ?? starterPageDraft({ businessName: ctx.business.name })) : repos.pages.starterInputs(tx, ctx.businessId).then((inputs) => starterPageDraft({ businessName: ctx.business.name, ...inputs })),
     repos.pages.ownerNames(tx, ctx.businessId),
     row ? repos.followers.count(tx, ctx.businessId) : Promise.resolve(0),
     repos.logos.get(tx, ctx.businessId).then((l) => l?.dataUrl ?? null),
+    row ? repos.pageVisits.recent(tx, ctx.businessId, pageVisitWindowStart(today)) : Promise.resolve(null),
   ]);
   const slug = row?.slug ?? suggested ?? suggestPageSlug(ctx.business.slug || ctx.business.name);
   const published = row ? readPageContent(row.published) : null;
@@ -166,6 +171,7 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     isSample: ctx.business.isDemo,
     preview: { name: ctx.business.name, brandPrimary: ctx.business.kitPrimary, brandSecondary: ctx.business.kitSecondary, founderNames, logo },
     followers,
+    visits: visitRows ? summarizePageVisits(visitRows, today) : null,
     mark: await showsBuiltOnMark(ctx.db, ctx.business, markBilling(ctx.env)),
     followAvailable: followAvailable(ctx.env),
     explore: row?.exploreListed ?? false,

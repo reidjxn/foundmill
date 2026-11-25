@@ -6,6 +6,7 @@ import { CREDITS_CURRENCY } from "@foundmill/config";
 import { concurrencyAllowance, creditsState, loadProductStage, modelBudgetState, periodOf, repos } from "@foundmill/db";
 import { founderBriefSection, pageUrl, ventureNoun, type ProductStage, type TaskStatus } from "@foundmill/shared";
 import { detectSectors, openSectorGates } from "@foundmill/shared/sectors";
+import { pageVisitWindowStart, pageVisitsLine, summarizePageVisits } from "@foundmill/shared/page-visits";
 import type { OrchestratorDeps } from "../deps";
 import { failureStreak, taskRetry } from "../retry";
 import { enforceWageCaps, recoverAgents } from "./dispatch";
@@ -79,6 +80,10 @@ export async function aboutBusiness(deps: Pick<OrchestratorDeps, "db" | "env">, 
   if (!lines.length) lines.push(ABOUT_NOT_WRITTEN);
   // No field carries the first sale yet (`ventureNoun`), so every project reads "project" until one does (WP-08).
   lines.push(`Stage: ${ventureNoun()}; public page: ${page?.published ? pageUrl(deps.env.APP_URL, page.slug) : "not published"}`);
+  if (page?.published) {
+    const today = new Date();
+    lines.push(pageVisitsLine(summarizePageVisits(await repos.pageVisits.recent(deps.db, businessId, pageVisitWindowStart(today)), today)));
+  }
   return `## About ${business.name}\n${lines.join("\n")}`;
 }
 

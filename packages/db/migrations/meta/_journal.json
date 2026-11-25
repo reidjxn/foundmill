@@ -1009,6 +1009,13 @@
       "when": 1796591540000,
       "tag": "0174_site_terms_checks",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1796591600000,
+      "tag": "0175_page_visit_days",
+      "breakpoints": true
     }
   ]
 }
