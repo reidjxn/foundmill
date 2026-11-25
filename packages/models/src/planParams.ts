@@ -29,7 +29,7 @@ export const PLAN_ACTION_PARAMS: Record<PlanActionType, Record<string, string>> 
   hire_agent: { role: "the role to hire", brief: "why" },
   train_agent: { agent_id: "agent id from `agents`", focus: "skill to train (optional)" },
   set_agent_model: { model_key: "opus | sonnet | haiku", apply_scope: "agent | type | all", agent_id: "agent id from `agents` (required for agent and type)" },
-  create_playbook: { trigger: "when it runs", steps: "what it does, in order" },
+  create_playbook: { trigger: "when it runs: { event } for an event, or { schedule: { every: day | week | month, weekday: 0-6 (week), day_of_month: 1-28 (month), time: HH:MM } }, never more often than once a day", steps: "what it does, in order" },
   request_human_action: { request: "what the founder must do personally", instructions: "how" },
   reply_only: { question: "one clarifying question" },
 };

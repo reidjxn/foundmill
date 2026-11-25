@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CreatePlaybookParams, describePlaybook, readCompiledPlaybook } from "./playbook";
+import { CreatePlaybookParams, describePlaybook, dueSlot, readCompiledPlaybook } from "./playbook";
 import { vacationUntilLabel } from "./vacation";
 
 const flow = {
@@ -33,8 +33,46 @@ describe("the playbook contract (audit AC-07)", () => {
   it("reads rows written before the contract (steps as { type, params }) and refuses what is not a playbook", () => {
     const legacy = { trigger: { event: "payment.received" }, steps: [{ type: "create_task", params: { title: "Thank them" } }], approvals: [], stop: {} };
     expect(readCompiledPlaybook(legacy)?.steps[0]?.action.type).toBe("create_task");
+    // A cron string is still not a trigger: a schedule is the `schedule` shape (founder, Nov 25, 2026).
     expect(readCompiledPlaybook({ trigger: { cron: "0 9 * * 1" }, steps: [], approvals: [{ capability: "purchase_order" }], stop: { condition: "x" } })).toBeNull();
     expect(readCompiledPlaybook(null)).toBeNull();
+  });
+});
+
+describe("scheduled playbooks (founder, Nov 25, 2026)", () => {
+  const weekly = { ...flow, trigger: { schedule: { every: "week" as const, weekday: 1, time: "09:00" } } };
+
+  it("accepts every day, week or month, and nothing more often or both kinds at once", () => {
+    expect(CreatePlaybookParams.safeParse({ source_text: "Every Monday at 9am, draft the weekly update.", ...weekly }).success).toBe(true);
+    expect(CreatePlaybookParams.safeParse({ source_text: "x", ...flow, trigger: { schedule: { every: "day", time: "17:30" } } }).success).toBe(true);
+    expect(CreatePlaybookParams.safeParse({ source_text: "x", ...flow, trigger: { schedule: { every: "month", day_of_month: 1, time: "08:00" } } }).success).toBe(true);
+    expect(CreatePlaybookParams.safeParse({ source_text: "x", ...flow, trigger: { schedule: { every: "hour", time: "09:00" } } }).success).toBe(false);
+    expect(CreatePlaybookParams.safeParse({ source_text: "x", ...flow, trigger: { schedule: { every: "week", time: "09:00" } } }).success).toBe(false);
+    expect(CreatePlaybookParams.safeParse({ source_text: "x", ...flow, trigger: { schedule: { every: "month", day_of_month: 31, time: "09:00" } } }).success).toBe(false);
+    expect(CreatePlaybookParams.safeParse({ source_text: "x", ...flow, trigger: { schedule: { every: "day", time: "9am" } } }).success).toBe(false);
+    expect(CreatePlaybookParams.safeParse({ source_text: "x", ...flow, trigger: { event: "lead.replied", schedule: { every: "day", time: "09:00" } } }).success).toBe(false);
+    expect(CreatePlaybookParams.safeParse({ source_text: "x", ...flow, trigger: {} }).success).toBe(false);
+  });
+
+  it("reads back in US English with US times", () => {
+    expect(describePlaybook(weekly).when).toBe("Every Monday at 9:00 AM");
+    expect(describePlaybook({ ...flow, trigger: { schedule: { every: "day", time: "17:30" } } }).when).toBe("Every day at 5:30 PM");
+    expect(describePlaybook({ ...flow, trigger: { schedule: { every: "month", day_of_month: 2, time: "00:15" } } }).when).toBe("On the 2nd of every month at 12:15 AM");
+  });
+
+  it("comes due once, in the project's time zone, within the window", () => {
+    const hour = 3_600_000;
+    const s = weekly.trigger.schedule;
+    // Mon, Nov 23, 2026, 9:00 AM in New York is 14:00 UTC.
+    expect(dueSlot(s, new Date("2026-11-23T14:10:00Z"), "America/New_York", hour)?.toISOString()).toBe("2026-11-23T14:00:00.000Z");
+    expect(dueSlot(s, new Date("2026-11-23T13:59:00Z"), "America/New_York", hour)).toBeNull();
+    expect(dueSlot(s, new Date("2026-11-23T15:00:00Z"), "America/New_York", hour)).toBeNull();
+    expect(dueSlot(s, new Date("2026-11-24T14:10:00Z"), "America/New_York", hour)).toBeNull();
+    // No zone, or one that is not a zone: UTC.
+    expect(dueSlot(s, new Date("2026-11-23T09:05:00Z"), null, hour)?.toISOString()).toBe("2026-11-23T09:00:00.000Z");
+    expect(dueSlot(s, new Date("2026-11-23T09:05:00Z"), "Mars/Base", hour)?.toISOString()).toBe("2026-11-23T09:00:00.000Z");
+    // A late-evening time is still found just after midnight.
+    expect(dueSlot({ every: "day", time: "23:50" }, new Date("2026-11-24T00:10:00Z"), "UTC", hour)?.toISOString()).toBe("2026-11-23T23:50:00.000Z");
   });
 });
 

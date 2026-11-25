@@ -3,9 +3,10 @@
  * steps, approvals and stop conditions as an editable flow, and turns it on. Nothing here runs a playbook: ingest starts a
  * `playbook` workflow when an enabled playbook's trigger matches an event. Everything is validated against the one
  * contract in packages/shared (`CreatePlaybookParams`), the same one the plan compiler's `create_playbook` action carries.
+ * A playbook on a schedule (founder, Nov 25, 2026) is started by the orchestrator's `playbookScheduleSweep` instead.
  */
 import { repos, type Playbook } from "@foundmill/db";
-import { CompiledPlaybook, CreatePlaybookParams, ValidationError, describePlaybook, readCompiledPlaybook } from "@foundmill/shared";
+import { CompiledPlaybook, CreatePlaybookParams, PLAYBOOK_TOO_OFTEN, PLAYBOOK_TOO_OFTEN_ANSWER, ValidationError, describePlaybook, readCompiledPlaybook } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit } from "../trpc";
 import { planContextFor } from "./decide";
@@ -33,6 +34,8 @@ export type CompilePlaybookResult = { ok: true; playbook: CreatePlaybookParams; 
 
 /** Compile one sentence into a playbook (the plan compiler's route; the offline rule engine in mock mode). Nothing is saved. */
 export async function compilePlaybookText(ctx: BusinessContext, text: string): Promise<CompilePlaybookResult> {
+  // Once a day at most (founder, Nov 25, 2026): asked before any model call, on either route.
+  if (PLAYBOOK_TOO_OFTEN.test(text)) return { ok: false, question: PLAYBOOK_TOO_OFTEN_ANSWER };
   const planCtx = await planContextFor(ctx);
   const compiled = await compilePlan(ctx.models, text, planCtx);
   const gated = compiled.actions.find((a) => a.type === "request_human_action");
@@ -63,7 +66,7 @@ export async function createPlaybook(ctx: BusinessContext, input: { name?: strin
   return ctx.rls(async (tx) => {
     // Created off: the founder turns it on once the flow reads right.
     const row = await repos.playbooks.create(tx, ctx.businessId, { name: input.name?.trim() || input.sourceText.slice(0, 60), sourceText: input.sourceText, departmentId: input.departmentId ?? null, compiled: flow, enabled: false, createdBy: ctx.userId });
-    await audit(tx, ctx, { action: "team.playbook.create", target: { kind: "playbook", id: row.id }, details: { trigger: flow.trigger.event, steps: flow.steps.length } });
+    await audit(tx, ctx, { action: "team.playbook.create", target: { kind: "playbook", id: row.id }, details: { trigger: flow.trigger.event ?? "schedule", steps: flow.steps.length } });
     return toPlaybookView(row);
   });
 }

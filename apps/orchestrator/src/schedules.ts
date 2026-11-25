@@ -51,6 +51,7 @@ export const SCHEDULES: readonly ScheduleDefinition[] = [
   { id: "waitlist-admissions", workflowType: "waitlistAdmissions", spec: every("15m"), args: [{}], description: "Every 15 minutes: admit today's waitlist number, then email everyone admitted" },
   { id: "booking-reminders", workflowType: "bookingReminders", spec: every("15m"), args: [{}], description: "Every 15 minutes: the reminder email a customer gets the day before their booking" },
   { id: "page-catch-up", workflowType: "pageCatchUp", spec: daily(30, 3), args: [{ limit: 25 }], description: "Nightly: a drafted, unpublished public page and its note for up to 25 real projects that began before public pages and have none (nothing is published)" },
+  { id: "playbook-schedule-sweep", workflowType: "playbookScheduleSweep", spec: every("15m"), args: [{}], description: "Every 15 minutes: playbooks on a schedule whose time came due start (at most once a day each; a run that would not fit the budget is skipped and the founder told)" },
   { id: "business-deletion-sweep", workflowType: "businessDeletionSweep", spec: daily(45, 1), args: [{}], description: "Nightly: businesses whose scheduled deletion came due are deleted" },
 ];
 

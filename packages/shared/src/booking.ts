@@ -91,7 +91,7 @@ export function weeklyHoursProblem(hours: unknown): string | null {
 }
 
 const partsFormat = new Map<string, Intl.DateTimeFormat>();
-function wallParts(at: number, timeZone: string): { day: string; minutes: number; weekday: number; asUtc: number } {
+export function wallParts(at: number, timeZone: string): { day: string; minutes: number; weekday: number; asUtc: number } {
   let f = partsFormat.get(timeZone);
   if (!f) {
     // us-english-allow: the parts are read as numbers (the zone's date and minutes from midnight), never shown to a person.

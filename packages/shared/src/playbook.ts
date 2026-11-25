@@ -5,7 +5,8 @@
  * ingest matches `trigger` against events. Nothing else defines a playbook's shape (audit AC-07).
  *
  * - `trigger`: an event type, optionally narrowed by `where` (payload fields that must equal a value) and `condition`
- *   (the small expression apps/ingest evaluates: `requestsMeeting`, `amount.amountMinor >= 5000`).
+ *   (the small expression apps/ingest evaluates: `requestsMeeting`, `amount.amountMinor >= 5000`); or a `schedule`
+ *   (founder, Nov 25, 2026: "every Monday, do X"), at most once a day, which the orchestrator's sweep starts.
  * - `steps`: each is one plan action (`{ action: { type, params, agent_id } }`) run through the typed handlers, so policy,
  *   approvals and hard gates apply exactly as they do for a decision.
  * - `approvals`: steps that wait for the founder, `first_run` (until the playbook has run once) or `every_run`.
@@ -13,7 +14,9 @@
  */
 import { z } from "zod";
 import { boundedRecord } from "./bounded-record";
+import { instantOfWallTime, wallParts } from "./booking";
 import { EVENT_TYPES, PLAN_ACTION_TYPES } from "./constants";
+import { isValidTimeZone } from "./time-zone";
 
 /**
  * Most payload fields one trigger's `where` names, and most params one step carries: counted before zod reads a key
@@ -27,11 +30,38 @@ export const PLAYBOOK_STEP_ACTIONS = PLAN_ACTION_TYPES.filter((t) => t !== "crea
 
 const Scalar = z.union([z.string().max(200), z.number(), z.boolean()]);
 
-export const PlaybookTrigger = z.object({
-  event: z.enum(EVENT_TYPES),
-  where: boundedRecord(PLAYBOOK_WHERE_MAX_KEYS, z.record(z.string().min(1).max(80), Scalar)).optional(),
-  condition: z.string().trim().max(300).optional(),
-});
+/**
+ * A recurring time (founder, Nov 25, 2026): every day, every week on a weekday (0 Sunday … 6 Saturday) or every month on
+ * a day (1–28, so every month has it), at `time` (24-hour "HH:MM") in the project's time zone. Once a day is the most
+ * often a playbook may run, so nothing more frequent can be written.
+ */
+export const PLAYBOOK_SCHEDULE_EVERY = ["day", "week", "month"] as const;
+export const PlaybookSchedule = z
+  .object({
+    every: z.enum(PLAYBOOK_SCHEDULE_EVERY),
+    weekday: z.number().int().min(0).max(6).optional(),
+    day_of_month: z.number().int().min(1).max(28).optional(),
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "time is HH:MM, 24-hour"),
+  })
+  .superRefine((s, ctx) => {
+    if (s.every === "week" && s.weekday === undefined) ctx.addIssue({ code: "custom", message: "a weekly playbook names its weekday", path: ["weekday"] });
+    if (s.every === "month" && s.day_of_month === undefined) ctx.addIssue({ code: "custom", message: "a monthly playbook names its day of the month", path: ["day_of_month"] });
+  });
+export type PlaybookSchedule = z.infer<typeof PlaybookSchedule>;
+
+/** Words that ask for a playbook more often than once a day ("every hour", "twice a day"). */
+export const PLAYBOOK_TOO_OFTEN = /\b(?:hourly|every\s+(?:\d+\s+|few\s+|couple\s+of\s+)?(?:minutes?|hours?|seconds?)|(?:twice|three\s+times|\d+\s+times)\s+(?:a|per|each)\s+day|every\s+(?:morning\s+and\s+(?:evening|night)))\b/i;
+/** The kind answer when it does. */
+export const PLAYBOOK_TOO_OFTEN_ANSWER = "A playbook runs at most once a day, so the team has time to work and you have time to read what it did. Pick a time each day, a day each week or a day each month, for example: every Monday at 9 AM, draft the weekly update.";
+
+export const PlaybookTrigger = z
+  .object({
+    event: z.enum(EVENT_TYPES).optional(),
+    where: boundedRecord(PLAYBOOK_WHERE_MAX_KEYS, z.record(z.string().min(1).max(80), Scalar)).optional(),
+    condition: z.string().trim().max(300).optional(),
+    schedule: PlaybookSchedule.optional(),
+  })
+  .refine((t) => (t.event === undefined) !== (t.schedule === undefined), { message: "a trigger is either an event or a schedule" });
 export type PlaybookTrigger = z.infer<typeof PlaybookTrigger>;
 
 export const PlaybookStep = z.object({
@@ -87,6 +117,26 @@ export const CreatePlaybookParams = z.object({
   stop: PlaybookStop.default({}),
 });
 export type CreatePlaybookParams = z.infer<typeof CreatePlaybookParams>;
+
+/**
+ * The time a schedule last came due at or before `now`, when that was within `windowMs` (the sweep's catch-up window);
+ * else null. The wall time is read in `timeZone` (UTC when unknown or not a zone). A time a daylight-saving change skips
+ * does not come due that day.
+ */
+export function dueSlot(schedule: PlaybookSchedule, now: Date, timeZone: string | null | undefined, windowMs: number): Date | null {
+  const zone = isValidTimeZone(timeZone) ? timeZone : "UTC";
+  const [hh, mm] = schedule.time.split(":").map(Number) as [number, number];
+  const today = wallParts(now.getTime(), zone).day;
+  // A window under a day only ever reaches today or yesterday in the zone.
+  for (const day of [today, new Date(Date.parse(`${today}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10)]) {
+    const date = new Date(`${day}T00:00:00.000Z`);
+    if (schedule.every === "week" && date.getUTCDay() !== schedule.weekday) continue;
+    if (schedule.every === "month" && date.getUTCDate() !== schedule.day_of_month) continue;
+    const at = instantOfWallTime(day, hh * 60 + mm, zone);
+    if (at && at.getTime() <= now.getTime() && now.getTime() - at.getTime() < windowMs) return at;
+  }
+  return null;
+}
 
 // The flow in plain words lives in ./playbook-words (no Zod: the browser imports it).
 export * from "./playbook-words";

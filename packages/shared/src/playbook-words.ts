@@ -5,10 +5,34 @@
 import type { EventType } from "./constants";
 
 export interface FlowLike {
-  trigger: { event: EventType; where?: Record<string, string | number | boolean>; condition?: string };
+  trigger: { event?: EventType; where?: Record<string, string | number | boolean>; condition?: string; schedule?: ScheduleLike };
   steps: { action: { type: string }; label?: string }[];
   approvals?: { step: number; scope: "first_run" | "every_run" }[];
   stop?: { max_runs?: number; until?: string; event?: EventType };
+}
+
+export interface ScheduleLike {
+  every: "day" | "week" | "month";
+  weekday?: number;
+  day_of_month?: number;
+  time: string;
+}
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`;
+
+/** "HH:MM" (24-hour) as a US time: "9:00 AM", "12:30 PM". */
+export function usTime(time: string): string {
+  const [h = 0, m = 0] = time.split(":").map(Number);
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/** A schedule in words: "Every day at 9:00 AM", "Every Monday at 9:00 AM", "On the 1st of every month at 9:00 AM". */
+export function describeSchedule(s: ScheduleLike): string {
+  const at = `at ${usTime(s.time)}`;
+  if (s.every === "week") return `Every ${WEEKDAYS[s.weekday ?? 1]} ${at}`;
+  if (s.every === "month") return `On the ${ordinal(s.day_of_month ?? 1)} of every month ${at}`;
+  return `Every day ${at}`;
 }
 
 /** Words for an event in "When …" ("a lead replies"); other events read as their type with spaces. */
@@ -49,10 +73,10 @@ const ACTION_VERBS: Record<string, string> = {
 
 /** The flow in plain words, for the preview and the confirmation. */
 export function describePlaybook(p: FlowLike): { when: string; steps: { text: string; approval: string | null }[]; stop: string | null } {
-  const event = p.trigger.event;
+  const event = (p.trigger.event ?? "") as EventType;
   const where = Object.entries(p.trigger.where ?? {}).map(([k, v]) => `${k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase()} is ${String(v).replace(/_/g, " ")}`);
   const extra = [...where, ...(p.trigger.condition ? [p.trigger.condition] : [])];
-  const when = `When ${EVENT_PHRASES[event] ?? event.replace(/[._]/g, " ")}${extra.length > 0 ? ` (${extra.join(", ")})` : ""}`;
+  const when = p.trigger.schedule ? describeSchedule(p.trigger.schedule) : `When ${EVENT_PHRASES[event] ?? event.replace(/[._]/g, " ")}${extra.length > 0 ? ` (${extra.join(", ")})` : ""}`;
   const approvals = p.approvals ?? [];
   const steps = p.steps.map((s, i) => {
     const a = approvals.find((x) => x.step === i);
