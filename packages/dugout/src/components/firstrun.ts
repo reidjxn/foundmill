@@ -4,6 +4,7 @@
 export * from "./firstrun/nextSteps";
 export * from "./firstrun/NextStep";
 export * from "./firstrun/FirstWeekChecklist";
+export * from "./firstrun/LaunchChecklist";
 export * from "./firstrun/Coachmark";
 export * from "./firstrun/ExampleToggle";
 export * from "./firstrun/AgentStylePicker";

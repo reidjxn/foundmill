@@ -145,6 +145,12 @@ test.describe("public page", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("heading", { name: "Publish your public page?" })).toBeVisible();
     await expect(dialog).toContainText("Anyone with the link can read the project's name and logo, its one-line pitch, about, who it is for, the stage and a form to follow it. You can take it down any time.");
+    // The first launch shows what is ready and what is not; it never blocks Publish (founder, Nov 25, 2026).
+    const checklist = dialog.getByRole("region", { name: "Before it goes live" });
+    await expect(checklist).toBeVisible();
+    await expect(checklist.locator("[data-launch-check='phone']")).toContainText("Ready");
+    await expect(checklist).toContainText("You can publish now either way.");
+    await expect(dialog.getByTestId("page-confirm-publish")).toBeEnabled();
     await dialog.getByTestId("page-confirm-publish").click();
     await expect(dialog).toHaveCount(0);
     await expect(page.getByTestId("page-state")).toHaveText(/Live since [A-Z][a-z]{2} \d{1,2}, \d{4}/, { timeout: LONG });
