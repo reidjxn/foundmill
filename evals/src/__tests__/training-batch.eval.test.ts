@@ -1,7 +1,7 @@
 /**
  * Training on both paths (WP-09 T10 step 4), live only (evals-training-live.yml, dispatched by hand). One agent's
  * check of three skills runs now, then through the half-price batch path, on PGlite with no production data. It prints
- * both runs' `cost_minor` and fails when the run now costs more than $1.00 (Done-when item 4). The batch is polled
+ * both runs' `cost_minor` and fails when the half-price run costs more than $1.00 (Done-when item 4, D10). The batch is polled
  * every two minutes until `TRAINING_BATCH_DEADLINE_MINUTES` (default 340, inside a hosted runner's six-hour limit).
  * Cost: about $1.50 a run (Estimate).
  */
@@ -13,7 +13,8 @@ import { setupOrchestratorHarness, type OrchestratorTestHarness } from "@foundmi
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createEvalClient, isLiveEvalEnabled } from "../harness";
 
-export const MAX_RUN_NOW_MINOR = 100;
+/** WP-09 Done-when item 4 (D10, founder, Nov 25, 2026): the $1.00 target applies to the half-price path. */
+export const MAX_BATCH_MINOR = 100;
 const SKILLS = 3;
 const POLL_MS = 2 * 60 * 1000;
 const DEADLINE_MS = Number(process.env.TRAINING_BATCH_DEADLINE_MINUTES ?? 340) * 60 * 1000;
@@ -117,7 +118,7 @@ describe.skipIf(!live)("training now and on the batch path (live)", () => {
       console.warn(`[eval] training cost: ${JSON.stringify({ skills: nowRun.input.skillKeys, model: nowRun.loaded.modelKey, now: { ...now, estimateMinor: estimate(false, now.tests), byRoute: tally.now }, batch: { ...batch, estimateMinor: estimate(true, batch.tests), byRoute: tally.batch } })} (list price, before the credit markup)`);
       expect(now.tests).toBeGreaterThan(0);
       expect(batch.tests).toBeGreaterThan(0);
-      expect(now.costMinor).toBeLessThanOrEqual(MAX_RUN_NOW_MINOR);
+      expect(batch.costMinor).toBeLessThanOrEqual(MAX_BATCH_MINOR);
     },
     DEADLINE_MS + 60 * 60 * 1000,
   );

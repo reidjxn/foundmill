@@ -8,7 +8,7 @@
 1. `pnpm --filter @foundmill/db report:cost` prints, from the ledger, the median and 90th-percentile cost of a new project's first session (drafting before commit plus the first 24 hours after it) and of its first week. On projects committed after T4, T7 and T11 are live, the medians are at most $1.50 (30% of the $5.00 allowance) and $3.50 (70%). Both are targets the founder confirms (D1).
 2. A test drives every model call a person can trigger without a business (nine call sites, T2) and finds each one booked and refused past a dollar ceiling per account; the gateway's reader and `search_web` are refused at zero credits and book their exact cost (T3).
 3. `MODELS.haiku` is `claude-haiku-5-5` and the suites named in T4 pass live.
-4. A training check of up to three skills costs at most $1.00 run now and about half that on the batch path (Estimates, replaced by one measured run recorded in `docs/DECISIONS.md`), the price is on screen before it runs, and a run the balance cannot finish is refused with both figures (T9, T10).
+4. A training check of up to three skills costs at most $1.00 on the half-price batch path, which is the default; run now stays available at about twice that (D10 and D11, founder, Nov 25, 2026). Measured Nov 24, 2026 (run 45428368258, 36 tests): $0.75 in a batch, $1.53 run now. Both prices are on screen before it runs, and a run the balance cannot finish is refused with both figures (T9, T10).
 5. At zero credits the Inbox note and every refusal sentence say what stopped, what still works and at least one way to continue that works on that server; a test covers the server with top-ups on and with top-ups off (T13).
 6. The routing table below matches `packages/models/src/routing.ts` (`routing.test.ts` pins it).
 
@@ -424,7 +424,7 @@ lets through. The mock path passes with the switch off and on.
 - D8 Pro: its price and included credits. Recommended: decide nothing until T14's entry; top-ups are the exit meanwhile.
 - D9 A fourth model key. Recommended: no (T15).
 - D10 Spending limit for live evals in this package. Recommended: $40 in total (Estimate: T4 about $5, T6 about $15, T9 and T10 about $10, T5 and T7 a few cents each).
-- D11 Whether a training check defaults to "within a day at half price". Recommended: yes on the free plan.
+- D11 Whether a training check defaults to "within a day at half price". Recommended: yes on the free plan. Decided Nov 25, 2026: yes on every plan, and the $1.00 target of Done-when item 4 applies to that path.
 
 ## Risks
 
