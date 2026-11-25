@@ -152,7 +152,7 @@ test.describe("inbox", () => {
     await expect(answered).toBeVisible();
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("1", { timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText(decided ? "2" : "1", { timeout: LONG });
     // The one approval starts the build: Development › Plan gets the Planner's first tasks. In the project's first week
     // the Product lead's "Building starts: …" is folded into the Chief of Staff's note of the day (WP-04 T8): one row in
     // the Inbox, the update itself in Archive.
