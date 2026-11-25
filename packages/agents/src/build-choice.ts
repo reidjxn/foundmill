@@ -128,7 +128,7 @@ export function isBuildChoiceDecision(decision: unknown): boolean {
 export interface BuildChoiceNote {
   subject: string;
   bodyMd: string;
-  /** Null for an idea with no software to build: the note is an update with nothing to decide. */
+  /** Null for an idea with no software to build: the note is a report with nothing to decide (never an update, which would replace the welcome note). */
   decision: { key: string; options: { id: string; label: string; recommended: boolean; consequence: string; because?: string; cost_minor: number; cost_in_note: true; reversible: boolean }[]; free_text: false; expires_at: null } | null;
 }
 

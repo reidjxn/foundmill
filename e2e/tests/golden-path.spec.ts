@@ -284,7 +284,7 @@ test.describe("golden path", () => {
     // "Your project's page is ready") and the button stays Continue.
     await expect(inboxRow(page, "Your project's page is ready")).toBeVisible({ timeout: LONG });
     // And the Chief of Staff's build note (founder, Nov 25, 2026), written with the plan note: a decision beside it, or, for
-    // an idea with no software to build, an update folded into the note of the day. Neither holds Continue.
+    // an idea with no software to build, a report that needs no answer. Neither holds Continue.
     const decided = (await inboxRow(page, /Build your app with /).count()) > 0;
     await expect(inboxLink(page)).toContainText(decided ? "3" : "2", { timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });

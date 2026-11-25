@@ -298,7 +298,7 @@ export const devRouter = router({
     const note = buildChoiceNote(ctx.businessId, { ideaText: input.ideaText, archetype: null, founderFirstName: null });
     return ctx.rls(async (tx) => {
       const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
-      const item = await repos.inbox.createItem(tx, ctx.businessId, { type: note.decision ? "decision" : "update", from_agent_id: chief?.id ?? null, subject: note.subject, body_md: note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: note.decision, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+      const item = await repos.inbox.createItem(tx, ctx.businessId, { type: note.decision ? "decision" : "report", from_agent_id: chief?.id ?? null, subject: note.subject, body_md: note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: note.decision, blocks_continue: false, source_event_ids: [], entity_ids: [] });
       return { inboxItemId: item.id };
     });
   }),

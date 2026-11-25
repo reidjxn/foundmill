@@ -381,11 +381,12 @@ export const foundationsRepo = {
           if (options.onInboxItem) await options.onInboxItem(tx, spec.item);
         }
         // The Chief of Staff's build recommendation (founder, Nov 25, 2026), once per project, beside the plan note: Build it
-        // ourselves or Build it with Lovable, or that the idea needs no software built. It never holds Continue.
+        // ourselves or Build it with Lovable, or that the idea needs no software built. It never holds Continue. The no-software
+        // note is a report, never an update: a Chief of Staff update would replace the welcome note (`supersedeUpdates`).
         const chief = await agentsRepo.chiefOfStaff(tx, businessId);
         if (spec.created && chief && inputs.idea) {
           const note = buildChoiceNote(businessId, { ideaText: buildChoiceIdeaText(inputs.idea), archetype: inputs.archetype ?? inputs.idea.archetype, founderFirstName: null });
-          const built = await inboxRepo.createItem(tx, businessId, { type: note.decision ? "decision" : "update", from_agent_id: chief.id, subject: note.subject.slice(0, 80), body_md: note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: note.decision, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+          const built = await inboxRepo.createItem(tx, businessId, { type: note.decision ? "decision" : "report", from_agent_id: chief.id, subject: note.subject.slice(0, 80), body_md: note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: note.decision, blocks_continue: false, source_event_ids: [], entity_ids: [] });
           if (options.onInboxItem) await options.onInboxItem(tx, built);
         }
       }

@@ -109,3 +109,17 @@ describe("a decision option's 'because' is a bounded plain line (review F36)", (
     expect(withPlainOptionLines(plain)).toBe(plain);
   });
 });
+
+describe("a Chief of Staff report never replaces the welcome note (the build choice, Nov 25, 2026)", () => {
+  it("keeps the Chief of Staff's current update open beside a report; a newer update still replaces it", async () => {
+    const chief = (await repos.agents.chiefOfStaff(r.db, r.A.businessId))!;
+    const welcome = await repos.inbox.createItem(r.db, r.A.businessId, note(chief.id, { subject: "Northwind has started" }), { state: "unread" });
+    const report = await repos.inbox.createItem(r.db, r.A.businessId, note(chief.id, { type: "report", subject: "Your idea needs no app built" }), { state: "unread" });
+    expect((await repos.inbox.get(r.db, r.A.businessId, welcome.id)).state).toBe("unread");
+    expect((await repos.inbox.get(r.db, r.A.businessId, report.id)).state).toBe("unread");
+    // The rule the report avoids: one current update per agent.
+    await repos.inbox.createItem(r.db, r.A.businessId, note(chief.id, { subject: "A newer update" }), { state: "unread" });
+    expect((await repos.inbox.get(r.db, r.A.businessId, welcome.id)).state).toBe("archived");
+    expect((await repos.inbox.get(r.db, r.A.businessId, report.id)).state).toBe("unread");
+  });
+});

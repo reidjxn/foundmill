@@ -114,7 +114,8 @@ export async function decideBuildChoiceNote(ctx: BusinessContext, item: InboxIte
     const body = lovableAnswer(spun, lovableBuildUrl(plan.prompt));
     const from = item.fromAgentId;
     followUp = await ctx.rls(async (tx) => {
-      const note = await repos.inbox.createItem(tx, ctx.businessId, { type: "update", from_agent_id: from, subject: spun.route === "mcp" && !spun.simulated ? "Your Lovable project is started" : "Build it with Lovable", body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] }, { state: "unread" });
+      // A report, never an update: a Chief of Staff update would replace the welcome note or the note of the day.
+      const note = await repos.inbox.createItem(tx, ctx.businessId, { type: "report", from_agent_id: from, subject: spun.route === "mcp" && !spun.simulated ? "Your Lovable project is started" : "Build it with Lovable", body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] }, { state: "unread" });
       await emit(tx, ctx, { type: "inbox.item_created", ...(from ? { actor: { kind: "agent" as const, id: from } } : {}), payload: { inboxItemId: note.id, type: note.type, fromAgentId: from, subject: note.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
       return note;
     });
