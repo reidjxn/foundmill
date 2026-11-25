@@ -13,6 +13,7 @@ import { screenSiteFiles, siteHeldSentence, starterFiles, type SiteFlag } from "
 import { repos, type Executor, type SiteRelease, type WorkspaceManifestEntry } from "@foundmill/db";
 import { siteFileType, sitePreviewUrl, siteSlugProblem, sitesDomain, sitesEnabled } from "@foundmill/shared/sites";
 import { suffixPageSlug, suggestPageSlug } from "@foundmill/shared";
+import { siteLaunchChecklist } from "@foundmill/shared/launch-checklist";
 import { emitEvent } from "../events";
 import type { CheckoutBase } from "./checkout";
 import { restorablePath } from "./workspace-store";
@@ -139,6 +140,7 @@ export async function buildSiteRelease(db: Executor, env: { SITES_DOMAIN?: strin
   const texty = applied.files.filter((f) => /\.(html|svg|css)$/i.test(f.path));
   const contents = new Map((await repos.workspaces.readFiles(db, input.businessId, { files: texty })).map((e) => [e.path, e.content]));
   const decoder = new TextDecoder("utf-8", { fatal: true });
+  const pages: { path: string; text: string }[] = [];
   const { flags } = screenSiteFiles(
     applied.files.map((f) => {
       const bytes = contents.get(f.path);
@@ -146,6 +148,7 @@ export async function buildSiteRelease(db: Executor, env: { SITES_DOMAIN?: strin
       if (bytes && siteFileType(f.path)) {
         try {
           text = decoder.decode(bytes);
+          if (/\.html$/i.test(f.path)) pages.push({ path: f.path, text });
         } catch {
           text = undefined;
         }
@@ -161,7 +164,9 @@ export async function buildSiteRelease(db: Executor, env: { SITES_DOMAIN?: strin
   await emitEvent(db, { businessId: input.businessId, type: "site.release_created", actor, payload: { siteId: site.id, releaseId: release.id, number: release.number, taskId: input.taskId, fileCount: release.fileCount, totalBytes: release.totalBytes, state: release.state as "preview" | "held", previewUrl } }, { idempotencyKey: `site.release_created:${release.id}` });
   if (previewUrl) {
     await emitEvent(db, { businessId: input.businessId, type: "deploy.succeeded", actor, payload: { taskId: input.taskId, environment: "preview", provider: "foundmill", url: previewUrl, commitSha: release.contentHash, branch: null, durationMs: null } }, { idempotencyKey: `deploy.preview:${release.id}` });
-    await repos.sites.writeReadyNote(db, input.businessId, { agentId: input.agentId, agentName: input.agentName, previewUrl });
+    // Before the site's first launch the note also shows what is ready and what is not; it never blocks (founder, Nov 25, 2026).
+    const launched = (await repos.sites.listReleases(db, input.businessId, 100)).some((r) => r.publishedAt);
+    await repos.sites.writeReadyNote(db, input.businessId, { agentId: input.agentId, agentName: input.agentName, previewUrl, ...(launched ? {} : { launchChecklist: siteLaunchChecklist(pages) }) });
   }
   return { status: "release", release, flags };
 }

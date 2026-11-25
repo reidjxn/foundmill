@@ -55,6 +55,7 @@ import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { BOOKING_READY_NOTE, isBookingReadyDecision } from "@foundmill/shared/booking";
 import { PAGE_READY_NOTE, isPageReadyDecision } from "@foundmill/shared/project-page";
 import { isShowcaseConsentDecision } from "@foundmill/shared/showcase";
+import { SiteLaunchList } from "./SiteLaunchList";
 import { POSTAL_ADDRESS_NOTE, isPostalAddressDecision } from "@foundmill/shared/platform-mail";
 import { moduleTabHref } from "@foundmill/widgets/shared/departments";
 import { humanSender, NETWORK_SENDER } from "@foundmill/widgets/shared/note-tags";
@@ -629,6 +630,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
         {/* A founder's own showcase ask (0103): watched and answered here, signed in. */}
         {isShowcaseConsentDecision(item.decision) ? <ShowcaseConsentPanel businessId={businessId} inboxItemId={item.id} /> : null}
+        <SiteLaunchList decision={item.decision} />
 
         {approval ? <ApprovalPanel approval={approval} businessId={businessId} departments={departments} reason={reason} onReasonChange={setReason} answered={isAnswered || decide.isPending} /> : null}
         {signoff ? <SignoffPanel signoff={signoff} notes={reason} onNotesChange={(v) => { setReason(v); if (v.trim()) setNeedsNotes(false); }} answered={isAnswered || decide.isPending} needsNotes={needsNotes} chosenOption={answered?.optionId ?? null} /> : null}

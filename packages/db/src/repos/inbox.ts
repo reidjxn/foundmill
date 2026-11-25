@@ -48,6 +48,8 @@ export const ComposerDecision = z
     key: z.string().min(1).max(200).optional(),
     /** The page catch-up's note (WP-12 T1): never emailed about unless `PAGE_CATCH_UP_EMAIL` allows it. */
     catch_up: z.literal(true).optional(),
+    /** The Site's "Before it goes live" list (founder, Nov 25, 2026): shown beside the options, never a condition on them. */
+    launch_checklist: z.array(z.object({ id: z.enum(["phone", "visitor_action", "sharing", "search", "consent"]), label: z.string().min(1).max(80), ready: z.boolean(), line: z.string().min(1).max(300) })).min(1).max(5).optional(),
   })
   .refine((d) => d.options.filter((o) => o.recommended).length === 1, { message: "exactly one option must be recommended", path: ["options"] })
   .refine((d) => new Set(d.options.map((o) => o.id)).size === d.options.length, { message: "option ids must be unique", path: ["options"] });

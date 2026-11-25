@@ -88,7 +88,12 @@ describe("site sessions", () => {
     const second = await b.finish();
     expect(second.status === "release" && second.release.files.map((f) => f.path).sort()).toEqual(["about.html", "index.html", "pricing.html", "styles.css"]);
     // The first preview wrote the note; the second, with no publish since, did not write another.
-    expect(await repos.sites.openReadyNote(t.db, t.businessId)).toMatchObject({ subject: "Your site is ready to look at" });
+    const note = await repos.sites.openReadyNote(t.db, t.businessId);
+    expect(note).toMatchObject({ subject: "Your site is ready to look at", blocksContinue: false });
+    // Before the first launch the note carries the list read from the starter's pages; the options stay as they were.
+    const decision = note!.decision as { options: { id: string }[]; launch_checklist?: { id: string; ready: boolean }[] };
+    expect(decision.options.map((o) => o.id)).toEqual(["site_publish", "site_later"]);
+    expect(decision.launch_checklist?.map((i) => [i.id, i.ready])).toEqual([["phone", true], ["visitor_action", true], ["sharing", false], ["search", false], ["consent", true]]);
   });
 
   it("hands back the second of two tasks that changed index.html from the same version", async () => {

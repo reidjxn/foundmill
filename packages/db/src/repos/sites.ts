@@ -13,6 +13,7 @@ import { and, count, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auditLog, inboxItems, siteReleases, sites, type InboxItem, type Site, type SiteRelease, type SiteScreening } from "../schema";
 import { SITE_READY_NOTE, SITE_TAB } from "@foundmill/shared/sites";
+import type { LaunchCheck } from "@foundmill/shared/launch-checklist";
 import { inboxRepo } from "./inbox";
 import { departmentsRepo } from "./departments";
 import { screensRepo } from "./screens";
@@ -220,7 +221,7 @@ export const sitesRepo = {
    * The Product lead's note for a new preview, from the agent that made it: written only when no note is open and no
    * publish happened since the last note (one note per round of looking, never one per version).
    */
-  async writeReadyNote(db: Executor, businessId: string, input: { agentId: string; agentName: string; previewUrl: string }): Promise<InboxItem | null> {
+  async writeReadyNote(db: Executor, businessId: string, input: { agentId: string; agentName: string; previewUrl: string; launchChecklist?: LaunchCheck[] }): Promise<InboxItem | null> {
     if (await sitesRepo.openReadyNote(db, businessId)) return null;
     const [last] = await db.select({ at: inboxItems.createdAt }).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), sql`${inboxItems.decision}->>'key' = ${SITE_READY_NOTE.key}`)).orderBy(desc(inboxItems.createdAt)).limit(1);
     if (last) {
@@ -238,7 +239,7 @@ export const sitesRepo = {
         options: [
           { id: SITE_READY_NOTE.options.publish, label: SITE_READY_NOTE.publishLabel, recommended: true, consequence: "The newest version of your site goes live at its address.", cost_minor: 0, reversible: true },
           { id: SITE_READY_NOTE.options.later, label: SITE_READY_NOTE.laterLabel, recommended: false, consequence: "Nothing is public. You can publish from the Site tab any time.", cost_minor: 0, reversible: true },
-        ], free_text: false, expires_at: null, key: SITE_READY_NOTE.key },
+        ], free_text: false, expires_at: null, key: SITE_READY_NOTE.key, ...(input.launchChecklist ? { launch_checklist: input.launchChecklist } : {}) },
       blocks_continue: false,
       source_event_ids: [],
       entity_ids: [],

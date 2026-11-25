@@ -58,3 +58,50 @@ export function launchChecklist(input: { name: string; content: ProjectPageConte
   if (content.followForm) items.push({ id: "consent", label: "Clear about email", ready: true, line: "The Follow form says what visitors agree to and that they can unsubscribe at any time." });
   return items;
 }
+
+/** The tags of one kind in an HTML text (`<meta …>`), lowercased for matching. */
+const tagsOf = (html: string, tag: string): string[] => (html.match(new RegExp(`<${tag}\\b[^>]*>`, "gi")) ?? []).map((t) => t.toLowerCase());
+const metaWith = (html: string, attr: RegExp, content?: RegExp): boolean => tagsOf(html, "meta").some((t) => attr.test(t) && (!content || content.test(t)));
+
+/**
+ * The same list for a Foundmill Site's first launch (founder, Nov 25, 2026: "Yes, but it should never be a blocker, it
+ * should just show the user."), read from one release's pages: the home page (`index.html`) and the text of every page.
+ * Only what the HTML shows is judged. The sign-up's consent is the platform's own page (apps/sites `followFormPage`).
+ */
+export function siteLaunchChecklist(pages: readonly { path: string; text: string }[]): LaunchCheck[] {
+  const home = pages.find((p) => p.path === "index.html")?.text ?? "";
+  const all = pages.map((p) => p.text).join("\n");
+  const follows = /<form\b[^>]*action=["']?\/_fm\/follow["'\s>]/i.test(all);
+  const pays = /href=["']?\/_fm\/pay\//i.test(all);
+  const title = /<title\b[^>]*>\s*[^<\s][^<]*<\/title>/i.test(home);
+  const description = metaWith(home, /name=["']?description["'\s>]/, /content=["']?[^"'\s>]/);
+  const items: LaunchCheck[] = [
+    metaWith(home, /name=["']?viewport["'\s>]/, /width=device-width/)
+      ? { id: "phone", label: "Works on a phone", ready: true, line: "The home page is set to fit a phone screen." }
+      : { id: "phone", label: "Works on a phone", ready: false, line: "Phones may show the home page zoomed out. The team can add the line that fits it to a phone screen." },
+    follows || pays
+      ? { id: "visitor_action", label: "A way for visitors to act", ready: true, line: follows ? "Visitors can sign up with their email, so you can tell them what comes next." : "Visitors can pay from the site." }
+      : { id: "visitor_action", label: "A way for visitors to act", ready: false, line: "Visitors can read the site. A sign-up form or a pay button would let them do something next." },
+    metaWith(home, /property=["']?og:image["'\s>]/, /content=["']?[^"'\s>]/)
+      ? { id: "sharing", label: "Ready to share", ready: true, line: "A shared link shows a preview image." }
+      : { id: "sharing", label: "Ready to share", ready: false, line: "A shared link shows no preview image yet. The team can add one." },
+    title && description
+      ? { id: "search", label: "Found by search engines", ready: true, line: "The home page has a title and a description for search results." }
+      : { id: "search", label: "Found by search engines", ready: false, line: `The home page has no ${title ? "description" : description ? "title" : "title or description"} for search results yet. The team can write ${title || description ? "it" : "them"}.` },
+  ];
+  if (follows) items.push({ id: "consent", label: "Clear about email", ready: true, line: "A visitor who signs up sees what they agree to, ticks the box themselves and can unsubscribe at any time." });
+  return items;
+}
+
+const CHECK_IDS: readonly string[] = ["phone", "visitor_action", "sharing", "search", "consent"];
+
+/** A stored list read defensively (a note written outside this code): null when it is not one. */
+export function readLaunchChecklist(value: unknown): LaunchCheck[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > CHECK_IDS.length) return null;
+  const items = value.flatMap((v): LaunchCheck[] => {
+    const o = v as Partial<LaunchCheck> | null;
+    if (!o || typeof o !== "object" || !CHECK_IDS.includes(o.id as string) || typeof o.label !== "string" || typeof o.line !== "string" || typeof o.ready !== "boolean") return [];
+    return [{ id: o.id as LaunchCheckId, label: o.label, ready: o.ready, line: o.line }];
+  });
+  return items.length === value.length ? items : null;
+}
