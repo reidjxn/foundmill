@@ -55,9 +55,9 @@ export const INVITED_FOUNDERS_LINE = "Free while in early access. Founders invit
 
 /**
  * Which way a training check runs unless the founder picks the other (WP-09 T10): "now", or "batch" (within a day at
- * half price). D11 is the founder's to decide (recommended: "batch" on the free plan); until then it is "now".
+ * half price). D11, decided by the founder on Nov 25, 2026: "batch" on every plan; run now stays the faster choice.
  */
-export const TRAINING_DEFAULT_MODE: "now" | "batch" = "now";
+export const TRAINING_DEFAULT_MODE: "now" | "batch" = "batch";
 
 /** Try's price from the day sign-up opens, in US cents a month (#273, #274). */
 export const TRY_PRICE_MONTHLY_MINOR = 500;

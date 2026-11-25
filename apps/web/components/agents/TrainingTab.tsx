@@ -134,9 +134,9 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
   const estimateQ = useQuery(trpc.agent.training.estimate.queryOptions({ businessId, agentId: agent.id, modelKey: previewModel ?? draftModel }, { enabled: trainOpen || sub === "model", staleTime: 60_000 }));
   const run = useMutation(
     trpc.agent.training.run.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (_run, vars) => {
         setTrainOpen(false);
-        setNotice({ tone: "info", text: "Training started. Tests run in sandboxes against mock tools; the live version keeps working." });
+        setNotice({ tone: "info", text: vars.mode === "batch" ? "Training started at half price: results come back within a day. Tests run in sandboxes against mock tools; the live version keeps working." : "Training started. Tests run in sandboxes against mock tools; the live version keeps working." });
         void invalidateAgent();
         refetch();
       },

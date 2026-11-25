@@ -190,7 +190,7 @@ test.describe("agent profile", () => {
     await expect(page.getByTestId("train-confirm")).toHaveText(/^Run now, about \$\d+\.\d{2} \(Estimate\)$/);
     await expect(page.getByTestId("train-batch")).toHaveText(/^Run within a day at half price, about \$\d+\.\d{2} \(Estimate\)$/);
     // The dialog opens on its primary button, not on the Estimate chip or a defined word, so one Escape closes it.
-    await expect(page.getByTestId("train-confirm")).toBeFocused();
+    await expect(page.getByTestId("train-batch")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("train-dialog")).toBeHidden();
     // The Training panel's footer says the rules in plain words (C5); the notice takes its place after a save.
