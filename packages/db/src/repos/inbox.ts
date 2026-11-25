@@ -23,6 +23,11 @@ export const ComposerOption = z.object({
   recommended: z.boolean(),
   consequence: z.string(),
   cost_minor: z.number().int().nonnegative(),
+  /**
+   * The cost is not money Foundmill can state as a figure (the founder's Lovable credits, Foundmill credits for the team's
+   * work), so the note's own words state it and the DecisionBar shows no cost line instead of "No cost".
+   */
+  cost_in_note: z.literal(true).optional(),
   reversible: z.boolean(),
   /**
    * Why this option is recommended, or why it is on the list, in the agent's words ("Recommended because it is free and

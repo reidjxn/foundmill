@@ -28,6 +28,8 @@ async function note(businessId: string, agentId: string) {
 }
 
 const summaryOf = (out: { plan: { summaryMd: string } | null }) => out.plan?.summaryMd ?? "";
+/** What the founder reads after Build it with Lovable: the Chief of Staff's next note. */
+const followOf = (out: { followUp: { bodyMd: string } | null }) => out.followUp?.bodyMd ?? "";
 
 describe("the build choice", () => {
   it("only an owner, cofounder or admin chooses; Build it ourselves is recorded and calls nothing", async () => {
@@ -47,9 +49,9 @@ describe("the build choice", () => {
     const before = calls.length;
     const out = await hz.caller({ userId: ownerId }).inbox.decide({ businessId, itemId: item.id, chosenOption: BUILD_CHOICE_NOTE.options.lovable });
     expect(calls.length).toBe(before);
-    expect(summaryOf(out)).toMatch(/Lovable is not connected/);
-    expect(summaryOf(out)).toContain("https://lovable.dev/#prompt=");
-    expect(summaryOf(out)).toMatch(/Settings › Integrations/);
+    expect(followOf(out)).toMatch(/Lovable is not connected/);
+    expect(followOf(out)).toContain("https://lovable.dev/#prompt=");
+    expect(followOf(out)).toMatch(/Settings › Integrations/);
   });
 
   it("connected: create_project, then set_project_knowledge; a mock result is reported as simulated, never as done", async () => {
@@ -60,29 +62,29 @@ describe("the build choice", () => {
     const out = await hz.caller({ userId: ownerId }).inbox.decide({ businessId, itemId: item.id, chosenOption: BUILD_CHOICE_NOTE.options.lovable });
     expect(calls.slice(-2).map((c) => `${c.connector}:${c.tool}`)).toEqual(["lovable_mcp:create_project", "lovable_mcp:set_project_knowledge"]);
     expect(String(calls.at(-2)!.args.prompt)).toMatch(/^Build the first version of /);
-    expect(summaryOf(out)).toMatch(/^This was simulated and not done: no Lovable project was created/);
-    expect(summaryOf(out)).toContain("https://lovable.dev/#prompt=");
+    expect(followOf(out)).toMatch(/^This was simulated and not done: no Lovable project was created/);
+    expect(followOf(out)).toContain("https://lovable.dev/#prompt=");
   });
 
   it("connected and live: the project's link from Lovable's own host goes to the inbox", async () => {
     const { businessId, ownerId, agentId } = hz.B;
     answer = (input) => ({ outcome: "allow", auditId: "a2", result: { ok: true, data: { untrusted: true, content: { text: "ok", structured: input.tool === "create_project" ? { id: "p1", url: "https://lovable.dev/projects/p1" } : {} } } } });
     const out = await hz.caller({ userId: ownerId }).inbox.decide({ businessId, itemId: (await note(businessId, agentId)).id, chosenOption: BUILD_CHOICE_NOTE.options.lovable });
-    expect(summaryOf(out)).toContain("[open it in Lovable](https://lovable.dev/projects/p1)");
-    expect(summaryOf(out)).toMatch(/used your Lovable credits, billed by Lovable/);
+    expect(followOf(out)).toContain("[open it in Lovable](https://lovable.dev/projects/p1)");
+    expect(followOf(out)).toMatch(/used your Lovable credits, billed by Lovable/);
   });
 
   it("refused by Lovable: the reason in plain words and the Build with URL link; a link off Lovable's host is never shown", async () => {
     const { businessId, ownerId, agentId } = hz.B;
     answer = () => ({ outcome: "allow", auditId: "a3", result: { ok: false, error: { code: "remote_tool_error", details: { reason: "insufficient_credits" } } as never } });
     const refused = await hz.caller({ userId: ownerId }).inbox.decide({ businessId, itemId: (await note(businessId, agentId)).id, chosenOption: BUILD_CHOICE_NOTE.options.lovable });
-    expect(summaryOf(refused)).toMatch(/Lovable did not create the project \(your Lovable workspace has no credits left for it\)/);
-    expect(summaryOf(refused)).toContain("https://lovable.dev/#prompt=");
+    expect(followOf(refused)).toMatch(/Lovable did not create the project \(your Lovable workspace has no credits left for it\)/);
+    expect(followOf(refused)).toContain("https://lovable.dev/#prompt=");
 
     answer = (input) => ({ outcome: "allow", auditId: "a4", result: { ok: true, data: { untrusted: true, content: { text: "ok", structured: input.tool === "create_project" ? { id: "p2", url: "https://evil.example/p2" } : {} } } } });
     const odd = await hz.caller({ userId: ownerId }).inbox.decide({ businessId, itemId: (await note(businessId, agentId)).id, chosenOption: BUILD_CHOICE_NOTE.options.lovable });
-    expect(summaryOf(odd)).not.toContain("evil.example");
-    expect(summaryOf(odd)).toContain("https://lovable.dev/projects/p2");
+    expect(followOf(odd)).not.toContain("evil.example");
+    expect(followOf(odd)).toContain("https://lovable.dev/projects/p2");
   });
 
   it("Settings' way in when connecting is refused: the Build with URL link with this project's plan, for admins only", async () => {
@@ -91,5 +93,16 @@ describe("the build choice", () => {
     expect(url).toMatch(/^https:\/\/lovable\.dev\/#prompt=Build%20the%20first%20version%20of%20/);
     await expect(hz.caller({ userId: memberId }).integrations.lovableBuildLink({ businessId })).rejects.toThrow();
     await expect(hz.caller({ userId: ownerId }).integrations.lovableBuildLink({ businessId: hz.B.businessId })).rejects.toThrow();
+  });
+
+  it("two presses at once create one Lovable project: the note is answered before the call", async () => {
+    const { businessId, ownerId, agentId } = hz.B;
+    answer = (input) => ({ outcome: "allow", auditId: "a5", result: { ok: true, data: { untrusted: true, content: { text: "ok", structured: input.tool === "create_project" ? { id: "p3" } : {} } } } });
+    const item = await note(businessId, agentId);
+    const before = calls.filter((c) => c.tool === "create_project").length;
+    const owner = hz.caller({ userId: ownerId });
+    const results = await Promise.allSettled([1, 2].map(() => owner.inbox.decide({ businessId, itemId: item.id, chosenOption: BUILD_CHOICE_NOTE.options.lovable })));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(calls.filter((c) => c.tool === "create_project").length - before).toBe(1);
   });
 });

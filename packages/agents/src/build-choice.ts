@@ -79,7 +79,8 @@ function quoteAround(text: string, index: number, length: number): string {
   const after = text.slice(index + length).split(" ");
   const head = before.slice(-4).join(" ");
   const tail = after.slice(0, 4).join(" ");
-  const quote = `${head}${text.slice(index, index + length)}${tail}`.replace(/[.,;:!?]+$/, "").trim();
+  // Markdown characters are escaped: the quote is shown in a note, and a link or emphasis in the idea stays plain text.
+  const quote = `${head}${text.slice(index, index + length)}${tail}`.replace(/[.,;:!?]+$/, "").trim().replace(/([\\`*_[\]()<>#!|])/g, "\\$1");
   return `${before.length > 4 ? "…" : ""}${quote}${after.length > 4 ? "…" : ""}`;
 }
 
@@ -128,7 +129,7 @@ export interface BuildChoiceNote {
   subject: string;
   bodyMd: string;
   /** Null for an idea with no software to build: the note is an update with nothing to decide. */
-  decision: { key: string; options: { id: string; label: string; recommended: boolean; consequence: string; because?: string; cost_minor: number; reversible: boolean }[]; free_text: false; expires_at: null } | null;
+  decision: { key: string; options: { id: string; label: string; recommended: boolean; consequence: string; because?: string; cost_minor: number; cost_in_note: true; reversible: boolean }[]; free_text: false; expires_at: null } | null;
 }
 
 const reasonLines = (hits: BuildChoiceHit[], side: BuildRuleSide): string[] => hits.filter((h) => h.side === side).slice(0, 5).map((h) => `- “${h.quote}”: ${h.because}.`);
@@ -172,8 +173,8 @@ export function buildChoiceNote(businessId: string, input: BuildChoiceInput, res
     decision: {
       key: `${BUILD_CHOICE_NOTE.keyPrefix}${businessId}`,
       options: [
-        { id: BUILD_CHOICE_NOTE.options.ours, label: BUILD_CHOICE_NOTE.oursLabel, recommended: !lovable, consequence: BUILD_CHOICE_NOTE.oursConsequence, ...(!lovable && why.length ? { because: result.hits.find((h) => h.side === "ours")!.because } : {}), cost_minor: 0, reversible: true },
-        { id: BUILD_CHOICE_NOTE.options.lovable, label: BUILD_CHOICE_NOTE.lovableLabel, recommended: lovable, consequence: BUILD_CHOICE_NOTE.lovableConsequence, ...(lovable ? { because: result.hits.find((h) => h.side === "lovable")!.because } : {}), cost_minor: 0, reversible: true },
+        { id: BUILD_CHOICE_NOTE.options.ours, label: BUILD_CHOICE_NOTE.oursLabel, recommended: !lovable, consequence: BUILD_CHOICE_NOTE.oursConsequence, ...(!lovable && why.length ? { because: result.hits.find((h) => h.side === "ours")!.because } : {}), cost_minor: 0, cost_in_note: true, reversible: true },
+        { id: BUILD_CHOICE_NOTE.options.lovable, label: BUILD_CHOICE_NOTE.lovableLabel, recommended: lovable, consequence: BUILD_CHOICE_NOTE.lovableConsequence, ...(lovable ? { because: result.hits.find((h) => h.side === "lovable")!.because } : {}), cost_minor: 0, cost_in_note: true, reversible: false },
       ],
       free_text: false,
       expires_at: null,
@@ -200,19 +201,14 @@ export function lovablePrompt(input: { businessName: string; ideaText: string; p
 /** Lovable's Build with URL: opens Lovable in the founder's own browser and account with the prompt filled in; the founder presses send. */
 export const lovableBuildUrl = (prompt: string): string => `https://lovable.dev/#prompt=${encodeURIComponent(prompt.slice(0, LOVABLE_PROMPT_MAX))}`;
 
-/** A Lovable project link from create_project's answer, only on Lovable's own https host; anything else is not shown. */
+/**
+ * The Lovable project from create_project's answer: its id, checked, and the link built from it on Lovable's own host.
+ * The vendor's own `url` is never used: an answer is untrusted, and a link it chose could point anywhere.
+ */
 export function lovableProjectLink(structured: unknown): { id: string | null; url: string | null } {
-  const s = (structured && typeof structured === "object" ? structured : {}) as { id?: unknown; project_id?: unknown; url?: unknown; project_url?: unknown };
+  const s = (structured && typeof structured === "object" ? structured : {}) as { id?: unknown; project_id?: unknown };
   const id = [s.id, s.project_id].find((v): v is string => typeof v === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(v)) ?? null;
-  const raw = [s.url, s.project_url].find((v): v is string => typeof v === "string") ?? null;
-  let url: string | null = null;
-  try {
-    const u = raw ? new URL(raw) : null;
-    if (u && u.protocol === "https:" && (u.hostname === "lovable.dev" || u.hostname.endsWith(".lovable.dev") || u.hostname.endsWith(".lovable.app"))) url = u.toString();
-  } catch {
-    url = null;
-  }
-  return { id, url: url ?? (id ? `https://lovable.dev/projects/${id}` : null) };
+  return { id, url: id ? `https://lovable.dev/projects/${id}` : null };
 }
 
 /** The rubric as the Chief of Staff's template reads it (one line per rule), so a conversation about the choice uses the same criteria. */

@@ -10,6 +10,7 @@ import { BUILD_CHOICE_NOTE, buildChoiceIdeaText, lovableBuildUrl, lovablePrompt,
 import { pmText, repos, type InboxItem } from "@foundmill/db";
 import { ConflictError, ForbiddenError, isAdminRole, ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
+import { emit } from "../trpc";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
 
@@ -90,23 +91,33 @@ export async function spinUpLovable(ctx: BusinessContext, plan: { prompt: string
   return { route: "mcp", simulated, projectId: made.id, url: made.url, knowledgeSet };
 }
 
+export const LOVABLE_STARTING = "Chosen: Build it with Lovable. I'm starting your Lovable project from your plan, and the next note has its link.";
+
+/**
+ * The press. The note is answered first, in its own transaction, so two presses (two tabs, two cofounders) create one
+ * Lovable project, never two: the second finds the note answered and stops before any call. The outcome, with its link,
+ * follows as the Chief of Staff's next note.
+ */
 export async function decideBuildChoiceNote(ctx: BusinessContext, item: InboxItem, input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
   const option = input.chosenOption;
   const { ours, lovable } = BUILD_CHOICE_NOTE.options;
   if (option !== ours && option !== lovable) throw new ValidationError(`Choose ${BUILD_CHOICE_NOTE.oursLabel} or ${BUILD_CHOICE_NOTE.lovableLabel}.`, { itemId: item.id });
   if (!isAdminRole(ctx.role)) throw new ForbiddenError("Owners, cofounders and admins choose how the project gets built.");
-  if (item.state === "answered" || item.state === "archived") throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
 
-  let summary = "Chosen: the engineering agents build it from your plan.";
-  let result: Record<string, unknown> = { buildChoice: "ours" };
+  const summary = option === lovable ? LOVABLE_STARTING : "Chosen: the engineering agents build it from your plan.";
+  const answered = await ctx.rls((tx) => answerNote(tx, ctx, item.id, option, input.freeText, item.fromAgentId, summary, { params: { build_choice: option }, result: { buildChoice: option === lovable ? "lovable" : "ours" } }));
+  if (!answered) throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
+  let followUp: InboxItem | null = null;
   if (option === lovable) {
     const plan = await planForLovable(ctx);
-    const fallback = lovableBuildUrl(plan.prompt);
     const spun = await spinUpLovable(ctx, plan);
-    summary = lovableAnswer(spun, fallback);
-    result = { buildChoice: "lovable", route: spun.route, ...(spun.route === "mcp" ? { simulated: spun.simulated, lovableProjectId: spun.projectId, lovableUrl: spun.url } : { why: spun.why }) };
+    const body = lovableAnswer(spun, lovableBuildUrl(plan.prompt));
+    const from = item.fromAgentId;
+    followUp = await ctx.rls(async (tx) => {
+      const note = await repos.inbox.createItem(tx, ctx.businessId, { type: "update", from_agent_id: from, subject: spun.route === "mcp" && !spun.simulated ? "Your Lovable project is started" : "Build it with Lovable", body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] }, { state: "unread" });
+      await emit(tx, ctx, { type: "inbox.item_created", ...(from ? { actor: { kind: "agent" as const, id: from } } : {}), payload: { inboxItemId: note.id, type: note.type, fromAgentId: from, subject: note.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
+      return note;
+    });
   }
-  const answered = await ctx.rls((tx) => answerNote(tx, ctx, item.id, option, input.freeText, item.fromAgentId, summary, { params: { build_choice: option }, result }));
-  if (!answered) throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
-  return { item: answered.item, decision: answered.decision, plan: answered.plan, evaluations: [], requiresConfirmation: false, executed: [answered.actionId], deferred: [], denied: [], dispatch: null, followUp: null };
+  return { item: answered.item, decision: answered.decision, plan: answered.plan, evaluations: [], requiresConfirmation: false, executed: [answered.actionId], deferred: [], denied: [], dispatch: null, followUp };
 }

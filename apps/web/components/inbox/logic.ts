@@ -202,6 +202,8 @@ interface RawOption {
   /** Why it is recommended, or why it is on the list (the Composer schema's `because`, UX plan §7.19). */
   because?: unknown;
   cost_minor?: unknown;
+  /** The cost is stated in the note's words, not as a figure: no cost line (the build choice, Nov 25, 2026). */
+  cost_in_note?: unknown;
   reversible?: unknown;
 }
 
@@ -215,7 +217,7 @@ export function toDecisionOptions(decision: unknown, currency: string): Decision
     .map((o) => {
       const cost: Money | null = typeof o.cost_minor === "number" ? (o.cost_minor > 0 ? { amountMinor: o.cost_minor, currency } : null) : null;
       const because = typeof o.because === "string" && o.because.trim() ? o.because.trim() : undefined;
-      return { id: o.id as string, label: o.label as string, recommended: o.recommended === true, consequence: typeof o.consequence === "string" ? o.consequence : undefined, ...(because ? { because } : {}), cost, reversible: typeof o.reversible === "boolean" ? o.reversible : undefined };
+      return { id: o.id as string, label: o.label as string, recommended: o.recommended === true, consequence: typeof o.consequence === "string" ? o.consequence : undefined, ...(because ? { because } : {}), ...(o.cost_in_note === true ? {} : { cost }), reversible: typeof o.reversible === "boolean" ? o.reversible : undefined };
     });
 }
 

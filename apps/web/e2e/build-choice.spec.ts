@@ -1,17 +1,25 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, devApi, dismissCoachmarks, openBusiness, openSettings, settingsScreen, settled } from "./helpers";
+import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, devApi, dismissCoachmarks, openBusiness, openSettings, settingsScreen, settled, signIn } from "./helpers";
 
 /**
  * The Chief of Staff's build recommendation (founder, Nov 25, 2026): the note names the founder's own words that decide
  * it and both costs, with Build it ourselves and Build it with Lovable as its two buttons. With Lovable not connected,
  * Build it with Lovable answers with the link that opens Lovable with the plan. In Settings › Integrations, Lovable is a
  * connector to choose, and a refused sign-in says why and offers the same link: never a dead end. The notes are written
- * through `dev.seedBuildChoice` (development and test only).
+ * through `dev.seedBuildChoice` (development and test only), in the Ledgerly sample, so Northwind's Inbox counts stay as
+ * the other specs expect.
  */
+const L = `/b/${LEDGERLY_BUSINESS_ID}`;
 const B = `/b/${NORTHWIND_BUSINESS_ID}`;
 
 async function call<T>(api: APIRequestContext, path: string, input: unknown): Promise<T> {
   const res = await api.post(`/trpc/${path}`, { data: { json: input } });
+  expect(res.ok(), `${path} answered ${res.status()}: ${await res.text()}`).toBe(true);
+  return ((await res.json()) as { result: { data: { json: T } } }).result.data.json;
+}
+
+async function query<T>(api: APIRequestContext, path: string, input: unknown): Promise<T> {
+  const res = await api.get(`/trpc/${path}?input=${encodeURIComponent(JSON.stringify({ json: input }))}`);
   expect(res.ok(), `${path} answered ${res.status()}: ${await res.text()}`).toBe(true);
   return ((await res.json()) as { result: { data: { json: T } } }).result.data.json;
 }
@@ -24,23 +32,30 @@ test.describe("build it ourselves or with Lovable", () => {
   test.afterAll(async () => api?.dispose());
 
   test("the note quotes the idea, states both costs, and Build it with Lovable gives the link when Lovable is not connected", async ({ page }) => {
-    const { inboxItemId } = await call<{ inboxItemId: string }>(api, "dev.seedBuildChoice", { businessId: NORTHWIND_BUSINESS_ID, ideaText: "A web app where tutors log in and track each student's homework on a dashboard." });
-    await openBusiness(page, `inbox/${inboxItemId}`);
+    const { inboxItemId } = await call<{ inboxItemId: string }>(api, "dev.seedBuildChoice", { businessId: LEDGERLY_BUSINESS_ID, ideaText: "A web app where tutors log in and track each student's homework on a dashboard." });
+    await signIn(page);
+    await page.goto(`${L}/inbox/${inboxItemId}`);
     await dismissCoachmarks(page);
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
     await expect(item).toContainText("I recommend building it with Lovable.");
-    await expect(item).toContainText("track each student's homework on a dashboard");
+    await expect(item).toContainText("homework on a dashboard");
+    await expect(item).not.toContainText("No cost");
     await expect(item).toContainText("its credits are Lovable's, billed by Lovable");
     await expect(item).toContainText("use your Foundmill credits");
     await expect(item).toContainText("Estimate");
     const bar = page.getByTestId("decision-bar");
     await expect(bar.getByRole("button", { name: "Build it ourselves" })).toBeVisible();
     await bar.getByRole("button", { name: "Build it with Lovable" }).click();
-    const fold = page.getByRole("button", { name: /Show what happened/ });
-    if (await fold.count()) await fold.first().click();
-    await expect(item).toContainText("Lovable is not connected, so I did not create the project for you.", { timeout: LONG });
-    await expect(item.getByRole("link", { name: "Open Lovable with your plan" })).toHaveAttribute("href", /^https:\/\/lovable\.dev\/#prompt=/);
+    // The note is answered first (one press, one project); the outcome follows as the Chief of Staff's next note.
+    await expect.poll(async () => (await query<{ item: { state: string } }>(api, "inbox.get", { businessId: LEDGERLY_BUSINESS_ID, itemId: inboxItemId })).item.state, { timeout: LONG }).toBe("answered");
+    const list = await query<{ items: { id: string; subject: string; createdAt: string }[] }>(api, "inbox.list", { businessId: LEDGERLY_BUSINESS_ID, tab: "all" });
+    const next = list.items.find((i) => i.subject === "Build it with Lovable");
+    expect(next, "the follow-up note").toBeTruthy();
+    await page.goto(`${L}/inbox/${next!.id}`);
+    const answer = page.getByTestId("inbox-item");
+    await expect(answer).toContainText("Lovable is not connected, so I did not create the project for you.", { timeout: LONG });
+    await expect(answer.getByRole("link", { name: "Open Lovable with your plan" })).toHaveAttribute("href", /^https:\/\/lovable\.dev\/#prompt=/);
   });
 
   test("Lovable is a connector to choose; a refused sign-in says why and offers the link; a refused scope is asked once with fewer", async ({ page }) => {
