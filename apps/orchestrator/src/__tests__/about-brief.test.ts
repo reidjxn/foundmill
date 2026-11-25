@@ -3,7 +3,7 @@
  * business's own rows (the vision, the founder's words, the public page); `loadBrief` carries it as its second section.
  * Nothing is invented: a project with nothing written yet says so and points the agent at read_product.
  */
-import { repos } from "@foundmill/db";
+import { pageVisitDays, repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { aboutBusiness, createBriefActivities } from "../activities/brief";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
@@ -63,6 +63,16 @@ describe("aboutBusiness and the brief's About section", () => {
     await repos.pageVisits.count(t.db, t.businessId, today, "post");
     expect((await aboutBusiness(t.deps, t.businessId)).split("\n")[6]).toBe(
       "Public page visits (Estimate, counted by Foundmill; a visit alone is not an outside result): 3 in the last 7 days, 3 in the last 28 days; by source: Search engines 2, Team posts 1.",
+    );
+
+    // A live Site gets its own line (0176), from its own counts only.
+    const file = { path: "index.html", sha256: "a".repeat(64), size: 10 };
+    await repos.sites.ensure(t.db, t.businessId, { slug: "forest-candles" });
+    const release = await repos.sites.saveRelease(t.db, t.businessId, { files: [file], state: "preview" });
+    await repos.sites.publish(t.db, t.businessId, { releaseId: release.id, userId: t.fixture.ownerId });
+    await t.db.insert(pageVisitDays).values({ businessId: t.businessId, day: today, surface: "site", source: "social", visits: 5 });
+    expect((await aboutBusiness(t.deps, t.businessId)).split("\n")[7]).toBe(
+      "Site visits (Estimate, counted by Foundmill; a visit alone is not an outside result): 5 in the last 7 days, 5 in the last 28 days; by source: Social sites 5.",
     );
   });
 });

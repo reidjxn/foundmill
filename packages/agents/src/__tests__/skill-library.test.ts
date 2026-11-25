@@ -154,8 +154,8 @@ describe("the library is generated from packages/agents/skills", () => {
     for (const s of SKILL_LIBRARY) {
       const fix = FIXED[s.key];
       // pricing_analysis: the drafted body replaced the old one under the same key (WP-06 T3).
-      // tool_scout: the hosted browser route (Part D, Nov 22, 2026).
-      expect(s.version, s.key).toBe(fix || s.key === "pricing_analysis" || s.key === "tool_scout" || NOV_25_V2.includes(s.key) ? 2 : 1);
+      // tool_scout: the hosted browser route (Part D, Nov 22, 2026). error_reports_sentry: reading reports once Sentry is connected (Nov 25, 2026).
+      expect(s.version, s.key).toBe(fix || s.key === "pricing_analysis" || s.key === "tool_scout" || s.key === SENTRY_KEY || NOV_25_V2.includes(s.key) ? 2 : 1);
       if (!fix) continue;
       expect(s.instructionsMd.split("\n"), s.key).toContain(fix.after);
       expect(s.instructionsMd, s.key).not.toContain(fix.before);

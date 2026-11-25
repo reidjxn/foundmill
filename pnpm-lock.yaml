@@ -1019,6 +1019,9 @@ importers:
       '@foundmill/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@foundmill/journey':
+        specifier: workspace:*
+        version: link:../../packages/journey
       '@foundmill/shared':
         specifier: workspace:*
         version: link:../../packages/shared

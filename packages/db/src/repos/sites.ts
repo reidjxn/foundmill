@@ -14,6 +14,7 @@ import { z } from "zod";
 import { auditLog, inboxItems, siteReleases, sites, type InboxItem, type Site, type SiteRelease, type SiteScreening } from "../schema";
 import { SITE_READY_NOTE, SITE_TAB } from "@foundmill/shared/sites";
 import type { LaunchCheck } from "@foundmill/shared/launch-checklist";
+import type { PageVisitSource } from "@foundmill/shared/page-visits";
 import { inboxRepo } from "./inbox";
 import { departmentsRepo } from "./departments";
 import { screensRepo } from "./screens";
@@ -270,6 +271,11 @@ export const sitesRepo = {
   async report(db: Executor, label: string, input: { reason: string; detail?: string | null }): Promise<SiteReportResult> {
     const [row] = rowsOf<{ result: SiteReportResult }>(await db.execute(sql`select site_report(${label}, ${input.reason}, ${input.detail ?? null}) as result`));
     return row!.result;
+  },
+
+  /** One visit to the live site at `label` (`site_visit`, 0176): counted only for a live site of a real project. */
+  async countVisit(db: Executor, label: string, source: PageVisitSource): Promise<void> {
+    await db.execute(sql`select site_visit(${label}, ${source})`);
   },
 
   /** One file of a release (`site_file`), or null. */

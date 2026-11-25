@@ -30,6 +30,6 @@ describe("page visits", () => {
   it("does not count automated browsers or known bots", () => {
     expect(countableBrowser({ userAgent: "Mozilla/5.0 (Macintosh) Safari/605.1.15" })).toBe(true);
     expect(countableBrowser({ userAgent: "Mozilla/5.0 (Macintosh) Safari/605.1.15", webdriver: true })).toBe(false);
-    for (const ua of ["Googlebot/2.1", "Mozilla/5.0 HeadlessChrome/120", "facebookexternalhit/1.1 Preview", "curl/8.0"]) expect(countableBrowser({ userAgent: ua }), ua).toBe(false);
+    for (const ua of ["", "Googlebot/2.1", "Mozilla/5.0 HeadlessChrome/120", "facebookexternalhit/1.1 Preview", "curl/8.0"]) expect(countableBrowser({ userAgent: ua }), ua).toBe(false);
   });
 });

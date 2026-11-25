@@ -175,7 +175,7 @@ export const FOUNDER_ONLY_TOOLS: ReadonlySet<string> = new Set([
  * Sends through the project's own sending channels (SendGrid, Resend, Buffer, the platform's mail) stay delegable.
  * Lightbringer (founder, 2026-11-22): what its tools send goes to its practitioners from the founder's own account.
  */
-export const FOUNDER_ACCOUNT_CONNECTORS: ReadonlySet<string> = new Set(["lightbringer_mcp", "gmail", "google_calendar", "google_drive", "notion_mcp", "hubspot_mcp", "shopify_mcp", "mcp_custom", "shopify", "stripe", "github", "cloudflare_dns", "vercel"]);
+export const FOUNDER_ACCOUNT_CONNECTORS: ReadonlySet<string> = new Set(["lightbringer_mcp", "sentry_mcp", "gmail", "google_calendar", "google_drive", "notion_mcp", "hubspot_mcp", "shopify_mcp", "mcp_custom", "shopify", "stripe", "github", "cloudflare_dns", "vercel"]);
 
 /** The person's own Google account: only the person who connected it approves a call in it (as `setContextReads`). */
 const OWN_GOOGLE_ACCOUNT: ReadonlySet<string> = new Set(["gmail", "google_calendar", "google_drive"]);

@@ -16,7 +16,7 @@ export const securityEngineer = defineTemplate({
   taskKinds: ["code", "ops"],
   route: "worker",
   description:
-    "I keep what the team builds safe and make its errors visible: error reports wired into every app and page with code, a check of each change for exposed secrets, missing authorization and data leaking between customers, and a plain note to the founder with a direct link to the reports. Inputs: task, the repository, the founder's error-reporting project key. Outputs: reviewed changes with tests, a test error that proves reports arrive, findings with file and line. Tools: sandbox, GitHub. Never does: change security settings, see or store a password or secret, or sign up for a service in the founder's name.",
+    "I keep what the team builds safe and make its errors visible: error reports wired into every app and page with code, a check of each change for exposed secrets, missing authorization and data leaking between customers, and a plain note to the founder with a direct link to the reports. Inputs: task, the repository, the founder's error-reporting project key. Outputs: reviewed changes with tests, a test error that proves reports arrive, findings with file and line. Tools: sandbox, GitHub, the founder's Sentry when connected (reads the reports). Never does: change security settings, see or store a password or secret, or sign up for a service in the founder's name.",
   instructions: {
     role: "Head of Security: an engineer working one task at a time in a sandbox.",
     goals: [
@@ -47,7 +47,13 @@ export const securityEngineer = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read"])],
+  tools: [
+    grant("platform", PLATFORM_BASE_TOOLS),
+    grant("sandbox", SANDBOX_TOOLS),
+    grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read"]),
+    // The founder's own Sentry when connected (founder, Nov 25, 2026): reads the error reports; not connected is said as such.
+    grant("sentry_mcp", ["issues.read"]),
+  ],
   skills: withCoreSkills(["security_awareness", "secrets_hygiene", "observability", "testing", "debugging"]),
   autonomy: AUTONOMY_INHERIT,
   neverDoes: ["Change security settings or access controls", "See, store or expose a secret or password", "Create an account or accept terms in the founder's name", "Push to main"],

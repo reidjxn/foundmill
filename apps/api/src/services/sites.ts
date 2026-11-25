@@ -6,6 +6,7 @@
 import { siteHeldSentence, type SiteFlag } from "@foundmill/agents";
 import { repos, type InboxItem, type SiteRelease } from "@foundmill/db";
 import { AppError, ConflictError, ForbiddenError, hasSectionAccess, isAdminRole, ValidationError } from "@foundmill/shared";
+import { pageVisitWindowStart, summarizePageVisits, type PageVisitSummary } from "@foundmill/shared/page-visits";
 import { SITE_LIMITS, SITE_READY_NOTE, sitePreviewUrl, siteSlugProblem, sitesDomain, siteUrl } from "@foundmill/shared/sites";
 import { audit, emit, type BusinessContext } from "../trpc";
 import { answerNote } from "./answer-note";
@@ -39,6 +40,8 @@ export interface SiteView {
   site: { slug: string; status: "draft" | "live" | "taken_down"; url: string; liveReleaseNumber: number | null; publishedAt: string | null } | null;
   releases: SiteReleaseView[];
   canPublish: boolean;
+  /** Visits to the live site counted by apps/sites over the last 28 days (0176; an estimate); null without a site. */
+  visits: PageVisitSummary | null;
 }
 
 export type SitePublishResult = { outcome: "published"; url: string; view: SiteView } | { outcome: "held"; flags: SiteFlag[]; view: SiteView };
@@ -57,12 +60,13 @@ const flagsOf = (release: SiteRelease): SiteFlag[] => (Array.isArray(release.scr
 export async function siteView(ctx: BusinessContext): Promise<SiteView> {
   const domain = sitesDomain(ctx.env);
   const canPublish = canPublishSite(ctx) && !ctx.business.isDemo;
-  if (!domain) return { enabled: false, site: null, releases: [], canPublish: false };
+  if (!domain) return { enabled: false, site: null, releases: [], canPublish: false, visits: null };
   return ctx.rls(async (tx) => {
     const site = await repos.sites.get(tx, ctx.businessId);
-    if (!site) return { enabled: true, site: null, releases: [], canPublish };
+    if (!site) return { enabled: true, site: null, releases: [], canPublish, visits: null };
+    const today = new Date();
     const mayPublish = canPublish && site.status !== "taken_down";
-    const releases = await repos.sites.listReleases(tx, ctx.businessId, 20);
+    const [releases, visitRows] = await Promise.all([repos.sites.listReleases(tx, ctx.businessId, 20), repos.pageVisits.recent(tx, ctx.businessId, pageVisitWindowStart(today), "site")]);
     const taskIds = [...new Set(releases.map((r) => r.taskId).filter((id): id is string => id !== null))];
     const titles = new Map((taskIds.length ? await repos.tasks.byIds(tx, ctx.businessId, taskIds) : []).map((t) => [t.id, t.title]));
     const live = releases.find((r) => r.id === site.liveReleaseId) ?? null;
@@ -92,6 +96,7 @@ export async function siteView(ctx: BusinessContext): Promise<SiteView> {
         };
       }),
       canPublish: mayPublish,
+      visits: summarizePageVisits(visitRows, today),
     };
   });
 }

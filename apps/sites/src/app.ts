@@ -9,6 +9,8 @@ import { APP_NAME, tierShowsBuiltOnMark, type TierKey } from "@foundmill/config"
 import { FOLLOW_ERRORS, followEmailProblem } from "@foundmill/shared/project-page";
 import { PAY_LINK_KEY, payLinkUrlProblem } from "@foundmill/shared/pay-links";
 import { siteFileType } from "@foundmill/shared/sites";
+import { countableBrowser, type PageVisitSource } from "@foundmill/shared/page-visits";
+import { pageVisitSource } from "@foundmill/journey";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { liveCacheHeaders, originOf, siteHeaders, type SiteKind } from "./headers";
@@ -58,6 +60,8 @@ export interface SitesDeps {
   follow: SitesFollowApi;
   /** Turnstile's public site key for the sign-up page; null uses the mock token on development and test stacks. */
   turnstileSiteKey: string | null;
+  /** Counts one visit to the live site at `label` (`site_visit`, 0176). Called without waiting; never read back. */
+  visit(label: string, source: PageVisitSource): Promise<void>;
   /** Answers /health's database check. */
   ping(): Promise<boolean>;
   log: SitesLogger;
@@ -104,9 +108,60 @@ export function sitePath(requestPath: string): string | null {
 
 const asText = (bytes: Uint8Array): string => new TextDecoder("utf-8").decode(bytes);
 
+/** At most this many counted visits per site a minute, per process: a flood of loads costs the database little. */
+export const SITE_VISIT_MAX_PER_MINUTE = 600;
+/** At most this many count writes waiting at once, per process: past it a count is dropped, so page reads keep the pool. */
+export const SITE_VISIT_MAX_IN_FLIGHT = 20;
+
+/**
+ * Whether a served page counts as a visit (founder, Nov 25, 2026; 0176). Only a full load of a live site's HTML page by
+ * a browser that is not a known bot: not HEAD, not a prefetch, not a click from one page of the same site to another
+ * (a visit is an arrival). Sites set no cookie, so a member of the project is counted like anyone else.
+ */
+export function siteVisitCounts(req: { method: string; header: (name: string) => string | undefined }, host: string): boolean {
+  if (req.method !== "GET") return false;
+  if (!countableBrowser({ userAgent: req.header("user-agent") ?? "" })) return false;
+  if (/prefetch|prerender/i.test(`${req.header("sec-purpose") ?? ""} ${req.header("purpose") ?? ""}`)) return false;
+  const dest = req.header("sec-fetch-dest");
+  if (dest && dest !== "document") return false;
+  // An app's or a page's own referrer (`android-app://…`, `about:blank`) has no host: an arrival from outside.
+  let refHost: string;
+  try {
+    refHost = new URL(req.header("referer") ?? "").host.toLowerCase();
+  } catch {
+    refHost = "";
+  }
+  return refHost === "" || refHost !== host.toLowerCase();
+}
+
 export function createSitesApp(deps: SitesDeps): Hono {
   const app = new Hono();
   const { env, log } = deps;
+  // shortcut: one window per process and site, cleared each minute; per-replica, so the cap scales with replicas.
+  let visitMinute = 0;
+  const visitsThisMinute = new Map<string, number>();
+  let inFlight = 0;
+  let failedThisMinute = 0;
+  const countVisit = (c: Context, label: string): void => {
+    const minute = Math.floor(Date.now() / 60_000);
+    if (minute !== visitMinute) {
+      if (failedThisMinute) log.warn({ failed: failedThisMinute }, "site visits not counted");
+      visitMinute = minute;
+      visitsThisMinute.clear();
+      failedThisMinute = 0;
+    }
+    const n = visitsThisMinute.get(label) ?? 0;
+    if (n >= SITE_VISIT_MAX_PER_MINUTE || inFlight >= SITE_VISIT_MAX_IN_FLIGHT) return;
+    visitsThisMinute.set(label, n + 1);
+    const search = new URL(c.req.url).search;
+    const source = pageVisitSource({ via: new URLSearchParams(search).get("via"), search, referrer: c.req.header("referer") ?? null }, env.APP_URL);
+    // Not awaited: the page never waits on the count, and a failure only loses one (logged once a minute, as a number).
+    inFlight += 1;
+    deps
+      .visit(label, source)
+      .catch(() => void (failedThisMinute += 1))
+      .finally(() => void (inFlight -= 1));
+  };
   const production = env.APP_ENV === "production";
   const appOrigin = originOf(env.APP_URL);
 
@@ -285,6 +340,11 @@ export function createSitesApp(deps: SitesDeps): Hono {
     const headers: Record<string, string> = { ...siteHeaders({ kind: site.kind, production, appOrigin }), "Content-Type": type };
     if (site.kind === "live") Object.assign(headers, liveCacheHeaders(isHtml, file.sha256));
     if (isHtml) {
+      try {
+        if (status === 200 && site.kind === "live" && siteVisitCounts(c.req, c.req.header("host") ?? "")) countVisit(c, found.label);
+      } catch {
+        // Counting never fails a page.
+      }
       const markHref = tierShowsBuiltOnMark(site.planTier) ? env.APP_URL : null;
       return new Response(withFooter(asText(file.content), siteFooter(APP_NAME, markHref)), { status, headers });
     }

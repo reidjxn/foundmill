@@ -27,6 +27,10 @@ export const PAGE_VISIT_SOURCE_LABELS: Readonly<Record<PageVisitSource, string>>
   other: "Other",
 };
 
+/** Where the visit landed (0176): the public page at `/p/<slug>`, or the project's Foundmill Site. */
+export const PAGE_VISIT_SURFACES = ["page", "site"] as const;
+export type PageVisitSurface = (typeof PAGE_VISIT_SURFACES)[number];
+
 /** How many days of counts the screen and the team read. */
 export const PAGE_VISIT_WINDOW_DAYS = 28;
 
@@ -35,7 +39,7 @@ export const PAGE_VISIT_BOT_UA = /bot|crawl|spider|slurp|headless|preview|fetch|
 
 /** Whether a browser should send a counted visit: not automated, not a known bot. */
 export function countableBrowser(nav: { userAgent: string; webdriver?: boolean }): boolean {
-  return !nav.webdriver && !PAGE_VISIT_BOT_UA.test(nav.userAgent);
+  return Boolean(nav.userAgent) && !nav.webdriver && !PAGE_VISIT_BOT_UA.test(nav.userAgent);
 }
 
 export interface PageVisitDay {
@@ -84,8 +88,8 @@ export function summarizePageVisits(rows: readonly PageVisitDay[], today: Date, 
 export const pageVisitWindowStart = (today: Date, windowDays = PAGE_VISIT_WINDOW_DAYS): string => isoDay(new Date(today.getTime() - (windowDays - 1) * 86_400_000));
 
 /** One line for the team's brief: real counts only (the table holds nothing else), labeled an estimate. */
-export function pageVisitsLine(s: PageVisitSummary): string {
-  const head = "Public page visits (Estimate, counted by Foundmill; a visit alone is not an outside result)";
+export function pageVisitsLine(s: PageVisitSummary, surface: PageVisitSurface = "page"): string {
+  const head = `${surface === "site" ? "Site" : "Public page"} visits (Estimate, counted by Foundmill; a visit alone is not an outside result)`;
   if (!s.total) return `${head}: none in the last ${s.windowDays} days.`;
   const sources = s.bySource.map((x) => `${PAGE_VISIT_SOURCE_LABELS[x.source]} ${x.visits}`).join(", ");
   return `${head}: ${s.last7} in the last 7 days, ${s.total} in the last ${s.windowDays} days; by source: ${sources}.`;

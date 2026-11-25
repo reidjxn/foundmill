@@ -12,7 +12,7 @@ import { FOUNDER_EXECUTED_TOOLS, remoteFounderExecutedCall } from "./index";
 import { LIGHTBRINGER_SCHEMAS } from "./lightbringer-schemas";
 import { CAPABILITY_TOOLS, isFounderExecutedTool, resolveGrants } from "../grants";
 import { discoverEndpoints, pkceFor } from "./oauth";
-import { HUBSPOT_MCP, LIGHTBRINGER_MCP, NOTION_MCP, REMOTE_MCP_SERVERS, SHOPIFY_MCP } from "./servers";
+import { HUBSPOT_MCP, LIGHTBRINGER_MCP, NOTION_MCP, REMOTE_MCP_SERVERS, SENTRY_DEMO_INJECTION_ISSUE, SENTRY_DEMO_ISSUE, SENTRY_MCP, SHOPIFY_MCP } from "./servers";
 import { remoteHardGateCall } from "./index";
 
 const SECRET = "x".repeat(40);
@@ -340,5 +340,75 @@ describe("a sign-in that grants more than was asked is not connected (security r
   it("refuses a token that carries mcp:trade-secrets and keeps one that carries only what was asked", async () => {
     await expect(connect("mcp:read mcp:write mcp:trade-secrets")).rejects.toThrow(/mcp:trade-secrets/);
     await expect(connect("mcp:read mcp:write")).resolves.toMatchObject({ status: "connected", credentialToStore: { secret: "A" } });
+  });
+});
+
+describe("Sentry (error reports, founder's approval of Nov 25, 2026)", () => {
+  // Recorded from mcp.sentry.dev on Nov 25, 2026 (trimmed to the fields Foundmill reads).
+  const meta = {
+    "GET https://mcp.sentry.dev/.well-known/oauth-protected-resource/mcp": () => jsonResponse({ resource: "https://mcp.sentry.dev/mcp", authorization_servers: ["https://mcp.sentry.dev"] }),
+    "GET https://mcp.sentry.dev/.well-known/oauth-authorization-server": () =>
+      jsonResponse({ issuer: "https://mcp.sentry.dev", authorization_endpoint: "https://mcp.sentry.dev/oauth/authorize", token_endpoint: "https://mcp.sentry.dev/oauth/token", registration_endpoint: "https://mcp.sentry.dev/oauth/register", revocation_endpoint: "https://mcp.sentry.dev/oauth/token", code_challenge_methods_supported: ["S256"] }),
+    "POST https://mcp.sentry.dev/oauth/token": () => jsonResponse({ access_token: "A", refresh_token: "R", expires_in: 3600, user_id: "u1" }),
+  };
+  const state = "eyJ1IjoxfQ.c2ln";
+  const redirectUri = "https://app.example.com/integrations/oauth/callback";
+  const sentry = (s = { sentryMcpClientId: "cid-sentry", mcpOauthSecret: SECRET }) => createRemoteMcpConnector(SENTRY_MCP, { secrets: s, fetch: routedFetch(meta), now: () => new Date("2026-11-25T12:00:00Z") });
+
+  it("signs in on the founder's own Sentry with Foundmill's registered client, PKCE and the resource, and asks for no scope", async () => {
+    const start = (await sentry().connect("b1", { state, redirectUri })) as { config: { consentUrl?: string } };
+    const url = new URL(JSON.stringify(start).match(/https:\/\/mcp\.sentry\.dev\/oauth\/authorize[^"]+/)![0].replace(/\\u0026/g, "&"));
+    expect(url.searchParams.get("client_id")).toBe("cid-sentry");
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(url.searchParams.get("resource")).toBe("https://mcp.sentry.dev/mcp");
+    expect(url.searchParams.has("scope")).toBe(false);
+    await expect(sentry().connect("b1", { code: "abc", redirectUri, state })).resolves.toMatchObject({ status: "connected", connectorKey: "sentry_mcp", credentialToStore: { kind: "oauth", secret: "A", refreshToken: "R" } });
+  });
+
+  it("is not configured without SENTRY_MCP_CLIENT_ID, and never falls back to another key", async () => {
+    await expect(sentry({ mcpOauthSecret: SECRET } as never).connect("b1", { state, redirectUri })).rejects.toThrow(/SENTRY_MCP_CLIENT_ID/);
+  });
+
+  it("reads run, changes to an issue run, a note is a send, and keys, access and Seer are hard gates", () => {
+    const hints = Object.fromEntries(remoteToolList(SENTRY_MCP).map((t) => [t.name, t.hints]));
+    for (const read of ["search_issues", "get_issue_details", "get_event_stacktrace", "find_projects", "find_releases", "get_release_details"]) expect(hints[read], read).toEqual({});
+    expect(SENTRY_MCP.tools.filter((t) => t.writes).map((t) => t.remote).sort()).toEqual(["link_issue", "update_issue"]);
+    expect(hints.add_issue_note).toEqual({ contactsThirdParty: true, irreversible: true });
+    for (const gated of ["create_dsn", "update_dsn", "create_team", "add_team_to_project", "create_project", "analyze_issue_with_seer"]) expect(hints[gated]?.hardGate, gated).toBe(true);
+    // Off the list: alerts and monitors ask first; deletes and access removal are refused by name.
+    expect(hints[UNLISTED_TOOL]).toEqual({ contactsThirdParty: true, irreversible: true });
+    for (const name of ["delete_alert_rule", "delete_uptime_monitor", "remove_team_from_project"]) expect(remoteHardGateCall("sentry_mcp", UNLISTED_TOOL, { tool: name }), name).toBe(name);
+    expect(remoteHardGateCall("sentry_mcp", UNLISTED_TOOL, { tool: "create_alert_rule" })).toBeNull();
+  });
+
+  // The gateway marks every mock-mode answer `simulated` with its notice (apps/gateway remote-mcp.test.ts checks Sentry's).
+  it("a sign-in that reports write access to keys, teams or alerts is not connected, and the scopes granted are kept", async () => {
+    const withScope = (scope: string) => createRemoteMcpConnector(SENTRY_MCP, { secrets: { sentryMcpClientId: "cid", mcpOauthSecret: SECRET }, fetch: routedFetch({ ...meta, "POST https://mcp.sentry.dev/oauth/token": () => jsonResponse({ access_token: "A", refresh_token: "R", expires_in: 3600, scope }) }) }).connect("b1", { code: "abc", redirectUri, state });
+    await expect(withScope("org:read project:read event:write project:write")).rejects.toThrow(/project:write/);
+    await expect(withScope("org:read project:read event:read")).resolves.toMatchObject({ status: "connected", scopes: ["org:read", "project:read", "event:read"] });
+  });
+
+  it("an issue change that would post a comment, and unlisted names about keys, teams or access, are refused", () => {
+    expect(remoteHardGateCall("sentry_mcp", "update_issue", { issueId: "B-1", status: "resolved", reason: "fixed" })).not.toBeNull();
+    expect(remoteHardGateCall("sentry_mcp", "update_issue", { issueId: "B-1", status: "resolved" })).toBeNull();
+    for (const name of ["createDsn", "rotate_dsn", "create_client_key", "add_member", "update_team_access", "createProject", "CreateUptimeMonitor"]) expect(remoteHardGateCall("sentry_mcp", UNLISTED_TOOL, { tool: name }), name).toBe(name);
+    // Alerts and monitors choose who receives error data: asked every time.
+    expect(remoteToolList(SENTRY_MCP).find((t) => t.name === "create_alert_rule")?.hints).toMatchObject({ askAlways: true, contactsThirdParty: true });
+  });
+
+  it("a report's text reaches the agent as untrusted data in mock mode, the instruction inside it included", async () => {
+    const mock = createRemoteMcpConnector(SENTRY_MCP).mock;
+    const r = await mock.callTool("get_issue_details", { issueId: SENTRY_DEMO_INJECTION_ISSUE }, makeToolContext(mock));
+    expect(r.ok).toBe(true);
+    expect(isUntrusted(r.data)).toBe(true);
+    const list = await mock.callTool("search_issues", { organizationSlug: "sample-org", query: "is:unresolved" }, makeToolContext(mock));
+    expect(JSON.stringify(list.data)).toContain(SENTRY_DEMO_ISSUE);
+    expect(isUntrusted(list.data)).toBe(true);
+  });
+
+  it("the team's read capability holds reads only", () => {
+    const refs = resolveGrants([{ connectorKey: "sentry_mcp", tools: ["issues.read"] }]).toolRefs;
+    for (const ref of refs) expect(remoteToolList(SENTRY_MCP).find((t) => `sentry_mcp:${t.name}` === ref)?.hints, ref).toEqual({});
+    expect(SENTRY_MCP.tools.filter((t) => refs.includes(`sentry_mcp:${toolName(t.remote)}`)).some((t) => t.writes)).toBe(false);
   });
 });
