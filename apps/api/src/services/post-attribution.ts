@@ -6,8 +6,8 @@
  *   browser (crawlers run no scripts), with the `via` the address carried. Only a post's code (`s.<code>`) does
  *   anything: the link's first visit stamps `first_visited_at` and writes `visit.attributed` (ids only, never narrated,
  *   never counted). A member of the project opening their own post's link is left out. Limited like the public story
- *   reads (`PUBLIC_STORY_LIMITS`). The answer is always the same, so it tells nobody whether a code exists, and visits
- *   stay private: nothing anywhere shows a count of them.
+ *   reads (`PUBLIC_STORY_LIMITS`). The answer is always the same, so it tells nobody whether a code exists. A post's
+ *   visits are not counted per post; the page's daily counts are services/page-visits.ts (founder, Nov 25, 2026).
  * - The link a follow keeps (`publicPage.follow` with the `fm_post` cookie's code, services/pages.ts `followPage`): the
  *   project's own, not simulated, visited; else none (`repos.postLinks.followable`).
  * - `postOutcomeCounts`: what each team post led to, as the reader may see it (follows and replies behind the CRM,

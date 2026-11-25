@@ -12,7 +12,9 @@ import { expectNoAxeViolations } from "./axe";
  * card, no horizontal scroll, 44 px tap targets), gone once it is taken down. Package 1.6 (double opt-in): a stranger
  * signs up at 390 px signed out (the box is required, one line asking them to check their email, the same answer for the
  * same address again; the bot check passes on the stack's mock Turnstile token, as on the idea box, and a post without
- * JavaScript, which cannot run it, is refused in plain words and records nothing), and the founder sees no follower counted yet and one contact in Customers, "Follower (fo***@…)",
+ * JavaScript, which cannot run it, is refused in plain words and records nothing), visit counts (founder, Nov 25, 2026:
+ * automated browsers send no count, one browser that is not sends it once a day, the founder's own is left out), and the
+ * founder sees no follower counted yet and one contact in Customers, "Follower (fo***@…)",
  * with "Public page" and "Not confirmed yet". This stack runs no gateway and no ingest (one PGlite database is one
  * process), so no confirmation email goes out and the signup stays pending, which is the honest state; the email, the
  * signed link and the confirm page are covered by apps/gateway `follow-confirm.test.ts` and apps/ingest
@@ -250,6 +252,30 @@ test.describe("public page", () => {
       await plain.close();
     }
 
+    // Visit counts (founder, Nov 25, 2026): the visitors above were automated browsers (Playwright says so), so their
+    // beacons carried no slug. A browser that does not say so sends the page's slug once per tab and day. This stack
+    // signs every request in as the seed owner (DEV_AUTH_USER_ID), so the api leaves the visit out as the founder's own;
+    // the count itself is covered by apps/api `page-visits.test.ts`.
+    const human = await browser.newContext({ storageState: { cookies: [], origins: [] }, viewport: { width: 390, height: 844 }, userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1" });
+    await human.addInitScript(() => Object.defineProperty(Navigator.prototype, "webdriver", { get: () => false }));
+    try {
+      const p = await human.newPage();
+      const counted = p.waitForResponse((r) => r.url().includes("publicPage.visited"), { timeout: LONG });
+      await p.goto(pagePath);
+      const beacon = await counted;
+      expect(beacon.ok()).toBe(true);
+      expect(beacon.request().postData() ?? "").toContain(`"slug":"${pagePath.replace("/p/", "")}"`);
+      // A reload in the same tab sends nothing for the count.
+      let again = 0;
+      p.on("request", (r) => void (r.url().includes("publicPage.visited") && again++));
+      await p.reload();
+      await expect(p.locator("[data-project-page]")).toBeVisible({ timeout: LONG });
+      await p.waitForLoadState("networkidle");
+      expect(again).toBe(0);
+    } finally {
+      await human.close();
+    }
+
     // The founder: nobody counts as a follower until they confirm from the email, and the signup is a contact in
     // Customers under a masked name, "Not confirmed yet".
     const tabUrl = page.url();
@@ -257,6 +283,9 @@ test.describe("public page", () => {
     await settled(page);
     await expect(editor).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("page-followers")).toHaveCount(0);
+    // The founder's own visits are not counted; the live page shows the count, labeled an estimate.
+    await expect(page.getByTestId("page-visits")).toContainText("No visits counted in the last 28 days yet. Estimate");
+    await expect(page.getByTestId("page-visit-sources")).toHaveCount(0);
     // Signed in, the founder's own view of the public page carries the mark as plain words: no link, dimmer.
     await page.goto(pagePath);
     const own = page.locator("[data-project-mark]");

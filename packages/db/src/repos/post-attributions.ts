@@ -5,7 +5,7 @@
  * - `postLinks.mint`: the post's public codes, one per network and one for a copied or sent link (network null), in the
  *   transaction that stores the draft (`teamPosts.write`). Never for a sample business (the caller checks).
  * - `postLinks.visit`: the first time a browser that is not a member's opened a link, its `first_visited_at`; later
- *   visits change nothing. Visits are never counted or shown.
+ *   visits change nothing. A post's visits are not counted per post (page counts: `page-visits.ts`, 0175).
  * - `postLinks.followable`: the link a follow may keep: the project's own, not simulated, visited.
  * - `postAttributions.creditFollow` / `creditReply` / `creditPayment`: one real outcome credited to one post, in the
  *   transaction that records the outcome. Last touch (the follow keeps the link the visitor last arrived with); at most

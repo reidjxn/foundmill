@@ -67,6 +67,7 @@ import { portabilityRepo } from "./portability";
 import { tableViewsRepo } from "./table-views";
 import { personaPortraitsRepo } from "./persona-portraits";
 import { siteTermsChecksRepo } from "./site-terms-checks";
+import { pageVisitsRepo } from "./page-visits";
 import { teamCallsRepo } from "./team-calls";
 import { presenceRepo } from "./presence";
 import { costReportRepo } from "./cost-report";
@@ -167,6 +168,7 @@ export const repos = {
   recordings: recordingsRepo,
   personaPortraits: personaPortraitsRepo,
   siteTermsChecks: siteTermsChecksRepo,
+  pageVisits: pageVisitsRepo,
   teamCalls: teamCallsRepo,
   presence: presenceRepo,
   costReport: costReportRepo,

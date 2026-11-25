@@ -2189,8 +2189,9 @@ const visitAttributed = declareEvent(
   z.object(PostLinkFacts),
   {
     // North star (CLAUDE.md, founder 2026-11-11; network decision Nov 13, 2026 "visits stay private"): a visit proves a
-    // link was opened, not that anything happened. It is never counted, shown or narrated; a follow needs one first.
-    doc: "A link of a post the team drafted and the founder shared was opened for the first time, in a browser that ran the public page's scripts (crawlers do not), by someone who is not a member of the project. Written once per link, when `post_links.first_visited_at` is set; a returning visit writes nothing. Ids and the network only: never an address, a device or a person. Not an outside result: the north star does not count it, nothing shows visit counts in public or in private, and it is never narrated.",
+    // link was opened, not that anything happened. It is never counted per post, shown or narrated; a follow needs one
+    // first. The page's own daily visit counts (founder, Nov 25, 2026) are packages/db `page_visit_days`, not this event.
+    doc: "A link of a post the team drafted and the founder shared was opened for the first time, in a browser that ran the public page's scripts (crawlers do not), by someone who is not a member of the project. Written once per link, when `post_links.first_visited_at` is set; a returning visit writes nothing. Ids and the network only: never an address, a device or a person. Not an outside result: the north star does not count it, no count of these events is shown, and it is never narrated.",
     consumers: ["metrics"],
     narratable: false,
   },

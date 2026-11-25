@@ -2,6 +2,7 @@ import "./setup";
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { PAGE_HOLD_MESSAGES, PAGE_SLUG_RULE } from "@foundmill/shared/project-page";
+import { summarizePageVisits } from "@foundmill/shared/page-visits";
 import { PUBLIC_PAGE_WORDS, PublicPageScreen, publishConsequence, type PageViewResponse } from "../PublicPageScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID } from "./fixtures";
@@ -31,6 +32,26 @@ const render = (v: PageViewResponse, onMutate?: (path: string, input: Record<str
 };
 
 describe("PublicPageScreen", () => {
+  it("shows the visits Foundmill counted, by source and labeled an estimate, once the page is live (founder, Nov 25, 2026)", () => {
+    const visits = summarizePageVisits(
+      [
+        { day: "2026-11-24", source: "search", visits: 5 },
+        { day: "2026-11-01", source: "post", visits: 2 },
+      ],
+      new Date("2026-11-25T12:00:00Z"),
+    );
+    render(view({ saved: true, live: true, published: draft, publishedAt: new Date(2026, 9, 7, 12), visits }));
+    const box = screen.getByTestId("page-visits");
+    expect(box.textContent).toContain("5 visits in the last 7 days, 7 in the last 28 days.");
+    expect(box.textContent).toContain("7 in the last 28 days. Estimate");
+    expect(screen.getByTestId("page-visit-sources").textContent).toBe("Search engines 5 · Team posts 2");
+  });
+
+  it("shows no visits before the page is live and none were counted", () => {
+    render(view({ saved: true, visits: summarizePageVisits([], new Date("2026-11-25T12:00:00Z")) }));
+    expect(screen.queryByTestId("page-visits")).toBeNull();
+  });
+
   it("shows an agent's suggested words beside the draft; Use this and Dismiss ask the api and change nothing public (WP-08 T8)", async () => {
     const proposal = { fields: { pitch: "Candles for people who like the woods" }, reason: "It names who it is for.", agentName: "SEO Engine", at: "2026-11-22T10:00:00.000Z" };
     const fake = render(view({ proposal }), (path) => (path === "page.proposal.use" ? view({ draft: { ...draft, pitch: proposal.fields.pitch } }) : view()));

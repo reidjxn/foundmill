@@ -23,13 +23,15 @@
  *   project's own, not simulated and visited, and the follow is credited to the post once the person confirms.
  * - `publicPage.visited`: anyone; the public page's beacon after it loaded, with the address's `via`. The first visit of
  *   a shared post's link stamps it (services/post-attribution.ts); a member's own visit and anything else change
- *   nothing. Always `{ ok: true }`. Visits are never counted or shown.
+ *   nothing. With the page's `slug` (a browser that is not automated) it also counts the visit by day and source
+ *   (services/page-visits.ts, founder Nov 25, 2026). Always `{ ok: true }`.
  */
 import { FOLLOW_EMAIL_MAX, PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PAGE_SLUG_MAX, PAGE_STAGES } from "@foundmill/shared";
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { z } from "zod";
 import { publicCardById, publicStoryBySlug } from "../services/milestones";
 import { dismissPageProposal, usePageProposal, followPage, pageView, siteFollowConsent, publicExplore, publicIndexNowKeyFile, publicListedPages, publicPageBySlug, publishPage, savePageDraft, setPageExplore, setPageSlug, unpublishPage } from "../services/pages";
+import { recordPageVisit } from "../services/page-visits";
 import { recordPostVisit } from "../services/post-attribution";
 import { publicProcedure, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
 import { publicUpdateCardById } from "../services/update-cards";
@@ -87,7 +89,21 @@ export const publicPageRouter = router({
     .mutation(({ ctx, input }) => followPage(ctx, input)),
   /** The sentence a site's sign-up form shows beside its box (apps/sites, WP-07 T6): the same one the record keeps. */
   siteConsent: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => siteFollowConsent(ctx, input.slug)),
-  visited: publicProcedure.input(z.object({ via: z.string().max(VIA_MAX_LENGTH * 2) })).mutation(({ ctx, input }) => recordPostVisit(ctx, input)),
+  visited: publicProcedure
+    .input(
+      z.object({
+        via: z.string().max(VIA_MAX_LENGTH * 2).default(""),
+        /** The page that loaded, sent only by a browser that is not automated: its visit is counted (0175). */
+        slug: z.string().max(PAGE_SLUG_MAX * 2).optional(),
+        /** The address's query and the referrer: they choose the source bucket and are never stored. */
+        search: z.string().max(2000).optional(),
+        referrer: z.string().max(2000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.slug) await recordPageVisit(ctx, { slug: input.slug, via: input.via, search: input.search, referrer: input.referrer });
+      return recordPostVisit(ctx, { via: input.via });
+    }),
   /** One Customer Update a founder shared as a card (WP-14 T9; the view `public_customer_update_cards` only); null for anything not public. */
   updateCardById: publicProcedure.input(z.object({ id: z.string().max(80) })).query(({ ctx, input }) => publicUpdateCardById(ctx, input.id)),
 });

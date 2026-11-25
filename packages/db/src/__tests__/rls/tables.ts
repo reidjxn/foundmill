@@ -68,6 +68,9 @@ const heldBooking = (f: BusinessFixture) => {
   return { serviceId: f.bookingServiceId, status: "held", startsAt: start, endsAt: end, busy: `[${start.toISOString()},${end.toISOString()})`, holdExpiresAt: new Date("2027-01-01T00:10:00Z") };
 };
 
+/** 0175: one day per sample, so the (business, day, source) key never collides. */
+let visitDay = 0;
+
 const spec = <T extends TenantTable>(name: string, table: T, write: WriteMode, sample: TenantTableSpec["sample"], patch?: Record<string, unknown>): TenantTableSpec => ({
   name,
   table,
@@ -154,6 +157,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("contact_consents", s.contactConsents, "service", (f) => ({ entityId: f.entityId, purpose: "email", source: "page", sourceRef: uniq("page"), consentText: "I agree to get email from Alpha about this project. I can unsubscribe at any time." })),
   // 0106 what a shared team post led to: written by the services only (members read; the triggers keep each row to its business)
   spec("post_links", s.postLinks, "service", (f) => ({ assetId: take(f.postAssetIds, "post_links"), network: null, code: newPostCode() })),
+  // 0175 public page visit counts: written by the api's service connection only (members read)
+  spec("page_visit_days", s.pageVisitDays, "service", () => ({ day: new Date(Date.UTC(2026, 0, 1) + ++visitDay * 86_400_000).toISOString().slice(0, 10), source: "direct", visits: 1 })),
   spec("post_attributions", s.postAttributions, "service", (f) => {
     const link = f.postLinks.pop();
     if (!link) throw new Error("post_attributions sample: fixture pool exhausted");

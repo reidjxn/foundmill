@@ -17,7 +17,8 @@
  *
  * An address that carries a shared post's code (`?via=s.<code>`, item 8) sends one beacon once the page has loaded
  * (components/public/PostVisitBeacon.tsx): the post's link counts as visited, so a follow from it can be credited to the
- * post. Nothing on the page changes, and no visit count is ever shown.
+ * post. The same beacon counts the visit for the founders (founder, Nov 25, 2026; packages/shared `page-visits.ts`):
+ * nothing on the page changes, and no count is shown to visitors.
  */
 import { PublicAppPrompt } from "@/components/shell/PublicAppPrompt";
 import type { Metadata } from "next";
@@ -65,7 +66,7 @@ export default async function PublicProjectPageRoute({ params }: Props) {
   return (
     <>
       <JsonLd data={projectPageJsonLd(page, { origin: new URL(page.url).origin, appName: APP_NAME })} />
-      <PostVisitBeacon />
+      <PostVisitBeacon slug={page.slug} />
       <ProjectPage
         name={page.name}
         pitch={page.pitch}

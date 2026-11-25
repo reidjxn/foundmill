@@ -7,8 +7,8 @@
  * - `reply`: an attributed follower replied to the project's email, for real, within 30 days of following;
  * - `payment`: a payment a vendor delivered that carries the post's code, or one from an attributed follower within 30
  *   days of following.
- * Visits are never counted or shown, in public or in private (network decision): a visit only proves a link was
- * opened, and a follow needs one first.
+ * A post's visits are not an outcome and are not counted per post (network decision): a visit only proves a link was
+ * opened, and a follow needs one first. The page's own visit counts (founder, Nov 25, 2026) are `page-visits.ts`.
  *
  * Pure, no Zod: browser code imports this from "@foundmill/shared/post-outcomes".
  */
