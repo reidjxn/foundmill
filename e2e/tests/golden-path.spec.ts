@@ -41,14 +41,34 @@ async function ensureDeck(page: Page, minimum = 2): Promise<void> {
 }
 
 /**
+ * The two ideas the golden path commits, pinned through "Use my idea as written" so the Chief of Staff's build note is
+ * always the same kind (founder, Nov 25, 2026): a decision for an idea with software to build, a report for one without.
+ */
+const SOFTWARE_IDEA = "A web app where tutors log in and track each student's homework on a dashboard.";
+const NO_SOFTWARE_IDEA = "Handmade soy candles with forest scents, sold on Etsy and at weekend markets.";
+/** The build decision's row and the no-software report's row (packages/agents `build-choice.ts`). */
+const BUILD_DECISION = /Build your app with /;
+const NO_APP_REPORT = "No separate app needed: your page covers it";
+
+/** Takes the founder's own words straight to Commit (the Studio's "Use my idea as written"). */
+async function openWrittenIdea(page: Page, words: string, title: string): Promise<void> {
+  await page.goto("/new/ideate");
+  await page.getByRole("textbox", { name: "Brief" }).fill(words);
+  await page.getByTestId("use-my-idea").click();
+  const dialog = page.getByTestId("write-dialog");
+  await expect(dialog).toBeVisible({ timeout: LONG });
+  await dialog.getByTestId("write-title").fill(title);
+  await dialog.getByTestId("write-submit").click();
+  await page.waitForURL(/\/new\/commit\/[0-9a-f-]+/, { timeout: LONG });
+}
+
+/**
  * Commits the first drafted concept as a new business. Take charge lands on Today (founder, 2026-10-18: the first days
  * are about the product), where the vision, specification and roadmap draft in the background; the helper waits for
  * them so the plan note is in the Inbox when the test looks.
  */
 async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: string }> {
-  await ensureDeck(page, 1);
-  await page.getByTestId("commit-link").first().click();
-  await expect(page).toHaveURL(/\/new\/commit\/[0-9a-f-]+/);
+  await openWrittenIdea(page, NO_SOFTWARE_IDEA, name);
   await expect(page.getByTestId("commit-form")).toBeVisible();
   await page.getByLabel(/Business name/).fill(name);
   await page.getByTestId("take-charge").click();
@@ -60,6 +80,9 @@ async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: str
   await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
   await page.goto(`/b/${bid}/inbox`);
   await expect(page.getByTestId("inbox-list").getByRole("option").filter({ hasText: PLAN_NOTE }).first()).toBeVisible({ timeout: LONG });
+  // An idea with no software to build: the Chief of Staff's report says what is built, and the welcome note stays beside it.
+  await expect(page.getByTestId("inbox-list").getByRole("option").filter({ hasText: NO_APP_REPORT }).first()).toBeVisible({ timeout: LONG });
+  await expect(page.getByTestId("inbox-list").getByRole("option").filter({ hasText: FIRST_NOTE }).first()).toBeVisible({ timeout: LONG });
   return { bid };
 }
 
@@ -239,8 +262,8 @@ test.describe("golden path", () => {
 
   test("AC-11.1.6 AC-11.1.7: Commit defaults to Assisted; Take charge creates the business and lands on Today with the welcome note", async ({ page }) => {
     await signIn(page);
-    await ensureDeck(page, 1);
-    await page.getByTestId("commit-link").first().click();
+    // An idea with software to build, pinned: the Chief of Staff's build note is a decision (the next test counts it).
+    await openWrittenIdea(page, SOFTWARE_IDEA, "Homework Tracker");
     await expect(page.getByTestId("commit-form")).toBeVisible();
     await expect(page.getByTestId("commit-form")).toHaveAttribute("data-business-mode", "assisted");
     // How it runs and its five controls sit under More options (WP-04 T2; commit.spec.ts).
@@ -283,10 +306,11 @@ test.describe("golden path", () => {
     // Since Nov 7, 2026 a decision never holds Continue: the Inbox counts them (the plan and, since package 1.3,
     // "Your project's page is ready") and the button stays Continue.
     await expect(inboxRow(page, "Your project's page is ready")).toBeVisible({ timeout: LONG });
-    // And the Chief of Staff's build note (founder, Nov 25, 2026), written with the plan note: a decision beside it, or, for
-    // an idea with no software to build, a report that needs no answer. Neither holds Continue.
-    const decided = (await inboxRow(page, /Build your app with /).count()) > 0;
-    await expect(inboxLink(page)).toContainText(decided ? "3" : "2", { timeout: LONG });
+    // And the Chief of Staff's build decision (founder, Nov 25, 2026; the pinned idea has software to build), written with the
+    // plan note, which holds nothing either; the welcome note (or the note of the day) stays beside them.
+    await expect(inboxRow(page, BUILD_DECISION)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, FIRST_NOTE)).toBeVisible({ timeout: LONG });
+    await expect(inboxLink(page)).toContainText("3", { timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
     // The plan note is a decision from the Product lead with Approve the plan and Ask for changes; one press starts the build.
@@ -303,7 +327,7 @@ test.describe("golden path", () => {
     await expect(page.getByTestId("answered-panel")).toBeVisible();
     // Folded into the note of the day in the first week (WP-04 T8); the update itself is kept in Archive.
     await expect(inboxRow(page, DIGEST_NOTE)).toBeVisible({ timeout: LONG });
-    await expect(inboxLink(page)).toContainText(decided ? "2" : "1", { timeout: LONG });
+    await expect(inboxLink(page)).toContainText("2", { timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
     // One press of Continue → business.continue (in-process cycle step without Temporal) → a toast says what happened.

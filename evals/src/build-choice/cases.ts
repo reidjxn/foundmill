@@ -56,13 +56,30 @@ export const BUILD_CHOICE_CASES: readonly BuildChoiceCase[] = [
     quotes: ["landing page"],
     never: [/I recommend building it with Lovable/],
   },
+  // What the project's page already covers is never Lovable's (founder, Nov 25, 2026).
+  {
+    id: "ours.candle_landing_page",
+    ideaText: "A landing page for my candle shop.",
+    archetype: "dtc_physical",
+    expect: "ours",
+    quotes: ["landing page"],
+    never: [/I recommend building it with Lovable/],
+  },
+  {
+    id: "ours.booking_and_payments_app",
+    ideaText: "An app where my yoga students book classes and pay online.",
+    archetype: "services",
+    expect: "ours",
+    quotes: ["book classes"],
+    never: [/I recommend building it with Lovable/],
+  },
   {
     id: "none.etsy_candles",
     ideaText: "Handmade soy candles with scents from Pacific Northwest forests, sold on Etsy and at weekend markets.",
     archetype: "dtc_physical",
     expect: "none",
     quotes: ["Handmade soy candles"],
-    never: [/Build it with Lovable/, /engineering agents build/],
+    never: [/Build it with Lovable/, /engineering agents build/, /needs no app built/i],
   },
   {
     id: "none.dog_walking",

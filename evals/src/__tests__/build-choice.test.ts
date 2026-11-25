@@ -19,6 +19,8 @@ describe("build choice golden cases", () => {
       expect(note.bodyMd.startsWith("Sam, ")).toBe(true);
       if (c.expect === "none") {
         expect(note.decision).toBeNull();
+        // What is built comes first: the page, with its price and a button to pay or book (founder, Nov 25, 2026).
+        expect(note.bodyMd).toMatch(/^Sam, the team builds your project's page at its free \w+ address, with your price and a button to pay or book/);
         return;
       }
       // Both buttons, one recommended; both costs once, Lovable's price labeled Estimate.
