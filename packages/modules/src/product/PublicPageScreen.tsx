@@ -33,6 +33,7 @@ import {
   Field,
   Icon,
   Input,
+  LaunchChecklist,
   Panel,
   ProjectFollowForm,
   ProjectPage,
@@ -67,6 +68,7 @@ import {
   type PageStage,
   type ProjectPageContent,
 } from "@foundmill/shared/project-page";
+import { isFirstLaunch, launchChecklist } from "@foundmill/shared/launch-checklist";
 import { SHARE_OPEN_WORDS, pageAskText, pagePostDraft, type PagePostInput } from "@foundmill/shared/share-drafts";
 import { postTextWithLink, type PostDraft } from "@foundmill/shared/post-draft";
 import type { ShareOpened } from "@foundmill/shared/share-targets";
@@ -580,11 +582,13 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
             <DialogTitle>{data?.live ? PUBLIC_PAGE_WORDS.confirmChangesTitle : PUBLIC_PAGE_WORDS.confirmTitle}</DialogTitle>
             <DialogDescription id={`${id}-confirm`}>{content ? publishConsequence(content, data?.preview.founderNames ?? []) : null}</DialogDescription>
           </DialogHeader>
-          <DialogBody>
+          <DialogBody className="flex flex-col gap-3">
             <p className="flex items-center gap-2 t-body text-secondary">
               <Icon icon={Globe} size="inline" />
               <span className="t-mono break-all">{data?.url}</span>
             </p>
+            {/* Shown once, before the first launch; it never blocks Publish (founder, Nov 25, 2026). */}
+            {data && content && isFirstLaunch(data) ? <LaunchChecklist items={launchChecklist({ name: data.preview.name, content })} onAction={() => set("followForm", true)} /> : null}
           </DialogBody>
           <DialogFooter>
             <Button {...tap("md")} variant="ghost" onClick={() => setConfirming(false)}>
