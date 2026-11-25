@@ -4,6 +4,8 @@ Launch Session 28, Nov 24, 2026. The founder's launch rule (Nov 24, 2026): "100%
 
 ## The count
 
+Update, Nov 25, 2026: `security_engineer` (Head of Security work, #428–#436) makes **49** templates, with its own code case `security_engineer.key_from_the_environment`; the gate's coverage test (`agents-e2e.test.ts`) fails on any template without a case.
+
 `ALL_TEMPLATES` in `packages/agents/src/templates/index.ts` holds **48** templates, not the 49 the brief named: the Chief of Staff, 6 leads, 12 workers, 15 channel agents, 9 specialists and 5 utilities.
 
 - **Before this change:** 4 of 48 had a live end-to-end session eval (`researcher`, `sourcing_manufacturing`, `channel_email_automation` and `backend_engineer`, in `evals/src/sessions/cases.ts`, run nightly by `evals-outcomes.yml`). The golden suite (`evals-models-live.yml`) grades one answer per task with no tools, so it does not show that a session finishes.
@@ -73,6 +75,7 @@ Tools: the number of platform tools the grants resolve to, then the outside conn
 | `categoriser` | utility | Transaction categorization utility | finance | 1 platform | one call from the product (no session) | no session; golden `categoriser.transactions` | golden tasks in the gate |
 | `triage` | utility | Inbound sorting utility | ops | 0 platform | one call from the product (no session) | no session; golden `triage.route` | golden tasks in the gate |
 | `moderation` | utility | Moderation utility | ops | 0 platform | one call from the product (no session) | no session; golden `moderation.outbound` | golden tasks in the gate |
+| `security_engineer` | worker | Security engineer | code, ops | 17 platform; github, sentry_mcp; files (Read, Glob, Grep, Edit, Write) | Read the error-report key from the environment | no (new Nov 25, 2026) | `security_engineer.key_from_the_environment` |
 
 ## Findings while building the gate (mock runs, before any live run)
 

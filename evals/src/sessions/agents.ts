@@ -61,7 +61,8 @@ const succeeded = (o: SessionObservation, tool: string, connector?: string) =>
 function resultProblems(o: SessionObservation, need: Need): string[] {
   const problems: string[] = [];
   if (o.task.status !== "done") problems.push(`the task is ${o.task.status}, not done (${o.result.outcome}: ${o.result.summary})`);
-  if (o.toolCalls.some((c) => c.tool === "block_task" && c.status === "succeeded")) problems.push("the session blocked the task");
+  // A block the platform refused (a lead trying to hold a teammate's task, run 45639102820) blocked nothing.
+  if (succeeded(o, "block_task", "platform").length > 0) problems.push("the session blocked the task");
   if (succeeded(o, "complete_task", "platform").length < 1) problems.push(`complete_task never went through (${o.toolCalls.filter((c) => c.tool === "complete_task").map((c) => `${c.connectorKey}/${c.status}/${c.policyOutcome}: ${c.resultSummary.slice(0, 120)}`).join("; ") || "not called"})`);
   if (!o.report) return [...problems, "no report was saved"];
   const text = `${o.report.title}\n${o.report.bodyMd}`;
