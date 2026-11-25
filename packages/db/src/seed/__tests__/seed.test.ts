@@ -104,8 +104,8 @@ describe("seedDemo on PGlite", () => {
 
   it("reads Leads first from what is stored: the Chief of Staff, the leads, their specialists and the five background helpers", async () => {
     const expected: Record<string, Record<"chief" | "lead" | "specialist" | "background", number>> = {
-      [NORTHWIND_BUSINESS_ID]: { chief: 1, lead: 6, specialist: 23, background: 5 },
-      [LEDGERLY_BUSINESS_ID]: { chief: 1, lead: 5, specialist: 18, background: 5 },
+      [NORTHWIND_BUSINESS_ID]: { chief: 1, lead: 6, specialist: 24, background: 5 },
+      [LEDGERLY_BUSINESS_ID]: { chief: 1, lead: 5, specialist: 19, background: 5 },
     };
     for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
       const [agents, departments] = await Promise.all([repos.agents.list(db, businessId, { limit: 500 }), repos.departments.list(db, businessId)]);

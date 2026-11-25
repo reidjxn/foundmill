@@ -98,7 +98,7 @@ export const PlannerVariables = z.object({
   /** File tree summary and conventions of the repository (or "greenfield"). */
   repo_summary: z.string().min(1),
   max_tasks: z.number().int().min(1).max(64),
-  /** Agent types that can be staffed, e.g. backend_engineer, frontend_engineer, data_engineer, infra_engineer, qa_engineer, design_to_code, docs_writer. */
+  /** Agent types that can be staffed, e.g. backend_engineer, frontend_engineer, data_engineer, infra_engineer, security_engineer, qa_engineer, design_to_code, docs_writer. */
   worker_types: z.array(z.string().min(1)).min(1),
 });
 

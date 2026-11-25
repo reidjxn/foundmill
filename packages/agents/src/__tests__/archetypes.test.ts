@@ -4,6 +4,16 @@ import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, CHANNEL_SCORING_TASK, DEPARTMENT_
 import { ArchetypeSeed } from "../types";
 import { getTemplate, hasTemplate } from "../registry";
 
+describe("Head of Security (founder, Nov 25, 2026)", () => {
+  it("is on every team that has engineering agents", () => {
+    for (const seed of ARCHETYPE_SEED_LIST) {
+      const keys = templateKeysForArchetype(seed.archetype);
+      if (keys.some((k) => getTemplate(k).taskKinds.includes("code") && getTemplate(k).family === "worker")) expect(keys, seed.archetype).toContain("security_engineer");
+    }
+    expect(getTemplate("security_engineer").name).toBe("Head of Security");
+  });
+});
+
 describe("background helpers (One name everywhere, Nov 8, 2026)", () => {
   it("the display rule's helper list is the utility templates, each on the utility layer; the Planner is not one", () => {
     expect([...BACKGROUND_HELPER_AGENT_TYPES].sort()).toEqual([...UTILITY_TEMPLATE_KEYS].sort());
@@ -270,12 +280,12 @@ describe("firstCycleTasksFor (WP-04 T3; founder, 2026-11-16 D1)", () => {
 });
 
 describe("startingTeam (WP-04 T4; founder decision 2: everyone is hired, three are shown)", () => {
-  it("splits the b2b_saas team into the three starters, in the constant's order, and the 24 who join later", () => {
+  it("splits the b2b_saas team into the three starters, in the constant's order, and the 25 who join later", () => {
     const agents = templateKeysForArchetype("b2b_saas").map((templateKey) => ({ templateKey }));
     const { starting, later } = startingTeam(agents);
     expect(starting.map((a) => a.templateKey)).toEqual(["chief_of_staff", "product_lead", "researcher"]);
     expect(starting).toHaveLength(3);
-    expect(later).toHaveLength(24);
+    expect(later).toHaveLength(25);
     expect(later.some((a) => STARTING_TEAM_TEMPLATE_KEYS.includes(a.templateKey))).toBe(false);
   });
 

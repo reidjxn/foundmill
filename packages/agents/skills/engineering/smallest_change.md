@@ -6,8 +6,8 @@ category: engineering
 attribute_name: Smallest change
 attribute_group: judgement # us-english-allow
 when_to_use: Use when writing, fixing, refactoring or reviewing code, before the first edit, to pick the smallest change that fully solves the task.
-roles: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
-default_for: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
+roles: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, security_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
+default_for: engineering_lead, backend_engineer, frontend_engineer, data_engineer, infra_engineer, security_engineer, qa_engineer, design_to_code, docs_writer, review_agent, integration_agent, planner
 default_since: 6
 load: always
 stage: building, page_live, first_followers, first_sale, growing

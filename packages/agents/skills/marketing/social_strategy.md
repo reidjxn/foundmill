@@ -13,7 +13,7 @@ needs: social_publish, analytics
 adapted_from: marketing-skills:social
 license_note: MIT, Copyright (c) 2025 Corey Haines
 improves: platform_fluency, community_management
-version: 1
+version: 2
 ---
 # Social media plan
 
@@ -29,7 +29,7 @@ Read the records for:
 
 1. **Who the project is for, and where those people already spend time.** Look for evidence: where followers said they came from, where people like them ask questions.
 2. **The founder's story and voice.** Why they are building this, in their words. On every network a true story does more than any posting trick.
-3. **Which accounts exist.** Plan only for the project's own accounts. Never post from a personal account, and never create an extra one.
+3. **Which accounts exist.** Plan only for the project's own accounts. Never post from a personal account, and never create an extra one. On a launch day, plan the first hour as the launch plan describes.
 4. **How posts get published.** Unless a publishing tool is connected, you prepare each post and the founder publishes it with a tap.
 5. **How much time the founder has.** Ten minutes a day supports a different plan than an hour.
 6. **What can be shown.** Photos of the work, the screen, the making, the place.

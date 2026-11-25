@@ -13,7 +13,7 @@ needs: web_research
 adapted_from: marketing-skills:launch
 license_note: MIT, Copyright (c) 2025 Corey Haines
 improves: channel_fit_scoring, experiment_design, pitch_writing
-version: 1
+version: 2
 ---
 # Launch plan
 
@@ -81,6 +81,14 @@ Every post, message and listing in the plan points to one owned place: the page 
 
 6. **Plan each day that something goes out.** Say who posts what, where and at what time, and who drafts replies. Write every announcement around what a person can now do: "You can now book a trial hour." Announce only what works today.
 
+   **The first hour.** Many networks decide how far a post travels from the response it gets in its first hour. Plan that hour to the minute for each launch post:
+   - Minute 0: the founder publishes the launch post from their own account, where they have more reach than a new project account. With a publishing tool connected, the project's own accounts publish theirs at the same minute.
+   - Minutes 0 to 5: the team sends the link to the post to every real supporter on the list: the ring 1 friends, people who said they wanted to hear about it, and the project's followers. Each note is short, says what is new, and suggests one thing to do in their own words: reply with what they think, or pass it to one person it would help. Sending these needs no approval, except in the mode where the founder is asked before anything outside the business.
+   - Minutes 5 to 60: the project's own accounts on other networks post their version and link back, and the project's account reposts the founder's post once. The team drafts a reply to every comment as it arrives, and the founder answers from their own account.
+   - Supporters are real people who chose to hear from the project, and each decides whether to respond. Never pay for engagement, never trade it with other projects, never use an account that is not the project's or the founder's, and never give anyone words to post as their own review.
+   - Where a network or directory forbids asking for responses or votes, send the link with no ask.
+   - Pick a day and hour when the people the project is for are online, and not the hour of a bigger announcement in the same field, if the records show one.
+
 7. **Plan the week after.**
    - A welcome message for everyone who took the step.
    - Thanks to the ring 1 friends by name, from the founder.
@@ -140,13 +148,14 @@ When the plan names a person or organization that exists as a record, use the me
 - Each group's rules were read, with the date, or the group is marked "not checked".
 - Every post and listing leads to the one step through its own tagged link.
 - Nothing asks for votes or reviews in return for anything, and no account is made up.
+- Each launch post has a first-hour plan: who publishes at minute 0, which supporters get the link, and what the project's own accounts post. Every supporter on it is a real person who agreed to hear from the project.
 - No customer words, counts or deadlines appear that are not real.
 - Only things that work today are announced.
 - The plan describes drafts as drafts. Nothing is called sent or posted without a tool result that says so.
 
 ## What needs the founder
 
-The founder is the sender in rings 1 and 2 and the account holder in ring 3. The team prepares the notes, posts, replies and listing kits, and the founder sends, posts and agrees to any listing terms. The launch dates, the price and any quote from a friend or customer are also the founder's to approve. Put all of it in one ordered list, so each launch day is a short run of approvals.
+The founder is the sender in rings 1 and 2 and the account holder in ring 3. The team prepares the notes, posts, replies and listing kits, and the founder sends, posts and agrees to any listing terms. In the first hour of a launch post, the team sends the supporters' notes and publishes from the project's own accounts itself; the founder's part is their own post and their own replies. The launch dates, the price and any quote from a friend or customer are also the founder's to approve. Put all of it in one ordered list, so each launch day is a short run of approvals.
 
 ## If a tool is missing
 

@@ -13,7 +13,7 @@ needs: page_publish, repo, analytics
 adapted_from: marketing-skills:signup
 license_note: MIT, Copyright (c) 2025 Corey Haines
 improves: spec_writing, accessibility
-version: 1
+version: 2
 ---
 # Sign-up flows
 
@@ -32,7 +32,7 @@ Read these first:
    | Flow | What it has to collect | Usual shape |
    | --- | --- | --- |
    | Follow form or waitlist | An email address | One field, one button |
-   | Account for a simple app | A way to get back in | A link sent by email, or an account the person already has elsewhere |
+   | Account for a simple app | A way to get back in | A six-digit code sent by email and typed on the same screen, or an account the person already has elsewhere |
    | Booking request for a service | Who they are, how to reach them, what they need and when | Three or four fields |
    | Checkout for a product | Where it ships, and the payment step | Buying as a guest, with an account offered afterwards |
 
@@ -59,7 +59,7 @@ Read these first:
    | Field | Rules |
    | --- | --- |
    | Email address | One field, with no second box to type it again. Check its shape as the person leaves the field and suggest a fix for common slips ("gmial.com"). |
-   | Password | Prefer a sign-in link so there is nothing to remember. Where one is needed, state its rules before the person types, add a switch that shows what was typed, and let a password manager fill the field. |
+   | Password | Prefer a six-digit code sent by email and typed on the same screen, so there is nothing to remember and the person never leaves. Where one is needed, state its rules before the person types, add a switch that shows what was typed, and let a password manager fill the field. |
    | Name | One "Name" field. Leave it out unless the next message uses it. |
    | Phone | Only when the project will call or text, and say so next to the field. |
    | A question about them | One at most, optional, after the main fields. |
@@ -68,7 +68,7 @@ Read these first:
 6. **Make errors kind.** Check each field as the person leaves it. Say what is wrong and how to fix it, next to the field. Keep everything they typed. If the person is already signed up, say so and offer the way in.
 7. **Design for a small screen first.** One column. Fields and buttons tall enough for a thumb, about 44 pixels. The right keyboard for each field. The browser's autofill left on.
 8. **Leave consent to the person.** A box for marketing email starts empty. The terms are linked in plain words next to the button. Never tick a box for someone, and never fold a second purpose into the first.
-9. **Write what comes right after.** A confirmation that says it worked, what happens next, and when (only if a record gives the time). If the email address has to be confirmed, say where to look, offer "Send it again", and give a way to correct a mistyped address.
+9. **Write what comes right after.** A confirmation that says it worked, what happens next, and when (only if a record gives the time). If the email address has to be confirmed before the person can go on, send a six-digit code and take it on the same screen. Never send a link that makes them leave and come back: many do not come back. Let the code be pasted, fill it in from the email where the phone offers that, say where to look, offer "Send it again", and give a way to correct a mistyped address.
 10. **Decide how you will know.** Two counts: people who opened the form and people who finished it. If the form reports where people stopped, note the field. Report counts ("14 opened, 9 finished") together with what you saw when you filled it in yourself.
 
 ## What good looks like
