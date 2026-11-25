@@ -17,8 +17,10 @@ const OWNER = "7f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b";
 
 function appFor(mode: "mock" | "live", fetchImpl?: typeof fetch, rateLimits = new MemoryRateLimitStore()) {
   const connector = createDomainsConnector({ fetch: fetchImpl, dns: { resolveNs: async () => Promise.reject(Object.assign(new Error("x"), { code: "ESERVFAIL" })), resolveSoa: async () => Promise.reject(Object.assign(new Error("x"), { code: "ESERVFAIL" })) } });
-  // The route never touches the database.
-  const deps: GatewayDeps = { db: undefined as unknown as Db, registry: createRegistry([connector]), vault: null, mode, rateLimits, recipients: new UntrustedRecipientRegistry(), log: silentLog };
+  // The route never touches the database. A fixed clock: the limit counts per clock minute, and a real clock that
+  // crossed a minute between two calls let the 21st call through (seen once in CI, Nov 25, 2026).
+  const now = new Date("2026-11-25T12:00:10Z");
+  const deps: GatewayDeps = { db: undefined as unknown as Db, registry: createRegistry([connector]), vault: null, mode, rateLimits, recipients: new UntrustedRecipientRegistry(), log: silentLog, now: () => now };
   return createGatewayApp(deps, { sessionTokenSecret: TEST_SECRET });
 }
 

@@ -243,7 +243,9 @@ describe("what the model is shown, and what it may answer (security review, Nov 
       anchors(html, new URL("https://shop.example.com/"));
       termsCandidates(html, new URL("https://shop.example.com/"));
       excerptsOf("bot ".repeat(500_000));
-      expect(performance.now() - started, html.slice(0, 12)).toBeLessThan(200);
+      // A scan that went quadratic on these pages would take minutes. The limit was 200 ms until Nov 25, 2026, and a
+      // busy CI runner took 203 and 216 ms on two unrelated pull requests.
+      expect(performance.now() - started, html.slice(0, 12)).toBeLessThan(2_000);
     }
     // Only the first 256 KB is scanned for links and at most 500 are kept.
     const many = `${'<a href="/p">Terms</a>'.repeat(5_000)}`;
