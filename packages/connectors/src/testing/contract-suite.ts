@@ -108,6 +108,8 @@ export const INTERNAL_WRITE_TOOLS: ReadonlyMap<string, string> = new Map([
   ["cli_libreoffice:release_output", "a made file put to use as the project's logo; the founder can change the logo again at any time"],
   ["cli_ffmpeg:release_output", "a made file put to use as the project's logo; the founder can change the logo again at any time"],
   ["cli_gimp:release_output", "a made file put to use as the project's logo; the founder can change the logo again at any time"],
+  ["sentry_mcp:update_issue", "an issue's status, assignee or priority in the founder's own Sentry; reopening or changing it back undoes it"],
+  ["sentry_mcp:link_issue", "a link from an issue in the founder's own Sentry to a pull request or ticket; nobody is notified"],
   ["shopify_mcp:create_cart", "a cart in the founder's store; nobody is charged"],
   ["shopify_mcp:update_cart", "a cart's lines in the founder's store; nobody is charged"],
   ["onesignal:send_push", "service-only: the platform's own app notifying founders' own phones; agents never call it"],

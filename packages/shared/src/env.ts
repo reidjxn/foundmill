@@ -285,6 +285,8 @@ const Env = z.object({
   SHOPIFY_MCP_CLIENT_ID: z.string().optional(),
   /** Foundmill's OAuth client at Lightbringer's MCP server (approved 2026-11-22); unset keeps the connector mock-only. */
   LIGHTBRINGER_MCP_CLIENT_ID: z.string().optional(),
+  /** Foundmill's public OAuth client at Sentry's MCP server (approved Nov 25, 2026), registered once by dynamic registration at mcp.sentry.dev. */
+  SENTRY_MCP_CLIENT_ID: z.string().optional(),
   /** Dropbox Sign API key; a business's own key takes precedence. */
   DROPBOX_SIGN_API_KEY: z.string().optional(),
   /**
