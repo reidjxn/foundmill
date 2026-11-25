@@ -109,11 +109,15 @@ test.describe("inbox", () => {
     const { bid } = await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);
     // The foundations draft in the background (mock models); the one plan note (WP-04 T5) waits in Needs you. Since Nov 7,
     // 2026 a decision never holds Continue: the button stays Continue and the Inbox counts what needs the founder (the
-    // plan and, since package 1.3, the Product lead's "Your project's page is ready").
+    // plan and, since package 1.3, the Product lead's "Your project's page is ready", and since Nov 25, 2026 the Chief of
+    // Staff's build recommendation).
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, PLAN_NOTE)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, /Sign off the product/)).toHaveCount(0);
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("2", { timeout: LONG });
+    // And the Chief of Staff's build note (founder, Nov 25, 2026), written with the plan note: a decision beside it, or, for
+    // an idea with no software to build, an update folded into the note of the day. Neither holds Continue.
+    const decided = (await inboxRow(page, /Build your app with /).count()) > 0;
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText(decided ? "3" : "2", { timeout: LONG });
     await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
     await inboxRow(page, PLAN_NOTE).click();
     const item = page.getByTestId("inbox-item");
@@ -148,7 +152,7 @@ test.describe("inbox", () => {
     await expect(answered).toBeVisible();
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("1", { timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText(decided ? "2" : "1", { timeout: LONG });
     // The one approval starts the build: Development › Plan gets the Planner's first tasks. In the project's first week
     // the Product lead's "Building starts: …" is folded into the Chief of Staff's note of the day (WP-04 T8): one row in
     // the Inbox, the update itself in Archive.

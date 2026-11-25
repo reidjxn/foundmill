@@ -1,23 +1,24 @@
 import type { Connector } from "../contract";
 import type { LiveConnectorOptions } from "../platform";
 import { createRemoteMcpConnector } from "./build";
-import { FOUNDER_EXECUTED_FOLDED_NAMES, foldedToolName, HUBSPOT_MCP, LIGHTBRINGER_MCP, NOTION_MCP, SENTRY_MCP, SHOPIFY_MCP } from "./servers";
+import { FOUNDER_EXECUTED_FOLDED_NAMES, foldedToolName, HUBSPOT_MCP, LIGHTBRINGER_MCP, LOVABLE_MCP, NOTION_MCP, SENTRY_MCP, SHOPIFY_MCP } from "./servers";
 
-export { createRemoteMcpConnector, createRemoteMcpMock, remoteToolList, toolName, hardGateName, listProblems, UNLISTED_HINTS, UNLISTED_TOOL, type RemoteServer, type RemoteTool } from "./build";
+export { createRemoteMcpConnector, createRemoteMcpMock, remoteToolList, toolName, hardGateName, listProblems, remoteErrorReason, UNLISTED_HINTS, UNLISTED_TOOL, type RemoteServer, type RemoteTool } from "./build";
 import { hardGateName as HARD_NAME, remoteNameWords, toolName, UNLISTED_TOOL as UNLISTED } from "./build";
 export { createMcpCustomConnector, assertPublicServer, MCP_CUSTOM_KEY } from "./custom";
-export { REMOTE_MCP_SERVERS, NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, LIGHTBRINGER_DEMO_INVENTION, LIGHTBRINGER_DEMO_FAIL_INVENTION, SENTRY_MCP, SENTRY_DEMO_ISSUE, SENTRY_DEMO_INJECTION_ISSUE } from "./servers";
+export { REMOTE_MCP_SERVERS, NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, LIGHTBRINGER_DEMO_INVENTION, LIGHTBRINGER_DEMO_FAIL_INVENTION, SENTRY_MCP, SENTRY_DEMO_ISSUE, SENTRY_DEMO_INJECTION_ISSUE, LOVABLE_MCP, LOVABLE_DEMO_PROJECT, LOVABLE_DEMO_REFUSED_PROMPT } from "./servers";
 
 export const createNotionMcpConnector = (o?: LiveConnectorOptions): Connector => createRemoteMcpConnector(NOTION_MCP, o);
 export const createHubspotMcpConnector = (o?: LiveConnectorOptions): Connector => createRemoteMcpConnector(HUBSPOT_MCP, o);
 export const createShopifyMcpConnector = (o?: LiveConnectorOptions): Connector => createRemoteMcpConnector(SHOPIFY_MCP, o);
 export const createLightbringerMcpConnector = (o?: LiveConnectorOptions): Connector => createRemoteMcpConnector(LIGHTBRINGER_MCP, o);
 export const createSentryMcpConnector = (o?: LiveConnectorOptions): Connector => createRemoteMcpConnector(SENTRY_MCP, o);
+export const createLovableMcpConnector = (o?: LiveConnectorOptions): Connector => createRemoteMcpConnector(LOVABLE_MCP, o);
 
 /** Connectors with no live implementation yet (a remote server nobody could sign in to): Settings hides them where mocks are not allowed. */
-export const MOCK_ONLY_CONNECTORS: ReadonlySet<string> = new Set([NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, SENTRY_MCP].filter((s) => !s.live).map((s) => s.key));
+export const MOCK_ONLY_CONNECTORS: ReadonlySet<string> = new Set([NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, SENTRY_MCP, LOVABLE_MCP].filter((s) => !s.live).map((s) => s.key));
 
-const REMOTE_KEYS: ReadonlySet<string> = new Set([NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, SENTRY_MCP].map((s) => s.key).concat("mcp_custom"));
+const REMOTE_KEYS: ReadonlySet<string> = new Set([NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, SENTRY_MCP, LOVABLE_MCP].map((s) => s.key).concat("mcp_custom"));
 
 /** Words that, as an argument's name or as an operation's value, delete, trash, archive, remove, merge or wipe records. */
 const REMOVING = ["delet", "destroy", "purge", "erase", "wipe", "trash", "archiv", "remov", "drop", "truncat", "merg"];
@@ -60,7 +61,7 @@ function removingArgs(value: unknown, depth = 0): boolean {
 }
 
 /** The folded names of every server's listed hard-gate tools: naming one through `call_unlisted_tool`, in any spelling, is refused. */
-const LISTED_HARD_GATES: ReadonlySet<string> = new Set([NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, SENTRY_MCP].flatMap((s) => s.tools.filter((t) => t.hints?.hardGate).map((t) => foldedToolName(t.remote))));
+const LISTED_HARD_GATES: ReadonlySet<string> = new Set([NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, SENTRY_MCP, LOVABLE_MCP].flatMap((s) => s.tools.filter((t) => t.hints?.hardGate).map((t) => foldedToolName(t.remote))));
 const SENTRY_ACCESS_WORDS = ["dsn", "key", "team", "member", "access"];
 
 /** The documented `notion-update-page` commands (developers.notion.com/guides/mcp/tools-pages-reference, Nov 22, 2026). */
@@ -115,7 +116,7 @@ export function remoteHardGateCall(connectorKey: string, tool: string, args: unk
  * refs. No agent holds one, the gateway refuses a session-token call to one whatever the token says, and the one executor
  * is `POST /v1/founder-actions/execute` (apps/gateway `founder-action.ts`).
  */
-export const FOUNDER_EXECUTED_TOOLS: ReadonlySet<string> = new Set([NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, SENTRY_MCP].flatMap((s) => s.tools.filter((t) => t.hints?.founderExecuted).map((t) => `${s.key}:${toolName(t.remote)}`)));
+export const FOUNDER_EXECUTED_TOOLS: ReadonlySet<string> = new Set([NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, SENTRY_MCP, LOVABLE_MCP].flatMap((s) => s.tools.filter((t) => t.hints?.founderExecuted).map((t) => `${s.key}:${toolName(t.remote)}`)));
 
 /** The founder-executed tool a `call_unlisted_tool` call names (in any spelling `toolName` folds together), or null. Denied before anyone is asked. */
 export function remoteFounderExecutedCall(_connectorKey: string, tool: string, args: unknown): string | null {

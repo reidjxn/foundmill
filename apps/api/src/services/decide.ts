@@ -18,10 +18,11 @@
  * Only a note that asks for a decision can be decided (audit VRUI-X2): an Update, a Milestone or a follow-up has nothing
  * to choose; free text on them goes to the agent's desk (`replyToInboxItem`).
  */
-import { classifyFounderText } from "@foundmill/agents";
+import { classifyFounderText, isBuildChoiceDecision } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, releaseFollowUpOf, repos, resolveAgentPrompt, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
 import { AppError, ONE_CLICK_ACTION_TYPES, founderActionIdOfDecision, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, toolPickCategory, browserKeepSite, browserCheckSite, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
+import { decideBuildChoiceNote } from "./build-choice";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, assertMayGrantFromPlan, decideReleaseFollowUp, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
 import { assertMayConfirmAsks } from "./approver";
@@ -94,6 +95,8 @@ export async function oneClickPlanAllowed(ctx: BusinessContext, itemId: string, 
   if (!option) return false;
   // A founder-executed request is pressed in a signed-in session in the console, never from an email (founder, 2026-11-22).
   if (founderActionIdOfDecision(item.decision)) return false;
+  // The build choice can spend the founder's Lovable credits: answered in the console, never from an email.
+  if (isBuildChoiceDecision(item.decision)) return false;
   if ((await ctx.rls((tx) => repos.approvals.listForInboxItem(tx, ctx.businessId, item.id))).length > 0) return false;
   if (await ctx.rls((tx) => repos.productSignoffs.forInboxItem(tx, ctx.businessId, item.id))) return false;
   if (await ctx.rls((tx) => repos.goals.forInboxItem(tx, ctx.businessId, item.id))) return true;
@@ -154,6 +157,8 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   if (toolPickCategory(item.decision)) return decideToolPickNote(ctx, item, { chosenOption, freeText });
   // A founder-executed request (founder, 2026-11-22): the founder's one press, in-process, never the plan compiler.
   if (founderActionIdOfDecision(item.decision)) return decideFounderActionNote(ctx, item, { chosenOption, freeText });
+  // The Chief of Staff's build recommendation (founder, Nov 25, 2026): Build it ourselves, or Build it with Lovable; in-process.
+  if (isBuildChoiceDecision(item.decision)) return decideBuildChoiceNote(ctx, item, { chosenOption, freeText });
   if (browserKeepSite(item.decision)) return decideBrowserKeepNote(ctx, item, { chosenOption, freeText });
   if (browserCheckSite(item.decision)) return decideBrowserCheckNote(ctx, item, { chosenOption, freeText });
   if (freeText && !chosenOption && decision.free_text === false) throw new ValidationError("This decision takes one of its options. Pick one, or talk it through with the agent first.", { route: "conversation", itemId: item.id });

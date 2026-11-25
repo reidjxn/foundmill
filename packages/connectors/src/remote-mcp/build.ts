@@ -43,6 +43,8 @@ export interface RemoteServer {
   /** False until someone checked the server's OAuth and tools against the live vendor: the connector stays mock-only and Settings hides it. */
   live: boolean;
   scopes?: readonly string[];
+  /** A smaller set asked once when the vendor refuses `scopes` (connect input `retryScopes: true`): Lovable below Business. */
+  retryScopes?: readonly string[];
   /** Scopes a sign-in must not carry (Sentry's write access to keys, teams and alerts): a token that reports one is not connected. */
   refusedScopes?: readonly string[];
   /** Foundmill's pre-registered OAuth client at this vendor (env on the gateway); null when not configured. */
@@ -132,8 +134,22 @@ function withVendorSchemas<C extends Connector>(connector: C, server: RemoteServ
   return connector;
 }
 
-const failed = (_r: RemoteResult): never => {
-  throw new AppError("remote_tool_error", "The tool reported an error", 502);
+/**
+ * Why a remote tool refused, as one fixed code (never the vendor's text, which is untrusted and may hold anything):
+ * logs and the fallback paths read it, for example Lovable's create_project on a workspace with no credits.
+ */
+export function remoteErrorReason(text: string): "insufficient_credits" | "plan_required" | "forbidden" | "unauthorized" | "rate_limited" | "other" {
+  const t = text.toLowerCase();
+  if (/credit|quota|balance/.test(t)) return "insufficient_credits";
+  if (/\b(plan|upgrade|business|enterprise|subscription)\b/.test(t)) return "plan_required";
+  if (/rate.?limit|too many/.test(t)) return "rate_limited";
+  if (/unauthori[sz]ed|invalid.?token|expired/.test(t)) return "unauthorized";
+  if (/forbidden|permission|not allowed|scope/.test(t)) return "forbidden";
+  return "other";
+}
+
+const failed = (r: RemoteResult): never => {
+  throw new AppError("remote_tool_error", "The tool reported an error", 502, { reason: remoteErrorReason(r.text) });
 };
 
 export interface RemoteOptions extends LiveConnectorOptions {
@@ -182,7 +198,8 @@ export function createRemoteMcpConnector(server: RemoteServer, options: RemoteOp
         if (!hasAuthorizationCode(input)) {
           const start = consentStartOf(input, server.displayName);
           const { challenge } = pkceFor(secrets.mcpOauthSecret, server.key, start.state);
-          return consentRecord(server.key, businessId, consentUrl(ep, { client: id, redirectUri: start.redirectUri, state: start.state, challenge, resource: server.url, ...(server.scopes ? { scopes: server.scopes } : {}) }), { now, newId: uuid });
+          const scopes = (input as { retryScopes?: unknown }).retryScopes === true && server.retryScopes ? server.retryScopes : server.scopes;
+          return consentRecord(server.key, businessId, consentUrl(ep, { client: id, redirectUri: start.redirectUri, state: start.state, challenge, resource: server.url, ...(scopes ? { scopes } : {}) }), { now, newId: uuid });
         }
         const given = input as { code: string; redirectUri?: string; state?: string };
         const start = consentStartOf({ state: given.state, redirectUri: given.redirectUri }, server.displayName);

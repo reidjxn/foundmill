@@ -42,7 +42,7 @@ import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/she
 import { BrowserSitesSection } from "./BrowserSitesSection";
 import { GitHubRepositoryPanel } from "./GitHubRepositoryPanel";
 import { GoogleContextPanel } from "./GoogleContextPanel";
-import { OAuthFinish } from "./OAuthFinish";
+import { LOVABLE_KEY, LovableWayIn, OAuthFinish } from "./OAuthFinish";
 import { OwnDomainSection } from "./OwnDomainSection";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
@@ -411,6 +411,8 @@ export function IntegrationsTab() {
   const platformMail = useQuery(trpc.integrations.platformMail.queryOptions({ businessId }));
   /** The connector whose key dialog is open (Connect on a live API-key connector). */
   const [keyForKey, setKeyForKey] = useState<string | null>(null);
+  /** Connecting Lovable failed in this visit: the Build with URL way in is shown. */
+  const [lovableRefused, setLovableRefused] = useState(false);
   const connect = useMutation(
     trpc.integrations.connect.mutationOptions({
       onSuccess: (r, vars) => {
@@ -423,7 +425,11 @@ export function IntegrationsTab() {
           navigateTo(r.consentUrl);
         } else t.saved(connectedTitle(vendorName(vars.connectorKey), businessData?.business.name), connectedAccountLine(r.record.accountLabel, businessData?.business.name));
       },
-      onError: (e) => t.failed(e, "Could not connect"),
+      onError: (e, vars) => {
+        t.failed(e, "Could not connect");
+        // A refused Lovable sign-in is never a dead end: Lovable still opens with the plan (founder, Nov 25, 2026).
+        if (vars.connectorKey === LOVABLE_KEY) setLovableRefused(true);
+      },
     }),
   );
   const disconnect = useMutation(trpc.integrations.disconnect.mutationOptions({ onSuccess: () => (void invalidate(["integrations"]), t.saved("Disconnected", "Credentials revoked.")), onError: (e) => t.failed(e) }));
@@ -559,7 +565,12 @@ export function IntegrationsTab() {
       ) : null}
       <PlatformMailSection data={platformMail.data} businessId={businessId} />
       {platformMail.data ? <OwnDomainSection businessId={businessId} /> : null}
-      <OAuthFinish businessId={businessId} connectors={rows} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
+      <OAuthFinish businessId={businessId} connectors={rows} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} onRetryScopes={(connectorKey) => connect.mutate({ businessId, connectorKey, input: { retryScopes: true } })} />
+      {lovableRefused ? (
+        <SettingsSection title="Build it with Lovable">
+          <LovableWayIn businessId={businessId} reason="Lovable could not be connected." />
+        </SettingsSection>
+      ) : null}
       {stripeRow ? (
         <SettingsSection wide title="Accept payments with Stripe" data-testid="stripe-payments" loading={list.isLoading}>
           <Hint>Take payments on your own Stripe account. Sign in with Stripe, or use a restricted key from your Stripe dashboard. Stripe's fees stay on your account.</Hint>

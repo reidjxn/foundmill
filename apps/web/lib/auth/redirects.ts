@@ -24,7 +24,7 @@ import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
  * `/i/<token>` (an invitation to a project) is opened by people who may have no account yet: the page says "Sign in"
  * itself and comes back with `next`.
  */
-const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/llms.txt", "/health", "/examples/", "/p/", "/u/", "/m/", "/explore", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/", "/tour", "/lp/", "/.well-known/"];
+const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/llms.txt", "/health", "/examples/", "/p/", "/u/", "/m/", "/explore", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/", "/tour", "/lp/", "/.well-known/", "/oauth/lovable-client.json"];
 
 /** The public waitlist page (WP-14 T15): that one address, never a prefix, so no later `/waitlist…` route is public by accident. */
 const WAITLIST_PAGE = "/waitlist";

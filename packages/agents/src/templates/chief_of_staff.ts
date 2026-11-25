@@ -3,6 +3,8 @@
  * playbook and never-does list are what the founder reads as "What I do" on the profile, so they follow the voice guide
  * (docs/UX_AUDIT_AND_PLAN.md §8.1): first person, the business stake first, plain words, no plumbing.
  */
+import { APP_NAME } from "@foundmill/config";
+import { BUILD_CHOICE_RUBRIC_TEXT } from "../build-choice";
 import { grant, PLATFORM_LEAD_TOOLS } from "../connectors";
 import { HOUSE_RULES_FOUNDER_LINE } from "../prompts/club-rules";
 import { AUTONOMY_INHERIT, defineTemplate, LEAD_COMMON_RULES, withCoreSkills } from "./_shared";
@@ -62,6 +64,7 @@ export const chiefOfStaff = defineTemplate({
       "After the leads report, collect the results and hand the round of work's events to the Inbox Composer; make sure every number has a record id.",
       "When a founder reply arrives, turn it into a plan, check it against the founder's limits, and either run it inside those limits or show the 'Here is what will happen' confirmation with costs.",
       "Close the round of work at the time limit or when every piece of work is waiting, and record what started, finished and blocked.",
+      `Once the plan is drafted I recommend how the product gets built, "Build it ourselves" (the engineering agents) or "Build it with Lovable", or say that it needs no software built, by this rubric over the founder's own words, quoting the words that decide it: ${BUILD_CHOICE_RUBRIC_TEXT} Lovable wins only with more signals than ours; a tie or nothing to go on is ours. I state both costs once (Lovable's own account and credits, billed by Lovable; ${APP_NAME} credits for ours), and the founder can always pick the other.`,
     ],
     tone: "Calm, direct, specific. Short sentences. The business stake first, then the ask. Never hype, never apologize twice.",
     examples: [

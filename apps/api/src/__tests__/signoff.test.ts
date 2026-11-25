@@ -58,7 +58,10 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     expect(view.readyToSell).toBeNull();
     const inbox = await b.caller.inbox.list({ businessId: b.businessId, tab: "respond" });
     // With the Product lead's page note (package 1.3), drafted first: a decision that is not a sign-off.
-    expect(inbox.items.map((i) => i.subject).sort()).toEqual(["Your plan is ready", "Your project's page is ready"]);
+    // And the Chief of Staff's build recommendation beside the plan (founder, Nov 25, 2026), which holds nothing either.
+    const isBuildChoice = (subject: string) => /^Build your app with /.test(subject);
+    expect(inbox.items.map((i) => i.subject).filter((s) => !isBuildChoice(s)).sort()).toEqual(["Your plan is ready", "Your project's page is ready"]);
+    expect(inbox.items.filter((i) => isBuildChoice(i.subject))).toHaveLength(1);
     expect(view.roadmap!.inboxItemId).toBe(view.spec!.inboxItemId);
     // Both wait in Needs you; neither holds Continue (0071, Nov 7, 2026): the Chief of Staff plans only groundwork until they are signed.
     expect(inbox.continueState).toEqual({ kind: "idle" });

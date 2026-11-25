@@ -39,7 +39,11 @@ export function oauthCallbackRedirect(search: URLSearchParams): string {
     next.set("oauth_state", state);
     const shop = (search.get("shop") ?? "").toLowerCase();
     if (SHOP.test(shop)) next.set("oauth_shop", shop);
-  } else next.set("oauth_error", ERROR.test(error) ? error : "no_code");
+  } else {
+    next.set("oauth_error", ERROR.test(error) ? error : "no_code");
+    // The vendor's refusal by its error code only (never a code, a state or a token): Lovable's first connects are read from this line.
+    console.warn(JSON.stringify({ msg: "sign-in: the vendor refused it", connector: target.connectorKey, error: next.get("oauth_error") }));
+  }
   return `/b/${target.businessId}/settings/integrations?${next.toString()}`;
 }
 

@@ -336,6 +336,36 @@ export const AGENT_E2E_CASES: readonly SessionCase[] = Object.freeze([
     mockBefore: [{ connector: "stripe", tool: "list_charges", args: () => ({ limit: 50 }) }],
     mockBody: "## Revenue by week\n\nThe charges below are simulated: Stripe answered from its mock in this sample project.\n\nWeek 1: $410.",
   }),
+  // Build it with Lovable (founder, Nov 25, 2026): after the founder's press started the project in their own Lovable
+  // workspace, the engineering lead reads where it stands. Building there spends the founder's Lovable credits, so no
+  // agent holds it (only the press does, apps/api build-choice.ts). Not connected, the founder's step is named; in a
+  // sample project the mock answers and the report says simulated.
+  notConnectedCase({
+    id: "engineering_lead.lovable_not_connected",
+    agentType: "engineering_lead",
+    kind: "ops",
+    title: "Check the Lovable project",
+    goal: "The founder chose Build it with Lovable for the online ordering app, and the project lov_demo_1 was started in their Lovable workspace. Read where it stands (the project and its latest messages) and report what is built and what the founder should ask Lovable for next.",
+    acceptance: ["What the Lovable project has so far, or why it could not be read"],
+    connector: "lovable_mcp",
+    name: /lovable/i,
+    mockCall: { connector: "lovable_mcp", tool: "get_project", args: () => ({ project_id: "lov_demo_1" }) },
+  }),
+  resultCase({
+    id: "engineering_lead.lovable_connected",
+    agentType: "engineering_lead",
+    kind: "ops",
+    title: "Check the Lovable project (sample)",
+    business: "sample",
+    goal: "The founder chose Build it with Lovable for the online ordering app, and the project lov_demo_1 was started in their Lovable workspace. Read where it stands (get_project and list_messages) and report what is built, with the project's link, and what the founder should ask Lovable for next.",
+    acceptance: ["What the Lovable project has so far, with its link", "What to ask Lovable for next"],
+    need: { tools: [{ tool: "get_project", connector: "lovable_mcp", min: 1 }], mustMatch: [/lovable\.dev\/projects\//i] },
+    mockBefore: [
+      { connector: "lovable_mcp", tool: "get_project", args: () => ({ project_id: "lov_demo_1" }) },
+      { connector: "lovable_mcp", tool: "list_messages", args: () => ({ project_id: "lov_demo_1" }) },
+    ],
+    mockBody: "## The Lovable project (simulated)\n\nLovable answered from its mock in this sample project, so what follows is simulated: https://lovable.dev/projects/lov_demo_1 is the mock's link.\n\nNext to ask Lovable for: a pickup time picker on the cart.",
+  }),
   resultCase({
     id: "finance_lead.first_budget",
     agentType: "finance_lead",

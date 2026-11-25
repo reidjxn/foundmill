@@ -11,7 +11,7 @@
  * the api writes it after its membership check, the orchestrator through its service role.
  */
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
-import { FOUNDATIONS_TEMPLATE_KEY, type FoundationsDraft, type FoundationsInputs, type FoundationsNoteStats, type FoundationsOutlineEntry, type FoundationsProgressAuthor, type FoundationsProgressPatch, type FoundationsVisionRecord, type ImportReportSnapshot } from "@foundmill/agents";
+import { buildChoiceIdeaText, buildChoiceNote, FOUNDATIONS_TEMPLATE_KEY, type FoundationsDraft, type FoundationsInputs, type FoundationsNoteStats, type FoundationsOutlineEntry, type FoundationsProgressAuthor, type FoundationsProgressPatch, type FoundationsVisionRecord, type ImportReportSnapshot } from "@foundmill/agents";
 import { FOUNDATIONS_DOORS, ROADMAP_HORIZONS, ValidationError, type Archetype, type FoundationsRunner, type FoundationsStatus, type RoadmapHorizon } from "@foundmill/shared";
 import { z } from "zod";
 import { resolveAgentPrompt } from "../agent-prompt";
@@ -22,6 +22,7 @@ import { businessesRepo } from "./businesses";
 import { departmentsRepo } from "./departments";
 import { foundersRepo } from "./founders";
 import { ideasRepo } from "./ideas";
+import { inboxRepo } from "./inbox";
 import { productRepo } from "./product";
 import { planDecisionBlock, productSignoffsRepo } from "./product-signoffs";
 import { Id, JsonObject, maybeOne, one, parseInput, type Executor } from "./_shared";
@@ -378,6 +379,14 @@ export const foundationsRepo = {
         if (spec.created && spec.item) {
           inboxItems.push(spec.item);
           if (options.onInboxItem) await options.onInboxItem(tx, spec.item);
+        }
+        // The Chief of Staff's build recommendation (founder, Nov 25, 2026), once per project, beside the plan note: Build it
+        // ourselves or Build it with Lovable, or that the idea needs no software built. It never holds Continue.
+        const chief = await agentsRepo.chiefOfStaff(tx, businessId);
+        if (spec.created && chief && inputs.idea) {
+          const note = buildChoiceNote(businessId, { ideaText: buildChoiceIdeaText(inputs.idea), archetype: inputs.archetype ?? inputs.idea.archetype, founderFirstName: null });
+          const built = await inboxRepo.createItem(tx, businessId, { type: note.decision ? "decision" : "update", from_agent_id: chief.id, subject: note.subject.slice(0, 80), body_md: note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: note.decision, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+          if (options.onInboxItem) await options.onInboxItem(tx, built);
         }
       }
 

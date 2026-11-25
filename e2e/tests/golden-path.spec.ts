@@ -283,7 +283,10 @@ test.describe("golden path", () => {
     // Since Nov 7, 2026 a decision never holds Continue: the Inbox counts them (the plan and, since package 1.3,
     // "Your project's page is ready") and the button stays Continue.
     await expect(inboxRow(page, "Your project's page is ready")).toBeVisible({ timeout: LONG });
-    await expect(inboxLink(page)).toContainText("2", { timeout: LONG });
+    // And the Chief of Staff's build note (founder, Nov 25, 2026), written with the plan note: a decision beside it, or, for
+    // an idea with no software to build, an update folded into the note of the day. Neither holds Continue.
+    const decided = (await inboxRow(page, /Build your app with /).count()) > 0;
+    await expect(inboxLink(page)).toContainText(decided ? "3" : "2", { timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
     // The plan note is a decision from the Product lead with Approve the plan and Ask for changes; one press starts the build.
@@ -300,7 +303,7 @@ test.describe("golden path", () => {
     await expect(page.getByTestId("answered-panel")).toBeVisible();
     // Folded into the note of the day in the first week (WP-04 T8); the update itself is kept in Archive.
     await expect(inboxRow(page, DIGEST_NOTE)).toBeVisible({ timeout: LONG });
-    await expect(inboxLink(page)).toContainText("1", { timeout: LONG });
+    await expect(inboxLink(page)).toContainText(decided ? "2" : "1", { timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
     // One press of Continue → business.continue (in-process cycle step without Temporal) → a toast says what happened.
@@ -336,8 +339,8 @@ test.describe("golden path", () => {
     await expect(inboxRow(page, FIRST_NOTE)).toBeVisible({ timeout: LONG });
     // Nothing waits for an answer but the Chief of Staff's goal (proposed once the sign-offs and a round of work are done,
     // founder 2026-11-07) and the Product lead's "Your project's page is ready" (package 1.3): the Board's question is not
-    // asked before distribution starts.
-    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i }).filter({ hasNotText: /page is ready/i })).toHaveCount(0);
+    // asked before distribution starts; nor is the Chief of Staff's build choice (Nov 25, 2026).
+    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i }).filter({ hasNotText: /page is ready/i }).filter({ hasNotText: /Build your app with/ })).toHaveCount(0);
     // Start distribution: the Board's question is in the Inbox, the channels start, the Board no longer waits.
     const { boardItemId } = await startDistributionFromBoard(page, bid);
     await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });

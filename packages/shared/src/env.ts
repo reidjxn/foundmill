@@ -287,6 +287,8 @@ const Env = z.object({
   LIGHTBRINGER_MCP_CLIENT_ID: z.string().optional(),
   /** Foundmill's public OAuth client at Sentry's MCP server (approved Nov 25, 2026), registered once by dynamic registration at mcp.sentry.dev. */
   SENTRY_MCP_CLIENT_ID: z.string().optional(),
+  /** Foundmill's client at Lovable's MCP server (founder, Nov 25, 2026): the URL of its Client ID Metadata Document, served by apps/web at /oauth/lovable-client.json, so nothing is registered at Lovable. */
+  LOVABLE_MCP_CLIENT_ID: z.string().optional(),
   /** Dropbox Sign API key; a business's own key takes precedence. */
   DROPBOX_SIGN_API_KEY: z.string().optional(),
   /**

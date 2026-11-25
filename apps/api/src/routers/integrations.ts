@@ -16,6 +16,8 @@ import { addOwnDomain, checkOwnDomain, finishRegisteredDomain, ownDomainOf, quot
 import { oauthRedirectUri, signConnectState, signInstallState, verifyConnectState, verifyInstallState } from "../services/install-state";
 import { ANTHROPIC, revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { webConnectInput, webSlots } from "../services/web-sites";
+import { LOVABLE_CONNECTOR, planForLovable } from "../services/build-choice";
+import { lovableBuildUrl } from "@foundmill/agents";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
 
 /** What a project is told when the Stripe account it signed in with is another project's (0137; the gateway's own words). */
@@ -80,6 +82,8 @@ const OAuthFinish = z.object({ code: z.string().regex(/^[A-Za-z0-9._~/+=-]{1,200
 const admin = sectionAdmin("settings");
 
 export const integrationsRouter = router({
+  /** Lovable's Build with URL for this project's plan (founder, Nov 25, 2026): the way in when connecting Lovable is refused. */
+  lovableBuildLink: admin.query(async ({ ctx }) => ({ url: lovableBuildUrl((await planForLovable(ctx)).prompt) })),
   list: read.query(async ({ ctx }) => {
     // A typed website the cached check now forbids (or that is a never site) stays listed as "No longer allowed", with Disconnect.
     const simulated = connectorMode(ctx.env, WEB_CHECK_KEY) !== "live";
@@ -248,14 +252,19 @@ export const integrationsRouter = router({
       if (typeof input.input.code !== "string") {
         const account = typeof input.input.shop === "string" ? input.input.shop.trim().toLowerCase() : null;
         const state = signConnectState(ctx.env.SESSION_TOKEN_SECRET, { userId: ctx.userId!, businessId: ctx.businessId, connectorKey: input.connectorKey, account });
-        const first = (await ctx.gateway.connect(ctx.businessId, input.connectorKey, { ...(account ? { shop: account } : {}), ...(input.connectorKey === "gmail" && input.input.readMail === true ? { readMail: true } : {}), ...(input.connectorKey === "google_drive" && input.input.readDrive === true ? { readDrive: true } : {}), state, redirectUri })).record;
+        const first = (await ctx.gateway.connect(ctx.businessId, input.connectorKey, { ...(account ? { shop: account } : {}), ...(input.connectorKey === "gmail" && input.input.readMail === true ? { readMail: true } : {}), ...(input.connectorKey === "google_drive" && input.input.readDrive === true ? { readDrive: true } : {}), ...(input.connectorKey === LOVABLE_CONNECTOR && input.input.retryScopes === true ? { retryScopes: true } : {}), state, redirectUri })).record;
         const consentUrl = typeof first.config.authorizeUrl === "string" ? first.config.authorizeUrl : null;
         return { integration: await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey), record: { ...first, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null, signIn: NO_SIGN_IN };
       }
       const finish = OAuthFinish.parse(input.input);
       const { account } = verifyConnectState(ctx.env.SESSION_TOKEN_SECRET, finish.state, { userId: ctx.userId!, businessId: ctx.businessId, connectorKey: input.connectorKey });
       if (account !== null && finish.shop?.toLowerCase() !== account) throw new ForbiddenError("This sign-in came back for a different store: connect again from Settings › Integrations");
-      connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { code: finish.code, redirectUri, state: finish.state, ...(account ? { shop: account } : {}) });
+      connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { code: finish.code, redirectUri, state: finish.state, ...(account ? { shop: account } : {}) }).catch((e: unknown) => {
+        // The vendor's refusal of a sign-in (invalid_client, invalid_grant, a scope refused), by its code only: the message
+        // the gateway sends holds the OAuth error code and never a token. Lovable's first connects are read from this line.
+        ctx.log.warn({ businessId: ctx.businessId, connector: input.connectorKey, code: e instanceof AppError ? e.code : "error", message: e instanceof Error ? e.message.slice(0, 200) : null }, "integrations: sign-in refused at the code exchange");
+        throw e;
+      });
     } else if (mode === "live") {
       // An API key the founder entered (SendGrid, Dropbox Sign, Cloudflare, or Stripe's second way in beside "Sign in with
       // Stripe"), a platform-key registry, a Plaid or Tink link.

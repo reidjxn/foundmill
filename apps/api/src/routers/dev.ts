@@ -9,6 +9,7 @@ import { REPOSITORY_FULL_NAME, TaskListFilter, codeRepositoryOf, repos, type Age
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { TASK_STATUSES, boundedRecord, ForbiddenError, NotFoundError, ValidationError, connectorMode, hasSectionAccess, sessionSections, type EntityKind } from "@foundmill/shared";
 import { buildManifest, extractEntityIds, stripInvalidMentions, type ManifestEntityInput } from "@foundmill/entity-linker";
+import { buildChoiceNote } from "@foundmill/agents";
 import { z } from "zod";
 import { verifyCodeRepository } from "../services/code-repository";
 import { seedFounderActionNote } from "../services/founder-actions";
@@ -286,6 +287,20 @@ export const devRouter = router({
   seedFounderAction: adminProcedure.input(z.object({ inventionId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).default("inv_demo_1") })).mutation(async ({ ctx, input }) => {
     if (ctx.env.APP_ENV !== "test" && ctx.env.APP_ENV !== "development") throw new NotFoundError("route");
     return seedFounderActionNote(ctx, input);
+  }),
+
+  /**
+   * Test support (founder, Nov 25, 2026): writes the Chief of Staff's build recommendation for an idea, as the plan's
+   * drafting does, so the Playwright spec can read and press it. Development and test only.
+   */
+  seedBuildChoice: adminProcedure.input(z.object({ ideaText: z.string().min(1).max(2000) })).mutation(async ({ ctx, input }) => {
+    if (ctx.env.APP_ENV !== "test" && ctx.env.APP_ENV !== "development") throw new NotFoundError("route");
+    const note = buildChoiceNote(ctx.businessId, { ideaText: input.ideaText, archetype: null, founderFirstName: null });
+    return ctx.rls(async (tx) => {
+      const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
+      const item = await repos.inbox.createItem(tx, ctx.businessId, { type: note.decision ? "decision" : "update", from_agent_id: chief?.id ?? null, subject: note.subject, body_md: note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: note.decision, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+      return { inboxItemId: item.id };
+    });
   }),
 
   /** The code agents wrote on code tasks, kept after each session (0013 workspaces; written by the orchestrator). */

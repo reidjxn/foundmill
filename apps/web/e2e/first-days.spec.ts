@@ -129,8 +129,9 @@ test.describe("first days", () => {
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, PLAN_NOTE)).toBeVisible({ timeout: LONG });
     // The Chief of Staff's goal proposal (Nov 7, 2026) may already wait in Needs you, and so does the Product lead's
-    // "Your project's page is ready" (package 1.3); neither is a distribution question.
-    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i }).filter({ hasNotText: /page is ready/i })).toHaveCount(0);
+    // "Your project's page is ready" (package 1.3), and the Chief of Staff's build choice (Nov 25, 2026); none of them is a
+    // distribution question.
+    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i }).filter({ hasNotText: /page is ready/i }).filter({ hasNotText: /Build your app with/ })).toHaveCount(0);
 
     // Start distribution: the Board's question (the archetype's own words) lands in the Inbox and the channels start.
     const { boardItemId } = await startDistributionFromBoard(page, bid);
