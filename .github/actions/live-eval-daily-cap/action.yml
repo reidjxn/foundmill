@@ -1,0 +1,29 @@
+# Stops a hand-dispatched live eval once its workflow has been dispatched too often today (UTC), so a fix-and-rerun
+# loop cannot drain the Anthropic credit balance (Nov 24, 2026: about 25 hand runs spent $100 in an afternoon).
+# The limit per workflow per day is the repository variable LIVE_EVAL_DAILY_MAX (default 3). Only the founder raises it,
+# in Settings › Secrets and variables › Actions › Variables. The caller needs `permissions: actions: read`.
+name: Live eval daily cap
+description: Fail when this workflow has more workflow_dispatch runs today than LIVE_EVAL_DAILY_MAX allows.
+inputs:
+  max:
+    description: Most hand-dispatched runs of this workflow per UTC day
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        MAX: ${{ inputs.max }}
+        WORKFLOW_REF: ${{ github.workflow_ref }}
+      run: |
+        [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || exit 0
+        file=$(basename "${WORKFLOW_REF%%@*}")
+        today=$(date -u +%F)
+        # The count includes this run.
+        count=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$file/runs?event=workflow_dispatch&created=>=$today&per_page=1" --jq .total_count)
+        echo "$file: $count hand-dispatched run(s) today (UTC), limit $MAX"
+        if [ "$count" -gt "$MAX" ]; then
+          echo "::error::Daily cap reached: $file has run $count times by hand today, the limit is $MAX (repository variable LIVE_EVAL_DAILY_MAX). Rerun only the failing cases tomorrow, or ask the founder to raise the limit."
+          exit 1
+        fi
