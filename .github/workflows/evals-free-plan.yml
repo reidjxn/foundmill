@@ -14,6 +14,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   free-plan-evals:
@@ -31,6 +32,10 @@ jobs:
       DO_NOT_TRACK: 1
     steps:
       - uses: actions/checkout@v4
+      - name: Daily cap on hand runs (repository variable LIVE_EVAL_DAILY_MAX, default 3)
+        uses: ./.github/actions/live-eval-daily-cap
+        with:
+          max: ${{ vars.LIVE_EVAL_DAILY_MAX || '3' }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
