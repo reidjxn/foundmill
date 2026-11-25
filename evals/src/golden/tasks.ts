@@ -812,7 +812,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "entity_linker.sweep",
     templateKey: "entity_linker",
     title: "Resolve spans against the manifest",
-    prompt: `${MANIFEST}\n\nText: "Harbour confirmed the pilot; Nadia will send the SOW. Stripe Inc raised our limit. A Sara from accounts asked about invoices."\n\nReturn JSON matching the linker schema {mentions:[{text, start, end, entity_id, confidence, status, candidates}]}.`,
+    prompt: `${MANIFEST}\n\nText: "Harbour confirmed the pilot; Nadia will send the SOW. Stripe Inc raised our limit. A Sara from accounts asked about invoices."\n\nSpans found in the text (start-end, end exclusive): "Harbour" 0-7, "Nadia" 29-34, "Stripe Inc" 54-64, "Sara" 85-89, "accounts" 95-103, "invoices" 116-124.\n\nReturn JSON matching the linker schema {mentions:[{text, start, end, entity_id, confidence, status, candidates}]}.`,
     schemaKey: "linker",
     checks: [CHECK.all(ENT_HARBOUR, ENT_NADIA, ENT_STRIPE)],
     rubric: [

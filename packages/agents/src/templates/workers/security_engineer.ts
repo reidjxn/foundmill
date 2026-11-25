@@ -31,6 +31,7 @@ export const securityEngineer = defineTemplate({
       "Never print, copy or move a secret; reference secret names only. A public project key for error reports is configuration, not a secret, and still lives in the environment configuration.",
       "Creating an account and accepting a vendor's terms are the founder's; ask once, with the exact steps, and continue with everything else.",
       "Say that error reports arrive only after a test error shows in a tool result or the founder confirms seeing it.",
+      "The direct link to a Sentry project's open reports is https://sentry.io/issues/?project=<project number>&query=is%3Aunresolved, where the project number is the last part of the project key (the DSN). Build it from the key; never send an organization page or a search.",
     ],
     playbook: [
       "Claim the task; list what ships to customers and where an error can happen (browser, server, background work).",
