@@ -262,6 +262,23 @@ describe("playbooks (BUILD §11.13, AC-11.13.4, audit AC-07)", () => {
     expect(types(plan)).toEqual(["request_human_action"]);
   });
 
+  it("compiles a recurring time into a scheduled playbook (founder, Nov 25, 2026)", () => {
+    const pb = playbookOf("Every Monday at 9am, create a task to draft the weekly update.");
+    expect(pb.trigger).toEqual({ schedule: { every: "week", weekday: 1, time: "09:00" } });
+    expect(pb.steps.map((s) => s.action.type)).toEqual(["create_task"]);
+    expect(describePlaybook(pb).when).toBe("Every Monday at 9:00 AM");
+    expect(playbookOf("Every day at 5:30 pm, create a task to check new signups.").trigger.schedule).toEqual({ every: "day", time: "17:30" });
+    expect(playbookOf("On the 1st of every month, create a task to send the investor update.").trigger.schedule).toEqual({ every: "month", day_of_month: 1, time: "09:00" });
+  });
+
+  it("refuses anything more often than once a day, kindly, with what is allowed", () => {
+    for (const text of ["Every hour, create a task to check the inbox.", "Twice a day, create a task to check signups."]) {
+      const plan = compilePlanRuleBased(text, { agents: [] });
+      expect(types(plan), text).toEqual(["reply_only"]);
+      expect(String(plan.actions[0]!.params.question)).toMatch(/at most once a day.*every Monday at 9 AM/);
+    }
+  });
+
   it("keeps one-off instructions beside a standing rule apart", () => {
     const plan = compilePlanRuleBased("Pause paid ads. Whenever a customer converts, create a thank-you task.", { agents: [] });
     expect(types(plan).sort()).toEqual(["create_playbook", "disable_channel"]);

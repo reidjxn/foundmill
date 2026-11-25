@@ -65,6 +65,31 @@ describe("PlaybooksPanel (audit AC-07, #82)", () => {
     expect(created.flow.trigger).toEqual(flow.trigger);
   });
 
+  it("reads a scheduled playbook back with its US time, and says kindly when a rule asks for more than once a day", async () => {
+    const user = userEvent.setup();
+    const weekly = { ...flow, trigger: { schedule: { every: "week", weekday: 1, time: "09:00" } }, approvals: [] };
+    const fake = createFakeSource({
+      businessId: BID,
+      responses: { "team.playbooks.list": { playbooks: [] } },
+      onMutate: (path, input) => {
+        if (path !== "team.playbooks.compile") return {};
+        return String(input.text).includes("hour") ? { ok: false, question: "A playbook runs at most once a day." } : { ok: true, playbook: { source_text: input.text, name: "Weekly update", ...weekly }, source: "rules" };
+      },
+    });
+    renderScreen(fake, <PlaybooksPanel />);
+    await user.type(await screen.findByTestId("playbook-text"), "Every hour, check the inbox.");
+    await user.click(screen.getByTestId("playbook-preview"));
+    expect((await screen.findByTestId("playbook-question")).textContent).toBe("A playbook runs at most once a day.");
+
+    await user.clear(screen.getByTestId("playbook-text"));
+    await user.type(screen.getByTestId("playbook-text"), "Every Monday at 9am, draft the weekly update.");
+    await user.click(screen.getByTestId("playbook-preview"));
+    expect(within(await screen.findByTestId("playbook-draft")).getByTestId("playbook-when").textContent).toBe("Every Monday at 9:00 AM");
+    await user.click(screen.getByTestId("playbook-save"));
+    await waitFor(() => expect(fake.mutations.map((m) => m.path)).toContain("team.playbooks.create"));
+    expect((fake.mutations.find((m) => m.path === "team.playbooks.create")!.input as { flow: typeof weekly }).flow.trigger).toEqual(weekly.trigger);
+  });
+
   it("lists saved playbooks as one sentence, turns one on, and cannot turn on one written in the old format", async () => {
     const user = userEvent.setup();
     const legacy = row({ id: "22222222-2222-4222-8222-222222222222", name: "Old rule", compiled: null, preview: null, sourceText: "Every Monday send the digest" });

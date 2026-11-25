@@ -4,7 +4,7 @@
  * one shape packages/shared defines (`CreatePlaybookParams`). Deterministic and offline; the plan compiler's model route
  * is asked for the same shape and the result is validated against the same schema.
  */
-import { CreatePlaybookParams, MAX_PLAYBOOK_STEPS, type PlaybookApproval, type PlaybookStep, type PlaybookTrigger } from "@foundmill/shared";
+import { CreatePlaybookParams, MAX_PLAYBOOK_STEPS, PLAYBOOK_TOO_OFTEN, PLAYBOOK_TOO_OFTEN_ANSWER, type PlaybookApproval, type PlaybookSchedule, type PlaybookStep, type PlaybookTrigger } from "@foundmill/shared";
 import type { PlanAction } from "../schemas";
 
 /** A standing rule: "every time", "whenever", "each time", "from now on" always; "when" / "once" only with a known event. */
@@ -56,9 +56,31 @@ export function detectTrigger(phrase: string): PlaybookTrigger | null {
   return null;
 }
 
+const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+/** A clause that opens with a recurring time ("Every Monday at 9am, …", "Daily, …", "On the 1st of each month, …"). */
+const SCHEDULE_LEAD = /^(?:from\s+now\s+on,?\s*)?(?:(?:every|each)\s+(?:day|morning|evening|night|week|month|(?:sun|mon|tues|wednes|thurs|fri|satur)day)|daily|weekly|monthly|hourly|(?:twice|\d+\s+times)\s+a\s+day|every\s+(?:\d+\s+|few\s+)?(?:minutes?|hours?)|on\s+(?:(?:sun|mon|tues|wednes|thurs|fri|satur)days?|the\s+\d{1,2}(?:st|nd|rd|th)?\b))/i;
+
+/** The recurring time a phrase names, at 9:00 AM unless it says another ("at 5:30 pm", "at 17:00"); null when none. */
+export function detectSchedule(phrase: string): PlaybookSchedule | null {
+  const p = phrase.toLowerCase();
+  const t = /\bat\s+(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?/.exec(p);
+  let hour = t ? Number(t[1]) : /\b(?:evening|night)\b/.test(p) ? 18 : 9;
+  if (t?.[3]?.startsWith("p") && hour < 12) hour += 12;
+  if (t?.[3]?.startsWith("a") && hour === 12) hour = 0;
+  const time = `${String(Math.min(hour, 23)).padStart(2, "0")}:${t?.[2] ?? "00"}`;
+  const day = /\bthe\s+(\d{1,2})(?:st|nd|rd|th)?\b/.exec(p);
+  if (day && (/\bmonth/.test(p) || /^\s*on\s+the\b/.test(p))) return { every: "month", day_of_month: Math.min(28, Math.max(1, Number(day[1]))), time };
+  if (/\b(?:every|each)\s+month\b|\bmonthly\b/.test(p)) return { every: "month", day_of_month: 1, time };
+  const weekday = DAYS.findIndex((d) => new RegExp(`\\b${d}s?\\b`).test(p));
+  if (weekday >= 0) return { every: "week", weekday, time };
+  if (/\b(?:every|each)\s+week\b|\bweekly\b/.test(p)) return { every: "week", weekday: 1, time };
+  if (/\b(?:every|each)\s+(?:day|morning|evening|night)\b|\bdaily\b/.test(p)) return { every: "day", time };
+  return null;
+}
+
 /** True when a clause is a standing rule that names an event ("when a lead replies…"), or says it is one outright. */
 export function isPlaybookClause(clause: string): boolean {
-  if (ALWAYS_STANDING.test(clause)) return true;
+  if (ALWAYS_STANDING.test(clause) || SCHEDULE_LEAD.test(clause.trim())) return true;
   const lead = STANDING_LEAD_IN.exec(clause.trim());
   if (!lead) return false;
   const rest = clause.trim().slice(lead[0].length);
@@ -103,6 +125,15 @@ export function compilePlaybookRuleBased(text: string, opts: PlaybookCompileOpti
     body = `${body.slice(0, stopMatch.index)}${body.slice(stopMatch.index + stopMatch[0].length)}`.trim();
   }
 
+  // A recurring time ("every Monday at 9am, …"): once a day at most (founder, Nov 25, 2026).
+  if (SCHEDULE_LEAD.test(body)) {
+    const cut = /,\s*|\s+then\s+|:(?!\d)\s*/i.exec(body);
+    const when = (cut ? body.slice(0, cut.index) : body).trim();
+    if (PLAYBOOK_TOO_OFTEN.test(when)) return { ok: false, question: PLAYBOOK_TOO_OFTEN_ANSWER };
+    const schedule = detectSchedule(when);
+    if (schedule) return finish({ schedule }, when, cut ? body.slice(cut.index + cut[0].length) : "", null);
+  }
+
   const lead = STANDING_LEAD_IN.exec(body);
   const afterLead = lead ? body.slice(lead[0].length) : body.replace(/^.*?\b(?:playbook|from\s+now\s+on)\b[:,]?\s*/i, "");
   const cut = /,\s*|\s+then\s+|:\s*/i.exec(afterLead);
@@ -113,7 +144,10 @@ export function compilePlaybookRuleBased(text: string, opts: PlaybookCompileOpti
     return { ok: false, question: "A playbook is a set of steps the team runs by itself when something happens. Which event should start this one? For example: a lead replies, someone signs up, a payment arrives, or cash runs low." };
   }
   if (!stepsText) stepsText = afterLead.replace(triggerPhrase, "").replace(/^[,;:\s]+/, "").trim();
-  stepsText = stepsText.replace(/[\s.!;,]+$/, "");
+  return finish(trigger, triggerPhrase, stepsText, lead);
+
+  function finish(trigger: PlaybookTrigger, triggerPhrase: string, rawSteps: string, lead: RegExpExecArray | null): PlaybookCompileResult {
+  const stepsText = rawSteps.trim().replace(/[\s.!;,]+$/, "");
 
   const steps: PlaybookStep[] = [];
   for (const clause of opts.splitSteps(stepsText)) {
@@ -142,4 +176,5 @@ export function compilePlaybookRuleBased(text: string, opts: PlaybookCompileOpti
     stop,
   });
   return { ok: true, params, summary: `Create a playbook (off until you enable it): ${params.name}.` };
+  }
 }

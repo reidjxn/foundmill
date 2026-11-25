@@ -2,8 +2,8 @@
  * Smaller activity groups: playbooks (founder-defined workflows), incorporation (supervised browser session with
  * founder takeover) and Door B business import (sources read through the gateway; nothing scraped directly).
  */
-import { repos, type Source } from "@foundmill/db";
-import { ADMIN_ROLES, IMPORT_READERS, INCORPORATION_ROUTE_LABELS, uuid } from "@foundmill/shared";
+import { creditsState, modelBudgetState, periodOf, repos, type Source } from "@foundmill/db";
+import { ADMIN_ROLES, IMPORT_READERS, INCORPORATION_ROUTE_LABELS, describePlaybook, dueSlot, readCompiledPlaybook, uuid } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { GatewayCallResponse } from "../gateway-client";
@@ -36,6 +36,35 @@ export function submittedReference(steps: readonly unknown[]): string | null {
   }
   return null;
 }
+
+/** How long after its time a scheduled playbook may still start: the sweep runs every 15 minutes, and a time missed while the cluster was down is caught up within the hour or not at all. */
+export const PLAYBOOK_SCHEDULE_WINDOW_MS = 3_600_000;
+
+export interface DueScheduledPlaybook {
+  businessId: string;
+  playbookId: string;
+  /** The time it came due (ISO); with the playbook id it names the run, so each time runs at most once. */
+  scheduledFor: string;
+}
+
+/** Why a scheduled run did not start: the same limits a round of work stops at before a task that would not fit. */
+export type PlaybookSkipReason = "credits" | "model_budget" | "spend_cap";
+
+/** The founder's note for a skipped run: the reason and how to continue, in plain words. */
+export function playbookSkipNote(name: string, when: string, reason: PlaybookSkipReason): { subject: string; body: string } {
+  const why: Record<PlaybookSkipReason, string> = {
+    credits: "this month's credits are used up, so it would not fit. Top up or add your own Anthropic key, and it runs at its next time.",
+    model_budget: "the monthly model budget is used up, so it would not fit. Raise the budget and it runs at its next time, or it runs again next month.",
+    spend_cap: "one of its steps spends more than your spend cap per action. Raise the cap in Settings › What the team can do, or lower the amount in the playbook, and it runs at its next time.",
+  };
+  return { subject: "A scheduled playbook was skipped", body: `"${name}" (${when}) did not start: ${why[reason]}\n\nNothing was spent, and everything else carries on as before.` };
+}
+
+/** A step's spend in minor units (`set_budget`, `approve_spend`), or 0. */
+const stepSpendMinor = (step: Record<string, unknown>): number => {
+  const action = (step.action ?? step) as { type?: unknown; params?: { amount_minor?: unknown } };
+  return (action.type === "set_budget" || action.type === "approve_spend") && typeof action.params?.amount_minor === "number" ? action.params.amount_minor : 0;
+};
 
 export function createMiscActivities(deps: OrchestratorDeps) {
   return {
@@ -70,6 +99,61 @@ export function createMiscActivities(deps: OrchestratorDeps) {
         if (page.items.length) return { stop: true, reason: `event ${input.stop.event} seen` };
       }
       return { stop: false, reason: null };
+    },
+
+    /**
+     * The enabled scheduled playbooks whose time came due within the window (founder, Nov 25, 2026), read in the
+     * project's time zone, else the time zone of the person who wrote it, else UTC. Covers businesses whose team may work.
+     * shortcut: one playbook query per business each sweep; add an index on the compiled trigger if this grows slow.
+     */
+    async listDueScheduledPlaybooks(input: { businessIds?: string[]; at?: string } = {}): Promise<{ due: DueScheduledPlaybook[] }> {
+      const now = input.at ? new Date(input.at) : deps.clock.now();
+      const businessIds = input.businessIds ?? (await repos.businesses.listForSchedules(deps.db, { runnable: true }));
+      const due: DueScheduledPlaybook[] = [];
+      for (const businessId of businessIds) {
+        const scheduled = (await repos.playbooks.list(deps.db, businessId, { enabled: true })).flatMap((p) => {
+          const schedule = readCompiledPlaybook(p.compiled)?.trigger.schedule;
+          return schedule ? [{ p, schedule }] : [];
+        });
+        if (!scheduled.length) continue;
+        const business = await repos.businesses.get(deps.db, businessId, { includeArchived: true });
+        for (const { p, schedule } of scheduled) {
+          const zone = business.timeZone ?? (p.createdBy ? (await repos.emailPrefs.get(deps.db, p.createdBy)).timeZone : null);
+          const slot = dueSlot(schedule, now, zone, PLAYBOOK_SCHEDULE_WINDOW_MS);
+          // A time before the playbook existed is not one it missed.
+          if (slot && slot.getTime() > p.createdAt.getTime()) due.push({ businessId, playbookId: p.id, scheduledFor: slot.toISOString() });
+        }
+      }
+      return { due };
+    },
+
+    /**
+     * Before a scheduled run starts: would it fit? The project's credits (what a round of work reads before it starts a
+     * task) and the monthly model budget (dispatch refuses a session once it is used), then the founder's spend cap per
+     * action against each step that spends. A run that would not fit is skipped; one already running finishes (WP-14 T1).
+     */
+    async playbookRunFits(input: { businessId: string; steps: Record<string, unknown>[] }): Promise<{ fits: true } | { fits: false; reason: PlaybookSkipReason }> {
+      const business = await repos.businesses.get(deps.db, input.businessId, { includeArchived: true });
+      const now = deps.clock.now();
+      const [credits, monthly] = await Promise.all([creditsState(deps.db, business, periodOf(now)), modelBudgetState(deps.db, business, now)]);
+      if (credits && credits.balanceMinor <= 0) return { fits: false, reason: "credits" };
+      if (monthly.remainingMinor !== null && monthly.remainingMinor <= 0) return { fits: false, reason: "model_budget" };
+      const cap = business.spendCapMinor === null ? null : Number(business.spendCapMinor);
+      if (cap !== null && input.steps.some((s) => stepSpendMinor(s) > cap)) return { fits: false, reason: "spend_cap" };
+      return { fits: true };
+    },
+
+    /** A scheduled run that would not fit: an entry in the activity feed and a note in the Inbox that never holds up Continue. */
+    async playbookRunSkipped(input: { businessId: string; playbookId: string; scheduledFor: string; reason: PlaybookSkipReason }): Promise<{ inboxItemId: string | null }> {
+      const { db } = deps;
+      const playbook = await repos.playbooks.get(db, input.businessId, input.playbookId);
+      const compiled = readCompiledPlaybook(playbook.compiled);
+      const note = playbookSkipNote(playbook.name || "Your playbook", compiled ? describePlaybook(compiled).when : "on its schedule", input.reason);
+      await repos.audit.append(db, input.businessId, { actorKind: "system", action: "team.playbook.skip", target: { kind: "playbook", id: playbook.id }, details: { scheduledFor: input.scheduledFor, reason: input.reason, note: note.body } });
+      const chief = await repos.agents.chiefOfStaff(db, input.businessId);
+      const item = await repos.inbox.createItem(db, input.businessId, { type: "warning", from_agent_id: chief?.id ?? null, subject: note.subject, body_md: note.body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+      await emitEvent(db, { businessId: input.businessId, type: "inbox.item_created", actor: chief ? { kind: "agent", id: chief.id } : systemActor, payload: { inboxItemId: item.id, type: item.type, fromAgentId: chief?.id ?? null, subject: item.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
+      return { inboxItemId: item.id };
     },
 
     async markPlaybookRun(input: { businessId: string; playbookId: string }): Promise<void> {

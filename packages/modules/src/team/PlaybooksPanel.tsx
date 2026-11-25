@@ -2,7 +2,8 @@
 /**
  * Team › Responsibilities › Playbooks (BUILD §11.13, AC-11.13.4): standing rules written in plain words. The founder writes
  * the rule, reads it back as a flow (when, then, you approve, stops), edits it, saves it off and turns it on. A playbook
- * acts only when an enabled rule's event arrives; every step still goes through the same policy, approvals and hard
+ * acts only when an enabled rule's event arrives, or at its time on a schedule (at most once a day; founder, Nov 25, 2026,
+ * started by the orchestrator's sweep and skipped with a note when it would not fit the budget); every step still goes through the same policy, approvals and hard
  * gates as a decision. Compiling and saving go through `team.playbooks.*`.
  */
 import { useId, useState } from "react";
@@ -146,7 +147,7 @@ export function PlaybooksPanel() {
       }
     >
       <div className="flex flex-col gap-4 p-panel-pad">
-        <Field htmlFor={`${id}-rule`} label="New playbook" hint="Say when it should happen and what the team should do.">
+        <Field htmlFor={`${id}-rule`} label="New playbook" hint="Say when it should happen (when something happens, or a time such as every Monday at 9 AM) and what the team should do.">
           <Textarea id={`${id}-rule`} value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={2000} placeholder={PLAYBOOK_EXAMPLE} aria-label="Playbook in your own words" data-testid="playbook-text" />
         </Field>
         <div className="flex flex-wrap items-center gap-2">

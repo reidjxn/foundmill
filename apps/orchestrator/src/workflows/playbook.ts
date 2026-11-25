@@ -1,7 +1,8 @@
 /**
  * playbook (BUILD §9.4): founder-defined workflows. Each compiled step becomes a one-action plan executed through the
  * typed handlers (so policy, approvals and hard gates apply exactly as for a decision); stop conditions are checked
- * between steps; `stop` ends the run.
+ * between steps; `stop` ends the run. A run the schedule sweep started (`scheduledFor`) first checks that it would fit the
+ * budget; one that would not is skipped and the founder is told, and a run that has started always finishes (WP-14 T1).
  */
 import { ParentClosePolicy, allHandlersFinished, condition, executeChild, getExternalWorkflowHandle, patched, proxyActivities, setHandler, startChild, workflowInfo } from "@temporalio/workflow";
 import type { Activities, PlanActionResult, PlaybookInput } from "../activities";
@@ -35,6 +36,15 @@ export async function playbook(input: PlaybookInput): Promise<PlaybookResult> {
   if (!loaded.enabled) {
     await condition(allHandlersFinished);
     return { playbookId: input.playbookId, stepsRun: 0, stoppedReason: "disabled", results };
+  }
+  // Only scheduled runs carry `scheduledFor`, so histories recorded before schedules replay without this branch.
+  if (input.scheduledFor) {
+    const fits = await acts.playbookRunFits({ businessId: input.businessId, steps: loaded.steps });
+    if (!fits.fits) {
+      await acts.playbookRunSkipped({ businessId: input.businessId, playbookId: input.playbookId, scheduledFor: input.scheduledFor, reason: fits.reason });
+      await condition(allHandlersFinished);
+      return { playbookId: input.playbookId, stepsRun: 0, stoppedReason: `skipped: ${fits.reason}`, results };
+    }
   }
   let stepsRun = 0;
   for (const [index, step] of loaded.steps.entries()) {

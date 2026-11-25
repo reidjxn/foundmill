@@ -653,6 +653,8 @@ export interface PlaybookInput {
   businessId: string;
   playbookId: string;
   event: { type: string; id?: string | null; payload?: Record<string, unknown> } | null;
+  /** A run the schedule sweep started: the time it came due (ISO). It checks the budget before its first step. */
+  scheduledFor?: string;
 }
 
 export interface LoadedPlaybook {

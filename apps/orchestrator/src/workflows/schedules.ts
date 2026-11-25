@@ -10,10 +10,11 @@
  * engine running). Work that starts agents (engines, the Source Watcher's sweep in ./sourceWatch.ts) only covers
  * businesses whose team is not stopped.
  */
-import { WorkflowExecutionAlreadyStartedError } from "@temporalio/common";
+import { WorkflowExecutionAlreadyStartedError, WorkflowIdReusePolicy } from "@temporalio/common";
 import { ParentClosePolicy, getExternalWorkflowHandle, patched, proxyActivities, startChild } from "@temporalio/workflow";
 import type { Activities, EngineToEnsure, ScheduleInput, ScheduleResult } from "../activities";
 import { channelEngine } from "./channelEngine";
+import { playbook } from "./playbook";
 import { stopSignal } from "./signals";
 
 /** Batches over businesses: they heartbeat after each one and resume where a failed attempt stopped. */
@@ -208,4 +209,23 @@ export async function businessDeletionSweep(input: { at?: string } = {}): Promis
  */
 export async function pageCatchUp(input: { businessIds?: string[]; limit?: number; at?: string } = {}): Promise<ScheduleResult> {
   return acts.draftMissingProjectPages(input);
+}
+
+/**
+ * Every 15 minutes: the playbooks on a schedule (founder, Nov 25, 2026) whose time came due start, each as its own
+ * `playbook` run under `playbook:<id>:at:<time>`. Temporal refuses that id a second time, so each time runs once however
+ * many sweeps see it. Runs are abandoned children: the sweep never waits for one, and nothing here holds up the founder.
+ */
+export async function playbookScheduleSweep(input: ScheduleInput = {}): Promise<ScheduleResult> {
+  const { due } = await quick.listDueScheduledPlaybooks({ ...(input.businessIds ? { businessIds: input.businessIds } : {}), ...(input.at ? { at: input.at } : {}) });
+  const notes: string[] = [];
+  for (const d of due) {
+    try {
+      await startChild(playbook, { workflowId: `playbook:${d.playbookId}:at:${d.scheduledFor}`, args: [{ businessId: d.businessId, playbookId: d.playbookId, event: null, scheduledFor: d.scheduledFor }], parentClosePolicy: ParentClosePolicy.ABANDON, workflowIdReusePolicy: WorkflowIdReusePolicy.REJECT_DUPLICATE });
+      notes.push(`${d.businessId}: playbook ${d.playbookId} started for ${d.scheduledFor}`);
+    } catch (err) {
+      if (!(err instanceof WorkflowExecutionAlreadyStartedError)) throw err;
+    }
+  }
+  return { businesses: new Set(due.map((d) => d.businessId)).size, touched: notes.length, eventIds: [], notes };
 }
