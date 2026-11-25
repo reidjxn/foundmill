@@ -336,6 +336,34 @@ export const AGENT_E2E_CASES: readonly SessionCase[] = Object.freeze([
     mockBefore: [{ connector: "stripe", tool: "list_charges", args: () => ({ limit: 50 }) }],
     mockBody: "## Revenue by week\n\nThe charges below are simulated: Stripe answered from its mock in this sample project.\n\nWeek 1: $410.",
   }),
+  // Build it with Lovable (founder, Nov 25, 2026): the spin-up from the plan in the founder's own Lovable workspace. Not
+  // connected, it ends with the founder's way in named; in a sample project the mock answers and the report says simulated.
+  notConnectedCase({
+    id: "engineering_lead.lovable_not_connected",
+    agentType: "engineering_lead",
+    kind: "ops",
+    title: "Start the app in Lovable",
+    goal: "The founder chose Build it with Lovable for the online ordering app. Create the Lovable project from the plan (a menu page, a cart and a pickup time), give it the project's knowledge, and report its link.",
+    acceptance: ["The Lovable project is created from the plan, or the report says why it could not be"],
+    connector: "lovable_mcp",
+    name: /lovable/i,
+    mockCall: { connector: "lovable_mcp", tool: "create_project", args: () => ({ prompt: "Build the first version of Corner Cafe's online ordering: a menu page, a cart and a pickup time." }) },
+  }),
+  resultCase({
+    id: "engineering_lead.lovable_connected",
+    agentType: "engineering_lead",
+    kind: "ops",
+    title: "Start the app in Lovable (sample)",
+    business: "sample",
+    goal: "The founder chose Build it with Lovable for the online ordering app. Create the Lovable project from the plan (a menu page, a cart and a pickup time), give it the project's knowledge with set_project_knowledge, and report its link.",
+    acceptance: ["The Lovable project is created from the plan and its knowledge is set", "The report gives the project's link"],
+    need: { tools: [{ tool: "create_project", connector: "lovable_mcp", min: 1 }, { tool: "set_project_knowledge", connector: "lovable_mcp", min: 1 }], mustMatch: [/lovable\.dev\/projects\//i] },
+    mockBefore: [
+      { connector: "lovable_mcp", tool: "create_project", args: () => ({ prompt: "Build the first version of Corner Cafe's online ordering: a menu page, a cart and a pickup time." }) },
+      { connector: "lovable_mcp", tool: "set_project_knowledge", args: () => ({ project_id: "lov_demo_1", knowledge: "Corner Cafe: two coffee shops in Portland. Online ordering for pickup." }) },
+    ],
+    mockBody: "## The Lovable project (simulated)\n\nLovable answered from its mock in this sample project, so no project was created: https://lovable.dev/projects/lov_demo_1 is the mock's link. Its knowledge was set in the mock too.",
+  }),
   resultCase({
     id: "finance_lead.first_budget",
     agentType: "finance_lead",

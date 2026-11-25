@@ -50,6 +50,9 @@ export const engineeringLead = defineTemplate({
     grant("github", ["repos.read", "pulls.list", "pulls.read", "checks.read", "checks.run"]),
     // The founder's own Vercel account when connected. A redeploy always asks the founder first.
     grant("vercel", ["deployments.list", "deployments.read", "deployments.create"]),
+    // The founder's own Lovable workspace when connected (founder, Nov 25, 2026: "build it with Lovable"): the team starts
+    // and carries on the project there; each build message spends the founder's Lovable credits, billed by Lovable.
+    grant("lovable_mcp", ["projects.read", "projects.build"]),
   ],
   skills: withCoreSkills(["architecture", "code_review", "delivery_management", "security_awareness"]),
   autonomy: AUTONOMY_INHERIT,

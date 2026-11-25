@@ -75,6 +75,8 @@ export const THIRD_PARTY_CONNECTOR_KEYS = [
   "lightbringer_mcp",
   // Sentry's own remote MCP server for error reports (founder, Nov 25, 2026), on the founder's own Sentry sign-in.
   "sentry_mcp",
+  // Lovable's own remote MCP server (founder, Nov 25, 2026), on the founder's own Lovable sign-in and credits: "Build it with Lovable".
+  "lovable_mcp",
 ] as const;
 
 export const CONNECTOR_KEYS = [...PLATFORM_CONNECTOR_KEYS, ...THIRD_PARTY_CONNECTOR_KEYS] as const;

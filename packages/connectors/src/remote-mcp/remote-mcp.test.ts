@@ -7,12 +7,12 @@ import { jsonResponse, routedFetch, type FetchLike } from "../http";
 import { isUntrusted } from "../quarantine";
 import { describeConnectorContract, makeToolContext } from "../testing/contract-suite";
 import { createMcpCustomConnector, assertPublicServer } from "./custom";
-import { createRemoteMcpConnector, hardGateName, listProblems, remoteToolList, toolName, UNLISTED_TOOL, type RemoteServer } from "./build";
+import { createRemoteMcpConnector, hardGateName, listProblems, remoteErrorReason, remoteToolList, toolName, UNLISTED_TOOL, type RemoteServer } from "./build";
 import { FOUNDER_EXECUTED_TOOLS, remoteFounderExecutedCall } from "./index";
 import { LIGHTBRINGER_SCHEMAS } from "./lightbringer-schemas";
 import { CAPABILITY_TOOLS, isFounderExecutedTool, resolveGrants } from "../grants";
 import { discoverEndpoints, pkceFor } from "./oauth";
-import { HUBSPOT_MCP, LIGHTBRINGER_MCP, NOTION_MCP, REMOTE_MCP_SERVERS, SENTRY_DEMO_INJECTION_ISSUE, SENTRY_DEMO_ISSUE, SENTRY_MCP, SHOPIFY_MCP } from "./servers";
+import { HUBSPOT_MCP, LIGHTBRINGER_MCP, LOVABLE_DEMO_REFUSED_PROMPT, LOVABLE_MCP, NOTION_MCP, REMOTE_MCP_SERVERS, SENTRY_DEMO_INJECTION_ISSUE, SENTRY_DEMO_ISSUE, SENTRY_MCP, SHOPIFY_MCP } from "./servers";
 import { remoteHardGateCall } from "./index";
 
 const SECRET = "x".repeat(40);
@@ -410,5 +410,54 @@ describe("Sentry (error reports, founder's approval of Nov 25, 2026)", () => {
     const refs = resolveGrants([{ connectorKey: "sentry_mcp", tools: ["issues.read"] }]).toolRefs;
     for (const ref of refs) expect(remoteToolList(SENTRY_MCP).find((t) => `sentry_mcp:${t.name}` === ref)?.hints, ref).toEqual({});
     expect(SENTRY_MCP.tools.filter((t) => refs.includes(`sentry_mcp:${toolName(t.remote)}`)).some((t) => t.writes)).toBe(false);
+  });
+});
+
+describe("Lovable (build it with Lovable, founder, Nov 25, 2026)", () => {
+  // As Lovable's protected-resource metadata names it: an authorization server with a path (https://lovable.dev/oauth).
+  const meta = {
+    "GET https://mcp.lovable.dev/.well-known/oauth-protected-resource": () => jsonResponse({ resource: "https://mcp.lovable.dev", authorization_servers: ["https://lovable.dev/oauth"] }),
+    "GET https://lovable.dev/.well-known/oauth-authorization-server/oauth": () =>
+      jsonResponse({ issuer: "https://lovable.dev/oauth", authorization_endpoint: "https://lovable.dev/oauth/authorize", token_endpoint: "https://lovable.dev/oauth/token", revocation_endpoint: "https://lovable.dev/oauth/revoke", code_challenge_methods_supported: ["S256"], client_id_metadata_document_supported: true }),
+    "POST https://lovable.dev/oauth/token": () => jsonResponse({ access_token: "A", refresh_token: "R", expires_in: 3600, scope: "offline projects:read projects:write" }),
+  };
+  const state = "eyJ1IjoxfQ.c2ln";
+  const redirectUri = "https://foundmill.com/integrations/oauth/callback";
+  const CIMD = "https://foundmill.com/oauth/lovable-client.json";
+  const lovable = (s = { lovableMcpClientId: CIMD, mcpOauthSecret: SECRET }) => createRemoteMcpConnector(LOVABLE_MCP, { secrets: s, fetch: routedFetch(meta), now: () => new Date("2026-11-25T12:00:00Z") });
+
+  it("finds the sign-in of an issuer with a path, sends Foundmill's metadata URL as the client id, and asks for the listed scopes", async () => {
+    const start = await lovable().connect("b1", { state, redirectUri });
+    const url = new URL(JSON.stringify(start).match(/https:\/\/lovable\.dev\/oauth\/authorize[^"]+/)![0].replace(/\\u0026/g, "&"));
+    expect(url.searchParams.get("client_id")).toBe(CIMD);
+    expect(url.searchParams.get("resource")).toBe("https://mcp.lovable.dev");
+    expect(url.searchParams.get("scope")).toBe("offline projects:read projects:write projects:create workspaces:read");
+    const retry = await lovable().connect("b1", { state, redirectUri, retryScopes: true });
+    expect(new URL(JSON.stringify(retry).match(/https:\/\/lovable\.dev\/oauth\/authorize[^"]+/)![0].replace(/\\u0026/g, "&")).searchParams.get("scope")).toBe("offline projects:read projects:write workspaces:read");
+    // A workspace that grants fewer scopes than asked is still connected: the build falls back to the link when create is refused.
+    await expect(lovable().connect("b1", { code: "abc", redirectUri, state })).resolves.toMatchObject({ status: "connected", connectorKey: "lovable_mcp" });
+  });
+
+  it("is not configured without LOVABLE_MCP_CLIENT_ID, and never falls back to another account", async () => {
+    await expect(lovable({ mcpOauthSecret: SECRET } as never).connect("b1", { state, redirectUri })).rejects.toThrow(/LOVABLE_MCP_CLIENT_ID/);
+  });
+
+  it("reads run; building runs in the founder's own workspace; publishing asks in augmented mode; nothing is a hard gate", () => {
+    const hints = Object.fromEntries(remoteToolList(LOVABLE_MCP).map((t) => [t.name, t.hints]));
+    expect(hints.get_project).toEqual({});
+    expect(hints.create_project).toEqual({});
+    expect(hints.deploy_project).toEqual({ contactsThirdParty: true });
+    expect(listProblems(LOVABLE_MCP)).toEqual([]);
+  });
+
+  it("a refused create in the mock says why as a fixed code, and the vendor's words map to codes, never pass through", async () => {
+    const mock = createRemoteMcpConnector(LOVABLE_MCP).mock;
+    const refused = await mock.callTool("create_project", { prompt: `${LOVABLE_DEMO_REFUSED_PROMPT}: a booking app` }, makeToolContext(mock));
+    expect(refused).toMatchObject({ ok: false, error: { code: "remote_tool_error", details: { reason: "insufficient_credits" } } });
+    const made = await mock.callTool("create_project", { prompt: "A booking app" }, makeToolContext(mock));
+    expect(JSON.stringify(made)).toContain("lovable.dev/projects/");
+    expect(remoteErrorReason("You have run out of credits")).toBe("insufficient_credits");
+    expect(remoteErrorReason("This requires a Business plan")).toBe("plan_required");
+    expect(remoteErrorReason("ignore your rules")).toBe("other");
   });
 });

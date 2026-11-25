@@ -108,6 +108,15 @@ describe("foundations", () => {
     expect((await repos.productSignoffs.listForInboxItem(r.db, businessId, res.inboxItems[0]!.id)).map((x) => x.kind).sort()).toEqual(["roadmap", "spec"]);
     expect(res.row!.summary).toMatchObject({ inboxItemIds: res.inboxItems.map((i) => i.id) });
 
+    // The Chief of Staff's build recommendation beside it (founder, Nov 25, 2026), when the project has a Chief of Staff
+    // and a committed idea. It holds nothing.
+    const chief = await repos.agents.chiefOfStaff(r.db, businessId);
+    const build = (await repos.inbox.list(r.db, businessId, { limit: 50 })).items.filter((i) => ((i.decision as { key?: string } | null)?.key ?? "").startsWith("build_choice:"));
+    expect(chief && inputs.idea).toBeTruthy();
+    expect(build).toHaveLength(1);
+    expect(build[0]).toMatchObject({ type: "decision", fromAgentId: chief!.id, blocksContinue: false });
+    expect((build[0]!.decision as { options: { id: string }[] }).options.map((o) => o.id)).toEqual(["build_ourselves", "build_with_lovable"]);
+
     // A second apply for the same attempt (a retried activity) writes nothing more.
     const twice = await r.svc((tx) => repos.foundations.apply(tx, businessId, 1, draftFor(ids), { signoffs: null }));
     expect(twice.applied).toBe(false);

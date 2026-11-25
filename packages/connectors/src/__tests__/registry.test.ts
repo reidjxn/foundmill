@@ -6,7 +6,7 @@ import { createRegistry } from "../registry";
 import { makeToolContext, TEST_BUSINESS_ID } from "../testing/contract-suite";
 import { z } from "zod";
 
-const EXPECTED_KEYS = ["anthropic", "voyage", "openai_images", "elevenlabs", "onesignal", "platform_notify", "sending_domain", "opensrs", "github", "google_drive", "gmail", "google_calendar", "notion", "cloudflare_dns", "opencorporates", "bolagsverket", "companies_house", "e2b", "dropbox_sign", "ecb_rates", "domains", "stripe", "sendgrid", "shopify", "tink", "plaid", "openai", "gemini", "perplexity", "serpapi", "firecrawl", "indexnow", "apollo", "vercel", "posthog", "resend", "runway", "elevenlabs_voice", "buffer", "notion_mcp", "hubspot_mcp", "shopify_mcp", "lightbringer_mcp", "sentry_mcp", "mcp_custom", "browser_foundmill_test", "browser_carrd", "browser_wave", "browser_web_1", "browser_web_2", "browser_web_3", "browser_web_4", "browser_web_5"];
+const EXPECTED_KEYS = ["anthropic", "voyage", "openai_images", "elevenlabs", "onesignal", "platform_notify", "sending_domain", "opensrs", "github", "google_drive", "gmail", "google_calendar", "notion", "cloudflare_dns", "opencorporates", "bolagsverket", "companies_house", "e2b", "dropbox_sign", "ecb_rates", "domains", "stripe", "sendgrid", "shopify", "tink", "plaid", "openai", "gemini", "perplexity", "serpapi", "firecrawl", "indexnow", "apollo", "vercel", "posthog", "resend", "runway", "elevenlabs_voice", "buffer", "notion_mcp", "hubspot_mcp", "shopify_mcp", "lightbringer_mcp", "sentry_mcp", "lovable_mcp", "mcp_custom", "browser_foundmill_test", "browser_carrd", "browser_wave", "browser_web_1", "browser_web_2", "browser_web_3", "browser_web_4", "browser_web_5"];
 
 describe("registry: mode switching", () => {
   const registry = createDefaultRegistry({ secrets: {} });
@@ -31,7 +31,7 @@ describe("registry: mode switching", () => {
     expect(registry.list("mock").every(isMockConnector)).toBe(true);
     expect(registry.list("live").some(isMockConnector)).toBe(false);
     expect(registry.getByPhase(1, "mock").map((c) => c.key).sort()).toEqual(["anthropic", "bolagsverket", "cloudflare_dns", "companies_house", "domains", "dropbox_sign", "e2b", "ecb_rates", "github", "gmail", "google_calendar", "google_drive", "notion", "onesignal", "openai_images", "opencorporates", "opensrs", "platform_notify", "sending_domain", "voyage"]);
-    expect(registry.getByPhase(2, "mock").map((c) => c.key).sort()).toEqual(["apollo", "buffer", "hubspot_mcp", "lightbringer_mcp", "notion_mcp", "plaid", "posthog", "resend", "sendgrid", "sentry_mcp", "shopify", "shopify_mcp", "stripe", "tink", "vercel"]);
+    expect(registry.getByPhase(2, "mock").map((c) => c.key).sort()).toEqual(["apollo", "buffer", "hubspot_mcp", "lightbringer_mcp", "lovable_mcp", "notion_mcp", "plaid", "posthog", "resend", "sendgrid", "sentry_mcp", "shopify", "shopify_mcp", "stripe", "tink", "vercel"]);
     expect(registry.getByPhase(3, "mock").map((c) => c.key).sort()).toEqual(["browser_carrd", "browser_foundmill_test", "browser_wave", "browser_web_1", "browser_web_2", "browser_web_3", "browser_web_4", "browser_web_5", "elevenlabs", "elevenlabs_voice", "firecrawl", "gemini", "indexnow", "mcp_custom", "openai", "perplexity", "runway", "serpapi"]);
     const entry = registry.catalogue("mock").find((c) => c.key === "stripe")!;
     expect(entry.webhookPaths).toEqual(["/webhooks/stripe/:businessId"]);

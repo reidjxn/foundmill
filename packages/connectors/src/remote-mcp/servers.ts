@@ -380,7 +380,67 @@ export const SENTRY_MCP: RemoteServer = {
   },
 };
 
-export const REMOTE_MCP_SERVERS: readonly RemoteServer[] = [NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, SENTRY_MCP];
+/**
+ * Lovable's tools by what Foundmill lets happen (founder, Nov 25, 2026: "build it with Lovable"). Reading the founder's
+ * workspaces, projects, messages and files runs. Creating a project, sending it a message and setting its knowledge are
+ * changes in the founder's own Lovable workspace, like a Notion page; create_project and send_message spend the founder's
+ * Lovable credits (billed by Lovable), and they run from the founder's press on "Build it with Lovable" in the Chief of
+ * Staff's note, which is the decision for that spend. Publishing a project puts a site in public, like a post: it asks in
+ * augmented mode. Everything else is on no list: `call_unlisted_tool` asks first.
+ */
+const LOVABLE_PROJECT = { project_id: str("The Lovable project's id") };
+const lovableRead = (remote: string, description: string, properties: Record<string, unknown> = LOVABLE_PROJECT, required: string[] = ["project_id"]): RemoteTool => ({ remote, description, inputSchema: obj(properties, required) });
+const LOVABLE_TOOLS: RemoteTool[] = [
+  lovableRead("get_me", "Who is signed in at Lovable.", {}, []),
+  lovableRead("list_workspaces", "The Lovable workspaces the founder can reach, with their plans.", {}, []),
+  lovableRead("list_projects", "The workspace's Lovable projects.", { workspace_id: str("Workspace id") }, []),
+  lovableRead("get_project", "One Lovable project: its name, link and status."),
+  lovableRead("list_messages", "The messages in a project's chat."),
+  lovableRead("get_message", "One message in a project's chat and Lovable's answer.", { ...LOVABLE_PROJECT, message_id: str("Message id") }, ["project_id", "message_id"]),
+  lovableRead("read_file", "Read one file of a project's code.", { ...LOVABLE_PROJECT, path: str("File path") }, ["project_id", "path"]),
+  lovableRead("get_diff", "What a message changed in a project's code.", { ...LOVABLE_PROJECT, message_id: str("Message id") }),
+  { remote: "create_project", writes: true, description: "Create a Lovable project from a prompt in the founder's own workspace (spends the founder's Lovable credits).", inputSchema: obj({ prompt: str("What to build"), workspace_id: str("Workspace id"), name: str("Project name") }, ["prompt"]) },
+  { remote: "send_message", writes: true, description: "Ask Lovable to change a project (spends the founder's Lovable credits).", inputSchema: obj({ ...LOVABLE_PROJECT, message: str("The change to make") }, ["project_id", "message"]) },
+  { remote: "set_project_knowledge", writes: true, description: "Set the project's knowledge: what Lovable keeps in mind on every change.", inputSchema: obj({ ...LOVABLE_PROJECT, knowledge: str("The project's positioning and specification") }, ["project_id", "knowledge"]) },
+  // A published project is a public site: it asks in augmented mode, like a post.
+  { remote: "deploy_project", description: "Publish a project at its Lovable address.", inputSchema: obj(LOVABLE_PROJECT, ["project_id"]), hints: { contactsThirdParty: true } },
+];
+
+/** The workspace the recorded mock knows, and the prompt that makes its create_project refuse (tests, the fallback path). */
+export const LOVABLE_DEMO_PROJECT = "lov_demo_1";
+export const LOVABLE_DEMO_REFUSED_PROMPT = "REFUSE";
+const LOVABLE_URL = "https://lovable.dev/projects";
+
+export const LOVABLE_MCP: RemoteServer = {
+  key: "lovable_mcp",
+  displayName: "Lovable",
+  url: "https://mcp.lovable.dev",
+  live: true,
+  // As listed in Lovable's server metadata (Nov 25, 2026). A workspace below Business may refuse some; the connect retries
+  // once with `retryScopes`, and anything still refused falls back to the Build with URL link.
+  scopes: ["offline", "projects:read", "projects:write", "projects:create", "workspaces:read"],
+  // Asked once if Lovable refuses the full set (invalid_scope): without creating projects, which the Build with URL link covers.
+  retryScopes: ["offline", "projects:read", "projects:write", "workspaces:read"],
+  clientEnv: "LOVABLE_MCP_CLIENT_ID / MCP_OAUTH_SECRET",
+  clientOf: (s: PlatformSecrets) => (s.lovableMcpClientId ? { clientId: s.lovableMcpClientId } : null),
+  tools: LOVABLE_TOOLS,
+  mock: {
+    get_me: sample("Signed in to Lovable as a sample founder"),
+    list_workspaces: () => ({ text: "1 workspace: Sample workspace (Free plan)", structured: { workspaces: [{ id: "ws_demo", name: "Sample workspace", plan: "free" }] } }),
+    list_projects: () => ({ text: "0 projects", structured: { projects: [] } }),
+    get_project: (a) => ({ text: `Project ${String(a.project_id ?? LOVABLE_DEMO_PROJECT)}`, structured: { id: a.project_id ?? LOVABLE_DEMO_PROJECT, url: `${LOVABLE_URL}/${String(a.project_id ?? LOVABLE_DEMO_PROJECT)}` } }),
+    create_project: (a) => {
+      // The recorded refusal (a workspace with no credits left), so the fallback to the Build with URL link is testable.
+      if (typeof a.prompt === "string" && a.prompt.startsWith(LOVABLE_DEMO_REFUSED_PROMPT)) throw new AppError("remote_tool_error", "The tool reported an error", 502, { reason: "insufficient_credits" });
+      return { text: `Created project ${LOVABLE_DEMO_PROJECT}`, structured: { id: LOVABLE_DEMO_PROJECT, url: `${LOVABLE_URL}/${LOVABLE_DEMO_PROJECT}` } };
+    },
+    send_message: sample("Lovable is making the change"),
+    set_project_knowledge: sample("Saved the project's knowledge"),
+    deploy_project: (a) => ({ text: `Published ${String(a.project_id ?? LOVABLE_DEMO_PROJECT)}` }),
+  },
+};
+
+export const REMOTE_MCP_SERVERS: readonly RemoteServer[] = [NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP, LIGHTBRINGER_MCP, SENTRY_MCP, LOVABLE_MCP];
 
 /** A tool name folded to lower case letters and digits, so `requestPatentPreparation`, `request-patent-preparation` and `Request Patent Preparation` are one name. */
 export const foldedToolName = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]/g, "");

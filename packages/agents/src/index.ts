@@ -12,6 +12,7 @@ export * from "./calibration";
 export * from "./club-rules";
 export * from "./archetypes";
 export * from "./foundations";
+export * from "./build-choice";
 export * from "./product-research";
 export * from "./model-billing";
 export * from "./foundations-staged";

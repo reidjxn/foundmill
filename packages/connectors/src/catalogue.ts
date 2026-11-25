@@ -51,7 +51,7 @@ import { createPosthogConnector } from "./connectors/posthog";
 import { createResendConnector } from "./connectors/resend";
 import { createBufferConnector } from "./connectors/buffer";
 import { BROWSER_CONNECTOR_FACTORIES } from "./connectors/browser";
-import { createHubspotMcpConnector, createLightbringerMcpConnector, createMcpCustomConnector, createNotionMcpConnector, createSentryMcpConnector, createShopifyMcpConnector } from "./remote-mcp";
+import { createHubspotMcpConnector, createLightbringerMcpConnector, createMcpCustomConnector, createNotionMcpConnector, createSentryMcpConnector, createShopifyMcpConnector, createLovableMcpConnector } from "./remote-mcp";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 
@@ -113,6 +113,7 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   shopify_mcp: createShopifyMcpConnector,
   lightbringer_mcp: createLightbringerMcpConnector,
   sentry_mcp: createSentryMcpConnector,
+  lovable_mcp: createLovableMcpConnector,
   mcp_custom: createMcpCustomConnector,
   // A website the team works in through the hosted browser, one connector per site on the site list (founder, Nov 22, 2026).
   ...BROWSER_CONNECTOR_FACTORIES,

@@ -52,8 +52,11 @@ export async function discoverEndpoints(serverUrl: string, fetch: FetchLike): Pr
   const path = server.pathname === "/" ? "" : server.pathname;
   const resource = await getJson(fetch, `${server.origin}/.well-known/oauth-protected-resource${path}`);
   const listed = Array.isArray(resource?.authorization_servers) ? str(resource.authorization_servers[0]) : null;
-  const issuer = assertHttps(listed ?? server.origin, "The authorization server").origin;
-  const meta = await getJson(fetch, `${issuer}/.well-known/oauth-authorization-server`);
+  const issuerUrl = assertHttps(listed ?? server.origin, "The authorization server");
+  const issuer = issuerUrl.origin;
+  // RFC 8414 §3: an issuer with a path (Lovable's https://lovable.dev/oauth) has its metadata at /.well-known/oauth-authorization-server<path>.
+  const issuerPath = issuerUrl.pathname.replace(/\/+$/, "");
+  const meta = (issuerPath ? await getJson(fetch, `${issuer}/.well-known/oauth-authorization-server${issuerPath}`) : null) ?? (await getJson(fetch, `${issuer}/.well-known/oauth-authorization-server`));
   const authorizationEndpoint = str(meta?.authorization_endpoint);
   const tokenEndpoint = str(meta?.token_endpoint);
   if (!meta || !authorizationEndpoint || !tokenEndpoint) throw Object.assign(new Error("The server does not publish its sign-in details"), { status: 502 });

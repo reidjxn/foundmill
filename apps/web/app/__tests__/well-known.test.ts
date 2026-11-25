@@ -3,6 +3,7 @@ import { isPublicPath } from "@/lib/auth/redirects";
 import { APP_LINK_PATHS, appLinks } from "@/lib/app-links.server";
 import { GET as aasa } from "../.well-known/apple-app-site-association/route";
 import { GET as assetlinks } from "../.well-known/assetlinks.json/route";
+import { GET as GET_LOVABLE } from "../oauth/lovable-client.json/route";
 
 const SHA = Array.from({ length: 32 }, (_, i) => (i * 7).toString(16).padStart(2, "0").toUpperCase()).join(":");
 afterEach(() => vi.unstubAllEnvs());
@@ -42,5 +43,18 @@ describe("the universal-link files", () => {
     expect(isPublicPath("/.well-known/assetlinks.json")).toBe(true);
     expect(isPublicPath("/.well-known/apple-app-site-association")).toBe(true);
     expect(isPublicPath("/.well-known")).toBe(false);
+  });
+});
+
+describe("the Lovable client metadata document", () => {
+  it("names its own URL as the client id, the one callback and no secret, and is public", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://foundmill.com");
+    const res = GET_LOVABLE();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.client_id).toBe("https://foundmill.com/oauth/lovable-client.json");
+    expect(body.redirect_uris).toEqual(["https://foundmill.com/integrations/oauth/callback"]);
+    expect(body.token_endpoint_auth_method).toBe("none");
+    expect(isPublicPath("/oauth/lovable-client.json")).toBe(true);
   });
 });
