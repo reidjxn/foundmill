@@ -45,10 +45,14 @@ describe("the build choice", () => {
 
   it("not connected: no call, and the Build with URL link with the plan, plus how to connect", async () => {
     const { businessId, ownerId, agentId } = hz.A;
+    // The note-writer's current update (the welcome note on day one) stays open: the outcome is a report, never an update.
+    const welcome = await repos.inbox.createItem(hz.db, businessId, { type: "update", from_agent_id: agentId, subject: "Northwind has started", body_md: "Welcome.", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] }, { state: "unread" });
     const item = await note(businessId, agentId);
     const before = calls.length;
     const out = await hz.caller({ userId: ownerId }).inbox.decide({ businessId, itemId: item.id, chosenOption: BUILD_CHOICE_NOTE.options.lovable });
     expect(calls.length).toBe(before);
+    expect(out.followUp?.type).toBe("report");
+    expect((await repos.inbox.get(hz.db, businessId, welcome.id)).state).toBe("unread");
     expect(followOf(out)).toMatch(/Lovable is not connected/);
     expect(followOf(out)).toContain("https://lovable.dev/#prompt=");
     expect(followOf(out)).toMatch(/Settings › Integrations/);
