@@ -201,6 +201,9 @@ describe("send an update to followers (live)", () => {
     for (const email of ["v1@example.com", "v2@example.com", "v3@example.com"]) await follower(g, { email });
     const draft = await repos.updates.saveDraft(g.db, g.businessId, { subject: "Second update", body: "More news." });
     const seen = draft.updatedAt.toISOString();
+    // The preview is compared to the millisecond: let the clock move past it, so a fast machine cannot save the edit in
+    // the same millisecond and make it look unchanged (CI run 45678809236).
+    while (Date.now() <= draft.updatedAt.getTime() + 1) await new Promise((r) => setTimeout(r, 1));
     await repos.updates.saveDraft(g.db, g.businessId, { id: draft.id, subject: "Second update", body: "Changed after the preview." });
     const before = posted.length;
     expect((await ask(g, { businessId: g.businessId, updateId: draft.id, userId, seenUpdatedAt: seen })).body).toMatchObject({ sent: 0, refusal: "changed" });

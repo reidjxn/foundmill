@@ -17,6 +17,10 @@ supersedes: []
   - In the product the spans come from code (packages/entity-linker `sweep.ts`), and the model only resolves candidates.
   - The case asked the model to count characters, which the product never relies on. The prompt now gives the spans the code would find, as `sweep.ts` passes them.
 
+- CI on this branch failed once in `apps/gateway` `follower-update.test.ts` (run 45678809236). The test saved a draft and its edit in the same millisecond, and `startSend` compares `updatedAt` to the millisecond (`repos/updates.ts`), so the edit looked unchanged.
+  - The test now waits for the clock to pass the first save before it edits.
+  - The product check stays as it is: a founder cannot preview and edit within one millisecond.
+
 ## Decisions
 ### Template rule over a harness change
 - Loading skills in the golden harness the way a session does would test more faithfully. It would also change every case whose role has a default skill (55 skills have defaults) at the gate.
