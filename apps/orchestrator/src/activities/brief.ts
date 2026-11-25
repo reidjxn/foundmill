@@ -80,10 +80,10 @@ export async function aboutBusiness(deps: Pick<OrchestratorDeps, "db" | "env">, 
   if (!lines.length) lines.push(ABOUT_NOT_WRITTEN);
   // No field carries the first sale yet (`ventureNoun`), so every project reads "project" until one does (WP-08).
   lines.push(`Stage: ${ventureNoun()}; public page: ${page?.published ? pageUrl(deps.env.APP_URL, page.slug) : "not published"}`);
-  if (page?.published) {
-    const today = new Date();
-    lines.push(pageVisitsLine(summarizePageVisits(await repos.pageVisits.recent(deps.db, businessId, pageVisitWindowStart(today)), today)));
-  }
+  const today = new Date();
+  if (page?.published) lines.push(pageVisitsLine(summarizePageVisits(await repos.pageVisits.recent(deps.db, businessId, pageVisitWindowStart(today)), today)));
+  // A live Foundmill Site has its own count (0176).
+  if ((await repos.sites.get(deps.db, businessId))?.status === "live") lines.push(pageVisitsLine(summarizePageVisits(await repos.pageVisits.recent(deps.db, businessId, pageVisitWindowStart(today), "site"), today), "site"));
   return `## About ${business.name}\n${lines.join("\n")}`;
 }
 

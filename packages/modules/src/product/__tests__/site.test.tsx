@@ -5,6 +5,7 @@
 import "./setup";
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, screen } from "@testing-library/react";
+import { summarizePageVisits } from "@foundmill/shared/page-visits";
 import { SITE_WORDS, SiteScreen, type SiteViewResponse } from "../SiteScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID } from "./fixtures";
@@ -25,6 +26,21 @@ const render = (v: SiteViewResponse, onMutate?: (path: string, input: Record<str
 };
 
 describe("SiteScreen", () => {
+  it("shows the live site's visits by source, labeled an estimate, and none on a draft (0176)", async () => {
+    const visits = summarizePageVisits([{ day: "2026-11-24", source: "social", visits: 4 }], new Date("2026-11-25T12:00:00Z"));
+    render(view({ site: { slug: "lunchbox", status: "live", url: "https://lunchbox.sites.example/", liveReleaseNumber: 1, publishedAt: "2026-11-20T12:00:00Z" }, visits }));
+    const box = await screen.findByTestId("page-visits");
+    expect(box.textContent).toContain("4 visits in the last 7 days, 4 in the last 28 days. Estimate");
+    expect(box.textContent).toContain(SITE_WORDS.visitsNote);
+    expect(screen.getByTestId("page-visit-sources").textContent).toBe("Social sites 4");
+  });
+
+  it("shows no visits on a draft site with none counted", async () => {
+    render(view({ visits: summarizePageVisits([], new Date("2026-11-25T12:00:00Z")) }));
+    await screen.findByTestId("site-panel");
+    expect(screen.queryByTestId("page-visits")).toBeNull();
+  });
+
   it("says the team has not built a site yet", async () => {
     render(view({ site: null, releases: [] }));
     expect((await screen.findByTestId("site-empty")).textContent).toContain(SITE_WORDS.empty);

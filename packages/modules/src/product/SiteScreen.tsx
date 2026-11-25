@@ -9,6 +9,8 @@ import { APP_NAME } from "@foundmill/config";
 import { Button, Explainer, Panel, StatusPill, useFormatters } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
+import type { PageVisitSummary } from "@foundmill/shared/page-visits";
+import { PageVisits } from "./PageVisits";
 import { PayLinksPanel } from "./PayLinksPanel";
 import { Screen, errorMessage } from "./shared";
 
@@ -35,6 +37,8 @@ export interface SiteViewResponse {
   site: { slug: string; status: "draft" | "live" | "taken_down"; url: string; liveReleaseNumber: number | null; publishedAt: string | Date | null } | null;
   releases: SiteReleaseView[];
   canPublish: boolean;
+  /** Visits to the live site counted by Foundmill (0176; an estimate); absent from an older api. */
+  visits?: PageVisitSummary | null;
 }
 
 type PublishResponse = { outcome: "published"; url: string; view: SiteViewResponse } | { outcome: "held"; flags: SiteFlagView[]; view: SiteViewResponse };
@@ -47,6 +51,7 @@ export const SITE_WORDS = {
   draft: "Not published",
   live: "Live",
   takenDown: "Taken down",
+  visitsNote: `Counted by ${APP_NAME} without cookies, each time someone arrives from outside the site. Known bots are left out. Your own visits count too, because the site cannot tell who is looking.`,
   takenDownNote: `This site was taken down by ${APP_NAME} and cannot be published again. Write to support if you think this is a mistake.`,
   readOnly: "Only an owner or an admin can publish the site or take it down.",
   preview: "Open preview",
@@ -139,6 +144,7 @@ export function SiteScreen(_props: ModuleScreenProps) {
                 {site.url}
               </p>
             )}
+            {data?.visits && (status === "live" || data.visits.total > 0) ? <PageVisits visits={data.visits} note={SITE_WORDS.visitsNote} /> : null}
             {status === "taken_down" ? <p className="t-body text-secondary">{SITE_WORDS.takenDownNote}</p> : null}
             {!data?.canPublish ? <p className="t-small text-secondary">{SITE_WORDS.readOnly}</p> : null}
             {status === "live" && canAct ? (

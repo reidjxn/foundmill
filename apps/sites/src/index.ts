@@ -38,6 +38,7 @@ export function sitesDeps(options: { env: Pick<Env, "APP_ENV" | "APP_URL" | "SIT
     readFile: (releaseId, path) => run((db) => repos.sites.readFile(db, releaseId, path)),
     payLink: (label, key) => run((db) => repos.payLinks.forSite(db, label, key)),
     report: (label, reason, detail) => run((db) => repos.sites.report(db, label, { reason, detail })),
+    visit: (label, source) => run((db) => repos.sites.countVisit(db, label, source)),
     // A call of a function the login may execute proves the connection (an invalid label resolves nothing).
     ping: async () => (await run((db) => repos.sites.resolveHost(db, "-")), true),
     log,
