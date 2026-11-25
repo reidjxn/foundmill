@@ -59,6 +59,13 @@ describe("buildProjectPageRequest", () => {
 });
 
 describe("finaliseProjectPage", () => {
+  it("never carries a price, an offer, a button or an ask switch, whatever the model sends (WP-08 T6)", () => {
+    const ok = { pitch: "Same-day cafe shifts for students", about: WORDS, for_whom: "Students in Manchester", stage: "idea" };
+    const out = finaliseProjectPage({ ...ok, price: "$9", offer: "Free coffee", cta: { label: "Buy", url: "https://buy.stripe.com/x" }, askForm: true }, withWords());
+    if ("draft" in out) for (const key of ["price", "offer", "cta", "askForm"]) expect(out.draft, key).not.toHaveProperty(key);
+    else expect(out.refused).toBeTruthy();
+  });
+
   const ok = { pitch: "Same-day cafe shifts for students in Manchester.", about: WORDS, for_whom: "Students in Manchester", stage: "idea" as const };
 
   it("takes a plain answer within the limits, never naming the founders", () => {

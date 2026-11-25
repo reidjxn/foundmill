@@ -35,6 +35,9 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import { awardPageLiveMilestone, markBilling, repos, showsBuiltOnMark, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
   pageIsListed,
+  pageCtaProblem,
+  platformMailAddress,
+  platformMailDomain,
   type PageProposalFields,
   AppError,
   FOLLOW_ERRORS,
@@ -253,7 +256,7 @@ export async function dismissPageProposal(ctx: BusinessContext): Promise<PageVie
 
 /** The first deterministic hold among the page's texts (markup before personal data), or null when it may go out. */
 export function pageHoldReason(content: PageContent): PageHoldReason | null {
-  const flags = communityScreenLocalFlags([content.pitch, content.about, content.forWhom].join("\n\n"));
+  const flags = communityScreenLocalFlags([content.pitch, content.about, content.forWhom, content.offer ?? "", content.price ?? "", content.cta?.label ?? ""].join("\n\n"));
   if (flags.includes("markup")) return "markup";
   if (flags.includes("personal_data")) return "personal_data";
   return null;
@@ -274,6 +277,8 @@ export async function publishPage(ctx: BusinessContext, input: { content: PageCo
   if (first) throw new ValidationError(first[1], { field: first[0], problems });
   const content = ProjectPageContent.parse(draft);
   const reason = pageHoldReason(content);
+  // "Ask a question" is a mail link to the project's own address: the address exists once the page offers it.
+  if (content.askForm === true && !reason) await repos.projectMail.ensure(ctx.db, ctx.businessId);
   const existing = await repos.pages.get(ctx.db, ctx.businessId);
   const slug = existing?.slug ?? (await suggestedSlug(ctx));
   if (reason) {
@@ -375,6 +380,12 @@ export interface PublicPageView {
   mark: boolean;
   /** Whether the founders show at least one milestone: the project then has a story at `/p/<slug>/story` (0089). */
   story: boolean;
+  /** "What you get", the price as typed and the one button (WP-08 T6); empty or null when the page has none. The button's link is checked again here. */
+  offer: string;
+  price: string;
+  cta: { label: string; url: string } | null;
+  /** The project's own Foundmill address for "Ask a question", only while the page offers it, platform mail is live and the address is active; else null. */
+  askAddress: string | null;
 }
 
 /**
@@ -457,6 +468,10 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
   }
   const [logo, planTier, story] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, clean), repos.pages.public.planBySlug(ctx.db, clean), repos.pages.public.hasStory(ctx.db, clean)]);
   const { pitch, about, forWhom, stage, showFounders, followForm } = page.content;
+  // Read again here whatever was stored: a link that is not on the list never reaches a visitor.
+  const cta = page.content.cta && !pageCtaProblem(page.content.cta) ? page.content.cta : null;
+  const mailDomain = platformMailDomain(ctx.env);
+  const localPart = page.content.askForm === true && mailDomain && platformMailLive(ctx.env) ? await repos.projectMail.activeLocalPartForSlug(ctx.db, clean) : null;
   return {
     slug: page.slug,
     url: pageUrl(ctx.env.APP_URL, page.slug),
@@ -475,6 +490,10 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     followForm: followForm && followAvailable(ctx.env),
     mark: await pageShowsMark(ctx, planTier),
     story,
+    offer: page.content.offer ?? "",
+    price: page.content.price ?? "",
+    cta,
+    askAddress: localPart && mailDomain ? platformMailAddress(localPart, mailDomain) : null,
   };
 }
 

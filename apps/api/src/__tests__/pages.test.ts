@@ -111,7 +111,7 @@ describe("writing and publishing", () => {
     // Signed out: exactly what the page shows.
     const anon = hz.caller(null);
     const pub = await anon.publicPage.bySlug({ slug: live.slug });
-    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, updatedAt: live.publishedAt, listed: false, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [], followForm: true, mark: true, story: false });
+    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, updatedAt: live.publishedAt, listed: false, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [], followForm: true, mark: true, story: false, offer: "", price: "", cta: null, askAddress: null });
     // The mark is the free plan's: a paid plan removes it, for the visitor and in the founders' own view (docs/NETWORK.md F2).
     expect((await b.owner.page.get({ businessId: b.id })).mark).toBe(true);
     await repos.businesses.update(hz.db, b.id, { planTier: "pro" });
@@ -375,5 +375,47 @@ describe("publicPage.indexNowKeyFile", () => {
     await fill(publicPageLimitKeys.unknown, PUBLIC_PAGE_LIMITS.unknown);
     expect(await code(anon.publicPage.indexNowKeyFile({ slug: live.slug, key: "wrongkeyyyyy" }))).toBe("TOO_MANY_REQUESTS");
     expect(await anon.publicPage.indexNowKeyFile({ slug: live.slug, key: KEY })).toEqual({ key: KEY });
+  });
+});
+
+describe("price, button and ask on the public page (WP-08 T6)", () => {
+  it("a published price, offer and button reach the public read; a link off the list is refused at publish", async () => {
+    const b = await project("Priced");
+    const content = page({ offer: "A visit and a fix.", price: "From $25", cta: { label: "Book a visit", url: "https://cal.com/maya/30min" } });
+    await b.owner.page.publish({ businessId: b.id, content });
+    const seen = (await publicPageBySlug({ db: hz.db, env: hz.deps.env, limits: hz.limits }, (await b.owner.page.get({ businessId: b.id })).slug))!;
+    expect(seen).toMatchObject({ offer: "A visit and a fix.", price: "From $25", cta: { label: "Book a visit", url: "https://cal.com/maya/30min" }, askAddress: null });
+    await expect(b.owner.page.publish({ businessId: b.id, content: page({ cta: { label: "Pay", url: "https://evil.example/pay" } }) })).rejects.toThrow(/not from a payment or booking site/);
+    await expect(b.owner.page.publish({ businessId: b.id, content: page({ cta: { label: "Pay", url: "https://buy.stripe.com.evil.example/x" } }) })).rejects.toThrow();
+  });
+
+  it("a link written around the api (straight into the published copy) never reaches a visitor", async () => {
+    const b = await project("Sneaky");
+    await b.owner.page.publish({ businessId: b.id, content: page({ cta: { label: "Book", url: "https://cal.com/maya" } }) });
+    const slug = (await b.owner.page.get({ businessId: b.id })).slug;
+    await hz.db.execute(sql`update project_pages set published = jsonb_set(published, '{cta,url}', '"https://evil.example/steal"') where business_id = ${b.id}`);
+    expect((await publicPageBySlug({ db: hz.db, env: hz.deps.env, limits: hz.limits }, slug))!.cta).toBeNull();
+  });
+
+  it("an email address in the price or the button's label holds the page like any other text", async () => {
+    const b = await project("Held");
+    const out = await b.owner.page.publish({ businessId: b.id, content: page({ price: "Write to me@example.com" }) });
+    expect(out).toMatchObject({ outcome: "held", reason: "personal_data" });
+    expect(pageHoldReason({ ...page(), cta: { label: "me@example.com", url: "https://cal.com/maya" } })).toBe("personal_data");
+  });
+
+  it("Ask a question gives the project's own address only while the page offers it and platform mail is live", async () => {
+    const b = await project("Asking");
+    await b.owner.page.publish({ businessId: b.id, content: page({ askForm: true }) });
+    const slug = (await b.owner.page.get({ businessId: b.id })).slug;
+    const read = (env = hz.deps.env) => publicPageBySlug({ db: hz.db, env, limits: hz.limits }, slug);
+    const live = { ...hz.deps.env, PLATFORM_MAIL_DOMAIN: "mail.foundmill.test", INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "platform_mail" } as typeof hz.deps.env;
+    const row = await repos.projectMail.get(hz.db, b.id);
+    expect(row).not.toBeNull();
+    const withMail = (await read(live))!;
+    expect(withMail.askAddress).toBe(`${row!.localPart}@mail.foundmill.test`);
+    // Turned off, there is no address whatever the mail switch says.
+    await b.owner.page.publish({ businessId: b.id, content: page({ askForm: false }) });
+    expect((await read(live))!.askAddress).toBeNull();
   });
 });

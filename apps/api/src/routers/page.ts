@@ -26,7 +26,7 @@
  *   nothing. With the page's `slug` (a browser that is not automated) it also counts the visit by day and source
  *   (services/page-visits.ts, founder Nov 25, 2026). Always `{ ok: true }`.
  */
-import { FOLLOW_EMAIL_MAX, PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PAGE_SLUG_MAX, PAGE_STAGES } from "@foundmill/shared";
+import { FOLLOW_EMAIL_MAX, PAGE_ABOUT_MAX, PAGE_CTA_LABEL_MAX, PAGE_CTA_URL_MAX, PAGE_FOR_WHOM_MAX, PAGE_OFFER_MAX, PAGE_PITCH_MAX, PAGE_PRICE_MAX, PAGE_SLUG_MAX, PAGE_STAGES } from "@foundmill/shared";
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { z } from "zod";
 import { publicCardById, publicStoryBySlug } from "../services/milestones";
@@ -48,6 +48,10 @@ const ContentInput = z.object({
   stage: z.enum(PAGE_STAGES).default("idea"),
   showFounders: z.boolean().default(false),
   followForm: z.boolean().default(true),
+  offer: z.string().max(PAGE_OFFER_MAX * 4).optional(),
+  price: z.string().max(PAGE_PRICE_MAX * 4).optional(),
+  cta: z.object({ label: z.string().max(PAGE_CTA_LABEL_MAX * 4), url: z.string().max(PAGE_CTA_URL_MAX * 2) }).nullish(),
+  askForm: z.boolean().optional(),
 });
 
 export const pageRouter = router({

@@ -67,6 +67,14 @@ export interface ProjectPageProps extends Omit<HTMLAttributes<HTMLElement>, "chi
   quiz?: ReactNode;
   /** Foundmill's own booking (`BookingBlock`), above the quiz and the Follow form; nothing when booking is not live. */
   booking?: ReactNode;
+  /** "What you get" (WP-08 T6): plain text; left out when empty. */
+  offer?: string | null;
+  /** The price as the founders typed it; left out when empty. */
+  price?: string | null;
+  /** The one button, to a place that takes payment or a booking. The link was checked against the list of sites; it opens in a new tab with `nofollow`. */
+  cta?: { label: string; url: string } | null;
+  /** The project's own address for "Ask a question": a mail link, never a form. Nothing when null. */
+  askAddress?: string | null;
 }
 
 /** Who the foot's mark is drawn for; "none" leaves the foot out (a paid plan). */
@@ -77,14 +85,21 @@ export const PROJECT_PAGE_WORDS = {
   forWhom: "Who it is for",
   about: "About",
   published: (on: string) => `Published ${on}`,
+  offer: "What you get",
+  ask: "Ask a question",
+  askSubject: (name: string) => `Question about ${name}`,
   builtOn: builtOnWords(APP_NAME).mark,
 } as const;
 
-export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, mark = "visitor", markHref = "/", titleLevel = 1, variant = "page", follow, quiz, booking, className, style, ...rest }: ProjectPageProps) {
+export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, mark = "visitor", markHref = "/", titleLevel = 1, variant = "page", follow, quiz, booking, offer, price, cta, askAddress, className, style, ...rest }: ProjectPageProps) {
   const Title = titleLevel === 1 ? "h1" : "h3";
   const Sub = titleLevel === 1 ? "h2" : "h4";
   const paragraphs = pageParagraphs(about);
   const who = (forWhom ?? "").trim();
+  const getting = (offer ?? "").trim();
+  const cost = (price ?? "").trim();
+  const askHref = askAddress ? `mailto:${askAddress}?subject=${encodeURIComponent(PROJECT_PAGE_WORDS.askSubject(name))}` : null;
+  const sells = Boolean(getting || cost || cta || askHref);
   const builtBy = builtByLine(founderNames);
   const published = publishedAt ? formatDate(publishedAt, "date") : null;
   const whoId = useId();
@@ -139,6 +154,34 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
               {PROJECT_PAGE_WORDS.forWhom}
             </Sub>
             <p className="t-reading whitespace-pre-line break-words text-prose">{who}</p>
+          </section>
+        ) : null}
+
+        {sells ? (
+          <section className="flex min-w-0 flex-col items-start gap-4 border-l-2 border-kit-primary pl-4" data-project-offer="">
+            {getting ? (
+              <div className="flex min-w-0 flex-col gap-2">
+                <Sub className="t-label text-kit-lift">{PROJECT_PAGE_WORDS.offer}</Sub>
+                <p className="t-reading whitespace-pre-line break-words text-prose">{getting}</p>
+              </div>
+            ) : null}
+            {cost ? (
+              <p className="t-display-sm min-w-0 break-words text-primary" data-project-price="">
+                {cost}
+              </p>
+            ) : null}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-3">
+              {cta ? (
+                <a href={cta.url} rel="nofollow noopener noreferrer" target="_blank" className="btn-primary t-action inline-flex min-h-tap items-center rounded-sm px-btn-md focus-ring" data-project-cta="">
+                  {cta.label}
+                </a>
+              ) : null}
+              {askHref ? (
+                <a href={askHref} className="t-body inline-flex min-h-tap items-center rounded-sm text-secondary underline underline-offset-4 hover:text-primary focus-ring" data-project-ask="">
+                  {PROJECT_PAGE_WORDS.ask}
+                </a>
+              ) : null}
+            </div>
           </section>
         ) : null}
 
